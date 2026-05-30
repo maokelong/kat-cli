@@ -1,0 +1,61 @@
+id: sched_latency_overview
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 估算目标进程线程 runnable 等待时间分布。
+inputs:
+  process_name:
+    type: string
+    required: true
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 100
+  max_result_bytes: 65536
+  priority: p1
+sql: |
+  WITH target_process AS (
+    SELECT p.upid
+    FROM process p
+    LEFT JOIN thread mt ON mt.upid = p.upid AND mt.is_main_thread = 1
+    WHERE COALESCE(p.name, mt.name, 'pid:' || p.pid) = :process_name
+    LIMIT 1
+  )
+  SELECT
+    t.utid,
+    t.tid,
+    t.name AS thread_name,
+    COUNT(*) AS runnable_count,
+    SUM(ts_state.dur) / 1000000.0 AS runnable_wait_ms,
+    AVG(ts_state.dur) / 1000000.0 AS avg_runnable_wait_ms,
+    MAX(ts_state.dur) / 1000000.0 AS max_runnable_wait_ms
+  FROM thread_state ts_state
+  JOIN thread t ON t.utid = ts_state.utid
+  JOIN process p ON p.upid = t.upid
+  WHERE p.upid IN (SELECT upid FROM target_process)
+    AND ts_state.ts >= :start_ts
+    AND ts_state.ts < :end_ts
+    AND ts_state.state = 'R'
+  GROUP BY t.utid, t.tid, t.name
+  ORDER BY runnable_wait_ms DESC
+  LIMIT 100;
+outputs:
+  columns:
+    - name: utid
+      type: int64
+    - name: tid
+      type: int64
+    - name: thread_name
+      type: string
+    - name: runnable_count
+      type: int64
+    - name: runnable_wait_ms
+      type: duration_ms
+    - name: avg_runnable_wait_ms
+      type: duration_ms
+    - name: max_runnable_wait_ms
+      type: duration_ms

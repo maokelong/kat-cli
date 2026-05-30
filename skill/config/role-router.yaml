@@ -1,0 +1,9 @@
+domains:
+  - id: scheduler-kernel
+    aliases: ["调度", "内核", "scheduler", "kernel", "冷启动", "启动慢"]
+  - id: storage
+    aliases: ["存储", "io", "IO", "文件", "磁盘"]
+  - id: memory
+    aliases: ["内存", "rss", "pss", "memory"]
+default_domain: scheduler-kernel
+

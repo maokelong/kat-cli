@@ -1,0 +1,22 @@
+id: trace_sanity_check
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 检查 scheduler/kernel 分析需要的基础表是否可查询。
+inputs: {}
+resources:
+  timeout_ms: 10000
+  max_rows: 100
+  max_result_bytes: 16384
+  priority: p0
+sql: |
+  SELECT 'process' AS table_name, COUNT(*) AS row_count FROM process
+  UNION ALL SELECT 'thread', COUNT(*) FROM thread
+  UNION ALL SELECT 'sched', COUNT(*) FROM sched
+  UNION ALL SELECT 'thread_state', COUNT(*) FROM thread_state;
+outputs:
+  columns:
+    - name: table_name
+      type: string
+    - name: row_count
+      type: int64
+
