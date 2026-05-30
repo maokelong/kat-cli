@@ -1,0 +1,54 @@
+id: blocking_category_overview
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 粗分目标进程线程 blocked 时间类型。
+inputs:
+  process_name:
+    type: string
+    required: true
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 20
+  max_result_bytes: 65536
+  priority: p1
+sql: |
+  WITH target_process AS (
+    SELECT p.upid
+    FROM process p
+    LEFT JOIN thread mt ON mt.upid = p.upid AND mt.is_main_thread = 1
+    WHERE COALESCE(p.name, mt.name, 'pid:' || p.pid) = :process_name
+    LIMIT 1
+  )
+  SELECT
+    CASE
+      WHEN io_wait = 1 THEN 'io_wait'
+      WHEN blocked_function LIKE '%binder%' THEN 'binder'
+      WHEN blocked_function LIKE '%futex%' THEN 'lock_futex'
+      WHEN state = 'D' THEN 'uninterruptible_block'
+      ELSE 'unknown_block'
+    END AS category,
+    COUNT(*) AS sample_count,
+    SUM(dur) / 1000000.0 AS blocked_ms
+  FROM thread_state ts_state
+  JOIN thread t ON t.utid = ts_state.utid
+  JOIN process p ON p.upid = t.upid
+  WHERE p.upid IN (SELECT upid FROM target_process)
+    AND ts_state.ts >= :start_ts
+    AND ts_state.ts < :end_ts
+    AND ts_state.state NOT IN ('R', 'Running', 'S')
+  GROUP BY category
+  ORDER BY blocked_ms DESC;
+outputs:
+  columns:
+    - name: category
+      type: string
+    - name: sample_count
+      type: int64
+    - name: blocked_ms
+      type: duration_ms

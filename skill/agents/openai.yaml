@@ -1,0 +1,7 @@
+interface:
+  display_name: "Harmony Trace Analysis"
+  short_description: "Analyze Harmony/Perfetto performance traces"
+  default_prompt: "Use $harmony-trace-analysis to analyze this Harmony or Perfetto performance trace."
+
+policy:
+  allow_implicit_invocation: true

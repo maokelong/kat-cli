@@ -1,6 +1,8 @@
-[package]
-name = "kat-rs"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["cli"]
+resolver = "2"
 
-[dependencies]
+[workspace.package]
+edition = "2021"
+license = "MIT"
+

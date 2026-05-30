@@ -1,0 +1,49 @@
+id: thread_state_detail_window
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 输出指定线程在时间窗口内的 thread_state 明细，用于查看 Running、Runnable、Sleep、D 状态和阻塞函数。
+inputs:
+  utid:
+    type: int64
+    required: true
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 200
+  max_result_bytes: 131072
+  priority: p1
+sql: |
+  SELECT
+    ts,
+    dur,
+    dur / 1000000.0 AS dur_ms,
+    state,
+    io_wait,
+    blocked_function,
+    waker_utid
+  FROM thread_state
+  WHERE utid = :utid
+    AND ts >= :start_ts
+    AND ts < :end_ts
+  ORDER BY ts;
+outputs:
+  columns:
+    - name: ts
+      type: timestamp
+    - name: dur
+      type: duration_ns
+    - name: dur_ms
+      type: duration_ms
+    - name: state
+      type: string
+    - name: io_wait
+      type: int64
+    - name: blocked_function
+      type: string
+    - name: waker_utid
+      type: int64

@@ -1,1 +1,10 @@
-/target
+/target/
+/bin/htrace
+/bin/htrace.exe
+*.pdb
+.DS_Store
+.last-validation-dir
+validation/
+/runs/
+.last-run
+/dist/

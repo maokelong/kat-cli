@@ -1,0 +1,25 @@
+id: scheduler-kernel
+display_name: 调度/内核
+knowledge:
+  - knowledge/scheduler-kernel/cold-start-topdown.md
+  - knowledge/scheduler-kernel/scheduling-latency.md
+  - knowledge/scheduler-kernel/binder-lock-iowait.md
+overview_atomics:
+  - trace_sanity_check
+  - process_startup_candidates
+  - main_thread_state_overview
+  - sched_latency_overview
+  - cpu_pressure_overview
+  - blocking_category_overview
+approved_strategies:
+  - cold-start-scheduler-topdown
+allowed_atomics:
+  - trace_sanity_check
+  - process_startup_candidates
+  - main_thread_state_overview
+  - sched_latency_overview
+  - cpu_pressure_overview
+  - blocking_category_overview
+  - cpu_contention_summary
+  - thread_state_detail_window
+  - top_runnable_competitors

@@ -1,0 +1,6 @@
+problem_signature: cold_start_sched_latency_v1
+source_strategy: cold-start-scheduler-topdown
+steps:
+  - atomic: trace_sanity_check
+    params: {}
+

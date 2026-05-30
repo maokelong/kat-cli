@@ -1,0 +1,44 @@
+id: top_runnable_competitors
+domain: scheduler-kernel
+engine: perfetto-sql
+description: runnable latency 高时找出窗口内可能竞争 CPU 的线程。
+inputs:
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 50
+  max_result_bytes: 65536
+  priority: p2
+sql: |
+  SELECT
+    COALESCE(p.name, mt.name, t.name, 'pid:' || p.pid) AS process_name,
+    t.name AS thread_name,
+    t.tid,
+    SUM(s.dur) / 1000000.0 AS running_ms,
+    COUNT(*) AS slice_count
+  FROM sched s
+  JOIN thread t ON t.utid = s.utid
+  JOIN process p ON p.upid = t.upid
+  LEFT JOIN thread mt ON mt.upid = p.upid AND mt.is_main_thread = 1
+  WHERE s.ts >= :start_ts
+    AND s.ts < :end_ts
+  GROUP BY process_name, t.name, t.tid
+  ORDER BY running_ms DESC
+  LIMIT 50;
+outputs:
+  columns:
+    - name: process_name
+      type: string
+    - name: thread_name
+      type: string
+    - name: tid
+      type: int64
+    - name: running_ms
+      type: duration_ms
+    - name: slice_count
+      type: int64

@@ -1,0 +1,38 @@
+id: cpu_pressure_overview
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 汇总窗口内 CPU running 时间和 runnable 线程压力。
+inputs:
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 128
+  max_result_bytes: 65536
+  priority: p1
+sql: |
+  SELECT
+    cpu,
+    COUNT(*) AS slice_count,
+    SUM(dur) / 1000000.0 AS running_ms,
+    AVG(dur) / 1000000.0 AS avg_slice_ms
+  FROM sched
+  WHERE ts >= :start_ts
+    AND ts < :end_ts
+  GROUP BY cpu
+  ORDER BY running_ms DESC;
+outputs:
+  columns:
+    - name: cpu
+      type: int64
+    - name: slice_count
+      type: int64
+    - name: running_ms
+      type: duration_ms
+    - name: avg_slice_ms
+      type: duration_ms
+

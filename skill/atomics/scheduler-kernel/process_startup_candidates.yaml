@@ -1,0 +1,65 @@
+id: process_startup_candidates
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 识别目标进程和启动窗口候选。
+inputs:
+  process_name:
+    type: string
+    required: false
+resources:
+  timeout_ms: 15000
+  max_rows: 20
+  max_result_bytes: 32768
+  priority: p0
+sql: |
+  WITH main_threads AS (
+    SELECT
+      upid,
+      tid,
+      name,
+      utid
+    FROM thread
+    WHERE is_main_thread = 1
+  ),
+  activity AS (
+    SELECT utid, MIN(ts) AS first_ts, MAX(ts + dur) AS last_ts
+    FROM thread_state
+    GROUP BY utid
+    UNION ALL
+    SELECT utid, MIN(ts) AS first_ts, MAX(ts + dur) AS last_ts
+    FROM sched
+    GROUP BY utid
+  ),
+  activity_by_upid AS (
+    SELECT
+      t.upid,
+      MIN(a.first_ts) AS start_ts,
+      MAX(a.last_ts) AS end_ts
+    FROM thread t
+    JOIN activity a ON a.utid = t.utid
+    GROUP BY t.upid
+  )
+  SELECT
+    p.upid,
+    p.pid,
+    COALESCE(p.name, mt.name, 'pid:' || p.pid) AS process_name,
+    COALESCE(p.start_ts, abu.start_ts) AS start_ts,
+    COALESCE(p.end_ts, abu.end_ts) AS end_ts
+  FROM process p
+  LEFT JOIN main_threads mt ON mt.upid = p.upid
+  LEFT JOIN activity_by_upid abu ON abu.upid = p.upid
+  WHERE (:process_name = '' OR COALESCE(p.name, mt.name, 'pid:' || p.pid) LIKE '%' || :process_name || '%')
+  ORDER BY start_ts ASC
+  LIMIT 20;
+outputs:
+  columns:
+    - name: upid
+      type: int64
+    - name: pid
+      type: int64
+    - name: process_name
+      type: string
+    - name: start_ts
+      type: timestamp
+    - name: end_ts
+      type: timestamp

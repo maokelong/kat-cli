@@ -1,0 +1,47 @@
+id: main_thread_state_overview
+domain: scheduler-kernel
+engine: perfetto-sql
+description: 汇总目标进程主线程在窗口内的线程状态占比。
+inputs:
+  process_name:
+    type: string
+    required: true
+  start_ts:
+    type: timestamp
+    required: true
+  end_ts:
+    type: timestamp
+    required: true
+resources:
+  timeout_ms: 30000
+  max_rows: 20
+  max_result_bytes: 32768
+  priority: p1
+sql: |
+  WITH target_thread AS (
+    SELECT t.utid
+    FROM thread t
+    JOIN process p ON p.upid = t.upid
+    WHERE COALESCE(p.name, t.name, 'pid:' || p.pid) = :process_name
+    ORDER BY t.is_main_thread DESC, CASE WHEN t.tid = p.pid THEN 0 ELSE 1 END, t.utid
+    LIMIT 1
+  ),
+  ranged AS (
+    SELECT state, SUM(dur) AS dur_ns
+    FROM thread_state
+    WHERE utid IN (SELECT utid FROM target_thread)
+      AND ts >= :start_ts
+      AND ts < :end_ts
+    GROUP BY state
+  )
+  SELECT state, dur_ns, dur_ns / 1000000.0 AS dur_ms
+  FROM ranged
+  ORDER BY dur_ns DESC;
+outputs:
+  columns:
+    - name: state
+      type: string
+    - name: dur_ns
+      type: duration_ns
+    - name: dur_ms
+      type: duration_ms
