@@ -11,7 +11,7 @@
 /target/*.txt
 /target/*.jsonl
 
-# Large local-only trace fixtures copied from the C++ TraceStreamer repo
+# Local-only large trace fixtures
 /test/local_resource/
 
 # Local web UI and server logs

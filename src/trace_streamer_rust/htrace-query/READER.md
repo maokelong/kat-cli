@@ -8,7 +8,7 @@
 - 执行 SQL，并返回列、行、状态和查询统计信息。
 - 将 Arrow 查询结果转换为 JSON 友好的 `QueryResult`，支持空结果、截断标记和常见基础数据类型。
 - 提供 `HtraceDataFusionEngine`，实现 `TraceQueryEngine` 的 open/inspect/query/close 生命周期。
-- 为 CLI、Web UI、对比报告工具提供同一套查询能力。
+- 为 CLI 和 Web UI 提供同一套查询能力。
 
 ## 设计边界
 

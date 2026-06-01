@@ -4,7 +4,7 @@
 
 ## shared.rs
 
-- 解析 trace marker payload: `B|pid|name`、`E`、`E|pid`、`S|pid|name|cookie`、`F|pid|name|cookie`、`C|pid|name|value`，并兼容 C++ bytrace/htrace 中常见的空格分隔参数形态。
+- 解析 trace marker payload: `B|pid|name`、`E`、`E|pid`、`S|pid|name|cookie`、`F|pid|name|cookie`、`C|pid|name|value`，并兼容 bytrace/htrace 中常见的空格分隔参数形态。
 - 维护同步调用栈和异步 cookie 映射，负责 begin/end、async begin/end、counter 的状态推进。
 - 写入 `callstack`，并把 `name##key=value`、counter value 等参数写入 `args`/`data_dict`。
 - 为 bytrace 文本和 htrace ftrace `print`/`tracing_mark_write` 提供共享处理逻辑。

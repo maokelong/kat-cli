@@ -14,8 +14,7 @@ It is useful when you need to:
 
 - inspect bytrace, htrace/profiler, rawtrace, hilog, hisysevent or perf data;
 - query trace tables with SQL instead of writing custom ad hoc scripts;
-- validate Rust parser behavior against C++ TraceStreamer SQLite exports;
-- debug parser coverage while gradually rewriting C++ TraceStreamer logic in Rust.
+- inspect parsed tables from a CLI or local browser UI.
 
 ## Workspace Crates
 
@@ -23,7 +22,7 @@ It is useful when you need to:
 - `htrace-model`: Arrow schemas, row models and `TraceTableBuilder`.
 - `htrace-parser-harmony`: Harmony/OpenHarmony trace format detection and parsers.
 - `htrace-query`: DataFusion registration, SQL execution and JSON result conversion.
-- `htrace-engine-cli`: command-line inspect/query tools and C++ SQLite comparison helper.
+- `htrace-engine-cli`: command-line inspect/query tools.
 - `htrace-web-ui`: local browser UI for inspecting tables and running SQL.
 
 ## Test Data
@@ -47,18 +46,6 @@ cargo test --workspace
 
 The fixture-backed tests read from `test\resource`, so they run without any
 external repository checkout.
-
-For local full-resource validation, copy the original C++ TraceStreamer
-`test/resource` directory into the ignored `test/local_resource` folder and
-regenerate the inspect/compare reports:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\local_validate_all.ps1 -CopyLocalResources
-```
-
-Outputs are written to `target/local_fixture_inspect_report.json` and
-`target/compare_validation_report.html`. Large local fixtures are intentionally
-ignored by Git.
 
 ## CLI Usage
 
@@ -106,16 +93,4 @@ SELECT cpu, COUNT(*) AS slices
 FROM sched_slice
 GROUP BY cpu
 ORDER BY cpu;
-```
-
-## C++ Comparison
-
-`compare-cpp-sqlite` compares selected Rust tables with C++ TraceStreamer SQLite
-exports. It expects a trace input and a matching C++ SQLite database:
-
-```powershell
-cargo run -p htrace-engine-cli --bin compare-cpp-sqlite -- `
-  --trace path\to\trace.htrace `
-  --cpp-db path\to\cpp_trace.db `
-  --html-output target\compare_validation_report.html
 ```

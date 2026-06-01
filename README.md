@@ -5,14 +5,12 @@
 
 ## What This Project Solves
 
-OpenHarmony traces are usually inspected through the C++ TraceStreamer stack.
-This project provides a Rust-native path for the same kind of work:
+This project provides a Rust-native path for OpenHarmony trace inspection:
 
 - parse OpenHarmony trace inputs such as bytrace text, htrace/profiler data, rawtrace, hilog, hisysevent and perf data;
 - normalize parsed records into TraceStreamer-like Arrow tables;
 - run SQL over the parsed tables with DataFusion;
-- inspect traces from a command-line tool or a local browser UI;
-- compare selected Rust parser outputs with C++ TraceStreamer SQLite exports during rewrite validation.
+- inspect traces from a command-line tool or a local browser UI.
 
 ## Layout
 

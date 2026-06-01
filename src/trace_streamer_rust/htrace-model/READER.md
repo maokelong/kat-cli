@@ -4,7 +4,7 @@
 
 ## 业务职责
 
-- 定义 TraceStreamer 表 schema，并保持表名、字段名和数据类型尽量贴近 C++ TraceStreamer。
+- 定义 TraceStreamer 表 schema，并保持表名、字段名和数据类型兼容既有 TraceStreamer 查询习惯。
 - 为每张表提供行结构和 `TraceTableBuilder` 写入入口，让 parser/plugin 只需要 push 业务行。
 - 在 `finish` 阶段统一生成 `ParsedTrace`，包含 trace id、时间范围、clock domain 和全部表批次。
 - 维护轻量索引和回写能力，例如字符串 intern 到 `data_dict`、argset 分配、callstack 行回写、measure duration 回写、JS heap self size 遍历。
@@ -23,5 +23,5 @@
 ## 设计边界
 
 - 本 crate 不解析二进制协议，也不解释插件业务语义。
-- schema 变更会影响 parser、query、CLI 和 Web UI，调整前要确认 C++ TraceStreamer 表结构和现有 SQL 兼容性。
+- schema 变更会影响 parser、query、CLI 和 Web UI，调整前要确认表结构和现有 SQL 兼容性。
 - builder 可以做表级索引、id 分配和最终 batch 构造，不应引入输入格式识别或 UI 展示逻辑。
