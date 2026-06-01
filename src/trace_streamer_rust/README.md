@@ -28,7 +28,7 @@ It is useful when you need to:
 
 ## Test Data
 
-Checked-in fixtures live at `../test/resource` when commands are run from this
+Checked-in fixtures live at `test/resource` when commands are run from this
 workspace directory:
 
 - `ut_bytrace_input_thread.txt`: bytrace scheduler fixture used by parser tests.
@@ -45,7 +45,7 @@ larger than GitHub's regular file size limit.
 cargo test --workspace
 ```
 
-The fixture-backed tests read from `..\test\resource`, so they run without any
+The fixture-backed tests read from `test\resource`, so they run without any
 external repository checkout.
 
 ## CLI Usage
@@ -54,14 +54,14 @@ Inspect a trace and print table metadata:
 
 ```powershell
 cargo run -p htrace-engine-cli --bin htrace-engine -- `
-  inspect --trace ..\test\resource\ut_bytrace_input_full.txt --json
+  inspect --trace test\resource\ut_bytrace_input_full.txt --json
 ```
 
 Run a SQL query:
 
 ```powershell
 cargo run -p htrace-engine-cli --bin htrace-engine -- `
-  query --trace ..\test\resource\ut_bytrace_input_full.txt `
+  query --trace test\resource\ut_bytrace_input_full.txt `
   --sql "SELECT cpu, COUNT(*) AS slices FROM sched_slice GROUP BY cpu ORDER BY cpu" `
   --json
 ```
@@ -70,10 +70,10 @@ Other sample inputs can be inspected in the same way:
 
 ```powershell
 cargo run -p htrace-engine-cli --bin htrace-engine -- `
-  inspect --trace ..\test\resource\rawtrace.bin --json
+  inspect --trace test\resource\rawtrace.bin --json
 
 cargo run -p htrace-engine-cli --bin htrace-engine -- `
-  inspect --trace ..\test\resource\perfCompressed.data --json
+  inspect --trace test\resource\perfCompressed.data --json
 ```
 
 ## Web UI Usage
@@ -82,7 +82,7 @@ Start the local UI with a checked-in bytrace sample:
 
 ```powershell
 cargo run -p htrace-web-ui -- `
-  --trace ..\test\resource\ut_bytrace_input_full.txt `
+  --trace test\resource\ut_bytrace_input_full.txt `
   --listen 127.0.0.1:8787
 ```
 

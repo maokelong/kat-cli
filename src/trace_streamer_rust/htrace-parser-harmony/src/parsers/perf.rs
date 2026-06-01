@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn parses_repository_perf_fixture() {
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test/resource/perfCompressed.data");
+            .join("../test/resource/perfCompressed.data");
         if !fixture.exists() {
             eprintln!("skip missing fixture {}", fixture.display());
             return;

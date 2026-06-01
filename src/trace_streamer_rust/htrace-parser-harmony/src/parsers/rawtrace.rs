@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn parses_repository_rawtrace_fixture() {
         let fixture =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test/resource/rawtrace.bin");
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/resource/rawtrace.bin");
         if !fixture.exists() {
             eprintln!("skip missing fixture {}", fixture.display());
             return;

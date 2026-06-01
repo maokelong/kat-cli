@@ -938,7 +938,7 @@ mod tests {
     #[test]
     fn parses_repository_bytrace_fixture() {
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test/resource/ut_bytrace_input_thread.txt");
+            .join("../test/resource/ut_bytrace_input_thread.txt");
         if !fixture.exists() {
             eprintln!("skip missing fixture {}", fixture.display());
             return;
