@@ -111,6 +111,7 @@ async fn build_scenario_report(scenario: &ScenarioInput) -> Result<Value> {
     let cpp_tables = cpp_tables(&conn)?;
     let rust_tables = rust_tables(&parsed);
     let table_comparison = compare_target_tables(&cpp_tables, &rust_tables);
+    let all_table_comparison = compare_all_tables(&cpp_tables, &rust_tables);
     let aggregates = aggregate_report(&conn, &parsed).await;
 
     let summary = json!({
@@ -119,6 +120,11 @@ async fn build_scenario_report(scenario: &ScenarioInput) -> Result<Value> {
         "row_count_differences": table_comparison.iter().filter(|item| item.status == "different").count(),
         "missing_in_cpp": table_comparison.iter().filter(|item| item.status == "missing_in_cpp").count(),
         "missing_in_rust": table_comparison.iter().filter(|item| item.status == "missing_in_rust").count(),
+        "all_tables": all_table_comparison.len(),
+        "all_row_count_matches": all_table_comparison.iter().filter(|item| item.status == "match").count(),
+        "all_row_count_differences": all_table_comparison.iter().filter(|item| item.status == "different").count(),
+        "all_missing_in_cpp": all_table_comparison.iter().filter(|item| item.status == "missing_in_cpp").count(),
+        "all_missing_in_rust": all_table_comparison.iter().filter(|item| item.status == "missing_in_rust").count(),
     });
 
     Ok(json!({
@@ -129,6 +135,7 @@ async fn build_scenario_report(scenario: &ScenarioInput) -> Result<Value> {
         },
         "summary": summary,
         "table_comparison": table_comparison,
+        "all_table_comparison": all_table_comparison,
         "aggregates": aggregates,
         "cpp": {
             "tables": cpp_tables
@@ -182,29 +189,74 @@ fn default_scenarios() -> Vec<ScenarioInput> {
             cpp_db,
         });
     }
+    if let (Some(trace), Some(cpp_db)) = (default_perf(), default_perf_cpp_db()) {
+        scenarios.push(ScenarioInput {
+            name: "perf_compressed".to_string(),
+            trace,
+            cpp_db,
+        });
+    }
     scenarios
 }
 
 fn default_trace() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../out/test/data/resource/pbreader.htrace");
-    path.exists().then_some(path)
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/local_resource/pbreader.htrace"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/resource/pbreader.htrace"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/test/resource/pbreader.htrace"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/out/test/data/resource/pbreader.htrace"),
+    ])
 }
 
 fn default_cpp_db() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/cpp_htrace_pbreader.db");
-    path.exists().then_some(path)
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/cpp_htrace_pbreader.db"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/trace_streamer_rust/target/cpp_htrace_pbreader.db"),
+    ])
 }
 
 fn default_bytrace() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../out/test/data/resource/ut_bytrace_input_full.txt");
-    path.exists().then_some(path)
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test/resource/ut_bytrace_input_full.txt"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test/local_resource/ut_bytrace_input_full.txt"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/test/resource/ut_bytrace_input_full.txt"),
+    ])
 }
 
 fn default_bytrace_cpp_db() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/cpp_bytrace_full.db");
-    path.exists().then_some(path)
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/cpp_bytrace_full.db"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/trace_streamer_rust/target/cpp_bytrace_full.db"),
+    ])
+}
+
+fn default_perf() -> Option<PathBuf> {
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/resource/perfCompressed.data"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test/local_resource/perfCompressed.data"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/test/resource/perfCompressed.data"),
+    ])
+}
+
+fn default_perf_cpp_db() -> Option<PathBuf> {
+    existing_path([
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/cpp_perf_compressed.db"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../trace_streamer/trace_streamer_rust/target/cpp_perf_compressed.db"),
+    ])
+}
+
+fn existing_path(paths: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    paths.into_iter().find(|path| path.exists())
 }
 
 fn rust_tables(parsed: &htrace_model::ParsedTrace) -> BTreeMap<String, Value> {
@@ -262,6 +314,54 @@ fn compare_target_tables(
             }
         })
         .collect()
+}
+
+fn compare_all_tables(
+    cpp_tables: &BTreeMap<String, CppTable>,
+    rust_tables: &BTreeMap<String, Value>,
+) -> Vec<TableComparison> {
+    let mut table_names = cpp_tables.keys().cloned().collect::<Vec<_>>();
+    for table in rust_tables.keys() {
+        if !cpp_tables.contains_key(table) {
+            table_names.push(table.clone());
+        }
+    }
+    table_names.sort();
+    table_names
+        .into_iter()
+        .map(|table| compare_table(&table, cpp_tables, rust_tables))
+        .collect()
+}
+
+fn compare_table(
+    table: &str,
+    cpp_tables: &BTreeMap<String, CppTable>,
+    rust_tables: &BTreeMap<String, Value>,
+) -> TableComparison {
+    let cpp_rows = cpp_tables.get(table).map(|table| table.rows);
+    let rust_rows = rust_tables
+        .get(table)
+        .and_then(|table| table.get("rows"))
+        .and_then(Value::as_u64);
+    let delta = match (cpp_rows, rust_rows) {
+        (Some(cpp_rows), Some(rust_rows)) => Some(rust_rows as i64 - cpp_rows as i64),
+        _ => None,
+    };
+    let status = match (cpp_rows, rust_rows) {
+        (Some(cpp_rows), Some(rust_rows)) if cpp_rows == rust_rows => "match",
+        (Some(_), Some(_)) => "different",
+        (None, Some(_)) => "missing_in_cpp",
+        (Some(_), None) => "missing_in_rust",
+        (None, None) => "missing_in_both",
+    }
+    .to_string();
+    TableComparison {
+        table: table.to_string(),
+        cpp_rows,
+        rust_rows,
+        delta,
+        status,
+    }
 }
 
 async fn aggregate_report(
@@ -546,6 +646,10 @@ fn render_scenario_html(html: &mut String, scenario: &Value) -> Result<()> {
         .get("table_comparison")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("scenario report missing table_comparison"))?;
+    let all_comparisons = scenario
+        .get("all_table_comparison")
+        .and_then(Value::as_array)
+        .unwrap_or(comparisons);
     let summary = scenario.get("summary").cloned().unwrap_or(Value::Null);
     let inputs = scenario.get("inputs").cloned().unwrap_or(Value::Null);
     let aggregates = scenario
@@ -579,9 +683,33 @@ fn render_scenario_html(html: &mut String, scenario: &Value) -> Result<()> {
     push_metric_card(html, "Matches", summary.get("row_count_matches"));
     push_metric_card(html, "Differences", summary.get("row_count_differences"));
     push_metric_card(html, "Missing In Rust", summary.get("missing_in_rust"));
+    push_metric_card(html, "All Tables", summary.get("all_tables"));
+    push_metric_card(html, "All Matches", summary.get("all_row_count_matches"));
+    push_metric_card(html, "All Diffs", summary.get("all_row_count_differences"));
+    push_metric_card(html, "All Missing Rust", summary.get("all_missing_in_rust"));
     html.push_str("</div>");
 
     html.push_str("<h3>Target Table Row Counts</h3><div class=\"table-wrap\"><table><thead><tr><th>Table</th><th class=\"num\">C++ Rows</th><th class=\"num\">Rust Rows</th><th class=\"num\">Delta</th><th>Status</th></tr></thead><tbody>");
+    render_comparison_rows(html, comparisons);
+    html.push_str("</tbody></table></div>");
+
+    html.push_str("<h3>All Table Row Counts</h3><div class=\"table-wrap\"><table><thead><tr><th>Table</th><th class=\"num\">C++ Rows</th><th class=\"num\">Rust Rows</th><th class=\"num\">Delta</th><th>Status</th></tr></thead><tbody>");
+    render_comparison_rows(html, all_comparisons);
+    html.push_str("</tbody></table></div>");
+
+    html.push_str("<h3>Aggregate Checks</h3>");
+    for (name, value) in aggregates {
+        html.push_str("<details class=\"aggregate\"><summary>");
+        html.push_str(&html_escape(name));
+        html.push_str("</summary><pre>");
+        html.push_str(&html_escape(&serde_json::to_string_pretty(value)?));
+        html.push_str("</pre></details>");
+    }
+    html.push_str("</section>");
+    Ok(())
+}
+
+fn render_comparison_rows(html: &mut String, comparisons: &[Value]) {
     for item in comparisons {
         let table = item.get("table").and_then(Value::as_str).unwrap_or("");
         let cpp_rows = value_to_cell(item.get("cpp_rows").unwrap_or(&Value::Null));
@@ -617,18 +745,6 @@ fn render_scenario_html(html: &mut String, scenario: &Value) -> Result<()> {
         html.push_str(&html_escape(status));
         html.push_str("</span></td></tr>");
     }
-    html.push_str("</tbody></table></div>");
-
-    html.push_str("<h3>Aggregate Checks</h3>");
-    for (name, value) in aggregates {
-        html.push_str("<details class=\"aggregate\"><summary>");
-        html.push_str(&html_escape(name));
-        html.push_str("</summary><pre>");
-        html.push_str(&html_escape(&serde_json::to_string_pretty(value)?));
-        html.push_str("</pre></details>");
-    }
-    html.push_str("</section>");
-    Ok(())
 }
 
 fn push_metric_card(html: &mut String, label: &str, value: Option<&Value>) {

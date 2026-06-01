@@ -48,6 +48,18 @@ cargo test --workspace
 The fixture-backed tests read from `test\resource`, so they run without any
 external repository checkout.
 
+For local full-resource validation, copy the original C++ TraceStreamer
+`test/resource` directory into the ignored `test/local_resource` folder and
+regenerate the inspect/compare reports:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\local_validate_all.ps1 -CopyLocalResources
+```
+
+Outputs are written to `target/local_fixture_inspect_report.json` and
+`target/compare_validation_report.html`. Large local fixtures are intentionally
+ignored by Git.
+
 ## CLI Usage
 
 Inspect a trace and print table metadata:
