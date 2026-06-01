@@ -5,6 +5,7 @@
 ## 主要模块
 
 - `htrace.rs`: profiler/htrace 二进制入口。读取 header 或 length-prefixed segment，解码 `ProfilerPluginData`，分发 ftrace/cpu/diskio/memory/process/arkts 插件，并维护 ftrace 调度、binder、workqueue、irq、clock、dma fence、oom score 等事件状态。
+- `registry.rs`: 顶层格式识别入口。先解开常见 zip/zlib 包装，再按 bytrace、rawtrace、perf、hisysevent、hilog、htrace 顺序选择具体 parser。
 - `bytrace.rs`: bytrace 文本入口。解析文本行、sched switch/wakeup、trace marker、binder transaction 和 softirq entry/exit，维护 CPU running slice、thread state、irq 与 shared callstack。
 - `rawtrace.rs`: rawtrace segment 解析，支持二进制 segment 和文本 dump 形态，保留原始事件信息。
 - `hilog.rs`: hilog 文本解析，生成 `log` 表并维护日志时间戳、级别、tag、pid/tid、消息体。

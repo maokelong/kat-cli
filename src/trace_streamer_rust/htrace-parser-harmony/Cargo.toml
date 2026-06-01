@@ -7,11 +7,13 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+flate2.workspace = true
 htrace-core = { path = "../htrace-core" }
 htrace-model = { path = "../htrace-model" }
 prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
