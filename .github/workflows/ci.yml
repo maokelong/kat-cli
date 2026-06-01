@@ -23,3 +23,11 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      - name: Check trace_streamer_rust
+        working-directory: src/trace_streamer_rust
+        run: cargo check --locked --workspace
+
+      - name: Test trace_streamer_rust
+        working-directory: src/trace_streamer_rust
+        run: cargo test --locked --workspace
