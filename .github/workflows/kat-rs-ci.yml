@@ -1,0 +1,33 @@
+name: kat-rs-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Root fmt
+        run: cargo fmt --all -- --check
+
+      - name: Workspace tests
+        run: cargo test --workspace --locked
+
+      - name: CLI datasource smoke
+        if: github.event_name == 'push'
+        run: |
+          cargo run --locked -p kat-rs-cli -- datasource query --trace tests\fixtures\traces\ut_bytrace_input_full.txt --sql "SELECT COUNT(*) AS slices FROM sched_slice" --json

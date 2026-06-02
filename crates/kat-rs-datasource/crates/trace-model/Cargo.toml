@@ -1,0 +1,12 @@
+﻿[package]
+name = "trace-model"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+serde.workspace = true
+

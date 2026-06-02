@@ -1,0 +1,20 @@
+﻿[package]
+name = "kat-rs-datasource"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+trace-model = { path = "crates/trace-model" }
+trace-parser = { path = "crates/trace-parser" }
+trace-query = { path = "crates/trace-query" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+

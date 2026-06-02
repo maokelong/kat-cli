@@ -1,0 +1,8 @@
+{
+  "source_count": 1,
+  "tables": {
+    "sched_slice": {
+      "row_count": 16
+    }
+  }
+}
