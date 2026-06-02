@@ -4,6 +4,5 @@
 # Large local traces used for ad hoc performance checks
 /tests/fixtures/traces/wechat-coldstart-*.htrace
 
-# Local validation assets and build output
-/tools/trace-validation/local_resource/
-/tools/trace-validation/compare_tool/target/
+# Local validation tooling and assets
+/tools/trace-validation/
