@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "arrow-schema"
+version = "58.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f633dbfdf39c039ada1bf9e34c694816eb71fbb7dc78f613993b7245e078a1ed"
+
+[[package]]
 name = "kat-rs-cli"
 version = "0.1.0"
 dependencies = [
@@ -21,6 +27,9 @@ dependencies = [
 [[package]]
 name = "trace-model"
 version = "0.1.0"
+dependencies = [
+ "arrow-schema",
+]
 
 [[package]]
 name = "trace-parser"
