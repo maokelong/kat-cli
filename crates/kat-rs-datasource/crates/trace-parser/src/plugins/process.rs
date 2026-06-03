@@ -77,10 +77,21 @@ pub fn parse_process_plugin(
     state: &mut LiveProcessState,
 ) -> TraceResult<()> {
     let Some(ts) = ts else {
+        log::debug!(
+            target: "trace_parser::plugins::process",
+            "skip process plugin without timestamp data_len={}",
+            data.len()
+        );
         return Ok(());
     };
     let process_data = ProcessData::decode(data)
         .map_err(|err| TraceEngineError::Parse(format!("failed to decode ProcessData: {err}")))?;
+    log::debug!(
+        target: "trace_parser::plugins::process",
+        "decoded process plugin ts={} processes={}",
+        ts,
+        process_data.processesinfo.len()
+    );
     for process in process_data.processesinfo {
         state.pending.push(LiveProcessSample { ts, process });
     }
@@ -90,6 +101,7 @@ pub fn parse_process_plugin(
 pub fn finish_live_process(tables: &mut TraceTableBuilder, state: &mut LiveProcessState) {
     state.pending.sort_by_key(|sample| sample.ts);
     let mut last_ts = None;
+    let mut emitted_rows = 0usize;
     for sample in state.pending.drain(..) {
         let Some(previous_ts) = last_ts.replace(sample.ts) else {
             continue;
@@ -115,5 +127,11 @@ pub fn finish_live_process(tables: &mut TraceTableBuilder, state: &mut LiveProce
             disk_writes: disk.wbytes as i64,
             disk_reads: disk.rbytes as i64,
         });
+        emitted_rows += 1;
     }
+    log::debug!(
+        target: "trace_parser::plugins::process",
+        "emitted live_process rows={}",
+        emitted_rows
+    );
 }

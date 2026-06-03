@@ -1,114 +1,495 @@
 {
-  "schema_version": "htrace.v1",
-  "tables": [
-    {
-      "name": "trace_bounds",
-      "columns": [
-        { "name": "trace_id", "data_type": "Utf8", "nullable": false },
-        { "name": "start_ts", "data_type": "Int64", "nullable": true },
-        { "name": "end_ts", "data_type": "Int64", "nullable": true },
-        { "name": "clock_domain", "data_type": "Utf8", "nullable": false }
-      ]
-    },
-    {
-      "name": "process",
-      "columns": [
-        { "name": "upid", "data_type": "UInt32", "nullable": false },
-        { "name": "pid", "data_type": "UInt32", "nullable": false },
-        { "name": "name", "data_type": "Utf8", "nullable": true },
-        { "name": "start_ts", "data_type": "Int64", "nullable": true },
-        { "name": "end_ts", "data_type": "Int64", "nullable": true }
-      ]
-    },
-    {
-      "name": "thread",
-      "columns": [
-        { "name": "utid", "data_type": "UInt32", "nullable": false },
-        { "name": "tid", "data_type": "UInt32", "nullable": false },
-        { "name": "upid", "data_type": "UInt32", "nullable": false },
-        { "name": "name", "data_type": "Utf8", "nullable": true },
-        { "name": "is_main", "data_type": "Boolean", "nullable": false }
-      ]
-    },
-    {
-      "name": "sched_slice",
-      "columns": [
-        { "name": "cpu", "data_type": "UInt32", "nullable": false },
-        { "name": "utid", "data_type": "UInt32", "nullable": false },
-        { "name": "ts", "data_type": "Int64", "nullable": false },
-        { "name": "dur", "data_type": "Int64", "nullable": true },
-        { "name": "priority", "data_type": "Int32", "nullable": true },
-        { "name": "end_state", "data_type": "Utf8", "nullable": true }
-      ]
-    },
-    {
-      "name": "thread_state",
-      "columns": [
-        { "name": "utid", "data_type": "UInt32", "nullable": false },
-        { "name": "ts", "data_type": "Int64", "nullable": false },
-        { "name": "dur", "data_type": "Int64", "nullable": true },
-        { "name": "state", "data_type": "Utf8", "nullable": false },
-        { "name": "io_wait", "data_type": "Boolean", "nullable": true },
-        { "name": "blocked_function", "data_type": "Utf8", "nullable": true },
-        { "name": "waker_utid", "data_type": "UInt32", "nullable": true }
-      ]
-    },
-    {
-      "name": "raw_event",
-      "columns": [
-        { "name": "ts", "data_type": "Int64", "nullable": true },
-        { "name": "cpu", "data_type": "UInt32", "nullable": true },
-        { "name": "tid", "data_type": "UInt32", "nullable": true },
-        { "name": "event_name", "data_type": "Utf8", "nullable": false },
-        { "name": "payload_json", "data_type": "Utf8", "nullable": true }
-      ]
-    },
-    {
-      "name": "hisysevent_all_event",
-      "columns": [
-        { "name": "id", "data_type": "UInt64", "nullable": false },
-        { "name": "domain", "data_type": "Utf8", "nullable": true },
-        { "name": "event_name", "data_type": "Utf8", "nullable": true },
-        { "name": "ts", "data_type": "Int64", "nullable": true },
-        { "name": "type", "data_type": "Int64", "nullable": true },
-        { "name": "time_zone", "data_type": "Utf8", "nullable": true },
-        { "name": "pid", "data_type": "Int64", "nullable": true },
-        { "name": "tid", "data_type": "Int64", "nullable": true },
-        { "name": "uid", "data_type": "Int64", "nullable": true },
-        { "name": "level", "data_type": "Utf8", "nullable": true },
-        { "name": "tag", "data_type": "Utf8", "nullable": true },
-        { "name": "event_id", "data_type": "Utf8", "nullable": true },
-        { "name": "seq", "data_type": "Int64", "nullable": true },
-        { "name": "info", "data_type": "Utf8", "nullable": true },
-        { "name": "contents", "data_type": "Utf8", "nullable": true }
-      ]
-    },
-    {
-      "name": "log",
-      "columns": [
-        { "name": "seq", "data_type": "UInt64", "nullable": false },
-        { "name": "ts", "data_type": "Int64", "nullable": false },
-        { "name": "pid", "data_type": "UInt32", "nullable": false },
-        { "name": "tid", "data_type": "UInt32", "nullable": false },
-        { "name": "level", "data_type": "Utf8", "nullable": false },
-        { "name": "tag", "data_type": "Utf8", "nullable": false },
-        { "name": "context", "data_type": "Utf8", "nullable": false },
-        { "name": "origints", "data_type": "Int64", "nullable": false }
-      ]
-    },
-    {
-      "name": "perf_sample",
-      "columns": [
-        { "name": "id", "data_type": "UInt64", "nullable": false },
-        { "name": "callchain_id", "data_type": "UInt32", "nullable": true },
-        { "name": "timeStamp", "data_type": "Int64", "nullable": false },
-        { "name": "thread_id", "data_type": "UInt32", "nullable": false },
-        { "name": "event_count", "data_type": "UInt64", "nullable": false },
-        { "name": "event_type_id", "data_type": "UInt64", "nullable": false },
-        { "name": "timestamp_trace", "data_type": "Int64", "nullable": false },
-        { "name": "cpu_id", "data_type": "UInt32", "nullable": false },
-        { "name": "thread_state", "data_type": "Utf8", "nullable": true }
-      ]
-    }
-  ]
+    "schema_version":  "htrace.v1",
+    "tables":  [
+                   {
+                       "name":  "trace_metadata",
+                       "columns":  [
+                                       {
+                                           "name":  "key",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "value",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "trace_bounds",
+                       "columns":  [
+                                       {
+                                           "name":  "trace_id",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "start_ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "end_ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "clock_domain",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "process",
+                       "columns":  [
+                                       {
+                                           "name":  "upid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "pid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "start_ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "end_ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "thread",
+                       "columns":  [
+                                       {
+                                           "name":  "utid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "tid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "upid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "is_main",
+                                           "data_type":  "Boolean",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "sched_slice",
+                       "columns":  [
+                                       {
+                                           "name":  "cpu",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "utid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "dur",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "priority",
+                                           "data_type":  "Int32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "end_state",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "thread_state",
+                       "columns":  [
+                                       {
+                                           "name":  "utid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "dur",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "state",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "io_wait",
+                                           "data_type":  "Boolean",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "blocked_function",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "waker_utid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "raw_event",
+                       "columns":  [
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "cpu",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "tid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "event_name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "payload_json",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "raw",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "cpu",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "itid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "instant",
+                       "columns":  [
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ref",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "wakeup_from",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "ref_type",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "value",
+                                           "data_type":  "Float64",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "measure",
+                       "columns":  [
+                                       {
+                                           "name":  "type",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "dur",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "value",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "filter_id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "measure_filter",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "source_arg_set_id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "type",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "cpu_measure_filter",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "cpu",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "data_dict",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "data",
+                                           "data_type":  "Utf8",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "args",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "key",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "datatype",
+                                           "data_type":  "UInt32",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "value",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "argset",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "callstack",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "ts",
+                                           "data_type":  "Int64",
+                                           "nullable":  false
+                                       },
+                                       {
+                                           "name":  "dur",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "callid",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "cat",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "depth",
+                                           "data_type":  "UInt32",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "cookie",
+                                           "data_type":  "Int64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "parent_id",
+                                           "data_type":  "UInt64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "argsetid",
+                                           "data_type":  "UInt64",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "chainId",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "spanId",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "parentSpanId",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "flag",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "trace_level",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "trace_tag",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "custom_category",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "custom_args",
+                                           "data_type":  "Utf8",
+                                           "nullable":  true
+                                       },
+                                       {
+                                           "name":  "child_callid",
+                                           "data_type":  "UInt64",
+                                           "nullable":  true
+                                       }
+                                   ]
+                   }
+               ]
 }

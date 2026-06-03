@@ -1,10 +1,13 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use kat_rs_datasource::{
-    infer_required_tables, DatasetInput, DatasourceQueryRequest, HtraceDatasource, TraceSource,
+    infer_required_tables, DatasetInput, DatasourceQueryRequest, TraceDatasourceAdapter,
+    TraceSource,
 };
 use serde_json::json;
 use std::path::PathBuf;
+
+use crate::output;
 
 #[derive(Debug, Args)]
 pub struct DatasourceCommand {
@@ -54,8 +57,15 @@ fn dataset_input_from_traces(traces: Vec<PathBuf>, required_tables: Vec<String>)
 }
 
 async fn query(args: QueryArgs) -> Result<()> {
-    let datasource = HtraceDatasource::new();
+    let datasource = TraceDatasourceAdapter::new();
     let required_tables = infer_required_tables(&args.sql);
+    let trace_count = args.traces.len();
+    log::debug!(
+        target: "kat_rs_cli::datasource",
+        "query datasource traces={} required_tables={:?}",
+        trace_count,
+        required_tables
+    );
     let handle = datasource
         .open_dataset(dataset_input_from_traces(
             args.traces,
@@ -65,16 +75,34 @@ async fn query(args: QueryArgs) -> Result<()> {
     let mut request = DatasourceQueryRequest::new(args.sql);
     request.required_tables = required_tables;
     let result = datasource.query(&handle, request).await?;
-    println!("{}", serde_json::to_string_pretty(&result)?);
+    log::debug!(
+        target: "kat_rs_cli::datasource",
+        "query completed dataset_id={} rows_returned={}",
+        result.dataset_id,
+        result.stats.rows_returned
+    );
+    output::write_json_pretty(&result)?;
     Ok(())
 }
 
 async fn validate(args: ValidateArgs) -> Result<()> {
-    let datasource = HtraceDatasource::new();
+    let datasource = TraceDatasourceAdapter::new();
+    let trace_count = args.traces.len();
+    log::debug!(
+        target: "kat_rs_cli::datasource",
+        "validate datasource traces={}",
+        trace_count
+    );
     let handle = datasource
         .open_dataset(dataset_input_from_traces(args.traces, Vec::new()))
         .await?;
     let inspection = datasource.inspect(&handle).await?;
+    log::debug!(
+        target: "kat_rs_cli::datasource",
+        "validate completed dataset_id={} table_count={}",
+        inspection.dataset_id,
+        inspection.tables.len()
+    );
     let report = json!({
         "status": "ok",
         "dataset_id": inspection.dataset_id,
@@ -82,6 +110,6 @@ async fn validate(args: ValidateArgs) -> Result<()> {
         "table_count": inspection.tables.len(),
         "diagnostics": [],
     });
-    println!("{}", serde_json::to_string_pretty(&report)?);
+    output::write_json_pretty(&report)?;
     Ok(())
 }

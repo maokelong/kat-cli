@@ -1,6 +1,24 @@
 use arrow_array::RecordBatch;
 use std::collections::BTreeMap;
 
+pub const TRACE_TABLE_NAMES: &[&str] = &[
+    "trace_metadata",
+    "trace_bounds",
+    "process",
+    "thread",
+    "sched_slice",
+    "thread_state",
+    "raw_event",
+    "raw",
+    "instant",
+    "measure",
+    "measure_filter",
+    "cpu_measure_filter",
+    "data_dict",
+    "args",
+    "callstack",
+];
+
 #[derive(Debug, Clone)]
 pub struct TraceTables {
     pub trace_metadata: RecordBatch,
@@ -40,14 +58,6 @@ pub struct TraceTables {
     pub js_config: RecordBatch,
     pub js_cpu_profiler_node: RecordBatch,
     pub js_cpu_profiler_sample: RecordBatch,
-    pub log: RecordBatch,
-    pub hisysevent_all_event: RecordBatch,
-    pub hisysevent_measure: RecordBatch,
-    pub perf_report: RecordBatch,
-    pub perf_files: RecordBatch,
-    pub perf_thread: RecordBatch,
-    pub perf_sample: RecordBatch,
-    pub perf_callchain: RecordBatch,
 }
 
 impl TraceTables {
@@ -62,51 +72,12 @@ impl TraceTables {
             ("raw_event", self.raw_event.clone()),
             ("raw", self.raw.clone()),
             ("instant", self.instant.clone()),
-            ("irq", self.irq.clone()),
             ("measure", self.measure.clone()),
             ("measure_filter", self.measure_filter.clone()),
             ("cpu_measure_filter", self.cpu_measure_filter.clone()),
-            ("symbols", self.symbols.clone()),
-            ("dma_fence", self.dma_fence.clone()),
-            ("cpu_usage", self.cpu_usage.clone()),
-            ("diskio", self.diskio.clone()),
             ("data_dict", self.data_dict.clone()),
             ("args", self.args.clone()),
             ("callstack", self.callstack.clone()),
-            ("process_measure", self.process_measure.clone()),
-            (
-                "process_measure_filter",
-                self.process_measure_filter.clone(),
-            ),
-            ("sys_mem_measure", self.sys_mem_measure.clone()),
-            ("sys_event_filter", self.sys_event_filter.clone()),
-            ("live_process", self.live_process.clone()),
-            ("js_heap_files", self.js_heap_files.clone()),
-            ("js_heap_info", self.js_heap_info.clone()),
-            ("js_heap_nodes", self.js_heap_nodes.clone()),
-            ("js_heap_edges", self.js_heap_edges.clone()),
-            ("js_heap_string", self.js_heap_string.clone()),
-            ("js_heap_location", self.js_heap_location.clone()),
-            ("js_heap_sample", self.js_heap_sample.clone()),
-            (
-                "js_heap_trace_function_info",
-                self.js_heap_trace_function_info.clone(),
-            ),
-            ("js_heap_trace_node", self.js_heap_trace_node.clone()),
-            ("js_config", self.js_config.clone()),
-            ("js_cpu_profiler_node", self.js_cpu_profiler_node.clone()),
-            (
-                "js_cpu_profiler_sample",
-                self.js_cpu_profiler_sample.clone(),
-            ),
-            ("log", self.log.clone()),
-            ("hisysevent_all_event", self.hisysevent_all_event.clone()),
-            ("hisysevent_measure", self.hisysevent_measure.clone()),
-            ("perf_report", self.perf_report.clone()),
-            ("perf_files", self.perf_files.clone()),
-            ("perf_thread", self.perf_thread.clone()),
-            ("perf_sample", self.perf_sample.clone()),
-            ("perf_callchain", self.perf_callchain.clone()),
         ])
     }
 }
@@ -118,4 +89,10 @@ pub struct ParsedTrace {
     pub end_ts: Option<i64>,
     pub clock_domain: String,
     pub tables: TraceTables,
+}
+
+impl ParsedTrace {
+    pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
+        self.tables.batches()
+    }
 }

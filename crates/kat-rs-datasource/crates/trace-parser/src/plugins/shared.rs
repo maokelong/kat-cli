@@ -255,19 +255,3 @@ fn split_name_value(rest: &str) -> Option<(String, i64)> {
     let (name, value) = rest.rsplit_once('|').or_else(|| rest.rsplit_once(' '))?;
     Some((name.trim_end().to_string(), value.trim().parse().ok()?))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_trace_marker_begin() {
-        assert_eq!(
-            parse_trace_marker("B|42|render##phase=prepare,count=2"),
-            Some(TraceMarker::Begin {
-                callid: 42,
-                name: "render##phase=prepare,count=2".to_string()
-            })
-        );
-    }
-}

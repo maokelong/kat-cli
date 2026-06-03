@@ -4,6 +4,7 @@ use crate::{
         PARSE_PHASE_FILE_READ,
     },
     parser::HarmonyTraceParser,
+    parsers::bytrace::{looks_like_bytrace_text, BytraceParser},
     parsers::htrace::HtraceParser,
     ParseResult,
 };
@@ -14,13 +15,17 @@ use trace_model::ParsedTrace;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceFormat {
     Htrace,
+    BytraceText,
 }
 
 pub fn htrace_parser() -> HtraceParser {
     HtraceParser::default()
 }
 
-pub fn detect_trace_format(_bytes: &[u8]) -> TraceFormat {
+pub fn detect_trace_format(bytes: &[u8]) -> TraceFormat {
+    if looks_like_bytrace_text(bytes) {
+        return TraceFormat::BytraceText;
+    }
     TraceFormat::Htrace
 }
 
@@ -55,7 +60,7 @@ pub fn parse_trace_bytes_with_options(
     let mut phase_elapsed_ms = BTreeMap::new();
 
     let detect_started = Instant::now();
-    let _format = detect_trace_format(bytes);
+    let format = detect_trace_format(bytes);
     insert_phase(
         &mut phase_elapsed_ms,
         PARSE_PHASE_DETECT_FORMAT,
@@ -63,8 +68,16 @@ pub fn parse_trace_bytes_with_options(
     );
 
     let dispatch_started = Instant::now();
-    let mut parser = HtraceParser::default();
-    let parsed = parser.parse_bytes(bytes)?;
+    let parsed = match format {
+        TraceFormat::Htrace => {
+            let mut parser = HtraceParser::default();
+            parser.parse_bytes(bytes)?
+        }
+        TraceFormat::BytraceText => {
+            let mut parser = BytraceParser::default();
+            parser.parse_bytes(bytes)?
+        }
+    };
     insert_phase(
         &mut phase_elapsed_ms,
         PARSE_PHASE_DISPATCH,

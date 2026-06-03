@@ -14,11 +14,11 @@ use trace_parser::{parse_trace_file_with_options, ParseOptions};
 use trace_query::{ParsedTraceQuerySession, ParsedTraceSource};
 use trace_query::{QueryRequest, SCHEMA_VERSION};
 
-pub struct HtraceDatasource {
+pub struct TraceDatasourceAdapter {
     datasets: Mutex<HashMap<String, Arc<DatasetState>>>,
 }
 
-impl HtraceDatasource {
+impl TraceDatasourceAdapter {
     pub fn new() -> Self {
         Self {
             datasets: Mutex::new(HashMap::new()),
@@ -146,7 +146,7 @@ impl HtraceDatasource {
         let mut tables = BTreeMap::<String, TableCapability>::new();
 
         for source in state.sources.iter() {
-            for (name, batch) in source.parsed.tables.batches() {
+            for (name, batch) in source.parsed.batches() {
                 let columns = batch
                     .schema()
                     .fields()
@@ -322,28 +322,28 @@ fn accumulate_parse_phases(target: &mut BTreeMap<String, u64>, phases: &BTreeMap
     }
 }
 
-impl Default for HtraceDatasource {
+impl Default for TraceDatasourceAdapter {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl TraceDatasource for HtraceDatasource {
+impl TraceDatasource for TraceDatasourceAdapter {
     async fn open_dataset(&self, input: DatasetInput) -> DatasourceResult<DatasetHandle> {
-        HtraceDatasource::open_dataset(self, input).await
+        TraceDatasourceAdapter::open_dataset(self, input).await
     }
 
     async fn list_datasets(&self) -> DatasourceResult<Vec<DatasetSummary>> {
-        HtraceDatasource::list_datasets(self).await
+        TraceDatasourceAdapter::list_datasets(self).await
     }
 
     async fn close_dataset(&self, handle: &DatasetHandle) -> DatasourceResult<()> {
-        HtraceDatasource::close_dataset(self, handle).await
+        TraceDatasourceAdapter::close_dataset(self, handle).await
     }
 
     async fn inspect(&self, handle: &DatasetHandle) -> DatasourceResult<DatasetInspection> {
-        HtraceDatasource::inspect(self, handle).await
+        TraceDatasourceAdapter::inspect(self, handle).await
     }
 
     async fn query(
@@ -351,6 +351,6 @@ impl TraceDatasource for HtraceDatasource {
         handle: &DatasetHandle,
         request: DatasourceQueryRequest,
     ) -> DatasourceResult<QueryEnvelope> {
-        HtraceDatasource::query(self, handle, request).await
+        TraceDatasourceAdapter::query(self, handle, request).await
     }
 }

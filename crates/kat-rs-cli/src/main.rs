@@ -2,6 +2,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod logging;
+mod output;
 
 #[derive(Debug, Parser)]
 #[command(name = "kat-rs")]
@@ -18,6 +20,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    logging::init();
     let cli = Cli::parse();
     match cli.command {
         Command::Datasource(command) => commands::datasource::run(command).await,

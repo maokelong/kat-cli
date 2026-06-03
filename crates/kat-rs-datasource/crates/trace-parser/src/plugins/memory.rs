@@ -136,10 +136,23 @@ where
     F: FnMut(i64, u32, Option<&str>) -> u32,
 {
     let Some(ts) = ts else {
+        log::debug!(
+            target: "trace_parser::plugins::memory",
+            "skip memory plugin without timestamp data_len={}",
+            data.len()
+        );
         return Ok(());
     };
     let memory = MemoryData::decode(data)
         .map_err(|err| TraceEngineError::Parse(format!("failed to decode MemoryData: {err}")))?;
+    log::debug!(
+        target: "trace_parser::plugins::memory",
+        "decoded memory plugin ts={} processes={} meminfo={} vmeminfo={}",
+        ts,
+        memory.processesinfo.len(),
+        memory.meminfo.len(),
+        memory.vmeminfo.len()
+    );
 
     for process in memory.processesinfo {
         let pid = u32::try_from(process.pid).unwrap_or(0);
@@ -174,7 +187,7 @@ where
             state,
             ts,
             ipid,
-            "mem.rss.schem",
+            "mem.rss.shmem",
             process.rss_shmem_kb as i64,
         );
         append_process_metric(

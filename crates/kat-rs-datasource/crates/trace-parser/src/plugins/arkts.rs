@@ -61,6 +61,13 @@ pub fn parse_config(
 ) -> TraceResult<()> {
     let config = ArkTSConfig::decode(data)
         .map_err(|err| TraceEngineError::Parse(format!("failed to decode ArkTSConfig: {err}")))?;
+    log::debug!(
+        target: "trace_parser::plugins::arkts",
+        "parsed arkts config pid={} heap_type={} cpu_profiler={}",
+        config.pid,
+        config.heap_type,
+        config.enable_cpu_profiler
+    );
     state.heap_type = config.heap_type;
     state.enable_cpu_profiler = config.enable_cpu_profiler;
     tables.push_js_config(JsConfigRow {
@@ -90,15 +97,32 @@ where
     let payload = String::from_utf8_lossy(&result.result).to_string();
 
     if payload == SNAPSHOT_END || payload == TIMELINE_END {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "flush arkts heap document marker ts={:?} payload_len={}",
+            ts,
+            payload.len()
+        );
         flush_heap_document(ts, tables, state)?;
         return Ok(());
     }
 
     if payload == CPU_PROFILER_START {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "arkts cpu profiler start marker ts={:?}",
+            ts
+        );
         return Ok(());
     }
 
     if let Some(chunk) = extract_chunk(&payload)? {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "append arkts heap chunk ts={:?} chunk_len={}",
+            ts,
+            chunk.len()
+        );
         if state.start_time.is_none() {
             state.start_time = ts;
         }
@@ -107,16 +131,35 @@ where
     }
 
     if let Some(profile) = extract_cpu_profile(&payload)? {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "parse arkts cpu profile ts={:?} profile_len={}",
+            ts,
+            profile.len()
+        );
         parse_cpu_profiler(tables, &profile, monotonic_to_primary)?;
         return Ok(());
     }
 
     if looks_like_heap_document(&payload) {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "parse arkts heap document ts={:?} payload_len={}",
+            ts,
+            payload.len()
+        );
         state.chunk_buffer = payload;
         if state.start_time.is_none() {
             state.start_time = ts;
         }
         flush_heap_document(ts, tables, state)?;
+    } else {
+        log::debug!(
+            target: "trace_parser::plugins::arkts",
+            "ignore arkts payload ts={:?} payload_len={}",
+            ts,
+            payload.len()
+        );
     }
 
     Ok(())
@@ -169,6 +212,14 @@ fn flush_heap_document(
         end_time: end_ts.or(state.start_time).unwrap_or_default(),
         self_size,
     });
+    log::debug!(
+        target: "trace_parser::plugins::arkts",
+        "flushed arkts heap file_id={} self_size={} start_time={:?} end_ts={:?}",
+        file_id,
+        self_size,
+        state.start_time,
+        end_ts
+    );
     state.file_id += 1;
     state.start_time = None;
     Ok(())
@@ -239,6 +290,22 @@ where
     let json = serde_json::from_str::<Value>(profile.trim()).map_err(|err| {
         TraceEngineError::Parse(format!("failed to parse JS CPU profile JSON: {err}"))
     })?;
+    let node_count = json
+        .get("nodes")
+        .and_then(Value::as_array)
+        .map(|nodes| nodes.len())
+        .unwrap_or_default();
+    let sample_count = json
+        .get("samples")
+        .and_then(Value::as_array)
+        .map(|samples| samples.len())
+        .unwrap_or_default();
+    log::debug!(
+        target: "trace_parser::plugins::arkts",
+        "decoded arkts cpu profile nodes={} samples={}",
+        node_count,
+        sample_count
+    );
     parse_cpu_profiler_nodes(tables, &json)?;
     parse_cpu_profiler_samples(tables, &json, monotonic_to_primary)?;
     Ok(())

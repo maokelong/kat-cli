@@ -10,7 +10,7 @@ use std::sync::Arc;
 use trace_model::ParsedTrace;
 
 pub fn register_parsed_trace(ctx: &SessionContext, parsed: &ParsedTrace) -> TraceResult<()> {
-    for (name, batch) in parsed.tables.batches() {
+    for (name, batch) in parsed.batches() {
         let provider = MemTable::try_new(batch.schema(), vec![vec![batch]]).map_err(|err| {
             TraceEngineError::Engine(format!("failed to build MemTable {name}: {err}"))
         })?;
@@ -46,7 +46,7 @@ pub fn register_parsed_trace_sources(
     let mut batches_by_name: BTreeMap<String, Vec<RecordBatch>> = BTreeMap::new();
 
     for source in sources {
-        for (name, batch) in source.parsed.tables.batches() {
+        for (name, batch) in source.parsed.batches() {
             let enriched = append_provenance_columns(
                 batch,
                 &source.dataset_id,
