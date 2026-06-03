@@ -1,0 +1,75 @@
+name: 功能切片 / 非平凡变更
+description: 用于会改变行为、架构、依赖、数据格式、测试 fixture 或交付面的变更
+title: "[slice] "
+labels: ["needs-sdd"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 真实问题 / 用户价值
+      description: 写具体使用者、失败场景或当前阻塞点，不写愿景。
+      placeholder: "例：review 无法判断该能力是否服务当前 MVP，因为 PR 同时加入 parser、UI 和临时验证工具。"
+    validations:
+      required: true
+  - type: textarea
+    id: why-now
+    attributes:
+      label: 为什么现在做
+      description: 说明它为什么阻塞当前工作，不写“以后会需要”。
+      placeholder: "例：没有这个最小能力，无法验证下一步 trace 数据是否能进入统一查询路径。"
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: 非目标
+      description: 明确本次不做什么，尤其是 UI、格式兼容、扩展点和临时工具。
+      placeholder: "例：本次不新增 WebUI，不支持额外日志格式，不引入可配置插件系统。"
+    validations:
+      required: true
+  - type: textarea
+    id: minimal-slice
+    attributes:
+      label: 最小可 review 切片
+      description: 写可以独立 review、运行和验证的最小交付。
+      placeholder: "例：只加入一个输入样例、一个转换函数和一个验证测试。"
+    validations:
+      required: true
+  - type: textarea
+    id: sdd
+    attributes:
+      label: 轻量 SDD
+      description: 用短句写问题、方案取舍、选中方案和 PR 拆分计划。没有有意义备选方案时可以写 N/A。
+      placeholder: |
+        问题：
+        考虑过的方案：
+        选中方案：
+        PR 拆分计划：
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 验证计划 / 预期证据
+      description: 写计划执行的命令、样例输入、预期输出或可观察证据。实际执行结果放到 PR 中。
+      placeholder: "例：cargo test --locked datasource_minimal_slice；预期通过并覆盖空输入和一条有效输入。"
+    validations:
+      required: true
+  - type: textarea
+    id: expected-files
+    attributes:
+      label: 预计修改文件 / 模块
+      description: 提前写出预计改动范围，用于发现 PR 膨胀。
+      placeholder: |
+        - crates/example/src/lib.rs
+        - crates/example/tests/minimal_slice.rs
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: 风险 / 未知
+      description: 写当前不确定点，以及如何用最小证据降低不确定性。
+      placeholder: "例：输入格式边界还不完整，本次只验证已知样例，不把额外格式接入 production path。"
+    validations:
+      required: false
