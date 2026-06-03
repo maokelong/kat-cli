@@ -19,6 +19,13 @@ def issue_context(*labels: str) -> pr_guard.PullRequestContext:
 
 
 class PrGuardTests(unittest.TestCase):
+    def test_review_budget_thresholds_allow_moderate_ai_assisted_prs(self) -> None:
+        self.assertEqual(pr_guard.MAX_CHANGED_FILES, 30)
+        self.assertEqual(pr_guard.MAX_ADDITIONS, 1600)
+        self.assertEqual(pr_guard.MAX_TOTAL_DIFF, 2400)
+        self.assertEqual(pr_guard.MAX_SOURCE_FILE_ADDITIONS, 800)
+        self.assertEqual(pr_guard.WARN_DOC_ADDITIONS, 800)
+
     def test_parse_numstat_parses_text_and_binary_files(self) -> None:
         stats = pr_guard.parse_numstat(
             "12\t3\tsrc/lib.rs\n"

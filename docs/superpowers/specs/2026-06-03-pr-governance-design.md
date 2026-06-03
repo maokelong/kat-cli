@@ -102,10 +102,10 @@ SDD 要短。它的作用是逼迫取舍，不是生产大设计文档。小改�
 
 默认 PR 预算：
 
-- changed files: `<= 20`；
-- additions: `<= 800`；
-- total diff: `<= 1200`；
-- 单个 source 文件 additions: `<= 300`；
+- changed files: `<= 30`；
+- additions: `<= 1600`；
+- total diff: `<= 2400`；
+- 单个 source 文件 additions: `<= 800`；
 - fixture 单文件: `<= 100KB`；
 - fixture 总增量: `<= 300KB`；
 - binary files: 默认不允许。
@@ -116,7 +116,7 @@ SDD 要短。它的作用是逼迫取舍，不是生产大设计文档。小改�
 
 文档和 spec 也要控制体量：
 
-- 单个文档 additions `> 400`：warning；
+- 单个文档 additions `> 800`：warning；
 - 超长文档必须说明摘要和不能拆分的理由。
 
 PR 作者不手填这些数字。CI 自动计算，并输出当前值、阈值和下一步动作。
@@ -170,8 +170,8 @@ production path 指从已交付 CLI、library API、默认 workflow 或默认测
 
 ```text
 PR exceeds review budget:
-- additions: 20648 > 800
-- changed files: 113 > 20
+- additions: 20648 > 1600
+- changed files: 113 > 30
 
 Split this PR, remove low-value scope, or ask a maintainer for
 approved-large-change with a reason why it cannot be split.
