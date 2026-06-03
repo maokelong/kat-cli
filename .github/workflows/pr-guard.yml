@@ -1,0 +1,33 @@
+name: PR Guard
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - labeled
+      - unlabeled
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-guard:
+    name: pr-guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run PR guard tests
+        run: python .github/scripts/test_pr_guard.py
+
+      - name: Run PR guard
+        run: python .github/scripts/pr_guard.py --event "$GITHUB_EVENT_PATH" --base "${{ github.event.pull_request.base.sha }}" --head HEAD
