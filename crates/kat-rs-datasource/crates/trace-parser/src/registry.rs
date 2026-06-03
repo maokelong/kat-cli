@@ -4,7 +4,6 @@ use crate::{
         PARSE_PHASE_FILE_READ,
     },
     parser::HarmonyTraceParser,
-    parsers::bytrace::{looks_like_bytrace_text, BytraceParser},
     parsers::htrace::HtraceParser,
     ParseResult,
 };
@@ -15,7 +14,6 @@ use trace_model::ParsedTrace;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceFormat {
     Htrace,
-    BytraceText,
 }
 
 pub fn htrace_parser() -> HtraceParser {
@@ -23,9 +21,7 @@ pub fn htrace_parser() -> HtraceParser {
 }
 
 pub fn detect_trace_format(bytes: &[u8]) -> TraceFormat {
-    if looks_like_bytrace_text(bytes) {
-        return TraceFormat::BytraceText;
-    }
+    let _ = bytes;
     TraceFormat::Htrace
 }
 
@@ -71,10 +67,6 @@ pub fn parse_trace_bytes_with_options(
     let parsed = match format {
         TraceFormat::Htrace => {
             let mut parser = HtraceParser::default();
-            parser.parse_bytes(bytes)?
-        }
-        TraceFormat::BytraceText => {
-            let mut parser = BytraceParser::default();
             parser.parse_bytes(bytes)?
         }
     };

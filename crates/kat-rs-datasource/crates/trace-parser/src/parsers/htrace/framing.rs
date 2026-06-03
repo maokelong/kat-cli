@@ -107,6 +107,7 @@ impl HtraceParser {
             "ftrace-plugin" | "/data/local/tmp/libftrace_plugin.z.so" => {
                 self.parse_ftrace_plugin(&plugin)
             }
+            "ftrace-plugin_config" => self.parse_ftrace_plugin_config(&plugin),
             "cpu-plugin" => self.parse_cpu_plugin(&plugin),
             "diskio-plugin" => self.parse_diskio_plugin(&plugin),
             "memory-plugin" => self.parse_memory_plugin(&plugin),
@@ -211,6 +212,18 @@ impl HtraceParser {
             }
         }
 
+        Ok(())
+    }
+
+    pub(super) fn parse_ftrace_plugin_config(
+        &mut self,
+        plugin: &ProfilerPluginData,
+    ) -> ParseResult<()> {
+        log::debug!(
+            target: "trace_parser::htrace",
+            "skip known ftrace config plugin data_len={}",
+            plugin.data.len()
+        );
         Ok(())
     }
 

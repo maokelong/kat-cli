@@ -11,12 +11,16 @@ pub const TRACE_TABLE_NAMES: &[&str] = &[
     "raw_event",
     "raw",
     "instant",
+    "irq",
     "measure",
     "measure_filter",
     "cpu_measure_filter",
+    "dma_fence",
     "data_dict",
     "args",
     "callstack",
+    "process_measure",
+    "process_measure_filter",
 ];
 
 #[derive(Debug, Clone)]
@@ -72,12 +76,19 @@ impl TraceTables {
             ("raw_event", self.raw_event.clone()),
             ("raw", self.raw.clone()),
             ("instant", self.instant.clone()),
+            ("irq", self.irq.clone()),
             ("measure", self.measure.clone()),
             ("measure_filter", self.measure_filter.clone()),
             ("cpu_measure_filter", self.cpu_measure_filter.clone()),
+            ("dma_fence", self.dma_fence.clone()),
             ("data_dict", self.data_dict.clone()),
             ("args", self.args.clone()),
             ("callstack", self.callstack.clone()),
+            ("process_measure", self.process_measure.clone()),
+            (
+                "process_measure_filter",
+                self.process_measure_filter.clone(),
+            ),
         ])
     }
 }

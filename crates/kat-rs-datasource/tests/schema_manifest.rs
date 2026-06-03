@@ -94,13 +94,9 @@ fn manifest_excludes_unmapped_parser_tables() {
         .collect::<BTreeSet<_>>();
 
     for removed_name in [
-        "irq",
         "symbols",
-        "dma_fence",
         "cpu_usage",
         "diskio",
-        "process_measure",
-        "process_measure_filter",
         "sys_mem_measure",
         "sys_event_filter",
         "live_process",

@@ -155,6 +155,26 @@ fn parses_len_prefixed_sched_switches() {
 }
 
 #[test]
+fn treats_ftrace_plugin_config_as_known_metadata() {
+    let plugin = ProfilerPluginData {
+        name: "ftrace-plugin_config".to_string(),
+        status: 0,
+        data: vec![1, 2, 3, 4],
+        clock_id: 7,
+        tv_sec: 0,
+        tv_nsec: 0,
+        version: "1.01".to_string(),
+        sample_interval: 0,
+    };
+
+    let parsed = HtraceParser::default()
+        .parse_bytes(&len_prefixed(plugin))
+        .unwrap();
+
+    assert_eq!(parsed.tables.raw_event.num_rows(), 0);
+}
+
+#[test]
 fn sorts_ftrace_events_across_cpu_details_before_filtering() {
     let switch = FtraceEvent {
         timestamp: 200,
