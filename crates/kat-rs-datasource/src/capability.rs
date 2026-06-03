@@ -1,4 +1,3 @@
-use crate::inspection::ColumnInspection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -19,6 +18,14 @@ pub struct TableCapability {
     pub row_count: usize,
     pub reason: Option<String>,
     pub columns: Vec<ColumnInspection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnInspection {
+    pub name: String,
+    pub data_type: String,
+    pub unit: Option<String>,
+    pub nullable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

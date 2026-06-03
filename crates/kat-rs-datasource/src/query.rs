@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 const KNOWN_TRACE_TABLES: &[&str] = &[
     "trace_metadata",
@@ -40,71 +40,19 @@ const KNOWN_TRACE_TABLES: &[&str] = &[
     "js_cpu_profiler_node",
     "js_cpu_profiler_sample",
     "log",
-    "hisysevent_all_event",
-    "hisysevent_measure",
-    "perf_report",
-    "perf_files",
-    "perf_thread",
-    "perf_sample",
-    "perf_callchain",
 ];
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum QueryParam {
-    String(String),
-    I64(i64),
-    F64(f64),
-    Bool(bool),
-    TimestampNs(i64),
-    DurationNs(i64),
-    StringList(Vec<String>),
-    I64List(Vec<i64>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryLimits {
-    pub timeout_ms: u64,
-    pub max_rows_inline: usize,
-    pub max_result_bytes_inline: usize,
-    pub memory_budget_bytes: Option<u64>,
-}
-
-impl Default for QueryLimits {
-    fn default() -> Self {
-        Self {
-            timeout_ms: 30_000,
-            max_rows_inline: 10_000,
-            max_result_bytes_inline: 1_048_576,
-            memory_budget_bytes: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum QueryOutputMode {
-    InlineJson,
-    Artifact,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasourceQueryRequest {
     pub sql: String,
-    pub params: BTreeMap<String, QueryParam>,
-    pub limits: QueryLimits,
-    pub output: QueryOutputMode,
     pub required_tables: Vec<String>,
-    pub query_tag: Option<String>,
 }
 
 impl DatasourceQueryRequest {
     pub fn new(sql: impl Into<String>) -> Self {
         Self {
             sql: sql.into(),
-            params: BTreeMap::new(),
-            limits: QueryLimits::default(),
-            output: QueryOutputMode::InlineJson,
             required_tables: Vec::new(),
-            query_tag: None,
         }
     }
 }

@@ -61,19 +61,6 @@ pub struct TraceTableBuilder {
 }
 
 impl TraceTableBuilder {
-    pub fn reserve_bytrace_rows(&mut self, estimated_lines: usize, include_raw_events: bool) {
-        let estimated_sched_rows = (estimated_lines / 4).max(128);
-        let estimated_thread_state_rows = (estimated_lines / 2).max(128);
-        self.sched_slices.reserve(estimated_sched_rows);
-        self.thread_states.reserve(estimated_thread_state_rows);
-        self.processes.reserve(1024);
-        self.threads.reserve(1024);
-        self.data_dict.reserve(1024);
-        if include_raw_events {
-            self.raw_events.reserve(estimated_lines);
-        }
-    }
-
     pub fn push_metadata(&mut self, key: impl Into<String>, value: Option<impl Into<String>>) {
         self.metadata.push((key.into(), value.map(Into::into)));
     }

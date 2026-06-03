@@ -21,7 +21,7 @@ impl HtraceDataFusionEngine {
     fn get_trace(&self, handle: &TraceHandle) -> TraceResult<ParsedTrace> {
         self.traces
             .lock()
-            .map_err(|_| TraceEngineError::Engine("trace cache lock poisoned".to_string()))?
+            .map_err(|_| TraceEngineError::Engine("trace registry lock poisoned".to_string()))?
             .get(&handle.trace_id)
             .cloned()
             .ok_or_else(|| {
@@ -40,7 +40,7 @@ impl TraceQueryEngine for HtraceDataFusionEngine {
         };
         self.traces
             .lock()
-            .map_err(|_| TraceEngineError::Engine("trace cache lock poisoned".to_string()))?
+            .map_err(|_| TraceEngineError::Engine("trace registry lock poisoned".to_string()))?
             .insert(handle.trace_id.clone(), parsed);
         Ok(handle)
     }
@@ -82,7 +82,7 @@ impl TraceQueryEngine for HtraceDataFusionEngine {
     async fn close(&self, handle: TraceHandle) -> TraceResult<()> {
         self.traces
             .lock()
-            .map_err(|_| TraceEngineError::Engine("trace cache lock poisoned".to_string()))?
+            .map_err(|_| TraceEngineError::Engine("trace registry lock poisoned".to_string()))?
             .remove(&handle.trace_id);
         Ok(())
     }

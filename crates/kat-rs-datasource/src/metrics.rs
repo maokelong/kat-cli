@@ -8,7 +8,6 @@ pub const PHASE_SESSION_LOOKUP: &str = "session_lookup";
 pub const PHASE_SESSION_BUILD: &str = "session_build";
 pub const PHASE_QUERY_EXECUTE: &str = "query_execute";
 pub const PHASE_RESULT_SERIALIZE: &str = "result_serialize";
-pub const PHASE_ARTIFACT_WRITE: &str = "artifact_write";
 
 #[derive(Debug, Default)]
 pub struct PhaseMetrics {
@@ -44,7 +43,6 @@ pub fn elapsed_ms(started: Instant) -> u64 {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QueryMetrics {
     pub elapsed_ms: u64,
-    pub cache_hit: bool,
     pub phase_elapsed_ms: BTreeMap<String, u64>,
     pub rows_returned: usize,
     pub bytes_inline: usize,

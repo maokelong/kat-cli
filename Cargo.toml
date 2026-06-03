@@ -2,7 +2,6 @@
 members = [
     "crates/kat-rs-cli",
     "crates/kat-rs-datasource",
-    "crates/kat-rs-web-ui",
     "crates/kat-rs-datasource/crates/trace-model",
     "crates/kat-rs-datasource/crates/trace-parser",
     "crates/kat-rs-datasource/crates/trace-query",
@@ -20,15 +19,11 @@ anyhow = "1.0"
 async-trait = "0.1"
 arrow-array = "58.0.0"
 arrow-schema = "58.0.0"
-axum = "0.8"
-chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 datafusion = "53.1.0"
-flate2 = "1.0"
 prost = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3.10"
 thiserror = "2.0"
 tokio = { version = "1.45", features = ["macros", "rt-multi-thread"] }
-zip = { version = "2.2", default-features = false, features = ["deflate"] }

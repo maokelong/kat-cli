@@ -13,9 +13,7 @@ pub struct TraceInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct OpenOptions {
-    pub cache_dir: Option<PathBuf>,
-}
+pub struct OpenOptions {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceHandle {

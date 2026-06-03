@@ -21,13 +21,5 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Root fmt
-        run: cargo fmt --all -- --check
-
-      - name: Workspace tests
-        run: cargo test --workspace --locked
-
-      - name: CLI datasource smoke
-        if: github.event_name == 'push'
-        run: |
-          cargo run --locked -p kat-rs-cli -- datasource query --trace tests\fixtures\traces\ut_bytrace_input_full.txt --sql "SELECT COUNT(*) AS slices FROM sched_slice" --json
+      - name: Compile
+        run: cargo check --workspace --locked

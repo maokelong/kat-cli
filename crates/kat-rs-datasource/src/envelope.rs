@@ -25,15 +25,6 @@ pub struct QueryColumn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactRef {
-    pub path: String,
-    pub format: String,
-    pub row_count: usize,
-    pub byte_size: u64,
-    pub schema_hash: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryStats {
     pub rows_returned: usize,
     pub bytes_inline: usize,
@@ -47,7 +38,6 @@ pub struct QueryEnvelope {
     pub dataset_id: String,
     pub columns: Vec<QueryColumn>,
     pub rows: Vec<Value>,
-    pub artifacts: Vec<ArtifactRef>,
     pub stats: QueryStats,
     pub metrics: QueryMetrics,
     pub diagnostics: Vec<String>,

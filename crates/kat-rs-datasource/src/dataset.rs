@@ -11,7 +11,6 @@ pub struct TraceSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetInput {
     pub sources: Vec<TraceSource>,
-    pub cache_dir: Option<PathBuf>,
     pub required_tables: Vec<String>,
 }
 
