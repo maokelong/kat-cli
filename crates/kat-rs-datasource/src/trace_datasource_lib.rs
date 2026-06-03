@@ -14,11 +14,11 @@ use trace_parser::{parse_trace_file_with_options, ParseOptions};
 use trace_query::{ParsedTraceQuerySession, ParsedTraceSource};
 use trace_query::{QueryRequest, SCHEMA_VERSION};
 
-pub struct TraceDatasourceAdapter {
+pub struct TraceDatasourceLib {
     datasets: Mutex<HashMap<String, Arc<DatasetState>>>,
 }
 
-impl TraceDatasourceAdapter {
+impl TraceDatasourceLib {
     pub fn new() -> Self {
         Self {
             datasets: Mutex::new(HashMap::new()),
@@ -322,28 +322,28 @@ fn accumulate_parse_phases(target: &mut BTreeMap<String, u64>, phases: &BTreeMap
     }
 }
 
-impl Default for TraceDatasourceAdapter {
+impl Default for TraceDatasourceLib {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl TraceDatasource for TraceDatasourceAdapter {
+impl TraceDatasource for TraceDatasourceLib {
     async fn open_dataset(&self, input: DatasetInput) -> DatasourceResult<DatasetHandle> {
-        TraceDatasourceAdapter::open_dataset(self, input).await
+        TraceDatasourceLib::open_dataset(self, input).await
     }
 
     async fn list_datasets(&self) -> DatasourceResult<Vec<DatasetSummary>> {
-        TraceDatasourceAdapter::list_datasets(self).await
+        TraceDatasourceLib::list_datasets(self).await
     }
 
     async fn close_dataset(&self, handle: &DatasetHandle) -> DatasourceResult<()> {
-        TraceDatasourceAdapter::close_dataset(self, handle).await
+        TraceDatasourceLib::close_dataset(self, handle).await
     }
 
     async fn inspect(&self, handle: &DatasetHandle) -> DatasourceResult<DatasetInspection> {
-        TraceDatasourceAdapter::inspect(self, handle).await
+        TraceDatasourceLib::inspect(self, handle).await
     }
 
     async fn query(
@@ -351,6 +351,6 @@ impl TraceDatasource for TraceDatasourceAdapter {
         handle: &DatasetHandle,
         request: DatasourceQueryRequest,
     ) -> DatasourceResult<QueryEnvelope> {
-        TraceDatasourceAdapter::query(self, handle, request).await
+        TraceDatasourceLib::query(self, handle, request).await
     }
 }

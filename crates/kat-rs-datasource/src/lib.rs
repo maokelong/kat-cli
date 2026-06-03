@@ -9,7 +9,7 @@ pub mod query;
 pub mod schema_contract;
 pub mod schema_manifest;
 pub mod session;
-pub mod trace_adapter;
+pub mod trace_datasource_lib;
 
 pub use capability::*;
 pub use dataset::*;
@@ -22,4 +22,4 @@ pub use query::*;
 pub use schema_contract::*;
 pub use schema_manifest::*;
 pub use session::*;
-pub use trace_adapter::*;
+pub use trace_datasource_lib::*;

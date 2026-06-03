@@ -1,8 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use kat_rs_datasource::{
-    infer_required_tables, DatasetInput, DatasourceQueryRequest, TraceDatasourceAdapter,
-    TraceSource,
+    infer_required_tables, DatasetInput, DatasourceQueryRequest, TraceDatasourceLib, TraceSource,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -57,7 +56,7 @@ fn dataset_input_from_traces(traces: Vec<PathBuf>, required_tables: Vec<String>)
 }
 
 async fn query(args: QueryArgs) -> Result<()> {
-    let datasource = TraceDatasourceAdapter::new();
+    let datasource = TraceDatasourceLib::new();
     let required_tables = infer_required_tables(&args.sql);
     let trace_count = args.traces.len();
     log::debug!(
@@ -86,7 +85,7 @@ async fn query(args: QueryArgs) -> Result<()> {
 }
 
 async fn validate(args: ValidateArgs) -> Result<()> {
-    let datasource = TraceDatasourceAdapter::new();
+    let datasource = TraceDatasourceLib::new();
     let trace_count = args.traces.len();
     log::debug!(
         target: "kat_rs_cli::datasource",
