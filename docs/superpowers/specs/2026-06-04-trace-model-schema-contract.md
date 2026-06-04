@@ -1,138 +1,122 @@
-# trace-model schema contract 设计
+# trace-model 表契约与构建闭环设计
 
 ## 背景
 
-`kat-rs-datasource` 后续会通过 parser 解析 protobuf htrace，并通过 query 层对解析后的表执行 SQL 查询。在 parser 和 query 接入之前，`trace-model` 需要先提供稳定的表契约，避免后续代码各自定义表名、字段类型和可空性。
+`kat-rs-datasource` 的核心目标是让 protobuf htrace 数据能够被准确解析，并以稳定、可查询的表结构暴露给 CLI、后续 Web UI 和查询层。为了避免 parser、builder、query 各自维护一份表结构，`trace-model` 需要先建立一个清晰的业务契约：什么表可以暴露、字段是什么、字段顺序和类型由谁决定、业务数据为空时如何表现。
 
-本 PR 是 datasource 首次拆分上库中的 trace-model schema contract 切片。它只定义“当前已验证 protobuf htrace 能产出数据的表”，不引入 builder、parser、query 业务逻辑。
+本 PR 是 trace-model 的最小闭环切片，只接入已经明确需要的 `trace_bounds` 表。它同时提供表契约、由契约派生的 Arrow schema，以及对应的 RecordBatch builder。后续新增表时，必须按同样方式把“表契约 + 数据构建 + 测试”作为一个完整原子能力一起进入。
 
-## 目标
+## 设计目标
 
-- 在 `trace-model` 中定义已验证表清单。
-- 让 `trace.v1.json` 成为 schema contract 的唯一来源。
-- 从 JSON manifest 派生 Arrow `SchemaRef` 和表名查询能力。
-- 提供 `schema_for_table` 作为表名到 schema 的查询入口。
-- 通过测试约束未映射表不应暴露 schema。
-- 只引入 schema contract 所需依赖，避免把后续 parser/query 依赖提前带入。
+- 只暴露当前已经确认的 protobuf htrace 表能力。
+- 让 JSON 表契约成为字段名、字段顺序、字段类型和 nullable 规则的唯一来源。
+- 支持 `contracts/tables/**/*.json` 的匹配式注册，避免维护集中式表清单。
+- 由契约动态派生 Arrow `SchemaRef`，不在 Rust 代码里重复字段契约。
+- builder 只负责 typed row 到 Arrow array 的业务数据转换。
+- 即使某张已注册表没有业务数据，也能根据契约生成空 `RecordBatch`。
+- 不引入 parser、query、Web UI 或非 protobuf trace 格式能力。
 
 ## 非目标
 
-- 不实现 RecordBatch builder。
-- 不实现 protobuf htrace parser。
-- 不实现 SQL query。
-- 不暴露未映射、未验证或当前 trace 中没有数据的表。
-- 不接入 bytrace 或 ftrace text 格式。
+- 不暴露未映射、未验证或当前不需要的表。
+- 不提供动态 `HashMap<String, Value>` 行写入 API。
+- 不引入 `build.rs` 代码生成。
+- 不接入 bytrace/ftrace text parser。
+- 不缓存 trace 文件解析结果或 SQL 查询结果。
 
-## 暴露表范围
+## 核心模型
 
-当前只暴露 19 张 protobuf htrace 已验证有数据的表：
+表契约按“一张表一个 JSON”组织：
 
-- `trace_metadata`
-- `trace_bounds`
-- `process`
-- `thread`
-- `sched_slice`
-- `thread_state`
-- `raw_event`
-- `raw`
-- `instant`
-- `irq`
-- `measure`
-- `measure_filter`
-- `cpu_measure_filter`
-- `dma_fence`
-- `data_dict`
-- `args`
-- `callstack`
-- `process_measure`
-- `process_measure_filter`
+```text
+trace-model/
+  contracts/
+    tables/
+      trace_bounds.json
+```
 
-这些表只在 `schema/trace.v1.json` 中维护一次。Rust 侧通过 `manifest.rs` 读取内嵌 JSON，再由 `schema.rs` 转成 Arrow schema，由 `tables.rs` 派生表名清单。
+每个 JSON 文件描述一张表的业务字段。`trace-model` 运行时通过嵌入目录匹配所有 `contracts/tables/**/*.json` 文件，解析出表契约集合，再由契约派生 schema 和表名查询能力。这里的 `OnceLock` 只缓存不可变契约元数据，不缓存用户 trace 数据，因此不改变 MVP 阶段“不做业务 cache”的约束。
 
-## 关键设计
+当前只注册一张表：
 
-### 1. JSON manifest 是唯一来源
+```text
+trace_bounds
+```
 
-`trace.v1.json` 保存表名、字段名、字段类型和 nullable 规则。Rust 不再手写每张表的字段列表，也不再维护重复的 `TRACE_TABLE_NAMES` 常量。
+字段为：
 
-运行时使用 `include_str!` 内嵌 JSON，并通过 `OnceLock` 懒加载解析结果。这里的 `OnceLock` 只缓存不可变 schema manifest，不缓存 trace 文件、解析结果、查询结果或用户数据，因此不改变 MVP 阶段“不做业务 cache”的约束。
+```text
+trace_id      Utf8   non-null
+start_ts      Int64  nullable
+end_ts        Int64  nullable
+clock_domain  Utf8   non-null
+```
 
-### 2. 配置扩展字段不需要生成 `.rs`
+## 代码结构
 
-如果后续只是为某张表增加一个已支持类型的字段，例如 `Utf8`、`Int64`、`UInt64`、`UInt32`、`Int32`、`Boolean`、`Float64`，只需要更新 `trace.v1.json`。Rust schema 会自动从 manifest 生成新的 Arrow 字段。
+```text
+crates/kat-rs-datasource/crates/trace-model/
+  contracts/tables/
+    trace_bounds.json
+  src/
+    contract.rs
+    tables.rs
+    builders/
+      mod.rs
+      batch.rs
+      trace_bounds.rs
+```
 
-只有在新增一种 Arrow 数据类型时，才需要修改 `TraceDataType` 枚举和 `schema.rs` 中的类型映射。这属于类型系统能力扩展，不是每个字段都要生成或手写 Rust 代码。
+职责划分：
 
-### 3. schema contract 先于 builder
+- `contract.rs`
+  - 加载并解析 `contracts/tables/**/*.json`。
+  - 提供表契约、表名查询和 schema 派生能力。
+  - 负责字段类型到 Arrow 类型的映射。
+- `tables.rs`
+  - 定义 trace-model 对外返回的运行时数据结构。
+  - 让上层可以按表名获取已构建的 `RecordBatch`。
+- `builders/batch.rs`
+  - 提供契约驱动的通用 `RecordBatch` 组装能力。
+  - 根据表契约校验字段缺失、额外字段、重复字段和类型不匹配。
+  - 支持按契约创建空表 batch。
+- `builders/trace_bounds.rs`
+  - 定义 `trace_bounds` 的 typed row 和 builder。
+  - 只保留业务数据到 Arrow array 的转换逻辑。
 
-本 PR 只定义表契约，不创建 `TraceTables` 或 RecordBatch builder。这样 schema review 可以聚焦在字段名、类型和 nullable 规则上。builder 后续 PR 只需要实现这些已确认 schema 的数据构建逻辑。
+## 业务规则
 
-### 4. 表清单只包含已验证表
+新增表时必须满足：
 
-之前源码中存在一些未映射或未验证表的残留，例如 `symbols`、`cpu_usage`、`diskio`、`sys_mem_measure`、`js_heap_*`。这些表不进入本次 contract。
+- 新增一个 `contracts/tables/<table>.json`。
+- 新增对应 typed row 和 builder。
+- builder 输出必须通过通用 batch 组装逻辑校验。
+- 测试必须覆盖契约加载、schema 派生、字段顺序和空数据场景。
+- 如果 parser 还不能稳定产出这张表，则不应注册这张表。
 
-原因是 datasource 的目标是数据准确和查询快速。暴露无法由 parser 稳定产出的表，会让 CLI/Web UI/query 层展示空能力，也会误导使用方。
-
-### 5. 依赖保持最小
-
-本 PR 只新增 schema contract 所需依赖：
-
-- `arrow-schema`：构造 Arrow `SchemaRef`。
-- `serde`：反序列化 JSON manifest。
-- `serde_json`：解析内嵌 manifest。
-
-不引入 `arrow-array`、`prost`、`datafusion`，因为 builder、parser、query 还没有进入本 PR。
-
-## 文件职责
-
-- `crates/kat-rs-datasource/crates/trace-model/schema/trace.v1.json`
-  - 保存 JSON schema manifest。
-  - 作为 schema contract 的唯一数据来源。
-
-- `crates/kat-rs-datasource/crates/trace-model/src/manifest.rs`
-  - 定义 manifest 反序列化结构。
-  - 通过 `include_str!` 内嵌 `trace.v1.json`。
-  - 通过 `OnceLock` 懒加载不可变 manifest。
-
-- `crates/kat-rs-datasource/crates/trace-model/src/schema.rs`
-  - 从 manifest 生成 Arrow `SchemaRef`。
-  - 提供 `schema_for_table`。
-
-- `crates/kat-rs-datasource/crates/trace-model/src/tables.rs`
-  - 从 manifest 派生 `table_names`。
-  - 提供 `is_trace_table`。
-
-- `crates/kat-rs-datasource/crates/trace-model/tests/schema_contract.rs`
-  - 验证只暴露 19 张已验证表。
-  - 验证每张表都能查到 schema。
-  - 验证 Arrow schema 与 JSON manifest 逐列一致。
-  - 验证未映射表不会暴露 schema。
+如果业务数据为空但契约存在，模型层返回空 `RecordBatch`。这表示“这张表是系统支持的，只是当前 trace 没有数据”。如果契约不存在，则表示“系统当前不支持这张表”，不应该对外暴露。
 
 ## 验证
 
-本地验证命令：
+本 PR 需要通过：
 
 ```text
 cargo test -p trace-model --locked
 cargo check --workspace --locked
 cargo test --workspace --locked
 git diff --check origin/main...HEAD
+PR guard
 ```
 
-PR guard 验证：
+验证重点：
 
-```text
-python .github/scripts/pr_guard.py --event <event.json> --base origin/main --head HEAD --repo .
-```
+- 只注册 `trace_bounds`。
+- schema 完全由 JSON 契约派生。
+- 未注册表不会返回 schema。
+- builder 输出字段顺序遵循契约。
+- 缺失、额外、类型不匹配字段会失败。
+- 已注册表可以生成空 `RecordBatch`。
 
-预期结果：
+## 后续演进
 
-- trace-model 测试通过。
-- workspace check/test 通过。
-- PR guard 通过。
-- PR diff 不超过 large change 门禁。
-- 未映射表只允许出现在拒绝测试中，不允许出现在生产 schema 或 JSON manifest 中。
-
-## 后续 PR
-
-后续 builder PR 应基于本 contract 实现 RecordBatch builder。parser PR 应只向这些已暴露表写入数据。query/datasource/CLI/Web UI 应只展示 contract 中定义的表，直到真实 trace 证明需要新增更多表。
+PR04 以后不再先上一个庞大的全量 schema，再单独补 builder。每个后续 PR 应该选择一个小的业务表组，例如进程/线程基础表，把契约、builder 和测试一起提交。这样每次入库都是一个可验证、可使用的原子能力。

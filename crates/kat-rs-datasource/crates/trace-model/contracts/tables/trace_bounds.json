@@ -1,0 +1,31 @@
+{
+  "version": "htrace.v1",
+  "name": "trace_bounds",
+  "description": "Trace time range and clock domain.",
+  "columns": [
+    {
+      "name": "trace_id",
+      "data_type": "Utf8",
+      "nullable": false,
+      "description": "Stable trace identifier."
+    },
+    {
+      "name": "start_ts",
+      "data_type": "Int64",
+      "nullable": true,
+      "description": "First observed timestamp in the trace."
+    },
+    {
+      "name": "end_ts",
+      "data_type": "Int64",
+      "nullable": true,
+      "description": "Last observed timestamp in the trace."
+    },
+    {
+      "name": "clock_domain",
+      "data_type": "Utf8",
+      "nullable": false,
+      "description": "Clock domain used by trace timestamps."
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
-pub mod manifest;
-pub mod schema;
+pub mod builders;
+pub mod contract;
 pub mod tables;
 
-pub use manifest::*;
-pub use schema::*;
+pub use builders::*;
+pub use contract::*;
 pub use tables::*;
 
 pub const CRATE_ROLE: &str = "trace table model";

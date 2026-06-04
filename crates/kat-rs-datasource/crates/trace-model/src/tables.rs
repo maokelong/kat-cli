@@ -1,13 +1,28 @@
-use crate::schema_manifest;
+use arrow_array::RecordBatch;
+use std::collections::BTreeMap;
 
-pub fn table_names() -> Vec<&'static str> {
-    schema_manifest()
-        .tables
-        .iter()
-        .map(|table| table.name.as_str())
-        .collect()
+#[derive(Debug, Clone)]
+pub struct TraceTables {
+    pub trace_bounds: RecordBatch,
 }
 
-pub fn is_trace_table(table_name: &str) -> bool {
-    schema_manifest().table(table_name).is_some()
+impl TraceTables {
+    pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
+        BTreeMap::from([("trace_bounds", self.trace_bounds.clone())])
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedTrace {
+    pub trace_id: String,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
+    pub clock_domain: String,
+    pub tables: TraceTables,
+}
+
+impl ParsedTrace {
+    pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
+        self.tables.batches()
+    }
 }
