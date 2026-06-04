@@ -1,29 +1,13 @@
-pub const TRACE_TABLE_NAMES: &[&str] = &[
-    "trace_metadata",
-    "trace_bounds",
-    "process",
-    "thread",
-    "sched_slice",
-    "thread_state",
-    "raw_event",
-    "raw",
-    "instant",
-    "irq",
-    "measure",
-    "measure_filter",
-    "cpu_measure_filter",
-    "dma_fence",
-    "data_dict",
-    "args",
-    "callstack",
-    "process_measure",
-    "process_measure_filter",
-];
+use crate::schema_manifest;
 
-pub fn table_names() -> &'static [&'static str] {
-    TRACE_TABLE_NAMES
+pub fn table_names() -> Vec<&'static str> {
+    schema_manifest()
+        .tables
+        .iter()
+        .map(|table| table.name.as_str())
+        .collect()
 }
 
 pub fn is_trace_table(table_name: &str) -> bool {
-    TRACE_TABLE_NAMES.contains(&table_name)
+    schema_manifest().table(table_name).is_some()
 }
