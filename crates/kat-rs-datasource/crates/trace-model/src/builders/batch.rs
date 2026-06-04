@@ -13,11 +13,13 @@ pub struct TraceColumnArray {
 }
 
 impl TraceColumnArray {
+    /// Creates a named Arrow array for contract-driven batch assembly.
     pub fn new(name: &'static str, array: ArrayRef) -> Self {
         Self { name, array }
     }
 }
 
+/// Builds a RecordBatch by ordering and validating arrays against a table contract.
 pub fn assemble_trace_table_batch(
     table_name: &str,
     columns: Vec<TraceColumnArray>,
@@ -60,6 +62,7 @@ pub fn assemble_trace_table_batch(
     RecordBatch::try_new(schema, ordered)
 }
 
+/// Builds an empty RecordBatch for a registered table contract.
 pub fn empty_trace_table_batch(table_name: &str) -> Result<RecordBatch, ArrowError> {
     let schema = trace_table_schema(table_name)
         .ok_or_else(|| ArrowError::SchemaError(format!("unknown trace table: {table_name}")))?;
@@ -72,6 +75,7 @@ pub fn empty_trace_table_batch(table_name: &str) -> Result<RecordBatch, ArrowErr
     RecordBatch::try_new(schema, columns)
 }
 
+/// Creates an empty Arrow array for a supported contract column type.
 fn empty_array(data_type: &DataType) -> Result<ArrayRef, ArrowError> {
     let array = match data_type {
         DataType::Boolean => Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef,

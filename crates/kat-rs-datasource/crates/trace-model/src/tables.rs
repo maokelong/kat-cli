@@ -7,6 +7,7 @@ pub struct TraceTables {
 }
 
 impl TraceTables {
+    /// Returns the parsed trace batches keyed by table name.
     pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
         BTreeMap::from([("trace_bounds", self.trace_bounds.clone())])
     }
@@ -22,6 +23,7 @@ pub struct ParsedTrace {
 }
 
 impl ParsedTrace {
+    /// Returns the parsed trace tables without exposing the wrapper type.
     pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
         self.tables.batches()
     }

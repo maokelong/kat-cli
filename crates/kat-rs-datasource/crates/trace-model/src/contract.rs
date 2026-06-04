@@ -44,6 +44,7 @@ pub enum TraceColumnType {
 }
 
 impl TraceColumnType {
+    /// Returns the JSON contract spelling for this column type.
     pub fn as_contract_str(self) -> &'static str {
         match self {
             Self::Boolean => "Boolean",
@@ -56,6 +57,7 @@ impl TraceColumnType {
         }
     }
 
+    /// Converts this contract column type into the matching Arrow data type.
     pub fn arrow_data_type(self) -> DataType {
         match self {
             Self::Boolean => DataType::Boolean,
@@ -69,6 +71,7 @@ impl TraceColumnType {
     }
 }
 
+/// Returns all embedded trace table contracts sorted by table name.
 pub fn trace_table_contracts() -> &'static [TraceTableContract] {
     TABLE_CONTRACTS
         .get_or_init(|| {
@@ -81,12 +84,14 @@ pub fn trace_table_contracts() -> &'static [TraceTableContract] {
         .as_slice()
 }
 
+/// Finds the embedded contract for a trace table name.
 pub fn trace_table_contract(table_name: &str) -> Option<&'static TraceTableContract> {
     trace_table_contracts()
         .iter()
         .find(|contract| contract.name == table_name)
 }
 
+/// Returns the registered trace table names in contract order.
 pub fn trace_table_names() -> Vec<&'static str> {
     trace_table_contracts()
         .iter()
@@ -94,14 +99,17 @@ pub fn trace_table_names() -> Vec<&'static str> {
         .collect()
 }
 
+/// Checks whether a trace table is registered in the embedded contracts.
 pub fn is_trace_table(table_name: &str) -> bool {
     trace_table_contract(table_name).is_some()
 }
 
+/// Builds an Arrow schema for a registered trace table.
 pub fn trace_table_schema(table_name: &str) -> Option<SchemaRef> {
     trace_table_contract(table_name).map(schema_from_contract)
 }
 
+/// Recursively reads JSON table contracts from an embedded directory.
 fn collect_contracts(dir: &Dir<'_>, contracts: &mut Vec<TraceTableContract>) {
     for entry in dir.entries() {
         match entry {
@@ -121,6 +129,7 @@ fn collect_contracts(dir: &Dir<'_>, contracts: &mut Vec<TraceTableContract>) {
     }
 }
 
+/// Ensures that embedded table contracts do not define duplicate names.
 fn validate_contract_names(contracts: &[TraceTableContract]) {
     let mut names = BTreeSet::new();
     for contract in contracts {
@@ -132,6 +141,7 @@ fn validate_contract_names(contracts: &[TraceTableContract]) {
     }
 }
 
+/// Derives an Arrow schema from a parsed table contract.
 fn schema_from_contract(contract: &TraceTableContract) -> SchemaRef {
     let fields = contract
         .columns
