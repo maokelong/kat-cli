@@ -63,7 +63,7 @@
 | S1 目标进程定位 | 找到目标进程和主线程候选 | `harmony_process_candidates` |
 | S2 冷启动链路还原 | 搜索 tag、选择 anchors、切阶段 | `harmony_cold_start_path_reconstruction` |
 | S3 Topdown 阶段判断 | 找最大阶段，决定下钻方向 | `harmony_cold_start_phase_breakdown` |
-| S4 任意区间关键路径 | 对最大阶段或指定窗口做关键路径候选分析 | `harmony_process_critical_path_in_range` |
+| S4 任意区间关键路径 | 对最大阶段或指定窗口做关键路径候选查询与筛选 | `harmony_process_critical_path_in_range`, `harmony_critical_path_filter_in_range` |
 | S5 深度归因 | 根据状态分布选择函数热点、调度、阻塞或 IO 分支 | `harmony_main_thread_states_by_phase`, `harmony_callstack_hotspots_by_phase` |
 | S6 小核归因 | 计算关键路径 running 时间在 CPU cluster 的分布 | `harmony_cpu_cluster_mapping`, `harmony_critical_path_cpu_cluster_time` |
 
@@ -156,7 +156,7 @@ harmony_cold_start_phase_breakdown(anchors)
 
 ### S4. 任意区间关键路径下钻
 
-对最大阶段或用户指定时间段运行:
+对最大阶段或用户指定时间段先运行宽口径候选查询:
 
 ```text
 harmony_process_critical_path_in_range(
@@ -168,14 +168,31 @@ harmony_process_critical_path_in_range(
 )
 ```
 
-这个 atomic 是策略里的“通用放大镜”。它回答:
+再运行通用关键路径筛选:
+
+```text
+harmony_critical_path_filter_in_range(
+  target_upid,
+  start_ts,
+  end_ts,
+  seed_scope=main,
+  min_span_ms=1
+)
+```
+
+这两步合起来是策略里的“通用放大镜”。候选查询回答:
 
 - 这段时间目标进程哪些线程有长 span。
 - 哪些线程处于 runnable、blocking、io_wait、sleeping。
 - 哪些线程真正有 CPU running slice。
+
+筛选 atomic 回答:
+
+- 哪些片段最像关键路径，排序分数和置信度是多少。
+- 等待片段是否存在 `waker_utid`，依赖类型是 `sched_wait/waker_edge/io_wait/blocking_wait` 中哪一种。
 - 哪些 `utid` 应进入后续小核时间计算。
 
-输出不直接等于最终关键路径。Strategy 需要按下面规则筛选:
+输出仍不直接等于最终根因。Strategy 需要按下面规则筛选:
 
 - 优先保留与目标主线程相关的长 `callstack`。
 - 如果主线程长时间 `sleeping/blocking/io_wait`，沿 `waker_utid/blocked_function` 找等待来源。

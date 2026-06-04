@@ -377,6 +377,20 @@ steps:
       limit: 120
     save_as: path_candidates
 
+  - id: critical_path_filter
+    type: skill
+    skill: harmony_critical_path_filter_in_range
+    params:
+      target_upid: "${target_upid:-processes.selected_upid}"
+      target_process: "${target_process}"
+      start_ts: "${start_ts}"
+      end_ts: "${end_ts}"
+      seed_scope: "${seed_scope:-main}"
+      seed_utids_csv: "${seed_utids_csv}"
+      min_span_ms: "${min_span_ms}"
+      limit: 80
+    save_as: critical_path
+
   - id: cpu_cluster
     type: skill
     skill: harmony_cpu_cluster_mapping
@@ -386,7 +400,7 @@ steps:
     type: skill
     skill: harmony_critical_path_cpu_cluster_time
     params:
-      path_utids_csv: "${path_candidates.top_utids_csv}"
+      path_utids_csv: "${critical_path.selected_utids_csv}"
       phase_span:
         - phase: "analysis_range"
           start_ts: "${start_ts}"
@@ -397,14 +411,15 @@ steps:
 
 诊断逻辑:
 
-- `path_candidates` 中最长项是 `running_span`: 优先看 callstack 名称和父子关系。
-- 最长项是 `runnable_wait`: 优先查调度延迟、CPU 竞争、优先级和绑核。
-- 最长项是 `blocking_wait/io_wait/sleeping`: 优先沿 `blocked_function` 和 `waker_utid` 追等待链。
+- `path_candidates` 用于保留宽口径证据，`critical_path` 用于确定后续下钻和小核归因的线程集合。
+- `critical_path` 首位项是 `running_span/running_state`: 优先看 callstack 名称、父子关系和真实 `sched_slice`。
+- 首位项是 `runnable_wait`: 优先查调度延迟、CPU 竞争、优先级和绑核。
+- 首位项是 `blocking_wait/io_wait/sleeping`: 优先沿 `blocked_function` 和 `waker_utid` 追等待链。
 - `cluster_time.small_ratio` 高: 进入小核归因；否则不要把慢区间直接归因为小核。
 
 输出:
 
-- 任意时间段的关键路径候选表。
+- 任意时间段的关键路径候选表和筛选后的关键路径表。
 - 候选线程列表和是否主线程。
 - CPU cluster 时间与小核占比。
 - 下一步建议: 函数热点、调度等待、阻塞等待或小核归因。

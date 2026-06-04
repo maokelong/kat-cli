@@ -1,6 +1,6 @@
-# 鸿蒙冷启动分析 8 个 Atomic 能力
+# 鸿蒙冷启动分析 Atomic 能力
 
-本文定义用于鸿蒙 App 冷启动关键路径和小核运行时间分析的 8 个原子能力。每个 atomic 只负责一个可复核的问题，不在 atomic 内做跨问题推理；推理和报告由 composite 完成。
+本文定义用于鸿蒙 App 冷启动关键路径和小核运行时间分析的 atomic 能力。每个 atomic 只负责一个可复核的问题，不在 atomic 内做跨问题推理；推理和报告由 composite 完成。
 
 适配对象:
 
@@ -971,3 +971,321 @@ LIMIT ${limit};
 - 如果最大候选主要来自 `thread_state/runnable_wait`，composite 应进入调度延迟和 CPU 竞争分析。
 - 如果最大候选主要来自 `thread_state/blocking_wait/io_wait/sleeping`，composite 应沿 `blocked_function/waker_utid` 追等待链。
 - 如果要计算小核时间，应把该 atomic 输出的 `utid` 候选传给 `harmony_critical_path_cpu_cluster_time`，而不是只看目标进程总 CPU 时间。
+
+## 10. harmony_critical_path_filter_in_range
+
+```yaml
+name: harmony_critical_path_filter_in_range
+version: "1.0"
+type: atomic
+category: harmony_startup
+tier: A
+```
+
+目的: 在任意时间段内，对目标进程的关键路径候选做通用筛选和确定性排序。它不负责寻找冷启动 tag，也不直接生成根因结论；它只回答“在这个窗口里，哪些线程片段最像关键路径，证据类型是什么，是否存在明确等待/唤醒依赖”。
+
+与 `harmony_process_critical_path_in_range` 的关系:
+
+- `harmony_process_critical_path_in_range` 是宽口径候选查询，负责把 callstack、thread_state、sched_slice 拉全。
+- `harmony_critical_path_filter_in_range` 是筛选 atomic，负责按主线程/种子线程、状态类型、窗口覆盖率、等待/唤醒关系、真实 CPU running 证据排序。
+- 如果只想快速看“有哪些可疑长片段”，先用候选查询即可；如果要进入批量重放和小核归因，应使用本 atomic 的输出作为关键路径线程集合。
+
+输入:
+
+- `target_upid`: 目标进程 `upid`，推荐必填。
+- `target_pid`: 可选，目标系统 pid；当 `target_upid` 缺失时使用。
+- `target_process`: 可选，目标进程名关键词；当 id 缺失时使用。
+- `start_ts`: 查询窗口开始时间，必填。
+- `end_ts`: 查询窗口结束时间，必填。
+- `seed_scope`: `main/all/explicit`，默认 `main`。`main` 表示优先筛选目标进程主线程；`all` 表示目标进程所有线程；`explicit` 表示只看 `seed_utids_csv`。
+- `seed_utids_csv`: 可选，显式关键路径种子线程，例如从启动链路、等待链或人工确认结果传入的 `utid` 列表。
+- `min_span_ms`: 最小片段时长，默认 1 ms。
+- `limit`: 输出行数，默认 80。
+
+输出字段:
+
+| 字段 | 含义 |
+| --- | --- |
+| `filter_rank` | 按确定性分数排序后的筛选排名 |
+| `score` | 筛选分数，综合状态权重、依赖证据、窗口覆盖率和主线程权重 |
+| `confidence` | `high/medium/supporting/low` |
+| `evidence_source` | `thread_state/callstack/sched_slice` |
+| `path_kind` | `running_span/running_state/runnable_wait/blocking_wait/io_wait/sleeping/cpu_running` |
+| `dependency_kind` | `self_running/sched_wait/waker_edge/blocking_wait/io_wait/unknown_wait/supporting_cpu` |
+| `path_role` | `seed_execution/seed_wait/seed_cpu` |
+| `ts` / `end_ts` | 与查询窗口裁剪后的时间范围 |
+| `dur_ns` / `dur_ms` | 裁剪后的持续时间 |
+| `coverage_ratio` | 该片段覆盖查询窗口的比例 |
+| `upid` / `pid` / `process_name` | 目标进程归属 |
+| `utid` / `tid` / `thread_name` / `is_main` | 当前线程归属 |
+| `span_name` | callstack span 名称 |
+| `state` / `io_wait` / `blocked_function` | 等待或运行状态证据 |
+| `waker_utid` / `waker_tid` / `waker_thread_name` / `waker_process_name` | 唤醒方证据，若 trace 中可用 |
+| `cpu` | 真实 running slice 所在 CPU |
+| `reason` | 被筛选入关键路径候选的原因 |
+
+派生输出:
+
+- `selected_utids_csv`: 建议由执行器从 `filter_rank <= N` 且 `confidence in ('high', 'medium')` 的行中去重提取 `utid`，并在存在 `waker_utid` 时按策略追加唤醒方 `utid`。
+- `selected_reason`: 记录选择这些 `utid` 的阈值，例如 `rank<=5, confidence>=medium`，便于批量重放审计。
+
+核心 SQL:
+
+```sql
+WITH target_threads AS (
+  SELECT
+    p.upid,
+    p.pid,
+    p.name AS process_name,
+    t.utid,
+    t.tid,
+    t.name AS thread_name,
+    t.is_main
+  FROM process p
+  JOIN thread t ON t.upid = p.upid
+  WHERE (
+      p.upid = ${target_upid}
+      OR p.pid = ${target_pid}
+      OR lower(coalesce(p.name, '')) LIKE lower('%${target_process}%')
+    )
+),
+seed_threads AS (
+  SELECT *
+  FROM target_threads
+  WHERE (
+      '${seed_scope}' = 'all'
+      OR ('${seed_scope}' = 'main' AND is_main = true)
+      OR ('${seed_scope}' = 'explicit' AND utid IN (${seed_utids_csv}))
+    )
+),
+state_candidates AS (
+  SELECT
+    'thread_state' AS evidence_source,
+    CASE
+      WHEN st.state = 'running' THEN 'running_state'
+      WHEN st.state = 'runnable' THEN 'runnable_wait'
+      WHEN st.io_wait = true THEN 'io_wait'
+      WHEN st.state = 'uninterruptible' THEN 'blocking_wait'
+      ELSE 'sleeping'
+    END AS path_kind,
+    CASE
+      WHEN st.state = 'running' THEN 'self_running'
+      WHEN st.state = 'runnable' THEN 'sched_wait'
+      WHEN st.io_wait = true THEN 'io_wait'
+      WHEN st.waker_utid IS NOT NULL THEN 'waker_edge'
+      WHEN st.state = 'uninterruptible' THEN 'blocking_wait'
+      ELSE 'unknown_wait'
+    END AS dependency_kind,
+    CASE
+      WHEN st.state = 'running' THEN 'seed_execution'
+      ELSE 'seed_wait'
+    END AS path_role,
+    CASE WHEN st.ts > ${start_ts} THEN st.ts ELSE ${start_ts} END AS ts,
+    CASE
+      WHEN st.ts + coalesce(st.dur, ${end_ts} - st.ts) < ${end_ts}
+      THEN st.ts + coalesce(st.dur, ${end_ts} - st.ts)
+      ELSE ${end_ts}
+    END AS end_ts,
+    seed.upid,
+    seed.pid,
+    seed.process_name,
+    seed.utid,
+    seed.tid,
+    seed.thread_name,
+    seed.is_main,
+    CAST(NULL AS VARCHAR) AS span_name,
+    st.state,
+    st.io_wait,
+    st.blocked_function,
+    CAST(st.waker_utid AS BIGINT) AS waker_utid,
+    CAST(wt.tid AS BIGINT) AS waker_tid,
+    wt.name AS waker_thread_name,
+    wp.name AS waker_process_name,
+    CAST(NULL AS BIGINT) AS cpu,
+    CAST(NULL AS BIGINT) AS depth,
+    CAST(NULL AS BIGINT) AS parent_id,
+    CASE
+      WHEN st.state = 'runnable' THEN 95
+      WHEN st.io_wait = true THEN 92
+      WHEN st.waker_utid IS NOT NULL THEN 90
+      WHEN st.state = 'uninterruptible' THEN 88
+      WHEN st.state = 'running' THEN 82
+      ELSE 55
+    END AS state_weight,
+    CASE
+      WHEN st.waker_utid IS NOT NULL THEN 20
+      WHEN st.state = 'runnable' THEN 15
+      WHEN st.io_wait = true OR st.state = 'uninterruptible' THEN 12
+      ELSE 0
+    END AS dependency_weight,
+    'seed thread state overlaps target range' AS reason
+  FROM thread_state st
+  JOIN seed_threads seed ON st.utid = seed.utid
+  LEFT JOIN thread wt ON wt.utid = st.waker_utid
+  LEFT JOIN process wp ON wp.upid = wt.upid
+  WHERE st.ts < ${end_ts}
+    AND st.ts + coalesce(st.dur, ${end_ts} - st.ts) > ${start_ts}
+    AND coalesce(st.dur, 0) >= ${min_span_ms} * 1000000
+),
+callstack_candidates AS (
+  SELECT
+    'callstack' AS evidence_source,
+    'running_span' AS path_kind,
+    'self_running' AS dependency_kind,
+    'seed_execution' AS path_role,
+    CASE WHEN cs.ts > ${start_ts} THEN cs.ts ELSE ${start_ts} END AS ts,
+    CASE
+      WHEN cs.ts + coalesce(cs.dur, ${end_ts} - cs.ts) < ${end_ts}
+      THEN cs.ts + coalesce(cs.dur, ${end_ts} - cs.ts)
+      ELSE ${end_ts}
+    END AS end_ts,
+    seed.upid,
+    seed.pid,
+    seed.process_name,
+    seed.utid,
+    seed.tid,
+    seed.thread_name,
+    seed.is_main,
+    cs.name AS span_name,
+    CAST(NULL AS VARCHAR) AS state,
+    CAST(NULL AS BOOLEAN) AS io_wait,
+    CAST(NULL AS VARCHAR) AS blocked_function,
+    CAST(NULL AS BIGINT) AS waker_utid,
+    CAST(NULL AS BIGINT) AS waker_tid,
+    CAST(NULL AS VARCHAR) AS waker_thread_name,
+    CAST(NULL AS VARCHAR) AS waker_process_name,
+    CAST(NULL AS BIGINT) AS cpu,
+    cs.depth,
+    cs.parent_id,
+    75 AS state_weight,
+    0 AS dependency_weight,
+    'long callstack span on seed thread overlaps target range' AS reason
+  FROM callstack cs
+  JOIN seed_threads seed ON cs.callid = seed.utid OR cs.callid = seed.tid
+  WHERE cs.ts < ${end_ts}
+    AND cs.ts + coalesce(cs.dur, ${end_ts} - cs.ts) > ${start_ts}
+    AND coalesce(cs.dur, 0) >= ${min_span_ms} * 1000000
+),
+sched_candidates AS (
+  SELECT
+    'sched_slice' AS evidence_source,
+    'cpu_running' AS path_kind,
+    'supporting_cpu' AS dependency_kind,
+    'seed_cpu' AS path_role,
+    CASE WHEN s.ts > ${start_ts} THEN s.ts ELSE ${start_ts} END AS ts,
+    CASE
+      WHEN s.ts + coalesce(s.dur, ${end_ts} - s.ts) < ${end_ts}
+      THEN s.ts + coalesce(s.dur, ${end_ts} - s.ts)
+      ELSE ${end_ts}
+    END AS end_ts,
+    seed.upid,
+    seed.pid,
+    seed.process_name,
+    seed.utid,
+    seed.tid,
+    seed.thread_name,
+    seed.is_main,
+    CAST(NULL AS VARCHAR) AS span_name,
+    CAST(NULL AS VARCHAR) AS state,
+    CAST(NULL AS BOOLEAN) AS io_wait,
+    CAST(NULL AS VARCHAR) AS blocked_function,
+    CAST(NULL AS BIGINT) AS waker_utid,
+    CAST(NULL AS BIGINT) AS waker_tid,
+    CAST(NULL AS VARCHAR) AS waker_thread_name,
+    CAST(NULL AS VARCHAR) AS waker_process_name,
+    CAST(s.cpu AS BIGINT) AS cpu,
+    CAST(NULL AS BIGINT) AS depth,
+    CAST(NULL AS BIGINT) AS parent_id,
+    60 AS state_weight,
+    0 AS dependency_weight,
+    'actual CPU running slice supports execution evidence' AS reason
+  FROM sched_slice s
+  JOIN seed_threads seed ON s.utid = seed.utid
+  WHERE s.ts < ${end_ts}
+    AND s.ts + coalesce(s.dur, ${end_ts} - s.ts) > ${start_ts}
+    AND coalesce(s.dur, 0) >= ${min_span_ms} * 1000000
+),
+merged AS (
+  SELECT * FROM state_candidates
+  UNION ALL
+  SELECT * FROM callstack_candidates
+  UNION ALL
+  SELECT * FROM sched_candidates
+),
+scored AS (
+  SELECT
+    evidence_source,
+    path_kind,
+    dependency_kind,
+    path_role,
+    ts,
+    end_ts,
+    end_ts - ts AS dur_ns,
+    (end_ts - ts) / 1000000.0 AS dur_ms,
+    CASE
+      WHEN ${end_ts} > ${start_ts}
+      THEN CAST(end_ts - ts AS DOUBLE) / CAST(${end_ts} - ${start_ts} AS DOUBLE)
+      ELSE 0.0
+    END AS coverage_ratio,
+    upid,
+    pid,
+    process_name,
+    utid,
+    tid,
+    thread_name,
+    is_main,
+    span_name,
+    state,
+    io_wait,
+    blocked_function,
+    waker_utid,
+    waker_tid,
+    waker_thread_name,
+    waker_process_name,
+    cpu,
+    depth,
+    parent_id,
+    state_weight,
+    dependency_weight,
+    state_weight
+      + dependency_weight
+      + CASE WHEN is_main = true THEN 10 ELSE 0 END
+      + CASE
+          WHEN ${end_ts} > ${start_ts}
+          THEN 100.0 * CAST(end_ts - ts AS DOUBLE) / CAST(${end_ts} - ${start_ts} AS DOUBLE)
+          ELSE 0.0
+        END AS score,
+    CASE
+      WHEN waker_utid IS NOT NULL THEN 'high'
+      WHEN dependency_kind = 'waker_edge' THEN 'high'
+      WHEN path_kind IN ('runnable_wait', 'blocking_wait', 'io_wait') THEN 'medium'
+      WHEN evidence_source = 'callstack' THEN 'medium'
+      WHEN evidence_source = 'sched_slice' THEN 'supporting'
+      ELSE 'low'
+    END AS confidence,
+    reason
+  FROM merged
+  WHERE end_ts > ts
+),
+ranked AS (
+  SELECT
+    ROW_NUMBER() OVER (ORDER BY score DESC, dur_ns DESC, ts ASC) AS filter_rank,
+    *
+  FROM scored
+)
+SELECT *
+FROM ranked
+ORDER BY filter_rank
+LIMIT ${limit};
+```
+
+判定规则:
+
+- 如果 `target_upid/target_pid/target_process/seed_utids_csv` 某项为空，生成实现时应移除对应条件，尤其要避免生成 `utid IN ()`。
+- 这是“关键路径筛选”atomic，不是“因果闭环证明”atomic。它可以使用 `waker_utid` 建立等待/唤醒边，但如果 trace 缺少更细的 Binder、锁或 futex 关系，只能输出 `unknown_wait` 或 `blocking_wait`。
+- 主线程冷启动默认使用 `seed_scope=main`；如果 composite 已经识别出跨线程等待链，应把这些 `utid` 放入 `seed_utids_csv`，并使用 `seed_scope=explicit` 重放。
+- `thread_state` 的等待证据优先级高于单纯 callstack 长片段。一个很长的 callstack span 只能说明“这段函数栈覆盖窗口”，不能单独证明它在持续执行。
+- `runnable_wait` 表示线程已经可运行但未获得 CPU，下一步应进入调度延迟、CPU 竞争、优先级、绑核或小核策略分析。
+- `waker_edge` 表示存在明确唤醒方，应把 `utid` 和 `waker_utid` 一起传给后续 composite 追跨线程关键路径。
+- `sched_slice` 行是实际 CPU running 支撑证据，适合用于小核时间计算；不要用 `thread_state.running` 代替小核 running 时间。
+- 批量重放时，应固化 `filter_rank <= N`、`confidence in ('high', 'medium')`、`coverage_ratio` 和 `dependency_kind` 的阈值，避免每条 trace 临场改口径。
