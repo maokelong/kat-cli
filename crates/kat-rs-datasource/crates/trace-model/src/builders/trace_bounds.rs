@@ -16,12 +16,12 @@ pub struct TraceBoundsBuilder {
 }
 
 impl TraceBoundsBuilder {
-    /// Appends one typed trace bounds row to the pending batch.
+    /// 向待构建批数据追加一行类型化 trace bounds 数据。
     pub fn push(&mut self, row: TraceBoundsRow) {
         self.rows.push(row);
     }
 
-    /// Converts all pending trace bounds rows into a contract-validated RecordBatch.
+    /// 将所有待处理 trace bounds 行转换为经过契约校验的 RecordBatch。
     pub fn finish(self) -> ModelResult<RecordBatch> {
         let rows = self.rows;
         assemble_trace_table_batch(

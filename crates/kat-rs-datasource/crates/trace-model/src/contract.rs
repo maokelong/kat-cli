@@ -44,7 +44,7 @@ pub enum TraceColumnType {
 }
 
 impl TraceColumnType {
-    /// Returns the JSON contract spelling for this column type.
+    /// 返回该字段类型在 JSON 契约中的写法。
     pub fn as_contract_str(self) -> &'static str {
         match self {
             Self::Boolean => "Boolean",
@@ -57,7 +57,7 @@ impl TraceColumnType {
         }
     }
 
-    /// Converts this contract column type into the matching Arrow data type.
+    /// 将契约字段类型转换为对应的 Arrow 数据类型。
     pub fn arrow_data_type(self) -> DataType {
         match self {
             Self::Boolean => DataType::Boolean,
@@ -71,7 +71,7 @@ impl TraceColumnType {
     }
 }
 
-/// Returns all embedded trace table contracts sorted by table name.
+/// 返回按表名排序后的所有内嵌 trace 表契约。
 pub fn trace_table_contracts() -> &'static [TraceTableContract] {
     TABLE_CONTRACTS
         .get_or_init(|| {
@@ -84,14 +84,14 @@ pub fn trace_table_contracts() -> &'static [TraceTableContract] {
         .as_slice()
 }
 
-/// Finds the embedded contract for a trace table name.
+/// 按 trace 表名查找对应的内嵌表契约。
 pub fn trace_table_contract(table_name: &str) -> Option<&'static TraceTableContract> {
     trace_table_contracts()
         .iter()
         .find(|contract| contract.name == table_name)
 }
 
-/// Returns the registered trace table names in contract order.
+/// 返回已注册的 trace 表名列表。
 pub fn trace_table_names() -> Vec<&'static str> {
     trace_table_contracts()
         .iter()
@@ -99,17 +99,17 @@ pub fn trace_table_names() -> Vec<&'static str> {
         .collect()
 }
 
-/// Checks whether a trace table is registered in the embedded contracts.
+/// 检查指定 trace 表是否已经在内嵌契约中注册。
 pub fn is_trace_table(table_name: &str) -> bool {
     trace_table_contract(table_name).is_some()
 }
 
-/// Builds an Arrow schema for a registered trace table.
+/// 为已注册的 trace 表构建 Arrow schema。
 pub fn trace_table_schema(table_name: &str) -> Option<SchemaRef> {
     trace_table_contract(table_name).map(schema_from_contract)
 }
 
-/// Recursively reads JSON table contracts from an embedded directory.
+/// 递归读取内嵌目录中的 JSON 表契约。
 fn collect_contracts(dir: &Dir<'_>, contracts: &mut Vec<TraceTableContract>) {
     for entry in dir.entries() {
         match entry {
@@ -129,7 +129,7 @@ fn collect_contracts(dir: &Dir<'_>, contracts: &mut Vec<TraceTableContract>) {
     }
 }
 
-/// Ensures that embedded table contracts do not define duplicate names.
+/// 校验内嵌表契约中不存在重复表名。
 fn validate_contract_names(contracts: &[TraceTableContract]) {
     let mut names = BTreeSet::new();
     for contract in contracts {
@@ -141,7 +141,7 @@ fn validate_contract_names(contracts: &[TraceTableContract]) {
     }
 }
 
-/// Derives an Arrow schema from a parsed table contract.
+/// 根据解析后的表契约派生 Arrow schema。
 fn schema_from_contract(contract: &TraceTableContract) -> SchemaRef {
     let fields = contract
         .columns

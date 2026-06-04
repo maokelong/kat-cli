@@ -7,7 +7,7 @@ pub struct TraceTables {
 }
 
 impl TraceTables {
-    /// Returns the parsed trace batches keyed by table name.
+    /// 返回按表名索引的已解析 trace 批数据。
     pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
         BTreeMap::from([("trace_bounds", self.trace_bounds.clone())])
     }
@@ -23,7 +23,7 @@ pub struct ParsedTrace {
 }
 
 impl ParsedTrace {
-    /// Returns the parsed trace tables without exposing the wrapper type.
+    /// 返回当前 parsed trace 内部的所有表数据。
     pub fn batches(&self) -> BTreeMap<&'static str, RecordBatch> {
         self.tables.batches()
     }
