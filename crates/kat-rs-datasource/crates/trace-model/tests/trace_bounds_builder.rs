@@ -1,7 +1,7 @@
 use arrow_array::{ArrayRef, Int64Array, StringArray};
 use trace_model::{
-    assemble_trace_table_batch, empty_trace_table_batch, trace_table_schema, TraceBoundsBuilder,
-    TraceBoundsRow, TraceColumnArray,
+    assemble_trace_table_batch, trace_table_schema, TraceBoundsBuilder, TraceBoundsRow,
+    TraceColumnArray, TraceTables,
 };
 
 use std::sync::Arc;
@@ -16,19 +16,81 @@ fn builds_trace_bounds_batch_from_typed_rows() {
         clock_domain: "boottime".to_string(),
     });
 
-    let batch = builder.finish().expect("trace_bounds batch builds");
+    let batch = builder
+        .finish()
+        .expect("trace_bounds builder succeeds")
+        .expect("trace_bounds batch exists");
 
     assert_eq!(batch.num_rows(), 1);
     assert_eq!(batch.schema(), trace_table_schema("trace_bounds").unwrap());
 }
 
 #[test]
-fn builds_empty_batch_from_contract_without_business_rows() {
-    let batch = empty_trace_table_batch("trace_bounds").expect("empty batch builds");
+fn skips_trace_bounds_batch_when_builder_has_no_rows() {
+    let builder = TraceBoundsBuilder::default();
+    let batch = builder.finish().expect("trace_bounds builder succeeds");
 
-    assert_eq!(batch.num_rows(), 0);
-    assert_eq!(batch.num_columns(), 4);
-    assert_eq!(batch.schema(), trace_table_schema("trace_bounds").unwrap());
+    assert!(batch.is_none());
+}
+
+#[test]
+fn trace_tables_only_keep_non_empty_batches() {
+    let batch = assemble_trace_table_batch(
+        "trace_bounds",
+        vec![
+            TraceColumnArray::new(
+                "trace_id",
+                Arc::new(StringArray::from(vec!["trace:test"])) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "start_ts",
+                Arc::new(Int64Array::from(vec![Some(100)])) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "end_ts",
+                Arc::new(Int64Array::from(vec![Some(200)])) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "clock_domain",
+                Arc::new(StringArray::from(vec!["boottime"])) as ArrayRef,
+            ),
+        ],
+    )
+    .expect("batch with rows can be assembled");
+    let mut tables = TraceTables::default();
+
+    tables.insert("trace_bounds", batch);
+
+    assert_eq!(tables.batches().len(), 1);
+    assert!(tables.get("trace_bounds").is_some());
+}
+
+#[test]
+fn rejects_zero_row_trace_batches() {
+    let err = assemble_trace_table_batch(
+        "trace_bounds",
+        vec![
+            TraceColumnArray::new(
+                "trace_id",
+                Arc::new(StringArray::from(Vec::<&str>::new())) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "start_ts",
+                Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "end_ts",
+                Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef,
+            ),
+            TraceColumnArray::new(
+                "clock_domain",
+                Arc::new(StringArray::from(Vec::<&str>::new())) as ArrayRef,
+            ),
+        ],
+    )
+    .expect_err("zero-row batch should not be generated");
+
+    assert!(err.to_string().contains("has no rows"));
 }
 
 #[test]

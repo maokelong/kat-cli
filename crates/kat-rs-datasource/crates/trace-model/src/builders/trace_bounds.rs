@@ -21,10 +21,14 @@ impl TraceBoundsBuilder {
         self.rows.push(row);
     }
 
-    /// 将所有待处理 trace bounds 行转换为经过契约校验的 RecordBatch。
-    pub fn finish(self) -> ModelResult<RecordBatch> {
+    /// 将待处理 trace bounds 行转换为经过契约校验的可选 RecordBatch。
+    pub fn finish(self) -> ModelResult<Option<RecordBatch>> {
         let rows = self.rows;
-        assemble_trace_table_batch(
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let batch = assemble_trace_table_batch(
             "trace_bounds",
             vec![
                 TraceColumnArray::new(
@@ -49,6 +53,8 @@ impl TraceBoundsBuilder {
                     )) as ArrayRef,
                 ),
             ],
-        )
+        )?;
+
+        Ok(Some(batch))
     }
 }

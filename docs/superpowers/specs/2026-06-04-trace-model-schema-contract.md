@@ -13,7 +13,7 @@
 - 支持 `contracts/tables/**/*.json` 的匹配式注册，避免维护集中式表清单。
 - 由契约动态派生 Arrow `SchemaRef`，不在 Rust 代码里重复字段契约。
 - builder 只负责 typed row 到 Arrow array 的业务数据转换。
-- 即使某张已注册表没有业务数据，也能根据契约生成空 `RecordBatch`。
+- 结果中只包含真实有行数据的表，无数据的注册表不生成 `RecordBatch`。
 - 不引入 parser、query、Web UI 或非 protobuf trace 格式能力。
 
 ## 非目标
@@ -79,7 +79,7 @@ crates/kat-rs-datasource/crates/trace-model/
 - `builders/batch.rs`
   - 提供契约驱动的通用 `RecordBatch` 组装能力。
   - 根据表契约校验字段缺失、额外字段、重复字段和类型不匹配。
-  - 支持按契约创建空表 batch。
+  - 拒绝 0 行 `RecordBatch`，空数据由上层 builder 直接跳过。
 - `builders/trace_bounds.rs`
   - 定义 `trace_bounds` 的 typed row 和 builder。
   - 只保留业务数据到 Arrow array 的转换逻辑。
@@ -94,7 +94,7 @@ crates/kat-rs-datasource/crates/trace-model/
 - 测试必须覆盖契约加载、schema 派生、字段顺序和空数据场景。
 - 如果 parser 还不能稳定产出这张表，则不应注册这张表。
 
-如果业务数据为空但契约存在，模型层返回空 `RecordBatch`。这表示“这张表是系统支持的，只是当前 trace 没有数据”。如果契约不存在，则表示“系统当前不支持这张表”，不应该对外暴露。
+如果业务数据为空但契约存在，模型层不返回这张表。这表示“系统支持这张表，但当前 trace 没有数据”。如果契约不存在，则表示“系统当前不支持这张表”，不应该对外暴露。
 
 ## 验证
 
@@ -115,7 +115,8 @@ PR guard
 - 未注册表不会返回 schema。
 - builder 输出字段顺序遵循契约。
 - 缺失、额外、类型不匹配字段会失败。
-- 已注册表可以生成空 `RecordBatch`。
+- 0 行 batch 组装会失败。
+- 已注册表没有业务数据时不会进入结果集合。
 
 ## 后续演进
 
