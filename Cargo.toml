@@ -4,6 +4,7 @@ members = [
     "crates/kat-rs-datasource",
     "crates/kat-rs-datasource/crates/htrace-proto",
     "crates/kat-rs-datasource/crates/trace-arrow",
+    "crates/kat-rs-datasource/crates/trace-htrace",
     "crates/kat-rs-datasource/crates/trace-model",
     "crates/kat-rs-datasource/crates/trace-parser",
     "crates/kat-rs-datasource/crates/trace-query",
@@ -20,6 +21,7 @@ version = "0.1.0"
 anyhow = "1.0"
 arrow-array = "58.0.0"
 arrow-schema = "58.0.0"
+heck = "0.5"
 prost = "0.14"
 prost-build = "0.14"
 prost-reflect = "0.16"

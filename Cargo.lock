@@ -737,6 +737,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "trace-htrace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "heck",
+ "htrace-proto",
+ "prost",
+ "prost-reflect",
+ "trace-arrow",
+]
+
+[[package]]
 name = "trace-model"
 version = "0.1.0"
 
