@@ -2,7 +2,7 @@ use prost::Message;
 use trace_htrace::{parse_bytes, table_specs};
 
 #[test]
-fn generated_specs_include_htrace_tables() {
+fn table_specs_include_htrace_tables() {
     let names = table_specs()
         .iter()
         .map(|table| table.name)

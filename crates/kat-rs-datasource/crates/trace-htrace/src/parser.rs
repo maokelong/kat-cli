@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use prost_reflect::{DescriptorPool, DynamicMessage, Value};
 use trace_arrow::{build_table, TraceDataset};
 
-use crate::generated_specs::table_specs;
+use crate::table_specs::table_specs;
 
 const ROOT_MESSAGE: &str = "kat.htrace.HtraceTrace";
 
