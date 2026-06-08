@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package kat.htrace;
+
+message HtraceTrace {
+  repeated ProcessEvent process_events = 1;
+  repeated CounterEvent counter_events = 2;
+}
+
+message ProcessEvent {
+  uint64 timestamp_ns = 1;
+  uint32 pid = 2;
+  string process_name = 3;
+}
+
+message CounterEvent {
+  uint64 timestamp_ns = 1;
+  string name = 2;
+  int64 value = 3;
+}

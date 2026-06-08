@@ -2,6 +2,8 @@
 members = [
     "crates/kat-rs-cli",
     "crates/kat-rs-datasource",
+    "crates/kat-rs-datasource/crates/htrace-proto",
+    "crates/kat-rs-datasource/crates/trace-arrow",
     "crates/kat-rs-datasource/crates/trace-model",
     "crates/kat-rs-datasource/crates/trace-parser",
     "crates/kat-rs-datasource/crates/trace-query",
@@ -13,3 +15,12 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0"
+arrow-array = "58.0.0"
+arrow-schema = "58.0.0"
+prost = "0.14"
+prost-build = "0.14"
+prost-reflect = "0.16"
+protoc-bin-vendored = "3.2"
