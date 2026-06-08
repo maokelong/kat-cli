@@ -6,6 +6,18 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+arrow-array.workspace = true
+arrow-schema.workspace = true
+datafusion.workspace = true
 trace-model = { path = "crates/trace-model" }
 trace-parser = { path = "crates/trace-parser" }
 trace-query = { path = "crates/trace-query" }
+trace-arrow = { path = "crates/trace-arrow" }
+trace-htrace = { path = "crates/trace-htrace" }
+
+[dev-dependencies]
+htrace-proto = { path = "crates/htrace-proto" }
+prost.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
