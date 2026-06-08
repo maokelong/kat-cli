@@ -4,7 +4,7 @@
 
 日期：2026-06-05
 
-来源：`doc/architecture/2026-06-05-harmony-trace-analysis-system-design.md`
+来源：`docs/architecture/2026-06-05-harmony-trace-analysis-system-design.md`
 
 用途：
 
@@ -195,7 +195,7 @@ LLM 负责解释事实。
 
 新增普通分析能力时，优先新增或修改 atomic/composite YAML。只有新增通用 transform operator 时才改 Rust。
 
-4+1 架构视图已独立维护在：`doc/architecture/2026-06-05-harmony-trace-analysis-system-4plus1-view.md`。
+4+1 架构视图已独立维护在：`docs/architecture/2026-06-05-harmony-trace-analysis-system-4plus1-view.md`。
 
 ## 4. Analysis Workspace 与 Checklist 协议
 
