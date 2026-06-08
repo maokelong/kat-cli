@@ -20,7 +20,7 @@ pub fn parse(path: impl AsRef<Path>) -> Result<TraceDataset> {
 
 /// 从内存 bytes 解析 htrace protobuf，并构建 TraceDataset。
 pub fn parse_bytes(bytes: &[u8]) -> Result<TraceDataset> {
-    let pool = DescriptorPool::decode(htrace_proto::FILE_DESCRIPTOR_SET)
+    let pool = DescriptorPool::decode(trace_proto::FILE_DESCRIPTOR_SET)
         .context("failed to decode htrace descriptor set")?;
     let root_descriptor = pool
         .get_message_by_name(ROOT_MESSAGE)

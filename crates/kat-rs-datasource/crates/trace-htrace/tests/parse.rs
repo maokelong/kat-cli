@@ -13,13 +13,13 @@ fn table_specs_include_htrace_tables() {
 
 #[test]
 fn parse_bytes_returns_dataset_with_non_empty_tables() {
-    let trace = htrace_proto::kat::htrace::HtraceTrace {
-        process_events: vec![htrace_proto::kat::htrace::ProcessEvent {
+    let trace = trace_proto::kat::htrace::HtraceTrace {
+        process_events: vec![trace_proto::kat::htrace::ProcessEvent {
             timestamp_ns: 10,
             pid: 42,
             process_name: "wechat".to_string(),
         }],
-        counter_events: vec![htrace_proto::kat::htrace::CounterEvent {
+        counter_events: vec![trace_proto::kat::htrace::CounterEvent {
             timestamp_ns: 11,
             name: "rss".to_string(),
             value: 4096,

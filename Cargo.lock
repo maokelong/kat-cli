@@ -1332,15 +1332,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "htrace-proto"
-version = "0.1.0"
-dependencies = [
- "prost",
- "prost-build",
- "protoc-bin-vendored",
-]
-
-[[package]]
 name = "http"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1543,7 +1534,6 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "datafusion",
- "htrace-proto",
  "prost",
  "tempfile",
  "tokio",
@@ -1551,6 +1541,7 @@ dependencies = [
  "trace-htrace",
  "trace-model",
  "trace-parser",
+ "trace-proto",
  "trace-query",
 ]
 
@@ -2359,10 +2350,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "heck",
- "htrace-proto",
  "prost",
  "prost-reflect",
  "trace-arrow",
+ "trace-proto",
 ]
 
 [[package]]
@@ -2374,6 +2365,15 @@ name = "trace-parser"
 version = "0.1.0"
 dependencies = [
  "trace-model",
+]
+
+[[package]]
+name = "trace-proto"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "protoc-bin-vendored",
 ]
 
 [[package]]

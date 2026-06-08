@@ -17,7 +17,7 @@ trace-arrow = { path = "crates/trace-arrow" }
 trace-htrace = { path = "crates/trace-htrace" }
 
 [dev-dependencies]
-htrace-proto = { path = "crates/htrace-proto" }
+trace-proto = { path = "crates/trace-proto" }
 prost.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

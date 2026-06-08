@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 /// 读取 htrace descriptor，并生成表/列映射实例。
 fn main() {
-    println!("cargo:rerun-if-changed=../htrace-proto/proto/htrace.proto");
+    println!("cargo:rerun-if-changed=../trace-proto/proto/htrace.proto");
 
-    let pool = prost_reflect::DescriptorPool::decode(htrace_proto::FILE_DESCRIPTOR_SET)
+    let pool = prost_reflect::DescriptorPool::decode(trace_proto::FILE_DESCRIPTOR_SET)
         .expect("htrace descriptor set decodes");
     let root = pool
         .get_message_by_name("kat.htrace.HtraceTrace")

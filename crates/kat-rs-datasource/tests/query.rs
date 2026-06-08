@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use arrow_array::{RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Field, Schema};
-use htrace_proto::kat::htrace::{HtraceTrace, ProcessEvent};
 use kat_rs_datasource::{DataFusionQuery, QueryRequest, TraceDatasource};
 use prost::Message;
 use tempfile::NamedTempFile;
 use trace_arrow::{ArrowTable, TraceDataset};
+use trace_proto::kat::htrace::{HtraceTrace, ProcessEvent};
 
 #[tokio::test]
 async fn datafusion_query_counts_registered_dataset_table() {

@@ -7,14 +7,14 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-htrace-proto = { path = "../htrace-proto" }
+trace-proto = { path = "../trace-proto" }
 prost.workspace = true
 prost-reflect.workspace = true
 trace-arrow = { path = "../trace-arrow" }
 
 [build-dependencies]
 heck.workspace = true
-htrace-proto = { path = "../htrace-proto" }
+trace-proto = { path = "../trace-proto" }
 prost-reflect.workspace = true
 
 [dev-dependencies]
