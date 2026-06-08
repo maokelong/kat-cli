@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package kat.hitrace;
+
+message HitraceTrace {
+  repeated HitraceEvent events = 1;
+}
+
+message HitraceEvent {
+  uint64 timestamp_ns = 1;
+  int32 pid = 2;
+  int32 tid = 3;
+  string tag = 4;
+  string message = 5;
+}
