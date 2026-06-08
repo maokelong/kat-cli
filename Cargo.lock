@@ -3,35 +3,5 @@
 version = 4
 
 [[package]]
-name = "kat-rs-cli"
+name = "kat-rs"
 version = "0.1.0"
-dependencies = [
- "kat-rs-datasource",
-]
-
-[[package]]
-name = "kat-rs-datasource"
-version = "0.1.0"
-dependencies = [
- "trace-model",
- "trace-parser",
- "trace-query",
-]
-
-[[package]]
-name = "trace-model"
-version = "0.1.0"
-
-[[package]]
-name = "trace-parser"
-version = "0.1.0"
-dependencies = [
- "trace-model",
-]
-
-[[package]]
-name = "trace-query"
-version = "0.1.0"
-dependencies = [
- "trace-model",
-]

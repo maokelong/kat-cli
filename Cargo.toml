@@ -1,15 +1,6 @@
-[workspace]
-members = [
-    "crates/kat-rs-cli",
-    "crates/kat-rs-datasource",
-    "crates/kat-rs-datasource/crates/trace-model",
-    "crates/kat-rs-datasource/crates/trace-parser",
-    "crates/kat-rs-datasource/crates/trace-query",
-]
-resolver = "2"
-
-[workspace.package]
-edition = "2021"
-license = "Apache-2.0"
-publish = false
+[package]
+name = "kat-rs"
 version = "0.1.0"
+edition = "2024"
+
+[dependencies]
