@@ -10,10 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+clap.workspace = true
 env_logger.workspace = true
 kat-rs-datasource = { path = "../kat-rs-datasource" }
 kat-rs-session = { path = "../kat-rs-session" }
 log.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 

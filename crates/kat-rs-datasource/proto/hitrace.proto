@@ -12,4 +12,5 @@ message HitraceEvent {
   int32 tid = 3;
   string tag = 4;
   string message = 5;
+  uint32 cpu = 6;
 }

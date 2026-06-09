@@ -45,6 +45,7 @@ fn encoded_trace() -> Vec<u8> {
                 tid: 11,
                 tag: "sched".to_string(),
                 message: "wake up".to_string(),
+                cpu: 3,
             },
             HitraceEvent {
                 timestamp_ns: 200,
@@ -52,6 +53,7 @@ fn encoded_trace() -> Vec<u8> {
                 tid: 21,
                 tag: "app".to_string(),
                 message: "start".to_string(),
+                cpu: 7,
             },
         ],
     }

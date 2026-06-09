@@ -6,7 +6,7 @@
 
 **Architecture:** The workspace contains three crates. `kat-rs-datasource` owns protobuf decoding, mmap lifecycle, Arrow table creation, DataFusion registration, and JSON query output. `kat-rs-session` stores runtime state and delegates query calls. `kat-rs-cli` is the binary command surface.
 
-**Tech Stack:** Rust 2024, prost, memmap2, Arrow, DataFusion, serde_json, log, env_logger, tokio.
+**Tech Stack:** Rust 2024, clap, serde, prost, syn, memmap2, Arrow, DataFusion, serde_json, log, env_logger, tokio.
 
 ---
 
@@ -23,7 +23,7 @@
 - Create: `crates/kat-rs-cli/src/main.rs`
 
 - [ ] Convert the root crate into a virtual workspace with members `kat-rs-datasource`, `kat-rs-session`, and `kat-rs-cli`.
-- [ ] Add workspace dependencies for `anyhow`, `arrow-array`, `arrow-schema`, `datafusion`, `env_logger`, `log`, `memmap2`, `prost`, `prost-build`, `serde_json`, `tempfile`, and `tokio`.
+- [ ] Add workspace dependencies for `anyhow`, `arrow-array`, `arrow-schema`, `clap`, `datafusion`, `env_logger`, `log`, `memmap2`, `prost`, `prost-build`, `serde`, `serde_json`, `syn`, `tempfile`, and `tokio`.
 - [ ] Create minimal crate source files that compile.
 - [ ] Run `cargo check --workspace`; expected result before implementation is compile success.
 
@@ -51,7 +51,8 @@
 
 - [ ] Implement `DataSourceType`, `DataSourceConfig`, and `TraceDatasource::build`.
 - [ ] Use `memmap2` while decoding, and drop mmap/file before returning from build.
-- [ ] Convert prost structs into Arrow arrays for table `hitrace_event`.
+- [ ] Parse the prost generated Rust struct AST in `build.rs` and generate Arrow builder code for table `hitrace_event`.
+- [ ] Convert prost structs into Arrow arrays through the generated builder.
 - [ ] Register the Arrow batch into DataFusion.
 - [ ] Implement `query_json(sql)` returning `serde_json::Value`.
 - [ ] Use `log` for diagnostics.
@@ -75,7 +76,8 @@
 - Create: `crates/kat-rs-cli/src/logging.rs`
 - Modify: `crates/kat-rs-cli/src/main.rs`
 
-- [ ] Implement `kat-rs query --source hitrace --file <path> --sql <sql>`.
+- [ ] Implement `kat-rs query --source hitrace --file <path> --sql <sql>` with `clap`.
+- [ ] Derive `serde` for CLI argument structures.
 - [ ] Initialize `env_logger`.
 - [ ] Write query JSON to stdout with `Write`, not `println!`.
 - [ ] Write diagnostics to stderr or `log`.

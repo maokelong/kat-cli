@@ -19,11 +19,11 @@ async fn build_releases_mmap_and_queries_hitrace_as_json() {
     fs::remove_file(&trace_path).expect("trace file can be removed after build");
 
     let rows = datasource
-        .query_json("select count(*) as count from hitrace_event")
+        .query_json("select count(*) as count, max(cpu) as max_cpu from hitrace_event")
         .await
         .expect("query succeeds");
 
-    assert_eq!(rows, json!([{ "count": 2 }]));
+    assert_eq!(rows, json!([{ "count": 2, "max_cpu": 7 }]));
 }
 
 fn encoded_trace() -> Vec<u8> {
@@ -35,6 +35,7 @@ fn encoded_trace() -> Vec<u8> {
                 tid: 11,
                 tag: "sched".to_string(),
                 message: "wake up".to_string(),
+                cpu: 3,
             },
             HitraceEvent {
                 timestamp_ns: 200,
@@ -42,6 +43,7 @@ fn encoded_trace() -> Vec<u8> {
                 tid: 21,
                 tag: "app".to_string(),
                 message: "start".to_string(),
+                cpu: 7,
             },
         ],
     }

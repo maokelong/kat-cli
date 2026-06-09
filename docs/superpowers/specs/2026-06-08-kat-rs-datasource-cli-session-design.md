@@ -13,7 +13,7 @@ kat-rs 需要重新从目标库 `main` 的干净状态开始建立最小可用�
 5. `datasource` 接收数据源类型和文件路径，`build` 完成后只暴露基于 SQL 字符串的查询能力。
 6. SQL 查询结果返回 JSON。
 7. hitrace 文件是 protobuf 序列化后的二进制文件。
-8. 解析期间使用 `prost` 生成的 Rust struct，将 protobuf 数据转换为 Arrow `RecordBatch`，再注册到 DataFusion。
+8. 解析期间使用 `prost` 生成的 Rust struct，并在构建期基于 struct AST 生成 Arrow 表构建代码，运行时将 protobuf 数据转换为 Arrow `RecordBatch`，再注册到 DataFusion。
 9. 文件读取使用内存映射，解析完成后文件句柄和 mmap 都释放。
 10. 维测日志使用 `log`，不使用 `print` / `println` 输出日志。
 
@@ -31,7 +31,7 @@ kat-rs 需要重新从目标库 `main` 的干净状态开始建立最小可用�
 | --- | --- |
 | `kat-rs-datasource` | 解析数据源，构建 Arrow 表，注册 DataFusion，并提供 `query_json(sql)`。 |
 | `kat-rs-session` | 创建和持有运行期状态，当前主要持有一个已 build 的 datasource。 |
-| `kat-rs-cli` | 解析命令行参数，创建 session，build datasource，执行 SQL，并把 JSON 写到 stdout。 |
+| `kat-rs-cli` | 使用 `clap` 解析命令行参数，创建 session，build datasource，执行 SQL，并把 JSON 写到 stdout；参数结构支持 `serde`。 |
 
 ## 依赖方向
 
@@ -57,7 +57,7 @@ let json = datasource.query_json("select count(*) as count from hitrace_event").
 1. 打开文件。
 2. mmap 文件。
 3. 使用 prost struct 解码 protobuf。
-4. 将 protobuf struct 写入 Arrow builder。
+4. 调用构建期从 prost struct AST 生成的 Arrow builder。
 5. 生成 `RecordBatch`。
 6. 注册 DataFusion 表。
 7. 释放 mmap 和文件句柄。
@@ -79,6 +79,7 @@ message HitraceEvent {
   int32 tid = 3;
   string tag = 4;
   string message = 5;
+  uint32 cpu = 6;
 }
 ```
 
@@ -86,7 +87,7 @@ message HitraceEvent {
 
 | 表名 | 字段 |
 | --- | --- |
-| `hitrace_event` | `timestamp_ns`, `pid`, `tid`, `tag`, `message` |
+| `hitrace_event` | 来自 `HitraceEvent` prost struct 字段，当前为 `timestamp_ns`, `pid`, `tid`, `tag`, `message`, `cpu` |
 
 ## session 边界
 
@@ -115,6 +116,7 @@ kat-rs query --source hitrace --file <path> --sql <sql>
 3. `--sql` 是交给 DataFusion 的 SQL 字符串。
 4. stdout 只输出 JSON 查询结果。
 5. 诊断信息走 `log`，由 `RUST_LOG` 控制。
+6. 参数解析使用 `clap`，参数结构支持 `serde` 序列化。
 
 ## JSON 输出
 

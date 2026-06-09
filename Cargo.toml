@@ -15,6 +15,7 @@ publish = false
 anyhow = "1.0"
 arrow-array = "58.0.0"
 arrow-schema = "58.0.0"
+clap = { version = "4.5", features = ["derive"] }
 datafusion = { version = "53.1.0", default-features = false, features = ["sql"] }
 env_logger = "0.11"
 log = "0.4"
@@ -22,6 +23,8 @@ memmap2 = "0.9"
 prost = "0.14"
 prost-build = "0.14"
 protoc-bin-vendored = "3.2"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+syn = { version = "2.0", features = ["full"] }
 tempfile = "3.10"
 tokio = { version = "1.45", features = ["macros", "rt-multi-thread"] }

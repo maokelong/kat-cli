@@ -1,12 +1,14 @@
 mod commands;
 mod logging;
 
+use clap::Parser;
+
 #[tokio::main]
 async fn main() {
     logging::init();
 
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let code = commands::run(&args, &mut std::io::stdout(), &mut std::io::stderr()).await;
+    let cli = commands::Cli::parse();
+    let code = commands::run(cli, &mut std::io::stdout(), &mut std::io::stderr()).await;
 
     std::process::exit(code);
 }
