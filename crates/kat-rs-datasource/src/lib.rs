@@ -1,3 +1,4 @@
+mod arrow;
 mod config;
 mod hitrace;
 mod json;

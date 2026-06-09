@@ -2,15 +2,13 @@ syntax = "proto3";
 
 package kat.hitrace;
 
-message HitraceTrace {
-  repeated HitraceEvent events = 1;
-}
-
-message HitraceEvent {
-  uint64 timestamp_ns = 1;
-  int32 pid = 2;
-  int32 tid = 3;
-  string tag = 4;
-  string message = 5;
-  uint32 cpu = 6;
+message ProfilerPluginData {
+  string name = 1;
+  uint32 status = 2;
+  bytes data = 3;
+  int32 clock_id = 4;
+  uint64 tv_sec = 5;
+  uint64 tv_nsec = 6;
+  string version = 7;
+  uint32 sample_interval = 8;
 }

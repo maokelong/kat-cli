@@ -2,8 +2,8 @@
 
 use anyhow::{Result, bail};
 use arrow_array::{
-    Array, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch,
-    StringArray, UInt32Array, UInt64Array,
+    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array,
+    RecordBatch, StringArray, UInt32Array, UInt64Array,
 };
 use arrow_schema::DataType;
 use serde_json::{Map, Number, Value};
@@ -34,6 +34,13 @@ fn column_value(array: &dyn Array, data_type: &DataType, row_index: usize) -> Re
     }
 
     match data_type {
+        DataType::Binary => Ok(Value::String(bytes_to_hex(
+            array
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .expect("binary array")
+                .value(row_index),
+        ))),
         DataType::Boolean => Ok(Value::Bool(
             array
                 .as_any()
@@ -99,4 +106,15 @@ fn float_to_json(value: f64) -> Result<Value> {
     Ok(Number::from_f64(value)
         .map(Value::Number)
         .unwrap_or(Value::Null))
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
 }

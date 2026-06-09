@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use datafusion::{datasource::MemTable, prelude::SessionContext};
 use log::debug;
 use serde_json::Value;
 
 use crate::{
     config::{DataSourceConfig, DataSourceType},
-    hitrace::{HITRACE_TABLE, load_hitrace_batch},
+    hitrace::{HITRACE_TABLE, load_hitrace_batches},
     json::batches_to_json,
 };
 
@@ -23,8 +23,12 @@ impl TraceDatasource {
 
         match config.source_type {
             DataSourceType::Hitrace => {
-                let batch = load_hitrace_batch(&config.path)?;
-                let table = MemTable::try_new(batch.schema(), vec![vec![batch]])?;
+                let batches = load_hitrace_batches(&config.path)?;
+                let schema = batches
+                    .first()
+                    .context("hitrace file contains no protobuf sections")?
+                    .schema();
+                let table = MemTable::try_new(schema, vec![batches])?;
                 ctx.register_table(HITRACE_TABLE, Arc::new(table))?;
                 debug!("registered datasource table: {HITRACE_TABLE}");
             }

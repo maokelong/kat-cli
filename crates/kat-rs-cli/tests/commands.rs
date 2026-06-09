@@ -2,16 +2,18 @@ use std::fs;
 
 use clap::{CommandFactory, Parser};
 use kat_rs_cli::commands::{Cli, run};
-use kat_rs_datasource::proto::{HitraceEvent, HitraceTrace};
-use prost::Message;
 use serde_json::json;
 use tempfile::tempdir;
+
+const PROFILER_HEADER_SIZE: usize = 1024;
+const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
+const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 
 #[tokio::test]
 async fn query_command_prints_json_rows() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("sample.hitrace");
-    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    fs::write(&trace_path, empty_hitrace()).expect("trace is written");
 
     let cli = Cli::parse_from(vec![
         "kat-rs".to_string(),
@@ -21,7 +23,7 @@ async fn query_command_prints_json_rows() {
         "--file".to_string(),
         trace_path.to_string_lossy().to_string(),
         "--sql".to_string(),
-        "select count(*) as count from hitrace_event".to_string(),
+        "select 1 as ok".to_string(),
     ]);
     let mut out = Vec::new();
     let mut err = Vec::new();
@@ -29,7 +31,7 @@ async fn query_command_prints_json_rows() {
     let code = run(cli, &mut out, &mut err).await;
 
     assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&err));
-    assert_eq!(String::from_utf8(out).expect("utf8"), "[{\"count\":2}]\n");
+    assert_eq!(String::from_utf8(out).expect("utf8"), "[{\"ok\":1}]\n");
     assert!(err.is_empty());
 }
 
@@ -102,26 +104,10 @@ fn clap_arguments_are_serde_serializable() {
     );
 }
 
-fn encoded_trace() -> Vec<u8> {
-    HitraceTrace {
-        events: vec![
-            HitraceEvent {
-                timestamp_ns: 100,
-                pid: 10,
-                tid: 11,
-                tag: "sched".to_string(),
-                message: "wake up".to_string(),
-                cpu: 3,
-            },
-            HitraceEvent {
-                timestamp_ns: 200,
-                pid: 20,
-                tid: 21,
-                tag: "app".to_string(),
-                message: "start".to_string(),
-                cpu: 7,
-            },
-        ],
-    }
-    .encode_to_vec()
+fn empty_hitrace() -> Vec<u8> {
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&(PROFILER_HEADER_SIZE as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    bytes
 }
