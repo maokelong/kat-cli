@@ -1,7 +1,5 @@
-mod commands;
-mod logging;
-
 use clap::Parser;
+use kat_rs_cli::{commands, logging};
 
 #[tokio::main]
 async fn main() {

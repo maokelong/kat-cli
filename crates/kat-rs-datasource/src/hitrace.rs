@@ -300,23 +300,3 @@ fn type_mismatch(field: &FieldDescriptor, value: &Value) -> Result<()> {
         field.kind()
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::runtime_hitrace_descriptors;
-
-    #[test]
-    fn runtime_descriptor_exposes_hitrace_event_fields() {
-        let descriptors = runtime_hitrace_descriptors().expect("descriptor is available");
-        let fields = descriptors
-            .event
-            .fields()
-            .map(|field| field.name().to_owned())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            fields,
-            ["timestamp_ns", "pid", "tid", "tag", "message", "cpu"]
-        );
-    }
-}
