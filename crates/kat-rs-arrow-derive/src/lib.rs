@@ -95,9 +95,8 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         }
 
         impl crate::arrow::ArrowRowWriter<#row_ident> for #writer_ident {
-            fn append(&mut self, row: &#row_ident) -> ::anyhow::Result<()> {
+            fn append(&mut self, row: &#row_ident) {
                 #(#append_values)*
-                Ok(())
             }
 
             fn finish(mut self) -> ::anyhow::Result<::arrow_array::RecordBatch> {

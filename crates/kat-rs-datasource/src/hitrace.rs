@@ -7,7 +7,7 @@ use arrow_array::RecordBatch;
 use log::debug;
 use prost::Message;
 
-use crate::{arrow::save_to_arrow, mmap::with_mapped_file, proto::ProfilerPluginData};
+use crate::{arrow::ArrowRow, mmap::with_mapped_file, proto::ProfilerPluginData};
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
 
@@ -60,7 +60,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
             .with_context(|| {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
-        let batch = save_to_arrow!(messages).with_context(|| {
+        let batch = ProfilerPluginData::record_batch_from(messages).with_context(|| {
             format!(
                 "failed to convert profiler section at byte {} to Arrow",
                 section.start

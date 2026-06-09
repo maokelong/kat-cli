@@ -142,18 +142,18 @@ let json = datasource
 5. 跳过非 protobuf section。
 6. 从 section body 中读取 length-prefixed protobuf segment。
 7. 使用 `ProfilerPluginData::decode` 解码 segment。
-8. 调用 `save_to_arrow!(messages)` 生成 Arrow `RecordBatch`。
+8. 调用 `ProfilerPluginData::record_batch_from(messages)` 生成 Arrow `RecordBatch`。
 9. 将一个或多个 `RecordBatch` 注册为 DataFusion `MemTable`。
 10. 释放 mmap 和文件句柄。
 
 `query_json` 阶段只执行 SQL，不再读取或映射原始文件。
 
-## save_to_arrow 边界
+## protobuf 到 Arrow 边界
 
-`save_to_arrow!` 是 datasource 内部稳定入口，接收一批 prost message：
+protobuf message 对应的 Rust struct 直接暴露 Arrow batch 构建入口：
 
 ```rust
-let batch = save_to_arrow!(messages)?;
+let batch = ProfilerPluginData::record_batch_from(messages)?;
 ```
 
 它内部流程是：
@@ -162,7 +162,7 @@ let batch = save_to_arrow!(messages)?;
 let mut writer = T::new_arrow_writer(capacity);
 
 for row in rows {
-    row.append_to_arrow(&mut writer)?;
+    writer.append(&row);
 }
 
 writer.finish()
