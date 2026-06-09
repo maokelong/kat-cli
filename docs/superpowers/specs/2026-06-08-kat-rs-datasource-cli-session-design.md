@@ -23,7 +23,7 @@ kat-rs 需要从目标库 `main` 的干净状态建立最小可用架构。当�
 
 ## 非目标
 
-1. 不接入真实华为 hitrace 全量 schema。
+1. 不接入真实华为 hitrace 全量业务表 schema；当前只解析真实 `.htrace` profiler 外层 `ProfilerPluginData`。
 2. 不支持除 `hitrace` 之外的日志格式。
 3. 不解析 profiler plugin payload 内层数据。
 4. 不引入 Web UI、MCP、Skill 或服务化入口。
@@ -77,7 +77,7 @@ flowchart TD
     STRUCT --> PARSER
     ARROWROW --> PARSER
     PARSER --> ARROW
-    ARROW --> DF
+    ARROW --> DS
     DS --> DF
 ```
 
@@ -99,6 +99,26 @@ flowchart TD
 2. `ArrowRow` 能力，用于写入 Arrow `RecordBatch`。
 
 当前不再生成或读取 protobuf descriptor 文件，也不使用 `prost-reflect` / `DynamicMessage`。
+
+## ArrowRow derive 支持范围
+
+`kat-rs-arrow-derive` 当前只支持 prost 生成 struct 上的标量字段：
+
+| protobuf 字段 | Arrow 类型 |
+| --- | --- |
+| `string` | `Utf8` |
+| `bytes` | `Binary` |
+| `bool` | `Boolean` |
+| `float` | `Float32` |
+| `double` | `Float64` |
+| `int32`, `sint32`, `sfixed32`, `enum` | `Int32` |
+| `int64`, `sint64`, `sfixed64` | `Int64` |
+| `uint32`, `fixed32` | `UInt32` |
+| `uint64`, `fixed64` | `UInt64` |
+
+当前不支持 `repeated`、`map`、嵌套 message 和 `oneof`。如果 `.proto` 中出现这些字段，derive 宏会在编译期报错。
+
+derive 生成的 writer 是 datasource crate 内部实现细节，例如 `ProfilerPluginDataArrowWriter` 使用 `pub(crate)` 可见性，不作为对外 API 暴露。
 
 ## datasource 生命周期
 
