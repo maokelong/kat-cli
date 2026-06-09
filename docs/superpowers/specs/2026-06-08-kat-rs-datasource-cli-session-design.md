@@ -13,7 +13,7 @@ kat-rs 需要重新从目标库 `main` 的干净状态开始建立最小可用�
 5. `datasource` 接收数据源类型和文件路径，`build` 完成后只暴露基于 SQL 字符串的查询能力。
 6. SQL 查询结果返回 JSON。
 7. hitrace 文件是 protobuf 序列化后的二进制文件。
-8. 解析期间使用 `prost` 生成的 Rust struct，并在构建期基于 struct AST 生成 Arrow 表构建代码，运行时将 protobuf 数据转换为 Arrow `RecordBatch`，再注册到 DataFusion。
+8. 解析期间运行时读取 protobuf 字段描述，使用动态 protobuf message 将数据写入 Arrow `RecordBatch`，再注册到 DataFusion。
 9. 文件读取使用内存映射，解析完成后文件句柄和 mmap 都释放。
 10. 维测日志使用 `log`，不使用 `print` / `println` 输出日志。
 
@@ -56,11 +56,13 @@ let json = datasource.query_json("select count(*) as count from hitrace_event").
 
 1. 打开文件。
 2. mmap 文件。
-3. 使用 prost struct 解码 protobuf。
-4. 调用构建期从 prost struct AST 生成的 Arrow builder。
-5. 生成 `RecordBatch`。
-6. 注册 DataFusion 表。
-7. 释放 mmap 和文件句柄。
+3. 从 protobuf descriptor 找到 `HitraceTrace.events` 和 `HitraceEvent` 字段描述。
+4. 使用 `DynamicMessage` 解码 protobuf 二进制。
+5. 根据 protobuf 字段描述动态创建 Arrow schema 和列 builder。
+6. 遍历动态 message，把字段值写入 Arrow builder。
+7. 生成 `RecordBatch`。
+8. 注册 DataFusion 表。
+9. 释放 mmap 和文件句柄。
 
 `query_json` 阶段只执行 SQL，不再读取或映射原始文件。
 
@@ -87,7 +89,7 @@ message HitraceEvent {
 
 | 表名 | 字段 |
 | --- | --- |
-| `hitrace_event` | 来自 `HitraceEvent` prost struct 字段，当前为 `timestamp_ns`, `pid`, `tid`, `tag`, `message`, `cpu` |
+| `hitrace_event` | 来自运行时 protobuf descriptor 中的 `HitraceEvent` 字段，当前为 `timestamp_ns`, `pid`, `tid`, `tag`, `message`, `cpu` |
 
 ## session 边界
 
