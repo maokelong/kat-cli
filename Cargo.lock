@@ -1669,6 +1669,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kat-rs-arrow-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "kat-rs-cli"
 version = "0.1.0"
 dependencies = [
@@ -1693,11 +1702,11 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "datafusion",
+ "kat-rs-arrow-derive",
  "log",
  "memmap2",
  "prost",
  "prost-build",
- "prost-reflect",
  "protoc-bin-vendored",
  "serde_json",
  "tempfile",
@@ -2087,16 +2096,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "prost-reflect"
-version = "0.16.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "590aa145fee8f7a26b5a6055365e7c5e89a5c1caae9869de76ec0ee73181a2f9"
-dependencies = [
- "prost",
- "prost-types",
 ]
 
 [[package]]

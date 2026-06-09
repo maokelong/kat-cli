@@ -5,15 +5,12 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
 use log::debug;
-use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor};
+use prost::Message;
 
-use crate::{arrow::save_to_arrow, mmap::with_mapped_file};
+use crate::{arrow::save_to_arrow, mmap::with_mapped_file, proto::ProfilerPluginData};
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
 
-const PROFILER_PLUGIN_DATA_MESSAGE: &str = "kat.hitrace.ProfilerPluginData";
-const HITRACE_DESCRIPTOR_BYTES: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/hitrace_descriptor.bin"));
 const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
@@ -22,27 +19,18 @@ const SEGMENT_LENGTH_SIZE: usize = 4;
 pub(crate) fn load_hitrace_batches(path: &Path) -> Result<Vec<RecordBatch>> {
     debug!("building hitrace datasource from {}", path.display());
 
-    let descriptor = profiler_plugin_data_descriptor()?;
-    let batches = with_mapped_file(path, |bytes| parse_hitrace_bytes(bytes, &descriptor))?;
+    let batches = with_mapped_file(path, parse_hitrace_bytes)?;
 
     debug!("built {} hitrace record batches", batches.len());
     Ok(batches)
 }
 
-fn profiler_plugin_data_descriptor() -> Result<MessageDescriptor> {
-    let pool = DescriptorPool::decode(HITRACE_DESCRIPTOR_BYTES)
-        .context("failed to decode hitrace protobuf descriptor")?;
-
-    pool.get_message_by_name(PROFILER_PLUGIN_DATA_MESSAGE)
-        .with_context(|| format!("{PROFILER_PLUGIN_DATA_MESSAGE} descriptor is missing"))
-}
-
-fn parse_hitrace_bytes(bytes: &[u8], descriptor: &MessageDescriptor) -> Result<Vec<RecordBatch>> {
+fn parse_hitrace_bytes(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
 
-    parse_hitrace_sections(bytes, descriptor)
+    parse_hitrace_sections(bytes)
 }
 
 fn has_profiler_header(bytes: &[u8]) -> bool {
@@ -52,10 +40,7 @@ fn has_profiler_header(bytes: &[u8]) -> bool {
             .unwrap_or(false)
 }
 
-fn parse_hitrace_sections(
-    bytes: &[u8],
-    descriptor: &MessageDescriptor,
-) -> Result<Vec<RecordBatch>> {
+fn parse_hitrace_sections(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
     let mut offset = 0usize;
     let mut batches = Vec::new();
 
@@ -71,11 +56,11 @@ fn parse_hitrace_sections(
             continue;
         }
 
-        let messages =
-            decode_len_prefixed_messages(section.body(bytes), descriptor).with_context(|| {
+        let messages = decode_len_prefixed_messages::<ProfilerPluginData>(section.body(bytes))
+            .with_context(|| {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
-        let batch = save_to_arrow!(descriptor.clone(), messages).with_context(|| {
+        let batch = save_to_arrow!(messages).with_context(|| {
             format!(
                 "failed to convert profiler section at byte {} to Arrow",
                 section.start
@@ -123,10 +108,10 @@ fn read_profiler_section(bytes: &[u8], offset: usize) -> Result<ProfilerSection>
     })
 }
 
-fn decode_len_prefixed_messages(
-    bytes: &[u8],
-    descriptor: &MessageDescriptor,
-) -> Result<Vec<DynamicMessage>> {
+fn decode_len_prefixed_messages<T>(bytes: &[u8]) -> Result<Vec<T>>
+where
+    T: Message + Default,
+{
     let mut offset = 0usize;
     let mut messages = Vec::new();
 
@@ -137,8 +122,8 @@ fn decode_len_prefixed_messages(
         ensure_available(bytes, offset, len, "profiler segment")?;
 
         let segment = &bytes[offset..offset + len];
-        let message = DynamicMessage::decode(descriptor.clone(), segment)
-            .context("failed to decode length-prefixed protobuf message")?;
+        let message =
+            T::decode(segment).context("failed to decode length-prefixed protobuf message")?;
         messages.push(message);
         offset += len;
     }

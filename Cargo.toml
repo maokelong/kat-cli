@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/kat-rs-cli",
+    "crates/kat-rs-arrow-derive",
     "crates/kat-rs-datasource",
     "crates/kat-rs-session",
 ]
@@ -22,9 +23,11 @@ log = "0.4"
 memmap2 = "0.9"
 prost = "0.14"
 prost-build = "0.14"
-prost-reflect = "0.16.4"
+proc-macro2 = "1.0"
 protoc-bin-vendored = "3.2"
+quote = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+syn = { version = "2.0", features = ["full"] }
 tempfile = "3.10"
 tokio = { version = "1.45", features = ["macros", "rt-multi-thread"] }
