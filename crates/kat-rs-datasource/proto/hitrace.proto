@@ -13,6 +13,22 @@ message ProfilerPluginData {
   uint32 sample_interval = 8;
 }
 
+message TracePluginResult {
+  repeated FtraceCpuDetailMsg ftrace_cpu_detail = 2;
+}
+
+message FtraceCpuDetailMsg {
+  uint32 cpu = 1;
+  repeated FtraceEvent event = 2;
+  uint64 overwrite = 3;
+}
+
+message FtraceEvent {
+  oneof event {
+    SchedSwitchFormat sched_switch_format = 2417;
+  }
+}
+
 message SchedSwitchFormat {
   string prev_comm = 1;
   int32 prev_pid = 2;

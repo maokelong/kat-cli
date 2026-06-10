@@ -12,17 +12,7 @@ const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 fn query_prints_sched_switch_fields() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("sched-switch.hitrace");
-    let payload = TestSchedSwitchFormat {
-        prev_comm: "render".to_string(),
-        prev_pid: 42,
-        prev_prio: 120,
-        prev_state: 1,
-        next_comm: "main".to_string(),
-        next_pid: 7,
-        next_prio: 100,
-    }
-    .encode_to_vec();
-    fs::write(&trace_path, encoded_trace(payload.clone())).expect("trace is written");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_kat-rs"))
         .args([
@@ -102,6 +92,36 @@ struct TestProfilerPluginData {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct TestTracePluginResult {
+    #[prost(message, repeated, tag = "2")]
+    ftrace_cpu_detail: Vec<TestFtraceCpuDetailMsg>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestFtraceCpuDetailMsg {
+    #[prost(uint32, tag = "1")]
+    cpu: u32,
+    #[prost(message, repeated, tag = "2")]
+    event: Vec<TestFtraceEvent>,
+    #[prost(uint64, tag = "3")]
+    overwrite: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestFtraceEvent {
+    #[prost(oneof = "test_ftrace_event::Event", tags = "2417")]
+    event: Option<test_ftrace_event::Event>,
+}
+
+mod test_ftrace_event {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Event {
+        #[prost(message, tag = "2417")]
+        SchedSwitchFormat(super::TestSchedSwitchFormat),
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct TestSchedSwitchFormat {
     #[prost(string, tag = "1")]
     prev_comm: String,
@@ -119,9 +139,29 @@ struct TestSchedSwitchFormat {
     next_prio: i32,
 }
 
-fn encoded_trace(payload: Vec<u8>) -> Vec<u8> {
+fn encoded_trace() -> Vec<u8> {
+    let payload = TestTracePluginResult {
+        ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
+            cpu: 0,
+            event: vec![TestFtraceEvent {
+                event: Some(test_ftrace_event::Event::SchedSwitchFormat(
+                    TestSchedSwitchFormat {
+                        prev_comm: "render".to_string(),
+                        prev_pid: 42,
+                        prev_prio: 120,
+                        prev_state: 1,
+                        next_comm: "main".to_string(),
+                        next_pid: 7,
+                        next_prio: 100,
+                    },
+                )),
+            }],
+            overwrite: 0,
+        }],
+    }
+    .encode_to_vec();
     let plugin = TestProfilerPluginData {
-        name: "sched_switch".to_string(),
+        name: "ftrace-plugin".to_string(),
         status: 0,
         data: payload,
         clock_id: 2,

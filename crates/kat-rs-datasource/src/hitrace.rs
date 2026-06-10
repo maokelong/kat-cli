@@ -9,12 +9,13 @@ use prost::Message;
 
 use crate::{
     mmap::with_mapped_file,
-    proto::{ProfilerPluginData, SchedSwitchFormat},
+    proto::{ProfilerPluginData, SchedSwitchFormat, TracePluginResult, ftrace_event},
 };
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
 pub(crate) const SCHED_SWITCH_TABLE: &str = "sched_switch";
 
+const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
@@ -94,17 +95,24 @@ fn decode_sched_switch_rows(
     messages: &[ProfilerPluginData],
     section_start: usize,
 ) -> Result<Vec<SchedSwitchFormat>> {
-    messages
+    let mut rows = Vec::new();
+    for message in messages
         .iter()
-        .filter(|message| message.name == SCHED_SWITCH_TABLE)
-        .map(|message| {
-            SchedSwitchFormat::decode(message.data.as_slice()).with_context(|| {
-                format!(
-                    "failed to decode sched_switch payload in profiler section at byte {section_start}"
-                )
-            })
-        })
-        .collect()
+        .filter(|message| message.name == FTRACE_PLUGIN_NAME)
+    {
+        let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
+            format!("failed to decode ftrace payload in profiler section at byte {section_start}")
+        })?;
+        for detail in result.ftrace_cpu_detail {
+            rows.extend(detail.event.into_iter().filter_map(|event| {
+                event
+                    .event
+                    .map(|ftrace_event::Event::SchedSwitchFormat(row)| row)
+            }));
+        }
+    }
+
+    Ok(rows)
 }
 
 #[derive(Clone, Copy, Debug)]

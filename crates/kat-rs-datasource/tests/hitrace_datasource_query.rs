@@ -97,7 +97,7 @@ async fn build_skips_unsupported_profiler_sections() {
     bytes.extend_from_slice(&profiler_section(vec![TestProfilerPluginData {
         name: "ftrace-plugin".to_string(),
         status: 1,
-        data: vec![4, 5],
+        data: empty_trace_plugin_result(),
         clock_id: 2,
         tv_sec: 10,
         tv_nsec: 200,
@@ -114,6 +114,34 @@ async fn build_skips_unsupported_profiler_sections() {
         .expect("query succeeds");
 
     assert_eq!(rows, json!([{ "count": 1 }]));
+}
+
+#[tokio::test]
+async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(
+        &trace_path,
+        profiler_section(vec![ftrace_plugin_with_sched_switch()]),
+    )
+    .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+    let rows = datasource
+        .query_json("select prev_comm, prev_pid, next_comm, next_pid from sched_switch limit 10")
+        .await
+        .expect("query succeeds");
+
+    assert_eq!(
+        rows,
+        json!([{
+            "prev_comm": "RenderThread",
+            "prev_pid": 42,
+            "next_comm": "com.tencent.mm",
+            "next_pid": 100,
+        }])
+    );
 }
 
 #[tokio::test]
@@ -159,7 +187,7 @@ fn encoded_trace() -> Vec<u8> {
     bytes.extend_from_slice(&profiler_section(vec![TestProfilerPluginData {
         name: "ftrace-plugin".to_string(),
         status: 1,
-        data: vec![4, 5],
+        data: empty_trace_plugin_result(),
         clock_id: 2,
         tv_sec: 10,
         tv_nsec: 200,
@@ -195,6 +223,94 @@ struct TestProfilerPluginData {
     version: String,
     #[prost(uint32, tag = "8")]
     sample_interval: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestTracePluginResult {
+    #[prost(message, repeated, tag = "2")]
+    ftrace_cpu_detail: Vec<TestFtraceCpuDetailMsg>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestFtraceCpuDetailMsg {
+    #[prost(uint32, tag = "1")]
+    cpu: u32,
+    #[prost(message, repeated, tag = "2")]
+    event: Vec<TestFtraceEvent>,
+    #[prost(uint64, tag = "3")]
+    overwrite: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestFtraceEvent {
+    #[prost(oneof = "test_ftrace_event::Event", tags = "2417")]
+    event: Option<test_ftrace_event::Event>,
+}
+
+mod test_ftrace_event {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Event {
+        #[prost(message, tag = "2417")]
+        SchedSwitchFormat(super::TestSchedSwitchFormat),
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedSwitchFormat {
+    #[prost(string, tag = "1")]
+    prev_comm: String,
+    #[prost(int32, tag = "2")]
+    prev_pid: i32,
+    #[prost(int32, tag = "3")]
+    prev_prio: i32,
+    #[prost(uint64, tag = "4")]
+    prev_state: u64,
+    #[prost(string, tag = "5")]
+    next_comm: String,
+    #[prost(int32, tag = "6")]
+    next_pid: i32,
+    #[prost(int32, tag = "7")]
+    next_prio: i32,
+}
+
+fn ftrace_plugin_with_sched_switch() -> TestProfilerPluginData {
+    let result = TestTracePluginResult {
+        ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
+            cpu: 0,
+            event: vec![TestFtraceEvent {
+                event: Some(test_ftrace_event::Event::SchedSwitchFormat(
+                    TestSchedSwitchFormat {
+                        prev_comm: "RenderThread".to_string(),
+                        prev_pid: 42,
+                        prev_prio: 120,
+                        prev_state: 1,
+                        next_comm: "com.tencent.mm".to_string(),
+                        next_pid: 100,
+                        next_prio: 120,
+                    },
+                )),
+            }],
+            overwrite: 0,
+        }],
+    };
+
+    TestProfilerPluginData {
+        name: "ftrace-plugin".to_string(),
+        status: 1,
+        data: result.encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
+    }
+}
+
+fn empty_trace_plugin_result() -> Vec<u8> {
+    TestTracePluginResult {
+        ftrace_cpu_detail: Vec::new(),
+    }
+    .encode_to_vec()
 }
 
 fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
