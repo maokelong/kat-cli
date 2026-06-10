@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package kat.hitrace;
+
+message ProfilerPluginData {
+  string name = 1;
+  uint32 status = 2;
+  bytes data = 3;
+  int32 clock_id = 4;
+  uint64 tv_sec = 5;
+  uint64 tv_nsec = 6;
+  string version = 7;
+  uint32 sample_interval = 8;
+}
+
+message TracePluginResult {
+  repeated FtraceCpuDetailMsg ftrace_cpu_detail = 2;
+}
+
+message FtraceCpuDetailMsg {
+  uint32 cpu = 1;
+  repeated FtraceEvent event = 2;
+  uint64 overwrite = 3;
+}
+
+message FtraceEvent {
+  SchedSwitchFormat sched_switch_format = 2417;
+}
+
+message SchedSwitchFormat {
+  string prev_comm = 1;
+  int32 prev_pid = 2;
+  int32 prev_prio = 3;
+  uint64 prev_state = 4;
+  string next_comm = 5;
+  int32 next_pid = 6;
+  int32 next_prio = 7;
+}
