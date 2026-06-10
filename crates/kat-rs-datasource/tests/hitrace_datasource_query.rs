@@ -1,6 +1,5 @@
 use std::fs;
 
-use kat_rs_datasource::proto::ProfilerPluginData;
 use prost::Message;
 use serde_json::json;
 use tempfile::tempdir;
@@ -15,10 +14,8 @@ async fn build_releases_mmap_and_queries_hitrace_as_json() {
     let trace_path = dir.path().join("sample.hitrace");
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
 
-    let datasource = kat_rs_datasource::TraceDatasource::build(
-        kat_rs_datasource::DataSourceConfig::hitrace(&trace_path),
-    )
-    .expect("datasource builds");
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     fs::remove_file(&trace_path).expect("trace file can be removed after build");
 
@@ -47,7 +44,7 @@ fn build_rejects_len_prefixed_segments_without_hitrace_header() {
     let mut bytes = Vec::new();
     append_segment(
         &mut bytes,
-        ProfilerPluginData {
+        TestProfilerPluginData {
             name: "ftrace-plugin".to_string(),
             status: 0,
             data: vec![1, 2, 3],
@@ -60,9 +57,7 @@ fn build_rejects_len_prefixed_segments_without_hitrace_header() {
     );
     fs::write(&trace_path, bytes).expect("trace is written");
 
-    let result = kat_rs_datasource::TraceDatasource::build(
-        kat_rs_datasource::DataSourceConfig::hitrace(&trace_path),
-    );
+    let result = kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path);
     let Err(error) = result else {
         panic!("segment-only input is rejected");
     };
@@ -74,7 +69,7 @@ fn build_rejects_len_prefixed_segments_without_hitrace_header() {
 }
 
 fn encoded_trace() -> Vec<u8> {
-    let mut bytes = profiler_section(vec![ProfilerPluginData {
+    let mut bytes = profiler_section(vec![TestProfilerPluginData {
         name: "ftrace-plugin_config".to_string(),
         status: 0,
         data: vec![1, 2, 3],
@@ -84,7 +79,7 @@ fn encoded_trace() -> Vec<u8> {
         version: "1.0".to_string(),
         sample_interval: 8,
     }]);
-    bytes.extend_from_slice(&profiler_section(vec![ProfilerPluginData {
+    bytes.extend_from_slice(&profiler_section(vec![TestProfilerPluginData {
         name: "ftrace-plugin".to_string(),
         status: 1,
         data: vec![4, 5],
@@ -97,7 +92,27 @@ fn encoded_trace() -> Vec<u8> {
     bytes
 }
 
-fn profiler_section(plugins: Vec<ProfilerPluginData>) -> Vec<u8> {
+#[derive(Clone, PartialEq, Message)]
+struct TestProfilerPluginData {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(uint32, tag = "2")]
+    status: u32,
+    #[prost(bytes = "vec", tag = "3")]
+    data: Vec<u8>,
+    #[prost(int32, tag = "4")]
+    clock_id: i32,
+    #[prost(uint64, tag = "5")]
+    tv_sec: u64,
+    #[prost(uint64, tag = "6")]
+    tv_nsec: u64,
+    #[prost(string, tag = "7")]
+    version: String,
+    #[prost(uint32, tag = "8")]
+    sample_interval: u32,
+}
+
+fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
     let mut body = Vec::new();
     for plugin in plugins {
         append_segment(&mut body, plugin);
@@ -111,7 +126,7 @@ fn profiler_section(plugins: Vec<ProfilerPluginData>) -> Vec<u8> {
     bytes
 }
 
-fn append_segment(bytes: &mut Vec<u8>, plugin: ProfilerPluginData) {
+fn append_segment(bytes: &mut Vec<u8>, plugin: TestProfilerPluginData) {
     let segment = plugin.encode_to_vec();
     bytes.extend_from_slice(&(segment.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&segment);

@@ -7,6 +7,10 @@ fn main() {
         ".kat.hitrace.ProfilerPluginData",
         "#[derive(kat_rs_arrow_derive::ArrowRow)]",
     );
+    config.type_attribute(
+        ".kat.hitrace.SchedSwitchFormat",
+        "#[derive(kat_rs_arrow_derive::ArrowRow)]",
+    );
     config
         .compile_protos(&[proto_file], &["proto"])
         .expect("hitrace proto compiles");

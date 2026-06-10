@@ -2,7 +2,6 @@ use std::fs;
 
 use clap::{CommandFactory, Parser};
 use kat_rs_cli::commands::{Cli, run};
-use serde_json::json;
 use tempfile::tempdir;
 
 const PROFILER_HEADER_SIZE: usize = 1024;
@@ -75,33 +74,6 @@ fn query_command_rejects_unknown_source() {
     .expect_err("unknown source is rejected by clap");
 
     assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
-}
-
-#[test]
-fn clap_arguments_are_serde_serializable() {
-    let cli = Cli::parse_from([
-        "kat-rs",
-        "query",
-        "--source",
-        "hitrace",
-        "--file",
-        "sample.hitrace",
-        "--sql",
-        "select 1",
-    ]);
-
-    assert_eq!(
-        serde_json::to_value(cli).expect("cli serializes"),
-        json!({
-            "command": {
-                "query": {
-                    "source": "hitrace",
-                    "file": "sample.hitrace",
-                    "sql": "select 1"
-                }
-            }
-        })
-    );
 }
 
 fn empty_hitrace() -> Vec<u8> {

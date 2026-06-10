@@ -7,25 +7,38 @@ use arrow_array::RecordBatch;
 use log::debug;
 use prost::Message;
 
-use crate::{arrow::ArrowRow, mmap::with_mapped_file, proto::ProfilerPluginData};
+use crate::{
+    mmap::with_mapped_file,
+    proto::{ProfilerPluginData, SchedSwitchFormat},
+};
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
+pub(crate) const SCHED_SWITCH_TABLE: &str = "sched_switch";
 
 const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 const SEGMENT_LENGTH_SIZE: usize = 4;
 
-pub(crate) fn load_hitrace_batches(path: &Path) -> Result<Vec<RecordBatch>> {
-    debug!("building hitrace datasource from {}", path.display());
-
-    let batches = with_mapped_file(path, parse_hitrace_bytes)?;
-
-    debug!("built {} hitrace record batches", batches.len());
-    Ok(batches)
+pub(crate) struct HitraceTables {
+    pub(crate) profiler_plugin_data: Vec<RecordBatch>,
+    pub(crate) sched_switch: Vec<RecordBatch>,
 }
 
-fn parse_hitrace_bytes(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
+pub(crate) fn load_hitrace_tables(path: &Path) -> Result<HitraceTables> {
+    debug!("building hitrace datasource from {}", path.display());
+
+    let tables = with_mapped_file(path, parse_hitrace_bytes)?;
+
+    debug!(
+        "built {} profiler batches and {} sched_switch batches",
+        tables.profiler_plugin_data.len(),
+        tables.sched_switch.len()
+    );
+    Ok(tables)
+}
+
+fn parse_hitrace_bytes(bytes: &[u8]) -> Result<HitraceTables> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
@@ -40,9 +53,10 @@ fn has_profiler_header(bytes: &[u8]) -> bool {
             .unwrap_or(false)
 }
 
-fn parse_hitrace_sections(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
+fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     let mut offset = 0usize;
-    let mut batches = Vec::new();
+    let mut profiler_batches = Vec::new();
+    let mut sched_switch_rows = Vec::new();
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
@@ -60,16 +74,31 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
             .with_context(|| {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
+        for message in &messages {
+            if message.name == SCHED_SWITCH_TABLE {
+                sched_switch_rows.push(
+                    SchedSwitchFormat::decode(message.data.as_slice()).with_context(|| {
+                        format!(
+                            "failed to decode sched_switch payload in profiler section at byte {}",
+                            section.start
+                        )
+                    })?,
+                );
+            }
+        }
         let batch = ProfilerPluginData::record_batch_from(messages).with_context(|| {
             format!(
                 "failed to convert profiler section at byte {} to Arrow",
                 section.start
             )
         })?;
-        batches.push(batch);
+        profiler_batches.push(batch);
     }
 
-    Ok(batches)
+    Ok(HitraceTables {
+        profiler_plugin_data: profiler_batches,
+        sched_switch: vec![SchedSwitchFormat::record_batch_from(sched_switch_rows)?],
+    })
 }
 
 #[derive(Clone, Copy, Debug)]

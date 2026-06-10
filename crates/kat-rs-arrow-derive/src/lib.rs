@@ -68,7 +68,7 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     }
 
     Ok(quote! {
-        pub(crate) struct #writer_ident {
+        struct #writer_ident {
             #(#writer_fields,)*
         }
 
@@ -78,23 +78,7 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     #(#writer_inits,)*
                 }
             }
-        }
 
-        impl crate::arrow::ArrowRow for #row_ident {
-            type Writer = #writer_ident;
-
-            fn arrow_schema() -> ::std::sync::Arc<::arrow_schema::Schema> {
-                ::std::sync::Arc::new(::arrow_schema::Schema::new(vec![
-                    #(#schema_fields,)*
-                ]))
-            }
-
-            fn new_arrow_writer(capacity: usize) -> Self::Writer {
-                #writer_ident::new(capacity)
-            }
-        }
-
-        impl crate::arrow::ArrowRowWriter<#row_ident> for #writer_ident {
             fn append(&mut self, row: &#row_ident) {
                 #(#append_values)*
             }
@@ -105,9 +89,29 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 ];
 
                 Ok(::arrow_array::RecordBatch::try_new(
-                    <#row_ident as crate::arrow::ArrowRow>::arrow_schema(),
+                    #row_ident::arrow_schema(),
                     arrays,
                 )?)
+            }
+        }
+
+        impl #row_ident {
+            pub(crate) fn record_batch_from(rows: impl ::std::iter::IntoIterator<Item = Self>) -> ::anyhow::Result<::arrow_array::RecordBatch> {
+                let rows = rows.into_iter();
+                let capacity = rows.size_hint().0;
+                let mut writer = #writer_ident::new(capacity);
+
+                for row in rows {
+                    writer.append(&row);
+                }
+
+                writer.finish()
+            }
+
+            fn arrow_schema() -> ::std::sync::Arc<::arrow_schema::Schema> {
+                ::std::sync::Arc::new(::arrow_schema::Schema::new(vec![
+                    #(#schema_fields,)*
+                ]))
             }
         }
     })
