@@ -6,6 +6,8 @@ use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
 use log::debug;
 use prost::Message;
+use serde::{Deserialize, Serialize};
+use serde_arrow::schema::{SchemaLike, TracingOptions};
 
 use crate::{
     mmap::with_mapped_file,
@@ -76,7 +78,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
         sched_switch_rows.extend(decode_sched_switch_rows(&messages, section.start)?);
-        let batch = ProfilerPluginData::record_batch_from(messages).with_context(|| {
+        let batch = record_batch_from(messages).with_context(|| {
             format!(
                 "failed to convert profiler section at byte {} to Arrow",
                 section.start
@@ -87,8 +89,17 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
 
     Ok(HitraceTables {
         profiler_plugin_data: profiler_batches,
-        sched_switch: vec![SchedSwitchFormat::record_batch_from(sched_switch_rows)?],
+        sched_switch: vec![record_batch_from(sched_switch_rows)?],
     })
+}
+
+fn record_batch_from<T>(rows: Vec<T>) -> Result<RecordBatch>
+where
+    T: Serialize,
+    for<'de> T: Deserialize<'de>,
+{
+    let fields = Vec::<arrow_schema::FieldRef>::from_type::<T>(TracingOptions::default())?;
+    Ok(serde_arrow::to_record_batch(&fields, &rows)?)
 }
 
 fn decode_sched_switch_rows(

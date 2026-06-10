@@ -16,10 +16,10 @@
 
 1. `kat-rs-datasource` 提供 `TraceDatasource::from_hitrace(path)` 和 `query_json(sql)`。
 2. `kat-rs-cli` 提供 `kat-rs query --source hitrace --file <path> --sql <sql>`。
-3. `kat-rs-arrow-derive` 给 prost 生成的 `ProfilerPluginData` 直接生成 `record_batch_from(rows)`，调用点保持：
+3. prost 生成的 `ProfilerPluginData` / `SchedSwitchFormat` 派生 serde，使用 `serde_arrow` 转成 Arrow `RecordBatch`，不维护自定义 Arrow builder/schema 映射。
 
 ```rust
-let batch = ProfilerPluginData::record_batch_from(messages)?;
+let batch = record_batch_from(messages)?;
 ```
 
 ## 数据流
@@ -29,8 +29,9 @@ kat-rs-cli
   -> TraceDatasource::from_hitrace(path)
   -> mmap .htrace
   -> decode length-prefixed ProfilerPluginData
-  -> ProfilerPluginData::record_batch_from(messages)
-  -> decode sched_switch payload as SchedSwitchFormat
+  -> serde_arrow 转成 profiler_plugin_data RecordBatch
+  -> decode ftrace-plugin payload 中的 sched_switch_format
+  -> serde_arrow 转成 sched_switch RecordBatch
   -> DataFusion MemTable
   -> query_json(sql)
 ```

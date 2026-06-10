@@ -5,11 +5,15 @@ fn main() {
     config.protoc_executable(protoc);
     config.type_attribute(
         ".kat.hitrace.ProfilerPluginData",
-        "#[derive(kat_rs_arrow_derive::ArrowRow)]",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
     );
     config.type_attribute(
         ".kat.hitrace.SchedSwitchFormat",
-        "#[derive(kat_rs_arrow_derive::ArrowRow)]",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+    config.field_attribute(
+        ".kat.hitrace.ProfilerPluginData.data",
+        "#[serde(with = \"serde_bytes\")]",
     );
     config
         .compile_protos(&[proto_file], &["proto"])

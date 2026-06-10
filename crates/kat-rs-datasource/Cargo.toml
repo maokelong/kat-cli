@@ -7,13 +7,16 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow-array.workspace = true
+arrow-json.workspace = true
 arrow-schema.workspace = true
 datafusion.workspace = true
 log.workspace = true
 memmap2.workspace = true
 prost.workspace = true
+serde.workspace = true
+serde_arrow.workspace = true
+serde_bytes.workspace = true
 serde_json.workspace = true
-kat-rs-arrow-derive = { path = "../kat-rs-arrow-derive" }
 
 [build-dependencies]
 prost-build.workspace = true
