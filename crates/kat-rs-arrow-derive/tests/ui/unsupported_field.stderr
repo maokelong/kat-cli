@@ -1,0 +1,5 @@
+error: ArrowRow does not support field type `Vec < String >`
+ --> tests/ui/unsupported_field.rs:5:13
+  |
+5 |     values: Vec<String>,
+  |             ^^^^^^^^^^^

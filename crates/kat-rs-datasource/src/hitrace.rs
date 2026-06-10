@@ -129,15 +129,19 @@ fn read_profiler_section(bytes: &[u8], offset: usize) -> Result<ProfilerSection>
         bail!("invalid profiler header magic at byte {offset}: 0x{magic:x}");
     }
 
-    let len = read_u64_le(bytes, offset + 8)? as usize;
+    let len = usize::try_from(read_u64_le(bytes, offset + 8)?)
+        .with_context(|| format!("invalid profiler section length at byte {offset}"))?;
     let data_type = read_u32_le(bytes, offset + 56)?;
-    if len < PROFILER_HEADER_SIZE || offset + len > bytes.len() {
+    let Some(end) = offset.checked_add(len) else {
+        bail!("invalid profiler section length {len} at byte {offset}");
+    };
+    if len < PROFILER_HEADER_SIZE || end > bytes.len() {
         bail!("invalid profiler section length {len} at byte {offset}");
     }
 
     Ok(ProfilerSection {
         start: offset,
-        end: offset + len,
+        end,
         len,
         data_type,
     })

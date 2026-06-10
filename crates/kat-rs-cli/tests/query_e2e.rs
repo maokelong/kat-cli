@@ -53,6 +53,34 @@ fn query_prints_sched_switch_fields() {
     );
 }
 
+#[test]
+fn query_reports_malformed_hitrace_without_panic() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("malformed.hitrace");
+    fs::write(&trace_path, overflowing_section_trace()).expect("trace is written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kat-rs"))
+        .args([
+            "query",
+            "--source",
+            "hitrace",
+            "--file",
+            trace_path.to_str().expect("trace path is utf8"),
+            "--sql",
+            "select 1",
+        ])
+        .output()
+        .expect("kat-rs runs");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("invalid profiler section length"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct TestProfilerPluginData {
     #[prost(string, tag = "1")]
@@ -110,6 +138,34 @@ fn encoded_trace(payload: Vec<u8>) -> Vec<u8> {
     bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
     bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
     bytes.extend_from_slice(&body);
+    bytes
+}
+
+fn overflowing_section_trace() -> Vec<u8> {
+    let mut bytes = profiler_section(Vec::new());
+    bytes.extend_from_slice(&overflowing_section_header());
+    bytes
+}
+
+fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
+    let mut body = Vec::new();
+    for plugin in plugins {
+        append_segment(&mut body, plugin);
+    }
+
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    bytes.extend_from_slice(&body);
+    bytes
+}
+
+fn overflowing_section_header() -> Vec<u8> {
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
     bytes
 }
 

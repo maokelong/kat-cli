@@ -1,8 +1,8 @@
 //! Derives Arrow row writers for prost-generated protobuf message structs.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, Fields, Meta, parse_macro_input};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Data, DeriveInput, Fields, GenericArgument, PathArguments, Type, parse_macro_input};
 
 #[proc_macro_derive(ArrowRow)]
 pub fn derive_arrow_row(input: TokenStream) -> TokenStream {
@@ -46,7 +46,7 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
             syn::Error::new_spanned(&field, "ArrowRow only supports named fields")
         })?;
         let column_name = field_ident.to_string();
-        let kind = ProstFieldKind::from_field(&field)?;
+        let kind = ArrowFieldKind::from_type(&field.ty)?;
         let builder_type = kind.builder_type();
         let data_type = kind.data_type();
         let builder_init = kind.builder_init();
@@ -118,7 +118,7 @@ fn expand_arrow_row(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 }
 
 #[derive(Clone, Copy)]
-enum ProstFieldKind {
+enum ArrowFieldKind {
     Binary,
     Bool,
     F32,
@@ -130,59 +130,26 @@ enum ProstFieldKind {
     U64,
 }
 
-impl ProstFieldKind {
-    fn from_field(field: &syn::Field) -> syn::Result<Self> {
-        let prost_attr = field
-            .attrs
-            .iter()
-            .find(|attr| attr.path().is_ident("prost"))
-            .ok_or_else(|| syn::Error::new_spanned(field, "missing #[prost(...)] attribute"))?;
-
-        let Meta::List(meta) = &prost_attr.meta else {
-            return Err(syn::Error::new_spanned(
-                prost_attr,
-                "expected #[prost(...)] attribute list",
-            ));
+impl ArrowFieldKind {
+    fn from_type(ty: &Type) -> syn::Result<Self> {
+        let Type::Path(type_path) = ty else {
+            return unsupported_type(ty);
         };
-        let tokens = meta.tokens.to_string();
+        let Some(segment) = type_path.path.segments.last() else {
+            return unsupported_type(ty);
+        };
 
-        if has_prost_kind(&tokens, "repeated") || has_prost_kind(&tokens, "map") {
-            return Err(syn::Error::new_spanned(
-                field,
-                "ArrowRow does not support repeated or map protobuf fields yet",
-            ));
-        }
-
-        if has_prost_kind(&tokens, "bytes") {
-            Ok(Self::Binary)
-        } else if has_prost_kind(&tokens, "bool") {
-            Ok(Self::Bool)
-        } else if has_prost_kind(&tokens, "double") {
-            Ok(Self::F64)
-        } else if has_prost_kind(&tokens, "float") {
-            Ok(Self::F32)
-        } else if has_prost_kind(&tokens, "int32")
-            || has_prost_kind(&tokens, "sint32")
-            || has_prost_kind(&tokens, "sfixed32")
-            || has_prost_kind(&tokens, "enumeration")
-        {
-            Ok(Self::I32)
-        } else if has_prost_kind(&tokens, "int64")
-            || has_prost_kind(&tokens, "sint64")
-            || has_prost_kind(&tokens, "sfixed64")
-        {
-            Ok(Self::I64)
-        } else if has_prost_kind(&tokens, "string") {
-            Ok(Self::String)
-        } else if has_prost_kind(&tokens, "uint32") || has_prost_kind(&tokens, "fixed32") {
-            Ok(Self::U32)
-        } else if has_prost_kind(&tokens, "uint64") || has_prost_kind(&tokens, "fixed64") {
-            Ok(Self::U64)
-        } else {
-            Err(syn::Error::new_spanned(
-                field,
-                format!("unsupported prost field attribute: {tokens}"),
-            ))
+        match segment.ident.to_string().as_str() {
+            "String" => Ok(Self::String),
+            "bool" => Ok(Self::Bool),
+            "f32" => Ok(Self::F32),
+            "f64" => Ok(Self::F64),
+            "i32" => Ok(Self::I32),
+            "i64" => Ok(Self::I64),
+            "u32" => Ok(Self::U32),
+            "u64" => Ok(Self::U64),
+            "Vec" if is_vec_u8(&segment.arguments) => Ok(Self::Binary),
+            _ => unsupported_type(ty),
         }
     }
 
@@ -259,8 +226,35 @@ impl ProstFieldKind {
     }
 }
 
-fn has_prost_kind(tokens: &str, kind: &str) -> bool {
-    tokens
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-        .any(|part| part == kind)
+fn is_vec_u8(arguments: &PathArguments) -> bool {
+    let PathArguments::AngleBracketed(arguments) = arguments else {
+        return false;
+    };
+    let mut args = arguments.args.iter();
+    let Some(GenericArgument::Type(arg)) = args.next() else {
+        return false;
+    };
+    args.next().is_none() && is_u8(arg)
+}
+
+fn is_u8(ty: &Type) -> bool {
+    let Type::Path(type_path) = ty else {
+        return false;
+    };
+    type_path
+        .path
+        .segments
+        .last()
+        .map(|segment| segment.ident == "u8")
+        .unwrap_or(false)
+}
+
+fn unsupported_type<T>(ty: &Type) -> syn::Result<T> {
+    Err(syn::Error::new_spanned(
+        ty,
+        format!(
+            "ArrowRow does not support field type `{}`",
+            ty.to_token_stream()
+        ),
+    ))
 }
