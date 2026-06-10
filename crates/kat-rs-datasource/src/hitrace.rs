@@ -74,18 +74,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
             .with_context(|| {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
-        for message in &messages {
-            if message.name == SCHED_SWITCH_TABLE {
-                sched_switch_rows.push(
-                    SchedSwitchFormat::decode(message.data.as_slice()).with_context(|| {
-                        format!(
-                            "failed to decode sched_switch payload in profiler section at byte {}",
-                            section.start
-                        )
-                    })?,
-                );
-            }
-        }
+        sched_switch_rows.extend(decode_sched_switch_rows(&messages, section.start)?);
         let batch = ProfilerPluginData::record_batch_from(messages).with_context(|| {
             format!(
                 "failed to convert profiler section at byte {} to Arrow",
@@ -99,6 +88,23 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
         profiler_plugin_data: profiler_batches,
         sched_switch: vec![SchedSwitchFormat::record_batch_from(sched_switch_rows)?],
     })
+}
+
+fn decode_sched_switch_rows(
+    messages: &[ProfilerPluginData],
+    section_start: usize,
+) -> Result<Vec<SchedSwitchFormat>> {
+    messages
+        .iter()
+        .filter(|message| message.name == SCHED_SWITCH_TABLE)
+        .map(|message| {
+            SchedSwitchFormat::decode(message.data.as_slice()).with_context(|| {
+                format!(
+                    "failed to decode sched_switch payload in profiler section at byte {section_start}"
+                )
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug)]
