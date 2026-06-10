@@ -24,9 +24,7 @@ message FtraceCpuDetailMsg {
 }
 
 message FtraceEvent {
-  oneof event {
-    SchedSwitchFormat sched_switch_format = 2417;
-  }
+  SchedSwitchFormat sched_switch_format = 2417;
 }
 
 message SchedSwitchFormat {

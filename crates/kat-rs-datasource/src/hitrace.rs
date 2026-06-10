@@ -9,7 +9,7 @@ use prost::Message;
 
 use crate::{
     mmap::with_mapped_file,
-    proto::{ProfilerPluginData, SchedSwitchFormat, TracePluginResult, ftrace_event},
+    proto::{ProfilerPluginData, SchedSwitchFormat, TracePluginResult},
 };
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
@@ -104,11 +104,12 @@ fn decode_sched_switch_rows(
             format!("failed to decode ftrace payload in profiler section at byte {section_start}")
         })?;
         for detail in result.ftrace_cpu_detail {
-            rows.extend(detail.event.into_iter().filter_map(|event| {
-                event
+            rows.extend(
+                detail
                     .event
-                    .map(|ftrace_event::Event::SchedSwitchFormat(row)| row)
-            }));
+                    .into_iter()
+                    .filter_map(|event| event.sched_switch_format),
+            );
         }
     }
 

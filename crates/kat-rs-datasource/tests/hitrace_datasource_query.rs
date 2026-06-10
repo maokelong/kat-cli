@@ -243,16 +243,8 @@ struct TestFtraceCpuDetailMsg {
 
 #[derive(Clone, PartialEq, Message)]
 struct TestFtraceEvent {
-    #[prost(oneof = "test_ftrace_event::Event", tags = "2417")]
-    event: Option<test_ftrace_event::Event>,
-}
-
-mod test_ftrace_event {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Event {
-        #[prost(message, tag = "2417")]
-        SchedSwitchFormat(super::TestSchedSwitchFormat),
-    }
+    #[prost(message, optional, tag = "2417")]
+    sched_switch_format: Option<TestSchedSwitchFormat>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -278,17 +270,15 @@ fn ftrace_plugin_with_sched_switch() -> TestProfilerPluginData {
         ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
             cpu: 0,
             event: vec![TestFtraceEvent {
-                event: Some(test_ftrace_event::Event::SchedSwitchFormat(
-                    TestSchedSwitchFormat {
-                        prev_comm: "RenderThread".to_string(),
-                        prev_pid: 42,
-                        prev_prio: 120,
-                        prev_state: 1,
-                        next_comm: "com.tencent.mm".to_string(),
-                        next_pid: 100,
-                        next_prio: 120,
-                    },
-                )),
+                sched_switch_format: Some(TestSchedSwitchFormat {
+                    prev_comm: "RenderThread".to_string(),
+                    prev_pid: 42,
+                    prev_prio: 120,
+                    prev_state: 1,
+                    next_comm: "com.tencent.mm".to_string(),
+                    next_pid: 100,
+                    next_prio: 120,
+                }),
             }],
             overwrite: 0,
         }],
