@@ -2,6 +2,9 @@ mod hitrace;
 mod json;
 mod mmap;
 mod query;
+mod sched_rows {
+    include!(concat!(env!("OUT_DIR"), "/sched_rows.rs"));
+}
 
 pub use query::TraceDatasource;
 

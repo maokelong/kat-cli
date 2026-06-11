@@ -13,11 +13,12 @@ Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`
 1. 将上游 `sched.proto` 纳入 `kat-rs-datasource` 的 prost 生成流程。
 2. 在 `hitrace.proto` 的 `FtraceEvent` 中补齐 sched message 字段，使 htrace 解码路径能识别 sched 事件。
 3. 为 `sched.proto` 中每个 sched message 建表，表名使用 snake_case 事件名，例如 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`。
-4. 每张 sched 明细表包含事件公共元数据和 proto message 字段，便于查询详细信息。
-5. 从 sched 事件最小生成两张派生表：
+4. 从 `sched.proto` 生成 sched 明细 Row 结构、构造器和表名常量，避免在 `hitrace.rs` 手写重复 schema。
+5. 每张 sched 明细表包含事件公共元数据和 proto message 字段，便于查询详细信息。
+6. 从 sched 事件最小生成两张派生表：
    - `thread_state`：从 `sched_switch` 推导线程运行/等待状态区间。
    - `instant`：从 `sched_wakeup`、`sched_wakeup_new`、`sched_waking` 推导唤醒瞬时事件。
-6. 用单元/端到端测试和真实 trace 查询证明新增表可查。
+7. 用单元/端到端测试和真实 trace 查询证明新增表可查。
 
 ## 不做什么
 
@@ -95,6 +96,8 @@ event_comm
 
 这样 `sched_wake_idle_without_ipi.cpu`、`sched_move_numa.tgid`、`SchedKthreadStopFormat.comm` 等字段不会与事件公共元数据冲突。
 
+明细 Row 的 Rust 结构由 `build.rs` 在编译期从 `sched.proto` 生成到 `OUT_DIR/sched_rows.rs`。`hitrace.rs` 只负责解码分发、收集各表 rows，以及维护 `thread_state` / `instant` 这类派生逻辑。
+
 ## 派生表契约
 
 `thread_state` 是从 `sched_switch` 生成的最小区间表：
@@ -142,7 +145,7 @@ ProfilerPluginData.data
 
 ## 测试
 
-1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip。
+1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip，并验证 `sched_rows.rs` 生成的 Row 包含事件元数据、message 字段和表名常量。
 2. datasource 测试构造最小 `.htrace`，覆盖 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 等表可查询。
 3. datasource 测试验证未出现的 sched 表也能注册并返回 `count = 0`。
 4. datasource 测试验证 `thread_state` 和 `instant` 从 sched 事件生成。
@@ -154,6 +157,6 @@ ProfilerPluginData.data
 
 1. 上游 `sched.proto` 接入 prost。
 2. `hitrace.proto` 只补齐 sched message 字段。
-3. 所有 sched message 建成 SQL 明细表。
+3. sched 明细 Row 由 build 从 `sched.proto` 生成，所有 sched message 建成 SQL 明细表。
 4. `thread_state` 和 `instant` 最小派生表可查询。
 5. 在新分支提交并创建 PR，PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、端到端测试、真实 trace 查询、workspace test 和 clippy 结果。

@@ -18,11 +18,11 @@
   - import sched proto。
   - 给 `FtraceEvent` 添加公共字段 `timestamp`、`tgid`、`comm` 和 sched message 字段。
 - Modify: `crates/kat-rs-datasource/build.rs`
-  - 编译 `hitrace.proto` 与 `ftrace_data/sched.proto`。
+  - 编译 `hitrace.proto` 与 `ftrace_data/sched.proto`，并从 `sched.proto` 生成 `OUT_DIR/sched_rows.rs`。
 - Modify: `crates/kat-rs-datasource/src/lib.rs`
-  - include no-package sched 生成文件与 `kat.hitrace` 生成文件。
+  - include no-package sched protobuf 生成文件、`kat.hitrace` 生成文件和 sched Row 生成文件。
 - Modify: `crates/kat-rs-datasource/src/hitrace.rs`
-  - 新增 sched row structs、table container、decode dispatcher、`thread_state` 与 `instant` 最小派生逻辑。
+  - 使用生成的 sched Row，保留 table container、decode dispatcher、`thread_state` 与 `instant` 最小派生逻辑。
 - Modify: `crates/kat-rs-datasource/src/query.rs`
   - 注册所有 sched 明细表和派生表。
 - Modify: `crates/kat-rs-datasource/tests/proto_contract.rs`
@@ -216,9 +216,9 @@ message FtraceEvent {
 }
 ```
 
-- [ ] **Step 2: Add row structs**
+- [ ] **Step 2: Generate row structs from sched.proto**
 
-Each row struct derives `Serialize` and `Deserialize`. Every sched row begins with:
+`build.rs` should parse `proto/ftrace_data/sched.proto` and generate `OUT_DIR/sched_rows.rs`. Each generated row struct derives `Serialize` and `Deserialize`, has a `TABLE_NAME` constant, and begins with:
 
 ```rust
 event_timestamp: u64,
@@ -227,7 +227,7 @@ event_tgid: i32,
 event_comm: String,
 ```
 
-Then append the message fields listed in the spec. `ThreadStateRow` uses nullable `dur` and `cpu`:
+Then append the message fields listed in the spec. `hitrace.rs` should not hand-write direct sched event row structs; it should import the generated rows. `ThreadStateRow` uses nullable `dur` and `cpu`:
 
 ```rust
 #[derive(Clone, Debug, Serialize, Deserialize)]

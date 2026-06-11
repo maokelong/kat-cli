@@ -11,15 +11,14 @@ use serde_arrow::schema::{SchemaLike, TracingOptions};
 
 use crate::{
     mmap::with_mapped_file,
-    proto::{
-        ProfilerPluginData, SchedBlockedReasonFormat, SchedKthreadStopFormat,
-        SchedKthreadStopRetFormat, SchedMigrateTaskFormat, SchedMoveNumaFormat,
-        SchedPiSetprioFormat, SchedProcessExecFormat, SchedProcessExitFormat,
-        SchedProcessForkFormat, SchedProcessFreeFormat, SchedProcessWaitFormat,
-        SchedStatBlockedFormat, SchedStatIowaitFormat, SchedStatRuntimeFormat,
-        SchedStatSleepFormat, SchedStatWaitFormat, SchedStickNumaFormat, SchedSwapNumaFormat,
-        SchedSwitchFormat, SchedWaitTaskFormat, SchedWakeIdleWithoutIpiFormat, SchedWakeupFormat,
-        SchedWakeupNewFormat, SchedWakingFormat, TracePluginResult, kat::hitrace::FtraceEvent,
+    proto::{ProfilerPluginData, TracePluginResult, kat::hitrace::FtraceEvent},
+    sched_rows::{
+        SchedBlockedReasonRow, SchedEventMeta, SchedKthreadStopRetRow, SchedKthreadStopRow,
+        SchedMigrateTaskRow, SchedMoveNumaRow, SchedPiSetprioRow, SchedProcessExecRow,
+        SchedProcessExitRow, SchedProcessForkRow, SchedProcessFreeRow, SchedProcessWaitRow,
+        SchedStatBlockedRow, SchedStatIowaitRow, SchedStatRuntimeRow, SchedStatSleepRow,
+        SchedStatWaitRow, SchedStickNumaRow, SchedSwapNumaRow, SchedSwitchRow, SchedWaitTaskRow,
+        SchedWakeIdleWithoutIpiRow, SchedWakeupNewRow, SchedWakeupRow, SchedWakingRow,
     },
 };
 
@@ -139,25 +138,6 @@ fn decode_sched_rows(
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct SchedEventMeta {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-}
-
-impl SchedEventMeta {
-    fn from_event(cpu: u32, event: &FtraceEvent) -> Self {
-        Self {
-            event_timestamp: event.timestamp,
-            event_cpu: cpu,
-            event_tgid: event.tgid,
-            event_comm: event.comm.clone(),
-        }
-    }
-}
-
 #[derive(Default)]
 struct SchedRows {
     sched_blocked_reason: Vec<SchedBlockedReasonRow>,
@@ -171,19 +151,19 @@ struct SchedRows {
     sched_process_fork: Vec<SchedProcessForkRow>,
     sched_process_free: Vec<SchedProcessFreeRow>,
     sched_process_wait: Vec<SchedProcessWaitRow>,
-    sched_stat_blocked: Vec<SchedStatDelayRow>,
-    sched_stat_iowait: Vec<SchedStatDelayRow>,
+    sched_stat_blocked: Vec<SchedStatBlockedRow>,
+    sched_stat_iowait: Vec<SchedStatIowaitRow>,
     sched_stat_runtime: Vec<SchedStatRuntimeRow>,
-    sched_stat_sleep: Vec<SchedStatDelayRow>,
-    sched_stat_wait: Vec<SchedStatDelayRow>,
+    sched_stat_sleep: Vec<SchedStatSleepRow>,
+    sched_stat_wait: Vec<SchedStatWaitRow>,
     sched_stick_numa: Vec<SchedStickNumaRow>,
     sched_swap_numa: Vec<SchedSwapNumaRow>,
     sched_switch: Vec<SchedSwitchRow>,
     sched_wait_task: Vec<SchedWaitTaskRow>,
     sched_wake_idle_without_ipi: Vec<SchedWakeIdleWithoutIpiRow>,
     sched_wakeup: Vec<SchedWakeupRow>,
-    sched_wakeup_new: Vec<SchedWakeupRow>,
-    sched_waking: Vec<SchedWakeupRow>,
+    sched_wakeup_new: Vec<SchedWakeupNewRow>,
+    sched_waking: Vec<SchedWakingRow>,
     thread_state: ThreadStateBuilder,
     instant: Vec<InstantRow>,
 }
@@ -234,11 +214,11 @@ impl SchedRows {
         }
         if let Some(message) = event.sched_stat_blocked_format {
             self.sched_stat_blocked
-                .push(SchedStatDelayRow::from_blocked(&meta, message));
+                .push(SchedStatBlockedRow::new(&meta, message));
         }
         if let Some(message) = event.sched_stat_iowait_format {
             self.sched_stat_iowait
-                .push(SchedStatDelayRow::from_iowait(&meta, message));
+                .push(SchedStatIowaitRow::new(&meta, message));
         }
         if let Some(message) = event.sched_stat_runtime_format {
             self.sched_stat_runtime
@@ -246,11 +226,11 @@ impl SchedRows {
         }
         if let Some(message) = event.sched_stat_sleep_format {
             self.sched_stat_sleep
-                .push(SchedStatDelayRow::from_sleep(&meta, message));
+                .push(SchedStatSleepRow::new(&meta, message));
         }
         if let Some(message) = event.sched_stat_wait_format {
             self.sched_stat_wait
-                .push(SchedStatDelayRow::from_wait(&meta, message));
+                .push(SchedStatWaitRow::new(&meta, message));
         }
         if let Some(message) = event.sched_stick_numa_format {
             self.sched_stick_numa
@@ -274,21 +254,33 @@ impl SchedRows {
                 .push(SchedWakeIdleWithoutIpiRow::new(&meta, message));
         }
         if let Some(message) = event.sched_wakeup_format {
-            let row = SchedWakeupRow::from_wakeup(&meta, message);
-            self.instant
-                .push(InstantRow::from_wakeup(&row, "sched_wakeup"));
+            let row = SchedWakeupRow::new(&meta, message);
+            self.instant.push(InstantRow::from_wakeup(
+                row.event_timestamp,
+                "sched_wakeup",
+                row.pid,
+                row.event_tgid,
+            ));
             self.sched_wakeup.push(row);
         }
         if let Some(message) = event.sched_wakeup_new_format {
-            let row = SchedWakeupRow::from_wakeup_new(&meta, message);
-            self.instant
-                .push(InstantRow::from_wakeup(&row, "sched_wakeup_new"));
+            let row = SchedWakeupNewRow::new(&meta, message);
+            self.instant.push(InstantRow::from_wakeup(
+                row.event_timestamp,
+                "sched_wakeup_new",
+                row.pid,
+                row.event_tgid,
+            ));
             self.sched_wakeup_new.push(row);
         }
         if let Some(message) = event.sched_waking_format {
-            let row = SchedWakeupRow::from_waking(&meta, message);
-            self.instant
-                .push(InstantRow::from_wakeup(&row, "sched_waking"));
+            let row = SchedWakingRow::new(&meta, message);
+            self.instant.push(InstantRow::from_wakeup(
+                row.event_timestamp,
+                "sched_waking",
+                row.pid,
+                row.event_tgid,
+            ));
             self.sched_waking.push(row);
         }
         if let Some(message) = event.sched_blocked_reason_format {
@@ -299,33 +291,36 @@ impl SchedRows {
 
     fn into_tables(self) -> Result<Vec<HitraceTable>> {
         Ok(vec![
-            table_from_rows("sched_blocked_reason", self.sched_blocked_reason)?,
-            table_from_rows("sched_kthread_stop", self.sched_kthread_stop)?,
-            table_from_rows("sched_kthread_stop_ret", self.sched_kthread_stop_ret)?,
-            table_from_rows("sched_migrate_task", self.sched_migrate_task)?,
-            table_from_rows("sched_move_numa", self.sched_move_numa)?,
-            table_from_rows("sched_pi_setprio", self.sched_pi_setprio)?,
-            table_from_rows("sched_process_exec", self.sched_process_exec)?,
-            table_from_rows("sched_process_exit", self.sched_process_exit)?,
-            table_from_rows("sched_process_fork", self.sched_process_fork)?,
-            table_from_rows("sched_process_free", self.sched_process_free)?,
-            table_from_rows("sched_process_wait", self.sched_process_wait)?,
-            table_from_rows("sched_stat_blocked", self.sched_stat_blocked)?,
-            table_from_rows("sched_stat_iowait", self.sched_stat_iowait)?,
-            table_from_rows("sched_stat_runtime", self.sched_stat_runtime)?,
-            table_from_rows("sched_stat_sleep", self.sched_stat_sleep)?,
-            table_from_rows("sched_stat_wait", self.sched_stat_wait)?,
-            table_from_rows("sched_stick_numa", self.sched_stick_numa)?,
-            table_from_rows("sched_swap_numa", self.sched_swap_numa)?,
-            table_from_rows("sched_switch", self.sched_switch)?,
-            table_from_rows("sched_wait_task", self.sched_wait_task)?,
+            table_from_rows(SchedBlockedReasonRow::TABLE_NAME, self.sched_blocked_reason)?,
+            table_from_rows(SchedKthreadStopRow::TABLE_NAME, self.sched_kthread_stop)?,
             table_from_rows(
-                "sched_wake_idle_without_ipi",
+                SchedKthreadStopRetRow::TABLE_NAME,
+                self.sched_kthread_stop_ret,
+            )?,
+            table_from_rows(SchedMigrateTaskRow::TABLE_NAME, self.sched_migrate_task)?,
+            table_from_rows(SchedMoveNumaRow::TABLE_NAME, self.sched_move_numa)?,
+            table_from_rows(SchedPiSetprioRow::TABLE_NAME, self.sched_pi_setprio)?,
+            table_from_rows(SchedProcessExecRow::TABLE_NAME, self.sched_process_exec)?,
+            table_from_rows(SchedProcessExitRow::TABLE_NAME, self.sched_process_exit)?,
+            table_from_rows(SchedProcessForkRow::TABLE_NAME, self.sched_process_fork)?,
+            table_from_rows(SchedProcessFreeRow::TABLE_NAME, self.sched_process_free)?,
+            table_from_rows(SchedProcessWaitRow::TABLE_NAME, self.sched_process_wait)?,
+            table_from_rows(SchedStatBlockedRow::TABLE_NAME, self.sched_stat_blocked)?,
+            table_from_rows(SchedStatIowaitRow::TABLE_NAME, self.sched_stat_iowait)?,
+            table_from_rows(SchedStatRuntimeRow::TABLE_NAME, self.sched_stat_runtime)?,
+            table_from_rows(SchedStatSleepRow::TABLE_NAME, self.sched_stat_sleep)?,
+            table_from_rows(SchedStatWaitRow::TABLE_NAME, self.sched_stat_wait)?,
+            table_from_rows(SchedStickNumaRow::TABLE_NAME, self.sched_stick_numa)?,
+            table_from_rows(SchedSwapNumaRow::TABLE_NAME, self.sched_swap_numa)?,
+            table_from_rows(SchedSwitchRow::TABLE_NAME, self.sched_switch)?,
+            table_from_rows(SchedWaitTaskRow::TABLE_NAME, self.sched_wait_task)?,
+            table_from_rows(
+                SchedWakeIdleWithoutIpiRow::TABLE_NAME,
                 self.sched_wake_idle_without_ipi,
             )?,
-            table_from_rows("sched_wakeup", self.sched_wakeup)?,
-            table_from_rows("sched_wakeup_new", self.sched_wakeup_new)?,
-            table_from_rows("sched_waking", self.sched_waking)?,
+            table_from_rows(SchedWakeupRow::TABLE_NAME, self.sched_wakeup)?,
+            table_from_rows(SchedWakeupNewRow::TABLE_NAME, self.sched_wakeup_new)?,
+            table_from_rows(SchedWakingRow::TABLE_NAME, self.sched_waking)?,
             table_from_rows(THREAD_STATE_TABLE, self.thread_state.into_rows())?,
             table_from_rows(INSTANT_TABLE, self.instant)?,
         ])
@@ -344,579 +339,6 @@ where
                 .with_context(|| format!("failed to convert {name} table to Arrow"))?,
         ],
     })
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedBlockedReasonRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    pid: i32,
-    caller: u64,
-    io_wait: u32,
-}
-
-impl SchedBlockedReasonRow {
-    fn new(meta: &SchedEventMeta, message: SchedBlockedReasonFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            pid: message.pid,
-            caller: message.caller,
-            io_wait: message.io_wait,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedKthreadStopRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-}
-
-impl SchedKthreadStopRow {
-    fn new(meta: &SchedEventMeta, message: SchedKthreadStopFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedKthreadStopRetRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    ret: i32,
-}
-
-impl SchedKthreadStopRetRow {
-    fn new(meta: &SchedEventMeta, message: SchedKthreadStopRetFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            ret: message.ret,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedMigrateTaskRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-    orig_cpu: i32,
-    dest_cpu: i32,
-}
-
-impl SchedMigrateTaskRow {
-    fn new(meta: &SchedEventMeta, message: SchedMigrateTaskFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            prio: message.prio,
-            orig_cpu: message.orig_cpu,
-            dest_cpu: message.dest_cpu,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedMoveNumaRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    pid: i32,
-    tgid: i32,
-    ngid: i32,
-    src_cpu: i32,
-    src_nid: i32,
-    dst_cpu: i32,
-    dst_nid: i32,
-}
-
-impl SchedMoveNumaRow {
-    fn new(meta: &SchedEventMeta, message: SchedMoveNumaFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            pid: message.pid,
-            tgid: message.tgid,
-            ngid: message.ngid,
-            src_cpu: message.src_cpu,
-            src_nid: message.src_nid,
-            dst_cpu: message.dst_cpu,
-            dst_nid: message.dst_nid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedPiSetprioRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    oldprio: i32,
-    newprio: i32,
-}
-
-impl SchedPiSetprioRow {
-    fn new(meta: &SchedEventMeta, message: SchedPiSetprioFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            oldprio: message.oldprio,
-            newprio: message.newprio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedProcessExecRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    filename: String,
-    pid: i32,
-    old_pid: i32,
-}
-
-impl SchedProcessExecRow {
-    fn new(meta: &SchedEventMeta, message: SchedProcessExecFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            filename: message.filename,
-            pid: message.pid,
-            old_pid: message.old_pid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedProcessExitRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-}
-
-impl SchedProcessExitRow {
-    fn new(meta: &SchedEventMeta, message: SchedProcessExitFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            prio: message.prio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedProcessForkRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    parent_comm: String,
-    parent_pid: i32,
-    child_comm: String,
-    child_pid: i32,
-}
-
-impl SchedProcessForkRow {
-    fn new(meta: &SchedEventMeta, message: SchedProcessForkFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            parent_comm: message.parent_comm,
-            parent_pid: message.parent_pid,
-            child_comm: message.child_comm,
-            child_pid: message.child_pid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedProcessFreeRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-}
-
-impl SchedProcessFreeRow {
-    fn new(meta: &SchedEventMeta, message: SchedProcessFreeFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            prio: message.prio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedProcessWaitRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-}
-
-impl SchedProcessWaitRow {
-    fn new(meta: &SchedEventMeta, message: SchedProcessWaitFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            prio: message.prio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedStatDelayRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    delay: u64,
-}
-
-impl SchedStatDelayRow {
-    fn from_blocked(meta: &SchedEventMeta, message: SchedStatBlockedFormat) -> Self {
-        Self::new(meta, message.comm, message.pid, message.delay)
-    }
-
-    fn from_iowait(meta: &SchedEventMeta, message: SchedStatIowaitFormat) -> Self {
-        Self::new(meta, message.comm, message.pid, message.delay)
-    }
-
-    fn from_sleep(meta: &SchedEventMeta, message: SchedStatSleepFormat) -> Self {
-        Self::new(meta, message.comm, message.pid, message.delay)
-    }
-
-    fn from_wait(meta: &SchedEventMeta, message: SchedStatWaitFormat) -> Self {
-        Self::new(meta, message.comm, message.pid, message.delay)
-    }
-
-    fn new(meta: &SchedEventMeta, comm: String, pid: i32, delay: u64) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm,
-            pid,
-            delay,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedStatRuntimeRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    runtime: u64,
-    vruntime: u64,
-}
-
-impl SchedStatRuntimeRow {
-    fn new(meta: &SchedEventMeta, message: SchedStatRuntimeFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            runtime: message.runtime,
-            vruntime: message.vruntime,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedStickNumaRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    pid: i32,
-    tgid: i32,
-    ngid: i32,
-    src_cpu: i32,
-    src_nid: i32,
-    dst_cpu: i32,
-    dst_nid: i32,
-}
-
-impl SchedStickNumaRow {
-    fn new(meta: &SchedEventMeta, message: SchedStickNumaFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            pid: message.pid,
-            tgid: message.tgid,
-            ngid: message.ngid,
-            src_cpu: message.src_cpu,
-            src_nid: message.src_nid,
-            dst_cpu: message.dst_cpu,
-            dst_nid: message.dst_nid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedSwapNumaRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    src_pid: i32,
-    src_tgid: i32,
-    src_ngid: i32,
-    src_cpu: i32,
-    src_nid: i32,
-    dst_pid: i32,
-    dst_tgid: i32,
-    dst_ngid: i32,
-    dst_cpu: i32,
-    dst_nid: i32,
-}
-
-impl SchedSwapNumaRow {
-    fn new(meta: &SchedEventMeta, message: SchedSwapNumaFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            src_pid: message.src_pid,
-            src_tgid: message.src_tgid,
-            src_ngid: message.src_ngid,
-            src_cpu: message.src_cpu,
-            src_nid: message.src_nid,
-            dst_pid: message.dst_pid,
-            dst_tgid: message.dst_tgid,
-            dst_ngid: message.dst_ngid,
-            dst_cpu: message.dst_cpu,
-            dst_nid: message.dst_nid,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedSwitchRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    prev_comm: String,
-    prev_pid: i32,
-    prev_prio: i32,
-    prev_state: u64,
-    next_comm: String,
-    next_pid: i32,
-    next_prio: i32,
-}
-
-impl SchedSwitchRow {
-    fn new(meta: &SchedEventMeta, message: SchedSwitchFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            prev_comm: message.prev_comm,
-            prev_pid: message.prev_pid,
-            prev_prio: message.prev_prio,
-            prev_state: message.prev_state,
-            next_comm: message.next_comm,
-            next_pid: message.next_pid,
-            next_prio: message.next_prio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedWaitTaskRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-}
-
-impl SchedWaitTaskRow {
-    fn new(meta: &SchedEventMeta, message: SchedWaitTaskFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm: message.comm,
-            pid: message.pid,
-            prio: message.prio,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedWakeIdleWithoutIpiRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    cpu: i32,
-}
-
-impl SchedWakeIdleWithoutIpiRow {
-    fn new(meta: &SchedEventMeta, message: SchedWakeIdleWithoutIpiFormat) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            cpu: message.cpu,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SchedWakeupRow {
-    event_timestamp: u64,
-    event_cpu: u32,
-    event_tgid: i32,
-    event_comm: String,
-    comm: String,
-    pid: i32,
-    prio: i32,
-    success: i32,
-    target_cpu: i32,
-}
-
-impl SchedWakeupRow {
-    fn from_wakeup(meta: &SchedEventMeta, message: SchedWakeupFormat) -> Self {
-        Self::new(
-            meta,
-            message.comm,
-            message.pid,
-            message.prio,
-            message.success,
-            message.target_cpu,
-        )
-    }
-
-    fn from_wakeup_new(meta: &SchedEventMeta, message: SchedWakeupNewFormat) -> Self {
-        Self::new(
-            meta,
-            message.comm,
-            message.pid,
-            message.prio,
-            message.success,
-            message.target_cpu,
-        )
-    }
-
-    fn from_waking(meta: &SchedEventMeta, message: SchedWakingFormat) -> Self {
-        Self::new(
-            meta,
-            message.comm,
-            message.pid,
-            message.prio,
-            message.success,
-            message.target_cpu,
-        )
-    }
-
-    fn new(
-        meta: &SchedEventMeta,
-        comm: String,
-        pid: i32,
-        prio: i32,
-        success: i32,
-        target_cpu: i32,
-    ) -> Self {
-        Self {
-            event_timestamp: meta.event_timestamp,
-            event_cpu: meta.event_cpu,
-            event_tgid: meta.event_tgid,
-            event_comm: meta.event_comm.clone(),
-            comm,
-            pid,
-            prio,
-            success,
-            target_cpu,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -992,12 +414,12 @@ struct InstantRow {
 }
 
 impl InstantRow {
-    fn from_wakeup(row: &SchedWakeupRow, name: &str) -> Self {
+    fn from_wakeup(ts: u64, name: &str, ref_tid: i32, wakeup_from: i32) -> Self {
         Self {
-            ts: row.event_timestamp,
+            ts,
             name: name.to_string(),
-            ref_tid: row.pid,
-            wakeup_from: row.event_tgid,
+            ref_tid,
+            wakeup_from,
             ref_type: "tid".to_string(),
             value: 0.0,
         }
