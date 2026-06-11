@@ -1,43 +1,39 @@
-# sched.proto 接入与 sched 表设计
+# hitrace sched 事件表设计
 
 ## 背景
 
-Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plugins/ftrace_data` 清单逐步覆盖 htrace protobuf datasource。本次完成清单中的 `sched.proto`：接入上游 proto，解码 htrace 中的 sched ftrace events，并把 sched 事件暴露为可查询 SQL 表。
+Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plugins/ftrace_data` 清单逐步覆盖 htrace protobuf datasource。本 PR 只接入其中的 `sched.proto`：解码 htrace 中的 sched ftrace events，并把每类 sched event 暴露为可查询 SQL 明细表。
 
-Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`、`instant` 这类表属于从事件流生成的派生表。issue #25 也说明这些表按 trace_streamer 语义属于 `ftrace_data` 派生表，可以跟随对应 sched 事件逐步补齐。
-
-现有 kat-rs 已有最小 htrace 链路：读取 `ProfilerPluginData`，识别 `ftrace-plugin`，解码 `TracePluginResult.ftrace_cpu_detail.event.sched_switch_format`，并暴露 `sched_switch` 表。这个切片在保留现有 API 的基础上扩展为完整 sched 明细表，并先生成可验证的 `thread_state` / `instant` 派生表。
+Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`、`instant` 属于从事件流生成的派生表。本 PR 在 sched 明细表基础上先提供这两张最小派生表，后续更完整的线程字典、arg_set、sched_slice 等语义另行切片。
 
 ## 要解决的问题
 
 1. 将上游 `sched.proto` 纳入 `kat-rs-datasource` 的 prost 生成流程。
 2. 在 `hitrace.proto` 的 `FtraceEvent` 中补齐 sched message 字段，使 htrace 解码路径能识别 sched 事件。
 3. 为 `sched.proto` 中每个 sched message 建表，表名使用 snake_case 事件名，例如 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`。
-4. 从 `sched.proto` 生成 sched 明细 Row 结构、构造器和表名常量，避免在 `hitrace.rs` 手写重复 schema。
-5. 每张 sched 明细表包含事件公共元数据和 proto message 字段，便于查询详细信息。
-6. 从 sched 事件最小生成两张派生表：
-   - `thread_state`：从 `sched_switch` 推导线程运行/等待状态区间。
-   - `instant`：从 `sched_wakeup`、`sched_wakeup_new`、`sched_waking` 推导唤醒瞬时事件。
-7. 用单元/端到端测试和真实 trace 查询证明新增表可查。
+4. 从 `sched.proto` 生成 sched 明细 Row、direct table builder 和事件路由，避免在 `hitrace.rs` 手写重复 schema 与长分发表。
+5. direct sched 明细表在 decode 时写入 `serde_arrow::ArrayBuilder`，结束后产出 Arrow `RecordBatch`。
+6. 从 sched 事件生成最小 `thread_state` 和 `instant` 派生表。
 
 ## 不做什么
 
 1. 不接入 `types/plugins/ftrace_data/default`。
 2. 不一次性接入 `ftrace_event.proto` 的全部非 sched 分支。
 3. 不复刻 trace_streamer 的完整进程/线程字典、arg_set、binder runnable、sched_slice 等语义。
-4. 不引入 YAML lifecycle 配置引擎；issue #22 的通用 YAML 方案留给后续独立切片。
+4. 不引入 issue #22 提到的通用 YAML lifecycle 配置引擎。
 5. 不提交真实 trace fixture，也不把本地 `D:\项目\data\...htrace` 加入仓库。
+6. 不生成逐字段 typed Arrow builder，例如 `UInt64Builder` / `StringBuilder`。
 
-## 上游 proto 来源
+## Proto 来源
 
-本次使用：
+本次参考本地 trace_streamer：
 
 ```text
 D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto
 D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\ftrace_event.proto
 ```
 
-`sched.proto` 原样复制到：
+`sched.proto` 放入：
 
 ```text
 crates/kat-rs-datasource/proto/ftrace_data/sched.proto
@@ -47,16 +43,16 @@ crates/kat-rs-datasource/proto/ftrace_data/sched.proto
 
 ## 明细表契约
 
-所有 sched 明细表都包含公共列：
+所有 sched 明细表都包含事件公共元数据。若公共列与 message 字段同名，则公共列加 `event_` 前缀，保留 message 字段原名：
 
-| 列 | 类型 | 说明 |
+| 公共列 | 类型 | 说明 |
 | --- | --- | --- |
-| `timestamp` | `uint64` | `FtraceEvent.timestamp` |
-| `cpu` | `uint32` | 所属 `FtraceCpuDetailMsg.cpu` |
-| `tgid` | `int32` | `FtraceEvent.tgid` |
-| `comm` | `string` | `FtraceEvent.comm` |
+| `event_timestamp` | `uint64` | `FtraceEvent.timestamp` |
+| `event_cpu` | `uint32` | 所属 `FtraceCpuDetailMsg.cpu` |
+| `event_tgid` | `int32` | `FtraceEvent.tgid` |
+| `event_comm` | `string` | `FtraceEvent.comm` |
 
-每张表再追加对应 proto message 的字段：
+每张表再追加对应 proto message 字段：
 
 | 表 | message | 字段 |
 | --- | --- | --- |
@@ -85,18 +81,33 @@ crates/kat-rs-datasource/proto/ftrace_data/sched.proto
 | `sched_wakeup_new` | `SchedWakeupNewFormat` | `comm`, `pid`, `prio`, `success`, `target_cpu` |
 | `sched_waking` | `SchedWakingFormat` | `comm`, `pid`, `prio`, `success`, `target_cpu` |
 
-当公共列与 message 字段同名时保留 message 字段名，并给公共列加清晰前缀：
+## 生成与运行时边界
 
-```text
-event_timestamp
-event_cpu
-event_tgid
-event_comm
+`build.rs` 使用 `EventFamilySpec` 描述事件族生成配置，当前唯一 family 是 sched：
+
+```rust
+struct EventFamilySpec {
+    proto_path: &'static str,
+    rows_file: &'static str,
+    builders_file: &'static str,
+    meta_name: &'static str,
+    observer_name: &'static str,
+    builders_name: &'static str,
+}
 ```
 
-这样 `sched_wake_idle_without_ipi.cpu`、`sched_move_numa.tgid`、`SchedKthreadStopFormat.comm` 等字段不会与事件公共元数据冲突。
+`generate_event_family_code(&SCHED_FAMILY)` 从 `sched.proto` 生成两类文件：
 
-明细 Row 的 Rust 结构由 `build.rs` 在编译期从 `sched.proto` 生成到 `OUT_DIR/sched_rows.rs`。`hitrace.rs` 只负责解码分发、收集各表 rows，以及维护 `thread_state` / `instant` 这类派生逻辑。
+1. `OUT_DIR/sched_rows.rs`：生成 `Sched*Row`、表名常量和从 event/message 构造 row 的逻辑。Row 类型继续作为 serde_arrow schema 推导和单行序列化边界。
+2. `OUT_DIR/sched_table_builders.rs`：生成 `SchedEventObserver` 和 `SchedDirectTableBuilders`。builder 负责 direct sched 表集合、event optional field 路由、通知 observer，以及最终输出 `HitraceTable`。
+
+运行时代码的边界：
+
+1. `src/hitrace/table_builder.rs` 提供轻量 `TableBuilder<T>`，内部使用 `serde_arrow::ArrayBuilder` 逐行 append。
+2. `src/hitrace/derived.rs` 实现 `SchedEventObserver`，承载 `thread_state` / `instant` 派生语义。
+3. `src/hitrace.rs` 只保留流程编排：解码 `ProfilerPluginData.data`，遍历 ftrace event，调用 `SchedDirectTableBuilders::push_event`，最后合并 direct 表与派生表。
+
+这让 sched 明细表的 schema 和路由跟随 proto 生成，派生表业务语义仍显式保留在手写代码里。
 
 ## 派生表契约
 
@@ -129,8 +140,6 @@ event_comm
 | `ref_type` | `string` | 固定为 `tid` |
 | `value` | `double` | 当前固定为 `0.0` |
 
-这两个派生表先覆盖 trace_streamer 中 sched 相关的最小语义，不实现完整线程字典和 arg_set。
-
 ## 数据流
 
 ```text
@@ -138,25 +147,26 @@ ProfilerPluginData.data
   -> TracePluginResult
   -> FtraceCpuDetailMsg(cpu)
   -> FtraceEvent(timestamp, tgid, comm, sched message fields)
-  -> sched_* 明细表 rows
-  -> thread_state / instant derived rows
+  -> generated SchedDirectTableBuilders
+  -> sched_* direct tables
+  -> DerivedTables(thread_state, instant)
   -> DataFusion MemTable
 ```
 
-## 测试
+## 验证
 
-1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip，并验证 `sched_rows.rs` 生成的 Row 包含事件元数据、message 字段和表名常量。
+1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip，并验证 generated rows/builders 可用。
 2. datasource 测试构造最小 `.htrace`，覆盖 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 等表可查询。
 3. datasource 测试验证未出现的 sched 表也能注册并返回 `count = 0`。
 4. datasource 测试验证 `thread_state` 和 `instant` 从 sched 事件生成。
-5. CLI 测试至少验证 `sched_switch` 和新增 sched 明细表查询 JSON。
-6. 全量运行 `cargo test --workspace` 和 `cargo clippy --workspace --all-targets -- -D warnings`。
-7. 对真实 trace 执行 `sched_switch`、`sched_wakeup`、`thread_state`、`instant` 的 count 查询。
+5. 架构测试约束 `hitrace.rs` 保持薄编排，sched rows/builders 由 build 生成，`build.rs` 使用 event family generator。
+6. 全量运行 `cargo fmt --all -- --check`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`。
+7. 对真实 trace 执行 `sched_switch`、`sched_wakeup`、`thread_state`、`instant` 等 count 查询，并可导出包含所有可解析表的 `.db` 文件。
 
 ## 最小交付
 
 1. 上游 `sched.proto` 接入 prost。
 2. `hitrace.proto` 只补齐 sched message 字段。
-3. sched 明细 Row 由 build 从 `sched.proto` 生成，所有 sched message 建成 SQL 明细表。
+3. sched 明细 Row 与 direct table builders 从 `sched.proto` 生成，所有 sched message 建成 SQL 明细表。
 4. `thread_state` 和 `instant` 最小派生表可查询。
-5. 在新分支提交并创建 PR，PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、端到端测试、真实 trace 查询、workspace test 和 clippy 结果。
+5. PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、真实 trace 查询、workspace test 和 clippy 结果。
