@@ -1,6 +1,8 @@
 //! Parses hitrace files into Arrow batches backed by profiler plugin segments.
 
-use std::{collections::HashMap, path::Path};
+mod derived;
+
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
@@ -10,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 
 use crate::{
+    hitrace::derived::{INSTANT_TABLE, InstantRow, THREAD_STATE_TABLE, ThreadStateBuilder},
     mmap::with_mapped_file,
     proto::{ProfilerPluginData, TracePluginResult, kat::hitrace::FtraceEvent},
     sched_rows::{
@@ -23,8 +26,6 @@ use crate::{
 };
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
-pub(crate) const THREAD_STATE_TABLE: &str = "thread_state";
-pub(crate) const INSTANT_TABLE: &str = "instant";
 
 const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 const PROFILER_HEADER_SIZE: usize = 1024;
@@ -339,91 +340,6 @@ where
                 .with_context(|| format!("failed to convert {name} table to Arrow"))?,
         ],
     })
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct ThreadStateRow {
-    ts: u64,
-    dur: Option<u64>,
-    cpu: Option<u32>,
-    tid: i32,
-    state: String,
-    comm: String,
-}
-
-#[derive(Default)]
-struct ThreadStateBuilder {
-    rows: Vec<ThreadStateRow>,
-    active_by_tid: HashMap<i32, usize>,
-}
-
-impl ThreadStateBuilder {
-    fn push_switch(&mut self, row: &SchedSwitchRow) {
-        if row.prev_pid != 0 {
-            self.push_state(
-                row.event_timestamp,
-                None,
-                row.prev_pid,
-                format!("prev_state:{}", row.prev_state),
-                row.prev_comm.clone(),
-            );
-        }
-        if row.next_pid != 0 {
-            self.push_state(
-                row.event_timestamp,
-                Some(row.event_cpu),
-                row.next_pid,
-                "Running".to_string(),
-                row.next_comm.clone(),
-            );
-        }
-    }
-
-    fn push_state(&mut self, ts: u64, cpu: Option<u32>, tid: i32, state: String, comm: String) {
-        if let Some(active_row) = self.active_by_tid.insert(tid, self.rows.len()) {
-            let start_ts = self.rows[active_row].ts;
-            if ts >= start_ts {
-                self.rows[active_row].dur = Some(ts - start_ts);
-            }
-        }
-
-        self.rows.push(ThreadStateRow {
-            ts,
-            dur: None,
-            cpu,
-            tid,
-            state,
-            comm,
-        });
-    }
-
-    fn into_rows(self) -> Vec<ThreadStateRow> {
-        self.rows
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct InstantRow {
-    ts: u64,
-    name: String,
-    #[serde(rename = "ref")]
-    ref_tid: i32,
-    wakeup_from: i32,
-    ref_type: String,
-    value: f64,
-}
-
-impl InstantRow {
-    fn from_wakeup(ts: u64, name: &str, ref_tid: i32, wakeup_from: i32) -> Self {
-        Self {
-            ts,
-            name: name.to_string(),
-            ref_tid,
-            wakeup_from,
-            ref_type: "tid".to_string(),
-            value: 0.0,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
