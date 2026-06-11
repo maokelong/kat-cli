@@ -8,7 +8,7 @@ Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 需要补齐 sched ft
 
 1. 增加 `proto/ftrace_data/sched.proto`，使用 `package kat.hitrace`，格式与 `hitrace.proto` 保持一致。
 2. 在 `hitrace.proto` 的 `FtraceEvent` 中引入 sched 事件字段。
-3. 通过 build script 从 sched proto 生成 direct row structs 和 direct table builders。
+3. 通过 build script 从 sched proto 生成 direct table builders。
 4. 解析 hitrace 文件时，按 len-prefixed protobuf message streaming decode `ProfilerPluginData`。
 5. 将 `ProfilerPluginData` 和 sched direct rows 写入 Arrow `RecordBatch`，并注册到 DataFusion。
 6. 支持查询 sched direct tables，例如 `sched_switch`、`sched_wakeup`、`sched_blocked_reason`、`sched_migrate_task`。
@@ -18,7 +18,7 @@ Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 需要补齐 sched ft
 1. 不实现 `thread_state`、`instant`、`process`、`thread`、`sched_slice`、`raw_event` 等派生表。
 2. 不在本 PR 中引入跨事件状态机、线程生命周期推导或 CPU slice 合成逻辑。
 3. 不复刻 TraceStreamer 的全部 ftrace schema；只添加当前 sched direct tables 需要的消息。
-4. 不为未来 event family 预留复杂运行时插件系统；只保留 build-time event family generator。
+4. 不引入 `prost-reflect` 或运行时 protobuf 字段反射。
 
 ## 数据流
 
@@ -30,11 +30,41 @@ hitrace file
   -> ftrace-plugin TracePluginResult
   -> FtraceEvent
   -> SchedDirectTableBuilders
+  -> EventRow<SchedXxxFormat>
+  -> TableBuilder<EventRow<_>>
   -> HitraceTable
   -> DataFusion
 ```
 
-解析入口保持薄：它只负责读取 section、decode protobuf、把 direct event 推给生成的 builders。sched 事件字段到表的映射由生成代码承担。
+解析入口保持薄：它只负责读取 section、decode protobuf、把 direct event 推给生成的 builders。sched 事件字段到表的路由由生成代码承担。
+
+## 表行模型
+
+direct table 行由两部分组成：
+
+| 部分 | 来源 | 字段 |
+| --- | --- | --- |
+| 公共字段 | `FtraceCpuDetailMsg.cpu` 和 `FtraceEvent` | `event_timestamp`, `event_cpu`, `event_tgid`, `event_comm` |
+| 消息字段 | `SchedXxxFormat` | 该 sched message 自身字段 |
+
+公共字段只手写一次：
+
+```rust
+EventMeta::from_event(cpu, &event)
+```
+
+每个 direct row 使用通用 wrapper：
+
+```rust
+EventRow<M> {
+    #[serde(flatten)]
+    meta: EventMeta,
+    #[serde(flatten)]
+    message: M,
+}
+```
+
+`serde_arrow::from_type` 不能推导 `#[serde(flatten)]` 后的字段，因此 sched direct table 使用 `from_samples(&[EventRow::<M>::default()])` 推导扁平 Arrow schema。`ProfilerPluginData` 不使用 flatten，继续使用 `from_type`。
 
 ## 代码生成
 
@@ -43,15 +73,15 @@ hitrace file
 | 字段 | 作用 |
 | --- | --- |
 | `proto_path` | family proto 文件 |
-| `rows_file` | 生成 direct row structs |
 | `builders_file` | 生成 direct table builders |
-| `meta_name` | 生成事件公共元信息结构 |
 | `builders_name` | 生成 builder 集合名称 |
 
 生成物：
 
-1. `OUT_DIR/sched_rows.rs`：为每个 `*Format` message 生成一个 `*Row`，字段包含事件公共元信息和 message 自身字段。
-2. `OUT_DIR/sched_table_builders.rs`：生成 `SchedDirectTableBuilders`，内部持有每张 sched direct table 的 `TableBuilder<T>`，并在 `push_event(cpu, event)` 中把 `FtraceEvent` optional 字段写入对应表。
+1. `OUT_DIR/sched_table_builders.rs`：生成 `SchedDirectTableBuilders`，内部持有每张 sched direct table 的 `TableBuilder<EventRow<SchedXxxFormat>>`。
+2. `push_event(cpu, event)`：把 `FtraceEvent` optional 字段路由到对应 table builder，并用 `EventRow::new(EventMeta::from_event(...), message)` 写入。
+
+不再生成 `OUT_DIR/sched_rows.rs`、`SchedEventMeta` 或 `SchedXxxRow`。
 
 ## Direct Tables
 
@@ -75,10 +105,11 @@ hitrace file
 
 ## 验证
 
-1. `proto_contract` 验证 prost 生成的 sched proto 类型、`FtraceEvent` 字段和 generated direct builders。
-2. `hitrace_architecture_contract` 验证解析入口只接入 direct tables，不接入派生表逻辑。
-3. `hitrace_datasource_query` 用测试 hitrace bytes 验证 direct sched tables 可通过 DataFusion 查询。
-4. 全量验证命令：
+1. `serde_arrow_contract` 验证 `EventRow<M> + #[serde(flatten)] + from_samples` 能生成扁平 schema 并写入 Arrow。
+2. `proto_contract` 验证 prost 生成的 sched proto 类型、`FtraceEvent` 字段和 generated direct builders。
+3. `hitrace_architecture_contract` 验证解析入口只接入 direct tables，且不再生成/include `sched_rows.rs`。
+4. `hitrace_datasource_query` 用测试 hitrace bytes 验证 direct sched tables 可通过 DataFusion 查询。
+5. 全量验证命令：
 
 ```powershell
 cargo fmt --all -- --check

@@ -15,7 +15,7 @@ use crate::{
     sched_table_builders::SchedDirectTableBuilders,
 };
 
-pub(crate) use table_builder::TableBuilder;
+pub(crate) use table_builder::{EventMeta, EventRow, TableBuilder};
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
 

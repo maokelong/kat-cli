@@ -10,10 +10,6 @@ mod proto {
     }
 }
 
-mod sched_rows {
-    include!(concat!(env!("OUT_DIR"), "/sched_rows.rs"));
-}
-
 mod hitrace {
     use arrow_array::RecordBatch;
 
@@ -29,7 +25,7 @@ mod hitrace {
         ));
     }
 
-    pub(crate) use table_builder::TableBuilder;
+    pub(crate) use table_builder::{EventMeta, EventRow, TableBuilder};
 }
 
 mod sched_table_builders {
@@ -106,37 +102,6 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
     assert_eq!(decoded.timestamp, 10);
     assert!(decoded.sched_switch_format.is_some());
     assert!(decoded.sched_blocked_reason_format.is_some());
-}
-
-#[test]
-fn generated_sched_rows_include_event_metadata_and_message_fields() {
-    let meta = sched_rows::SchedEventMeta {
-        event_timestamp: 20,
-        event_cpu: 3,
-        event_tgid: 500,
-        event_comm: "source".to_string(),
-    };
-
-    let row = sched_rows::SchedProcessWaitRow::new(
-        &meta,
-        proto::kat::hitrace::SchedProcessWaitFormat {
-            comm: "RenderThread".to_string(),
-            pid: 42,
-            prio: 120,
-        },
-    );
-
-    assert_eq!(
-        sched_rows::SchedProcessWaitRow::TABLE_NAME,
-        "sched_process_wait"
-    );
-    assert_eq!(row.event_timestamp, 20);
-    assert_eq!(row.event_cpu, 3);
-    assert_eq!(row.event_tgid, 500);
-    assert_eq!(row.event_comm, "source");
-    assert_eq!(row.comm, "RenderThread");
-    assert_eq!(row.pid, 42);
-    assert_eq!(row.prio, 120);
 }
 
 #[test]
