@@ -46,3 +46,29 @@ fn direct_sched_table_builders_are_generated() {
     assert!(generated_builders.contains("sched_switch: TableBuilder<SchedSwitchRow>"));
     assert!(generated_builders.contains("observer.observe_sched_switch(&row);"));
 }
+
+#[test]
+fn sched_generation_uses_event_family_generator() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let build_rs =
+        fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("build script can be read");
+
+    for marker in [
+        "struct EventFamilySpec",
+        "const SCHED_FAMILY: EventFamilySpec",
+        "generate_event_family_code(&SCHED_FAMILY)",
+        "fn generate_event_family_code(family: &EventFamilySpec)",
+        "fn render_event_rows(family: &EventFamilySpec, messages: &[ProtoMessage])",
+        "fn render_event_table_builders(family: &EventFamilySpec, messages: &[ProtoMessage])",
+    ] {
+        assert!(build_rs.contains(marker), "{marker} should exist");
+    }
+
+    for marker in [
+        "fn generate_sched_code",
+        "fn render_sched_rows",
+        "fn render_sched_table_builders",
+    ] {
+        assert!(!build_rs.contains(marker), "{marker} should be generalized");
+    }
+}
