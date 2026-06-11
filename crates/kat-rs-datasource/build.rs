@@ -5,7 +5,6 @@ const SCHED_FAMILY: EventFamilySpec = EventFamilySpec {
     rows_file: "sched_rows.rs",
     builders_file: "sched_table_builders.rs",
     meta_name: "SchedEventMeta",
-    observer_name: "SchedEventObserver",
     builders_name: "SchedDirectTableBuilders",
 };
 
@@ -14,7 +13,6 @@ struct EventFamilySpec {
     rows_file: &'static str,
     builders_file: &'static str,
     meta_name: &'static str,
-    observer_name: &'static str,
     builders_name: &'static str,
 }
 
@@ -177,17 +175,6 @@ fn render_event_table_builders(family: &EventFamilySpec, messages: &[ProtoMessag
     output.push_str("    },\n");
     output.push_str("};\n\n");
 
-    writeln!(output, "pub(crate) trait {} {{", family.observer_name).expect("write to string");
-    for message in messages {
-        writeln!(
-            output,
-            "    fn observe_{}(&mut self, _row: &{}) {{}}",
-            message.table_name, message.row_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("}\n\n");
-
     writeln!(output, "pub(crate) struct {} {{", family.builders_name).expect("write to string");
     for message in messages {
         writeln!(
@@ -214,11 +201,8 @@ fn render_event_table_builders(family: &EventFamilySpec, messages: &[ProtoMessag
     output.push_str("    }\n\n");
 
     output.push_str(
-        "    pub(crate) fn push_event<O>(&mut self, cpu: u32, event: FtraceEvent, observer: &mut O) -> Result<()>\n",
+        "    pub(crate) fn push_event(&mut self, cpu: u32, event: FtraceEvent) -> Result<()> {\n",
     );
-    output.push_str("    where\n");
-    writeln!(output, "        O: {},", family.observer_name).expect("write to string");
-    output.push_str("    {\n");
     writeln!(
         output,
         "        let meta = {}::from_event(cpu, &event);\n",
@@ -236,12 +220,6 @@ fn render_event_table_builders(family: &EventFamilySpec, messages: &[ProtoMessag
             output,
             "            let row = {}::new(&meta, message);",
             message.row_name
-        )
-        .expect("write to string");
-        writeln!(
-            output,
-            "            observer.observe_{}(&row);",
-            message.table_name
         )
         .expect("write to string");
         writeln!(
@@ -333,7 +311,7 @@ fn rust_type(proto_type: &str) -> &'static str {
         "double" => "f64",
         "float" => "f32",
         "bytes" => "Vec<u8>",
-        _ => panic!("unsupported sched proto field type {proto_type}"),
+        _ => panic!("unsupported event family proto field type {proto_type}"),
     }
 }
 

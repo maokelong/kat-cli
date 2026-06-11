@@ -1,29 +1,29 @@
 use std::fs;
 
 #[test]
-fn derived_table_code_lives_outside_hitrace_parser() {
+fn hitrace_parser_only_wires_direct_tables() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
         .expect("hitrace parser source can be read");
-    let derived_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace/derived.rs"))
-        .expect("derived table source can be read");
+    let derived_rs_path = format!("{manifest_dir}/src/hitrace/derived.rs");
 
     for marker in [
-        "struct ThreadStateRow",
-        "struct ThreadStateBuilder",
-        "struct InstantRow",
-        "impl ThreadStateBuilder",
-        "impl InstantRow",
+        "mod derived",
+        "DerivedTables",
+        "thread_state",
+        "instant",
+        "sched_slice",
+        "raw_event",
     ] {
         assert!(
             !hitrace_rs.contains(marker),
-            "{marker} should live in hitrace/derived.rs"
-        );
-        assert!(
-            derived_rs.contains(marker),
-            "{marker} should be defined in hitrace/derived.rs"
+            "{marker} should not be wired into the hitrace parser"
         );
     }
+    assert!(
+        !std::path::Path::new(&derived_rs_path).exists(),
+        "derived tables should be added back in a separate slice"
+    );
 }
 
 #[test]
@@ -36,15 +36,15 @@ fn direct_sched_table_builders_are_generated() {
             .expect("generated sched table builders can be read");
 
     assert!(hitrace_rs.contains("SchedDirectTableBuilders::new()?"));
-    assert!(hitrace_rs.contains("DerivedTables::default()"));
+    assert!(!hitrace_rs.contains("DerivedTables::default()"));
     assert!(!hitrace_rs.contains("struct SchedRows"));
     assert!(!hitrace_rs.contains("sched_switch: TableBuilder<SchedSwitchRow>"));
     assert!(!hitrace_rs.contains("SchedSwitchRow::new(&meta, message)"));
 
-    assert!(generated_builders.contains("pub(crate) trait SchedEventObserver"));
+    assert!(!generated_builders.contains("pub(crate) trait SchedEventObserver"));
     assert!(generated_builders.contains("pub(crate) struct SchedDirectTableBuilders"));
     assert!(generated_builders.contains("sched_switch: TableBuilder<SchedSwitchRow>"));
-    assert!(generated_builders.contains("observer.observe_sched_switch(&row);"));
+    assert!(!generated_builders.contains("observer.observe_sched_switch(&row);"));
 }
 
 #[test]

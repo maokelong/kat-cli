@@ -1,6 +1,5 @@
 //! Parses hitrace files into Arrow batches backed by profiler plugin segments.
 
-mod derived;
 mod table_builder;
 
 use std::path::Path;
@@ -9,11 +8,8 @@ use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
 use log::debug;
 use prost::Message;
-use serde::{Deserialize, Serialize};
-use serde_arrow::schema::{SchemaLike, TracingOptions};
 
 use crate::{
-    hitrace::derived::DerivedTables,
     mmap::with_mapped_file,
     proto::{ProfilerPluginData, TracePluginResult},
     sched_table_builders::SchedDirectTableBuilders,
@@ -72,7 +68,6 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     let mut profiler_table = TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?;
     let mut profiler_section_count = 0usize;
     let mut sched_tables = SchedDirectTableBuilders::new()?;
-    let mut derived_tables = DerivedTables::default();
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
@@ -88,12 +83,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
 
         profiler_section_count += 1;
         for_each_len_prefixed_message::<ProfilerPluginData, _>(section.body(bytes), |message| {
-            decode_sched_message(
-                &message,
-                section.start,
-                &mut sched_tables,
-                &mut derived_tables,
-            )?;
+            decode_sched_message(&message, section.start, &mut sched_tables)?;
             profiler_table.push(message).with_context(|| {
                 format!(
                     "failed to append profiler section at byte {} to Arrow builder",
@@ -105,8 +95,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
         .with_context(|| format!("failed to parse profiler section at byte {}", section.start))?;
     }
 
-    let mut tables = sched_tables.into_tables()?;
-    tables.extend(derived_tables.into_tables()?);
+    let tables = sched_tables.into_tables()?;
     let profiler_plugin_data = if profiler_section_count == 0 {
         Vec::new()
     } else {
@@ -119,20 +108,10 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     })
 }
 
-fn record_batch_from<T>(rows: Vec<T>) -> Result<RecordBatch>
-where
-    T: Serialize,
-    for<'de> T: Deserialize<'de>,
-{
-    let fields = Vec::<arrow_schema::FieldRef>::from_type::<T>(TracingOptions::default())?;
-    Ok(serde_arrow::to_record_batch(&fields, &rows)?)
-}
-
 fn decode_sched_message(
     message: &ProfilerPluginData,
     section_start: usize,
     sched_tables: &mut SchedDirectTableBuilders,
-    derived_tables: &mut DerivedTables,
 ) -> Result<()> {
     if message.name != FTRACE_PLUGIN_NAME {
         return Ok(());
@@ -143,25 +122,11 @@ fn decode_sched_message(
     })?;
     for detail in result.ftrace_cpu_detail {
         for event in detail.event {
-            sched_tables.push_event(detail.cpu, event, derived_tables)?;
+            sched_tables.push_event(detail.cpu, event)?;
         }
     }
 
     Ok(())
-}
-
-fn table_from_rows<T>(name: &'static str, rows: Vec<T>) -> Result<HitraceTable>
-where
-    T: Serialize,
-    for<'de> T: Deserialize<'de>,
-{
-    Ok(HitraceTable {
-        name,
-        batches: vec![
-            record_batch_from(rows)
-                .with_context(|| format!("failed to convert {name} table to Arrow"))?,
-        ],
-    })
 }
 
 #[derive(Clone, Copy, Debug)]

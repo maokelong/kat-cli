@@ -139,22 +139,10 @@ fn generated_sched_rows_include_event_metadata_and_message_fields() {
     assert_eq!(row.prio, 120);
 }
 
-#[derive(Default)]
-struct CountingObserver {
-    sched_switch_count: usize,
-}
-
-impl sched_table_builders::SchedEventObserver for CountingObserver {
-    fn observe_sched_switch(&mut self, _row: &sched_rows::SchedSwitchRow) {
-        self.sched_switch_count += 1;
-    }
-}
-
 #[test]
-fn generated_sched_table_builders_route_direct_events_to_tables_and_observer() {
+fn generated_sched_table_builders_route_direct_events_to_tables() {
     let mut builders =
         sched_table_builders::SchedDirectTableBuilders::new().expect("builders are created");
-    let mut observer = CountingObserver::default();
 
     builders
         .push_event(
@@ -174,7 +162,6 @@ fn generated_sched_table_builders_route_direct_events_to_tables_and_observer() {
                 }),
                 ..Default::default()
             },
-            &mut observer,
         )
         .expect("event is routed");
 
@@ -184,7 +171,6 @@ fn generated_sched_table_builders_route_direct_events_to_tables_and_observer() {
         .find(|table| table.name == "sched_switch")
         .expect("sched_switch table exists");
 
-    assert_eq!(observer.sched_switch_count, 1);
     assert_eq!(sched_switch.batches[0].num_rows(), 1);
 }
 
