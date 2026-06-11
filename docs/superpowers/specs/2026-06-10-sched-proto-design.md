@@ -1,24 +1,30 @@
-# sched.proto 接入设计
+# sched.proto 接入与 sched 表设计
 
 ## 背景
 
-Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plugins/ftrace_data` 清单逐步覆盖 htrace protobuf datasource。本次只完成清单中的 `sched.proto`，让 datasource 不再依赖仓库内手写的 `SchedSwitchFormat` 缩水结构，而是从本地上游仓 `D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto` 接入调度事件 proto。
+Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plugins/ftrace_data` 清单逐步覆盖 htrace protobuf datasource。本次完成清单中的 `sched.proto`：接入上游 proto，解码 htrace 中的 sched ftrace events，并把 sched 事件暴露为可查询 SQL 表。
 
-现有 kat-rs 已经有最小 htrace 链路：读取 `ProfilerPluginData`，识别 `ftrace-plugin`，解码 `TracePluginResult.ftrace_cpu_detail.event.sched_switch_format`，并暴露 `sched_switch` SQL 表。这个切片的重点是替换 proto 来源，不扩大 SQL 表面。
+Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`、`instant` 这类表属于从事件流生成的派生表。issue #25 也说明这些表按 trace_streamer 语义属于 `ftrace_data` 派生表，可以跟随对应 sched 事件逐步补齐。
+
+现有 kat-rs 已有最小 htrace 链路：读取 `ProfilerPluginData`，识别 `ftrace-plugin`，解码 `TracePluginResult.ftrace_cpu_detail.event.sched_switch_format`，并暴露 `sched_switch` 表。这个切片在保留现有 API 的基础上扩展为完整 sched 明细表，并先生成可验证的 `thread_state` / `instant` 派生表。
 
 ## 要解决的问题
 
-1. 将上游 `sched.proto` 纳入 `kat-rs-datasource` 的 prost 生成流程，并生成 sched 相关 Rust 类型。
-2. 保持当前 `sched_switch` 解码路径可用，`sched_switch` 表继续暴露 `prev_comm`、`prev_pid`、`prev_prio`、`prev_state`、`next_comm`、`next_pid`、`next_prio`。
-3. 用测试证明生成类型来自上游 sched proto，并证明 datasource 仍能从 ftrace payload 中读出 `sched_switch`。
-4. 用 issue 指定的真实 trace 路径执行一次 SQL 查询，给 PR 留下实际验证证据。
+1. 将上游 `sched.proto` 纳入 `kat-rs-datasource` 的 prost 生成流程。
+2. 在 `hitrace.proto` 的 `FtraceEvent` 中补齐 sched oneof 分支，使 htrace 解码路径能识别 sched 事件。
+3. 为 `sched.proto` 中每个 sched message 建表，表名使用 snake_case 事件名，例如 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`。
+4. 每张 sched 明细表包含事件公共元数据和 proto message 字段，便于查询详细信息。
+5. 从 sched 事件最小生成两张派生表：
+   - `thread_state`：从 `sched_switch` 推导线程运行/等待状态区间。
+   - `instant`：从 `sched_wakeup`、`sched_wakeup_new`、`sched_waking` 推导唤醒瞬时事件。
+6. 用单元/端到端测试和真实 trace 查询证明新增表可查。
 
 ## 不做什么
 
 1. 不接入 `types/plugins/ftrace_data/default`。
-2. 不一次性接入 `ftrace_event.proto` 的全部 oneof 分支。
-3. 不新增除 `sched_switch` 之外的 SQL 表。
-4. 不整理 `sched_wakeup`、`sched_stat_runtime` 等其他 sched 事件语义。
+2. 不一次性接入 `ftrace_event.proto` 的全部非 sched oneof 分支。
+3. 不复刻 trace_streamer 的完整进程/线程字典、arg_set、binder runnable、sched_slice 等语义。
+4. 不引入 YAML lifecycle 配置引擎；issue #22 的通用 YAML 方案留给后续独立切片。
 5. 不提交真实 trace fixture，也不把本地 `D:\项目\data\...htrace` 加入仓库。
 
 ## 上游 proto 来源
@@ -27,60 +33,127 @@ Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plug
 
 ```text
 D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto
+D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\ftrace_event.proto
 ```
 
-该文件包含 `SchedBlockedReasonFormat`、`SchedKthreadStopFormat`、`SchedMigrateTaskFormat`、`SchedSwitchFormat`、`SchedWakeupFormat` 等 sched 事件消息。当前生产查询只消费 `SchedSwitchFormat`，但接入时保留整个 `sched.proto` 文件，避免继续维护缩水版 sched 消息。
-
-为了让现有 `TracePluginResult` 解码链路继续最小可用，`hitrace.proto` 仍只描述当前已验证的外层结构和 `FtraceEvent.sched_switch_format` 分支。完整 `ftrace_event.proto` 的全量 oneof 接入留给 issue #25 中的 `ftrace_event.proto` 清单项。
-
-## 设计
-
-`crates/kat-rs-datasource/proto/hitrace.proto` 保留 `kat.hitrace` package 和外层 hitrace 消息：
+`sched.proto` 原样复制到：
 
 ```text
-ProfilerPluginData
-TracePluginResult
-FtraceCpuDetailMsg
-FtraceEvent
+crates/kat-rs-datasource/proto/ftrace_data/sched.proto
 ```
 
-新增 `crates/kat-rs-datasource/proto/ftrace_data/sched.proto`，内容来自上游 `sched.proto`。`hitrace.proto` import 该文件，并让 `FtraceEvent.sched_switch_format` 使用上游 `SchedSwitchFormat` 类型。
+`ftrace_event.proto` 不整体复制；只把 sched oneof 分支和 tag 写入 kat-rs 的 `hitrace.proto`，避免把非 sched 的 300+ 分支带入本次 PR。
 
-`build.rs` 编译 `hitrace.proto` 与 `ftrace_data/sched.proto`，并继续只为 Arrow 行转换需要的类型派生 serde：
+## 明细表契约
+
+所有 sched 明细表都包含公共列：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `timestamp` | `uint64` | `FtraceEvent.timestamp` |
+| `cpu` | `uint32` | 所属 `FtraceCpuDetailMsg.cpu` |
+| `tgid` | `int32` | `FtraceEvent.tgid` |
+| `comm` | `string` | `FtraceEvent.comm` |
+
+每张表再追加对应 proto message 的字段：
+
+| 表 | message | 字段 |
+| --- | --- | --- |
+| `sched_blocked_reason` | `SchedBlockedReasonFormat` | `pid`, `caller`, `io_wait` |
+| `sched_kthread_stop` | `SchedKthreadStopFormat` | `comm`, `pid` |
+| `sched_kthread_stop_ret` | `SchedKthreadStopRetFormat` | `ret` |
+| `sched_migrate_task` | `SchedMigrateTaskFormat` | `comm`, `pid`, `prio`, `orig_cpu`, `dest_cpu` |
+| `sched_move_numa` | `SchedMoveNumaFormat` | `pid`, `tgid`, `ngid`, `src_cpu`, `src_nid`, `dst_cpu`, `dst_nid` |
+| `sched_pi_setprio` | `SchedPiSetprioFormat` | `comm`, `pid`, `oldprio`, `newprio` |
+| `sched_process_exec` | `SchedProcessExecFormat` | `filename`, `pid`, `old_pid` |
+| `sched_process_exit` | `SchedProcessExitFormat` | `comm`, `pid`, `prio` |
+| `sched_process_fork` | `SchedProcessForkFormat` | `parent_comm`, `parent_pid`, `child_comm`, `child_pid` |
+| `sched_process_free` | `SchedProcessFreeFormat` | `comm`, `pid`, `prio` |
+| `sched_process_wait` | `SchedProcessWaitFormat` | `comm`, `pid`, `prio` |
+| `sched_stat_blocked` | `SchedStatBlockedFormat` | `comm`, `pid`, `delay` |
+| `sched_stat_iowait` | `SchedStatIowaitFormat` | `comm`, `pid`, `delay` |
+| `sched_stat_runtime` | `SchedStatRuntimeFormat` | `comm`, `pid`, `runtime`, `vruntime` |
+| `sched_stat_sleep` | `SchedStatSleepFormat` | `comm`, `pid`, `delay` |
+| `sched_stat_wait` | `SchedStatWaitFormat` | `comm`, `pid`, `delay` |
+| `sched_stick_numa` | `SchedStickNumaFormat` | `pid`, `tgid`, `ngid`, `src_cpu`, `src_nid`, `dst_cpu`, `dst_nid` |
+| `sched_swap_numa` | `SchedSwapNumaFormat` | `src_pid`, `src_tgid`, `src_ngid`, `src_cpu`, `src_nid`, `dst_pid`, `dst_tgid`, `dst_ngid`, `dst_cpu`, `dst_nid` |
+| `sched_switch` | `SchedSwitchFormat` | `prev_comm`, `prev_pid`, `prev_prio`, `prev_state`, `next_comm`, `next_pid`, `next_prio` |
+| `sched_wait_task` | `SchedWaitTaskFormat` | `comm`, `pid`, `prio` |
+| `sched_wake_idle_without_ipi` | `SchedWakeIdleWithoutIpiFormat` | `cpu` |
+| `sched_wakeup` | `SchedWakeupFormat` | `comm`, `pid`, `prio`, `success`, `target_cpu` |
+| `sched_wakeup_new` | `SchedWakeupNewFormat` | `comm`, `pid`, `prio`, `success`, `target_cpu` |
+| `sched_waking` | `SchedWakingFormat` | `comm`, `pid`, `prio`, `success`, `target_cpu` |
+
+当公共列与 message 字段同名时保留 message 字段名，并给公共列加清晰前缀：
 
 ```text
-ProfilerPluginData
-SchedSwitchFormat
+event_timestamp
+event_cpu
+event_tgid
+event_comm
 ```
 
-`src/hitrace.rs` 的解码逻辑保持直白：
+这样 `sched_wake_idle_without_ipi.cpu`、`sched_move_numa.tgid`、`SchedKthreadStopFormat.comm` 等字段不会与事件公共元数据冲突。
+
+## 派生表契约
+
+`thread_state` 是从 `sched_switch` 生成的最小区间表：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `ts` | `uint64` | 状态开始时间 |
+| `dur` | `uint64 or null` | 到下一次状态变化的持续时间 |
+| `cpu` | `uint32 or null` | 运行态所在 CPU；非运行态为空 |
+| `tid` | `int32` | 线程 id |
+| `state` | `string` | `Running` 或 `prev_state:<value>` |
+| `comm` | `string` | 线程名 |
+
+生成规则：
+
+1. 每个 `sched_switch` 产生一行 `next_pid` 的 `Running` 状态。
+2. 每个 `sched_switch` 产生一行 `prev_pid` 的 `prev_state:<prev_state>` 状态。
+3. 同一 `tid` 上一行状态在新状态开始时补齐 `dur`。
+4. 最后一段没有结束事件时 `dur = null`。
+
+`instant` 是从唤醒事件生成的最小瞬时表：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `ts` | `uint64` | 事件时间 |
+| `name` | `string` | `sched_wakeup`、`sched_wakeup_new` 或 `sched_waking` |
+| `ref` | `int32` | 被唤醒 tid，即 message `pid` |
+| `wakeup_from` | `int32` | 触发唤醒的 event tgid |
+| `ref_type` | `string` | 固定为 `tid` |
+| `value` | `double` | 当前固定为 `0.0` |
+
+这两个派生表先覆盖 trace_streamer 中 sched 相关的最小语义，不实现完整线程字典和 arg_set。
+
+## 数据流
 
 ```text
 ProfilerPluginData.data
   -> TracePluginResult
-  -> FtraceCpuDetailMsg.event
-  -> FtraceEvent.sched_switch_format
-  -> sched_switch RecordBatch
+  -> FtraceCpuDetailMsg(cpu)
+  -> FtraceEvent(timestamp, tgid, comm, oneof sched event)
+  -> sched_* 明细表 rows
+  -> thread_state / instant derived rows
+  -> DataFusion MemTable
 ```
-
-如果 prost 生成的 `SchedSwitchFormat` 模块路径因 no-package proto 变化，生产代码只调整 import 路径，不新增运行时 descriptor 或动态 protobuf。
 
 ## 测试
 
-1. `crates/kat-rs-datasource/tests/proto_contract.rs` 增加 sched proto 契约：能构造并 round-trip `SchedBlockedReasonFormat`，同时确认 `SchedSwitchFormat` 字段保持当前 SQL 表需要的 schema。
-2. `crates/kat-rs-datasource/tests/hitrace_datasource_query.rs` 保持并运行 `query_extracts_sched_switch_from_ftrace_plugin_result`，证明 ftrace payload 解码路径还能产生 `sched_switch` 表。
-3. `crates/kat-rs-cli/tests/query_e2e.rs` 保持并运行 `query_prints_sched_switch_fields`，证明 CLI 查询路径不变。
-4. 全量运行 `cargo test --workspace` 和 `cargo clippy --workspace --all-targets -- -D warnings`。
-5. 对真实 trace 执行：
-
-```powershell
-cargo run -p kat-rs-cli -- query --source hitrace --file 'D:\项目\data\hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace' --sql 'select count(*) as count from sched_switch'
-```
+1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip。
+2. datasource 测试构造最小 `.htrace`，覆盖 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 等表可查询。
+3. datasource 测试验证未出现的 sched 表也能注册并返回 `count = 0`。
+4. datasource 测试验证 `thread_state` 和 `instant` 从 sched 事件生成。
+5. CLI 测试至少验证 `sched_switch` 和新增 sched 明细表查询 JSON。
+6. 全量运行 `cargo test --workspace` 和 `cargo clippy --workspace --all-targets -- -D warnings`。
+7. 对真实 trace 执行 `sched_switch`、`sched_wakeup`、`thread_state`、`instant` 的 count 查询。
 
 ## 最小交付
 
-1. 新增上游来源的 `ftrace_data/sched.proto`。
-2. 更新 protobuf build 配置，使 sched 类型参与生成。
-3. 更新 `hitrace.proto`，删除手写 `SchedSwitchFormat`，改用 imported sched 类型。
-4. 更新必要测试，覆盖新增 sched proto 类型和现有 `sched_switch` 查询链路。
-5. 在新分支提交并创建 PR，PR 说明包含 issue #25 checklist 项、SQL 表变化、端到端测试、真实 trace 查询、workspace test 和 clippy 结果。
+1. 上游 `sched.proto` 接入 prost。
+2. `hitrace.proto` 只补齐 sched oneof 分支。
+3. 所有 sched message 建成 SQL 明细表。
+4. `thread_state` 和 `instant` 最小派生表可查询。
+5. 在新分支提交并创建 PR，PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、端到端测试、真实 trace 查询、workspace test 和 clippy 结果。

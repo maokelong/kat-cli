@@ -44,6 +44,42 @@ fn query_prints_sched_switch_fields() {
 }
 
 #[test]
+fn query_prints_sched_blocked_reason_fields() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("sched-events.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kat-rs"))
+        .args([
+            "query",
+            "--source",
+            "hitrace",
+            "--file",
+            trace_path.to_str().expect("trace path is utf8"),
+            "--sql",
+            "select event_timestamp, event_cpu, pid, caller, io_wait from sched_blocked_reason",
+        ])
+        .output()
+        .expect("kat-rs runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("stdout json"),
+        json!([{
+            "event_timestamp": 20,
+            "event_cpu": 2,
+            "pid": 42,
+            "caller": 3735928559u64,
+            "io_wait": 1,
+        }])
+    );
+}
+
+#[test]
 fn query_reports_malformed_hitrace_without_panic() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("malformed.hitrace");
@@ -109,8 +145,16 @@ struct TestFtraceCpuDetailMsg {
 
 #[derive(Clone, PartialEq, Message)]
 struct TestFtraceEvent {
+    #[prost(uint64, tag = "1")]
+    timestamp: u64,
+    #[prost(int32, tag = "2")]
+    tgid: i32,
+    #[prost(string, tag = "3")]
+    comm: String,
     #[prost(message, optional, tag = "2417")]
     sched_switch_format: Option<TestSchedSwitchFormat>,
+    #[prost(message, optional, tag = "4002")]
+    sched_blocked_reason_format: Option<TestSchedBlockedReasonFormat>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -131,21 +175,48 @@ struct TestSchedSwitchFormat {
     next_prio: i32,
 }
 
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedBlockedReasonFormat {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(uint64, tag = "2")]
+    caller: u64,
+    #[prost(uint32, tag = "3")]
+    io_wait: u32,
+}
+
 fn encoded_trace() -> Vec<u8> {
     let payload = TestTracePluginResult {
         ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
-            cpu: 0,
-            event: vec![TestFtraceEvent {
-                sched_switch_format: Some(TestSchedSwitchFormat {
-                    prev_comm: "render".to_string(),
-                    prev_pid: 42,
-                    prev_prio: 120,
-                    prev_state: 1,
-                    next_comm: "main".to_string(),
-                    next_pid: 7,
-                    next_prio: 100,
-                }),
-            }],
+            cpu: 2,
+            event: vec![
+                TestFtraceEvent {
+                    timestamp: 10,
+                    tgid: 500,
+                    comm: "switch_source".to_string(),
+                    sched_switch_format: Some(TestSchedSwitchFormat {
+                        prev_comm: "render".to_string(),
+                        prev_pid: 42,
+                        prev_prio: 120,
+                        prev_state: 1,
+                        next_comm: "main".to_string(),
+                        next_pid: 7,
+                        next_prio: 100,
+                    }),
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 20,
+                    tgid: 500,
+                    comm: "blocked_source".to_string(),
+                    sched_switch_format: None,
+                    sched_blocked_reason_format: Some(TestSchedBlockedReasonFormat {
+                        pid: 42,
+                        caller: 0xdead_beef,
+                        io_wait: 1,
+                    }),
+                },
+            ],
             overwrite: 0,
         }],
     }

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 接入上游 `types/plugins/ftrace_data/sched.proto`，让现有 `sched_switch` 查询路径使用真实 sched proto 生成类型。
+**Goal:** 接入上游 `sched.proto`，为所有 sched event 建明细表，并生成最小 `thread_state` / `instant` 派生表。
 
-**Architecture:** 保留当前 hitrace 外层解析和 `sched_switch` SQL 表，只把 sched 事件消息从手写结构替换为上游 `sched.proto`。no-package 的上游 sched 类型在 `proto` 模块根部生成，`kat.hitrace` 生成代码放在 `proto::kat::hitrace` 下，并在 `proto` 根部 re-export 现有调用方需要的类型。
+**Architecture:** `hitrace.proto` 只补 sched oneof 分支，保持非 sched ftrace events 不进入本次切片。datasource 在解码 `TracePluginResult` 时把每个 sched event 拆到对应 `sched_*` 原始表，同时从 `sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 生成派生表。
 
 **Tech Stack:** Rust 2024, prost/prost-build, serde/serde_arrow, DataFusion, Cargo integration tests.
 
@@ -15,48 +15,35 @@
 - Create: `crates/kat-rs-datasource/proto/ftrace_data/sched.proto`
   - 从 `D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto` 原样复制。
 - Modify: `crates/kat-rs-datasource/proto/hitrace.proto`
-  - 增加 `option optimize_for = LITE_RUNTIME;`。
-  - import `ftrace_data/sched.proto`。
-  - 删除本地手写 `SchedSwitchFormat`，让 `FtraceEvent` 使用 `.SchedSwitchFormat`。
+  - import sched proto。
+  - 给 `FtraceEvent` 添加公共字段 `timestamp`、`tgid`、`comm` 和 sched-only oneof。
 - Modify: `crates/kat-rs-datasource/build.rs`
-  - 编译 `proto/hitrace.proto` 和 `proto/ftrace_data/sched.proto`。
-  - 为 `.SchedSwitchFormat` 派生 serde。
-  - 增加 sched proto 的 rerun 规则。
+  - 编译 `hitrace.proto` 与 `ftrace_data/sched.proto`。
 - Modify: `crates/kat-rs-datasource/src/lib.rs`
-  - include no-package 生成文件 `_.rs`。
-  - 将 `kat.hitrace.rs` 包在 `kat::hitrace` 模块下。
-  - re-export `ProfilerPluginData`、`TracePluginResult`，让现有调用方继续使用 `crate::proto::...`。
+  - include no-package sched 生成文件与 `kat.hitrace` 生成文件。
+- Modify: `crates/kat-rs-datasource/src/hitrace.rs`
+  - 新增 sched row structs、table container、decode dispatcher、`thread_state` 与 `instant` 最小派生逻辑。
+- Modify: `crates/kat-rs-datasource/src/query.rs`
+  - 注册所有 sched 明细表和派生表。
 - Modify: `crates/kat-rs-datasource/tests/proto_contract.rs`
-  - 新增 `SchedBlockedReasonFormat` round-trip，证明 sched.proto 全文件参与生成。
-  - 保持 `SchedSwitchFormat` 字段契约。
+  - 覆盖 upstream sched proto 生成契约。
+- Modify: `crates/kat-rs-datasource/tests/hitrace_datasource_query.rs`
+  - 构造包含多个 sched event 的最小 htrace，并验证新增表。
+- Modify: `crates/kat-rs-cli/tests/query_e2e.rs`
+  - 验证 CLI 能查询新增 sched 明细表。
 
 ---
 
-### Task 1: Write Failing Proto Contract
+### Task 1: Proto Contract And Baseline
 
 **Files:**
 - Modify: `crates/kat-rs-datasource/tests/proto_contract.rs`
 
-- [ ] **Step 1: Add the failing sched proto test**
+- [ ] **Step 1: Ensure upstream sched proto contract exists**
 
-Replace `crates/kat-rs-datasource/tests/proto_contract.rs` with:
+Keep these tests:
 
 ```rust
-use prost::Message;
-
-#[allow(dead_code)]
-mod proto {
-    include!(concat!(env!("OUT_DIR"), "/_.rs"));
-
-    pub mod kat {
-        pub mod hitrace {
-            include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
-        }
-    }
-
-    pub use kat::hitrace::{ProfilerPluginData, TracePluginResult};
-}
-
 #[test]
 fn generated_proto_includes_sched_switch_format() {
     let value = proto::SchedSwitchFormat {
@@ -73,12 +60,7 @@ fn generated_proto_includes_sched_switch_format() {
         proto::SchedSwitchFormat::decode(value.encode_to_vec().as_slice()).expect("decode");
 
     assert_eq!(decoded.prev_comm, "render");
-    assert_eq!(decoded.prev_pid, 42);
-    assert_eq!(decoded.prev_prio, 120);
-    assert_eq!(decoded.prev_state, 1);
     assert_eq!(decoded.next_comm, "main");
-    assert_eq!(decoded.next_pid, 7);
-    assert_eq!(decoded.next_prio, 100);
 }
 
 #[test]
@@ -89,8 +71,8 @@ fn generated_proto_includes_upstream_sched_messages() {
         io_wait: 1,
     };
 
-    let decoded = proto::SchedBlockedReasonFormat::decode(value.encode_to_vec().as_slice())
-        .expect("decode");
+    let decoded =
+        proto::SchedBlockedReasonFormat::decode(value.encode_to_vec().as_slice()).expect("decode");
 
     assert_eq!(decoded.pid, 42);
     assert_eq!(decoded.caller, 0xfeed_beef);
@@ -98,7 +80,7 @@ fn generated_proto_includes_upstream_sched_messages() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run contract test**
 
 Run:
 
@@ -106,170 +88,243 @@ Run:
 cargo test -p kat-rs-datasource --test proto_contract
 ```
 
-Expected: FAIL because `OUT_DIR/_.rs` does not exist yet and sched messages are not generated from upstream `sched.proto`.
+Expected: PASS after upstream sched proto is wired.
 
 ---
 
-### Task 2: Wire Upstream sched.proto Into prost
+### Task 2: Write Failing sched Table Tests
 
 **Files:**
-- Create: `crates/kat-rs-datasource/proto/ftrace_data/sched.proto`
-- Modify: `crates/kat-rs-datasource/proto/hitrace.proto`
-- Modify: `crates/kat-rs-datasource/build.rs`
-- Modify: `crates/kat-rs-datasource/src/lib.rs`
+- Modify: `crates/kat-rs-datasource/tests/hitrace_datasource_query.rs`
 
-- [ ] **Step 1: Copy the upstream sched proto**
+- [ ] **Step 1: Extend test protobuf helpers**
+
+Add `timestamp`, `tgid`, and `comm` to `TestFtraceEvent`, and add optional sched fields for at least:
+
+```rust
+#[prost(message, optional, tag = "2400")]
+sched_kthread_stop_format: Option<TestSchedKthreadStopFormat>,
+#[prost(message, optional, tag = "2402")]
+sched_migrate_task_format: Option<TestSchedMigrateTaskFormat>,
+#[prost(message, optional, tag = "2417")]
+sched_switch_format: Option<TestSchedSwitchFormat>,
+#[prost(message, optional, tag = "2420")]
+sched_wakeup_format: Option<TestSchedWakeupFormat>,
+#[prost(message, optional, tag = "2421")]
+sched_wakeup_new_format: Option<TestSchedWakeupFormat>,
+#[prost(message, optional, tag = "2422")]
+sched_waking_format: Option<TestSchedWakeupFormat>,
+#[prost(message, optional, tag = "4002")]
+sched_blocked_reason_format: Option<TestSchedBlockedReasonFormat>,
+```
+
+- [ ] **Step 2: Add failing datasource test**
+
+Add a test named `query_extracts_sched_event_tables_and_derived_tables`. It should:
+
+```rust
+let rows = datasource
+    .query_json("select event_timestamp, event_cpu, event_comm, pid, caller, io_wait from sched_blocked_reason")
+    .await
+    .expect("query succeeds");
+assert_eq!(rows, json!([{ "event_timestamp": 20, "event_cpu": 3, "event_comm": "blocked_source", "pid": 42, "caller": 3735928559u64, "io_wait": 1 }]));
+
+let rows = datasource
+    .query_json("select event_timestamp, event_cpu, comm, pid, prio, orig_cpu, dest_cpu from sched_migrate_task")
+    .await
+    .expect("query succeeds");
+assert_eq!(rows, json!([{ "event_timestamp": 30, "event_cpu": 3, "comm": "RenderThread", "pid": 42, "prio": 120, "orig_cpu": 1, "dest_cpu": 3 }]));
+
+let rows = datasource
+    .query_json("select count(*) as count from sched_process_exec")
+    .await
+    .expect("empty table query succeeds");
+assert_eq!(rows, json!([{ "count": 0 }]));
+
+let rows = datasource
+    .query_json("select ts, cpu, tid, state, comm from thread_state order by ts, tid")
+    .await
+    .expect("thread_state query succeeds");
+assert_eq!(rows, json!([
+    { "ts": 10, "cpu": 3, "tid": 100, "state": "Running", "comm": "main" },
+    { "ts": 10, "cpu": null, "tid": 42, "state": "prev_state:1", "comm": "RenderThread" },
+]));
+
+let rows = datasource
+    .query_json("select ts, name, ref, wakeup_from, ref_type, value from instant order by ts, name")
+    .await
+    .expect("instant query succeeds");
+assert_eq!(rows, json!([
+    { "ts": 40, "name": "sched_wakeup", "ref": 100, "wakeup_from": 500, "ref_type": "tid", "value": 0.0 },
+    { "ts": 50, "name": "sched_wakeup_new", "ref": 101, "wakeup_from": 500, "ref_type": "tid", "value": 0.0 },
+    { "ts": 60, "name": "sched_waking", "ref": 102, "wakeup_from": 500, "ref_type": "tid", "value": 0.0 },
+]));
+```
+
+- [ ] **Step 3: Run failing datasource test**
 
 Run:
 
 ```powershell
-New-Item -ItemType Directory -Force crates\kat-rs-datasource\proto\ftrace_data
-Copy-Item -LiteralPath 'D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto' -Destination crates\kat-rs-datasource\proto\ftrace_data\sched.proto
+cargo test -p kat-rs-datasource --test hitrace_datasource_query query_extracts_sched_event_tables_and_derived_tables -- --exact
 ```
 
-Expected: `crates/kat-rs-datasource/proto/ftrace_data/sched.proto` exists and contains `message SchedBlockedReasonFormat` and `message SchedSwitchFormat`.
+Expected: FAIL because the new tables are not registered yet.
 
-- [ ] **Step 2: Update hitrace.proto**
+---
 
-Set `crates/kat-rs-datasource/proto/hitrace.proto` to:
+### Task 3: Implement sched Event Tables
+
+**Files:**
+- Modify: `crates/kat-rs-datasource/proto/hitrace.proto`
+- Modify: `crates/kat-rs-datasource/src/hitrace.rs`
+- Modify: `crates/kat-rs-datasource/src/query.rs`
+
+- [ ] **Step 1: Add sched-only oneof branches**
+
+`FtraceEvent` must include:
 
 ```proto
-syntax = "proto3";
-
-package kat.hitrace;
-
-option optimize_for = LITE_RUNTIME;
-
-import "ftrace_data/sched.proto";
-
-message ProfilerPluginData {
-  string name = 1;
-  uint32 status = 2;
-  bytes data = 3;
-  int32 clock_id = 4;
-  uint64 tv_sec = 5;
-  uint64 tv_nsec = 6;
-  string version = 7;
-  uint32 sample_interval = 8;
-}
-
-message TracePluginResult {
-  repeated FtraceCpuDetailMsg ftrace_cpu_detail = 2;
-}
-
-message FtraceCpuDetailMsg {
-  uint32 cpu = 1;
-  repeated FtraceEvent event = 2;
-  uint64 overwrite = 3;
-}
-
 message FtraceEvent {
-  .SchedSwitchFormat sched_switch_format = 2417;
+  uint64 timestamp = 1;
+  int32 tgid = 2;
+  string comm = 3;
+
+  oneof event {
+    .SchedKthreadStopFormat sched_kthread_stop_format = 2400;
+    .SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
+    .SchedMigrateTaskFormat sched_migrate_task_format = 2402;
+    .SchedMoveNumaFormat sched_move_numa_format = 2403;
+    .SchedPiSetprioFormat sched_pi_setprio_format = 2404;
+    .SchedProcessExecFormat sched_process_exec_format = 2405;
+    .SchedProcessExitFormat sched_process_exit_format = 2406;
+    .SchedProcessForkFormat sched_process_fork_format = 2407;
+    .SchedProcessFreeFormat sched_process_free_format = 2408;
+    .SchedProcessWaitFormat sched_process_wait_format = 2409;
+    .SchedStatBlockedFormat sched_stat_blocked_format = 2410;
+    .SchedStatIowaitFormat sched_stat_iowait_format = 2411;
+    .SchedStatRuntimeFormat sched_stat_runtime_format = 2412;
+    .SchedStatSleepFormat sched_stat_sleep_format = 2413;
+    .SchedStatWaitFormat sched_stat_wait_format = 2414;
+    .SchedStickNumaFormat sched_stick_numa_format = 2415;
+    .SchedSwapNumaFormat sched_swap_numa_format = 2416;
+    .SchedSwitchFormat sched_switch_format = 2417;
+    .SchedWaitTaskFormat sched_wait_task_format = 2418;
+    .SchedWakeIdleWithoutIpiFormat sched_wake_idle_without_ipi_format = 2419;
+    .SchedWakeupFormat sched_wakeup_format = 2420;
+    .SchedWakeupNewFormat sched_wakeup_new_format = 2421;
+    .SchedWakingFormat sched_waking_format = 2422;
+    .SchedBlockedReasonFormat sched_blocked_reason_format = 4002;
+  }
 }
 ```
 
-- [ ] **Step 3: Update build.rs**
+- [ ] **Step 2: Add row structs**
 
-Set `crates/kat-rs-datasource/build.rs` to:
+Each row struct derives `Serialize` and `Deserialize`. Every sched row begins with:
 
 ```rust
-fn main() {
-    let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc is available");
-    let proto_files = ["proto/hitrace.proto", "proto/ftrace_data/sched.proto"];
-    let mut config = prost_build::Config::new();
-    config.protoc_executable(protoc);
-    config.type_attribute(
-        ".kat.hitrace.ProfilerPluginData",
-        "#[derive(serde::Serialize, serde::Deserialize)]",
-    );
-    config.type_attribute(
-        ".SchedSwitchFormat",
-        "#[derive(serde::Serialize, serde::Deserialize)]",
-    );
-    config.field_attribute(
-        ".kat.hitrace.ProfilerPluginData.data",
-        "#[serde(with = \"serde_bytes\")]",
-    );
-    config
-        .compile_protos(&proto_files, &["proto"])
-        .expect("hitrace and sched protos compile");
-
-    for proto_file in proto_files {
-        println!("cargo:rerun-if-changed={proto_file}");
-    }
-}
+event_timestamp: u64,
+event_cpu: u32,
+event_tgid: i32,
+event_comm: String,
 ```
 
-- [ ] **Step 4: Update generated module include**
-
-Set `crates/kat-rs-datasource/src/lib.rs` to:
+Then append the message fields listed in the spec. `ThreadStateRow` uses nullable `dur` and `cpu`:
 
 ```rust
-mod hitrace;
-mod json;
-mod mmap;
-mod query;
-
-pub use query::TraceDatasource;
-
-pub(crate) mod proto {
-    include!(concat!(env!("OUT_DIR"), "/_.rs"));
-
-    pub(crate) mod kat {
-        pub(crate) mod hitrace {
-            include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
-        }
-    }
-
-    pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginResult};
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ThreadStateRow {
+    ts: u64,
+    dur: Option<u64>,
+    cpu: Option<u32>,
+    tid: i32,
+    state: String,
+    comm: String,
 }
 ```
 
-- [ ] **Step 5: Run proto contract test to verify it passes**
+`InstantRow` uses:
+
+```rust
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct InstantRow {
+    ts: u64,
+    name: String,
+    r#ref: i32,
+    wakeup_from: i32,
+    ref_type: String,
+    value: f64,
+}
+```
+
+- [ ] **Step 3: Decode sched events**
+
+Replace the single `sched_switch_rows` vector with a `SchedRows` struct containing one `Vec<_>` per table plus `thread_state` and `instant`. Dispatch on `proto::kat::hitrace::ftrace_event::Event` and push rows.
+
+- [ ] **Step 4: Register all tables**
+
+`query.rs` should register `profiler_plugin_data`, every `sched_*` table, `thread_state`, and `instant`.
+
+- [ ] **Step 5: Run datasource test**
 
 Run:
 
 ```powershell
-cargo test -p kat-rs-datasource --test proto_contract
+cargo test -p kat-rs-datasource --test hitrace_datasource_query query_extracts_sched_event_tables_and_derived_tables -- --exact
 ```
 
-Expected: PASS, including `generated_proto_includes_upstream_sched_messages`.
+Expected: PASS.
 
 ---
 
-### Task 3: Verify Existing sched_switch Query Path
+### Task 4: CLI Coverage
 
 **Files:**
-- No production file changes expected.
+- Modify: `crates/kat-rs-cli/tests/query_e2e.rs`
 
-- [ ] **Step 1: Run datasource sched_switch test**
+- [ ] **Step 1: Extend CLI fixture**
+
+Add sched event metadata and at least one non-switch sched event to the CLI htrace fixture.
+
+- [ ] **Step 2: Add CLI assertion**
+
+Add a CLI test that queries:
+
+```sql
+select event_timestamp, event_cpu, pid, caller, io_wait from sched_blocked_reason
+```
+
+Expected JSON contains the row from the fixture.
+
+- [ ] **Step 3: Run CLI tests**
 
 Run:
 
 ```powershell
-cargo test -p kat-rs-datasource --test hitrace_datasource_query query_extracts_sched_switch_from_ftrace_plugin_result -- --exact
+cargo test -p kat-rs-cli --test query_e2e
 ```
 
-Expected: PASS. The JSON row still contains `RenderThread`, `42`, `com.tencent.mm`, and `100`.
-
-- [ ] **Step 2: Run CLI sched_switch test**
-
-Run:
-
-```powershell
-cargo test -p kat-rs-cli --test query_e2e query_prints_sched_switch_fields -- --exact
-```
-
-Expected: PASS. CLI output remains the current `sched_switch` JSON shape.
+Expected: PASS.
 
 ---
 
-### Task 4: Run Full Verification
+### Task 5: Full Verification And PR
 
 **Files:**
-- No production file changes expected.
+- All changed files.
 
-- [ ] **Step 1: Run workspace tests**
+- [ ] **Step 1: Run formatting**
+
+Run:
+
+```powershell
+cargo fmt --all -- --check
+```
+
+Expected: PASS.
+
+- [ ] **Step 2: Run workspace tests**
 
 Run:
 
@@ -279,7 +334,7 @@ cargo test --workspace
 
 Expected: PASS.
 
-- [ ] **Step 2: Run clippy**
+- [ ] **Step 3: Run clippy**
 
 Run:
 
@@ -287,89 +342,35 @@ Run:
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Expected: PASS with no warnings.
+Expected: PASS.
 
-- [ ] **Step 3: Run real trace query**
+- [ ] **Step 4: Run real trace queries**
 
 Run:
 
 ```powershell
 cargo run -p kat-rs-cli -- query --source hitrace --file 'D:\项目\data\hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace' --sql 'select count(*) as count from sched_switch'
+cargo run -p kat-rs-cli -- query --source hitrace --file 'D:\项目\data\hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace' --sql 'select count(*) as count from sched_wakeup'
+cargo run -p kat-rs-cli -- query --source hitrace --file 'D:\项目\data\hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace' --sql 'select count(*) as count from thread_state'
+cargo run -p kat-rs-cli -- query --source hitrace --file 'D:\项目\data\hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace' --sql 'select count(*) as count from instant'
 ```
 
-Expected: command exits successfully and prints a JSON array containing one object with numeric `count`.
+Expected: each command exits successfully and returns a JSON array with one numeric count.
 
----
-
-### Task 5: Commit, Push Branch, and Create PR
-
-**Files:**
-- Commit all tracked implementation files and docs.
-
-- [ ] **Step 1: Inspect final diff**
+- [ ] **Step 5: Commit, push branch, create PR**
 
 Run:
 
 ```powershell
-git status --short --branch
-git diff --check
-git diff --stat origin/main...HEAD
-```
-
-Expected: branch is `codex/sched-proto-issue-25`; diff contains only docs, datasource proto/build/module/test changes.
-
-- [ ] **Step 2: Commit implementation**
-
-Run:
-
-```powershell
-git add docs/superpowers/plans/2026-06-10-sched-proto.md crates/kat-rs-datasource/proto/ftrace_data/sched.proto crates/kat-rs-datasource/proto/hitrace.proto crates/kat-rs-datasource/build.rs crates/kat-rs-datasource/src/lib.rs crates/kat-rs-datasource/tests/proto_contract.rs
-git commit -m "feat: use upstream sched proto"
-```
-
-Expected: commit succeeds on `codex/sched-proto-issue-25`.
-
-- [ ] **Step 3: Push working branch**
-
-Run:
-
-```powershell
+git add .
+git commit -m "feat: expose sched event tables"
 git push -u origin codex/sched-proto-issue-25
 ```
 
-Expected: branch is pushed; `main` is not pushed.
-
-- [ ] **Step 4: Create PR**
-
-Use GitHub API or `gh` if available to create a PR:
+Create PR against `main` with title:
 
 ```text
-base: main
-head: codex/sched-proto-issue-25
-title: feat: 接入上游 sched.proto
+feat: 接入 sched proto 并暴露 sched 表
 ```
 
-PR body must include:
-
-```markdown
-Closes #25
-
-## 本次完成的 checklist 项
-
-- [x] sched.proto
-
-## 新增或修改的 SQL 表
-
-- 无新增表；`sched_switch` 继续使用原字段。
-
-## 验证
-
-- `cargo test -p kat-rs-datasource --test proto_contract`
-- `cargo test -p kat-rs-datasource --test hitrace_datasource_query query_extracts_sched_switch_from_ftrace_plugin_result -- --exact`
-- `cargo test -p kat-rs-cli --test query_e2e query_prints_sched_switch_fields -- --exact`
-- `cargo test --workspace`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- 真实 trace: `select count(*) as count from sched_switch`
-```
-
-Expected: PR targets `main` from `codex/sched-proto-issue-25`.
+PR body includes issue #25 checklist item, issue #22 derived table relationship, SQL table list, and all verification outputs.

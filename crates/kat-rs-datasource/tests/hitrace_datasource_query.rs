@@ -145,6 +145,139 @@ async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
 }
 
 #[tokio::test]
+async fn query_extracts_sched_event_tables_and_derived_tables() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("sched-events.hitrace");
+    fs::write(
+        &trace_path,
+        profiler_section(vec![ftrace_plugin_with_sched_events()]),
+    )
+    .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    let rows = datasource
+        .query_json(
+            "select event_timestamp, event_cpu, event_comm, pid, caller, io_wait \
+             from sched_blocked_reason",
+        )
+        .await
+        .expect("sched_blocked_reason query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "event_timestamp": 20,
+            "event_cpu": 3,
+            "event_comm": "blocked_source",
+            "pid": 42,
+            "caller": 3735928559u64,
+            "io_wait": 1,
+        }])
+    );
+
+    let rows = datasource
+        .query_json("select event_timestamp, event_cpu, comm, pid from sched_kthread_stop")
+        .await
+        .expect("sched_kthread_stop query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "event_timestamp": 25,
+            "event_cpu": 3,
+            "comm": "worker",
+            "pid": 77,
+        }])
+    );
+
+    let rows = datasource
+        .query_json(
+            "select event_timestamp, event_cpu, comm, pid, prio, orig_cpu, dest_cpu \
+             from sched_migrate_task",
+        )
+        .await
+        .expect("sched_migrate_task query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "event_timestamp": 30,
+            "event_cpu": 3,
+            "comm": "RenderThread",
+            "pid": 42,
+            "prio": 120,
+            "orig_cpu": 1,
+            "dest_cpu": 3,
+        }])
+    );
+
+    let rows = datasource
+        .query_json("select count(*) as count from sched_process_exec")
+        .await
+        .expect("empty sched_process_exec query succeeds");
+    assert_eq!(rows, json!([{ "count": 0 }]));
+
+    let rows = datasource
+        .query_json("select ts, cpu, tid, state, comm from thread_state order by ts, tid")
+        .await
+        .expect("thread_state query succeeds");
+    assert_eq!(
+        rows,
+        json!([
+            {
+                "ts": 10,
+                "cpu": null,
+                "tid": 42,
+                "state": "prev_state:1",
+                "comm": "RenderThread",
+            },
+            {
+                "ts": 10,
+                "cpu": 3,
+                "tid": 100,
+                "state": "Running",
+                "comm": "main",
+            },
+        ])
+    );
+
+    let rows = datasource
+        .query_json(
+            "select ts, name, ref, wakeup_from, ref_type, value from instant order by ts, name",
+        )
+        .await
+        .expect("instant query succeeds");
+    assert_eq!(
+        rows,
+        json!([
+            {
+                "ts": 40,
+                "name": "sched_wakeup",
+                "ref": 100,
+                "wakeup_from": 500,
+                "ref_type": "tid",
+                "value": 0.0,
+            },
+            {
+                "ts": 50,
+                "name": "sched_wakeup_new",
+                "ref": 101,
+                "wakeup_from": 500,
+                "ref_type": "tid",
+                "value": 0.0,
+            },
+            {
+                "ts": 60,
+                "name": "sched_waking",
+                "ref": 102,
+                "wakeup_from": 500,
+                "ref_type": "tid",
+                "value": 0.0,
+            },
+        ])
+    );
+}
+
+#[tokio::test]
 async fn query_json_converts_scalar_result_types() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("empty.hitrace");
@@ -243,8 +376,58 @@ struct TestFtraceCpuDetailMsg {
 
 #[derive(Clone, PartialEq, Message)]
 struct TestFtraceEvent {
+    #[prost(uint64, tag = "1")]
+    timestamp: u64,
+    #[prost(int32, tag = "2")]
+    tgid: i32,
+    #[prost(string, tag = "3")]
+    comm: String,
+    #[prost(message, optional, tag = "2400")]
+    sched_kthread_stop_format: Option<TestSchedKthreadStopFormat>,
+    #[prost(message, optional, tag = "2402")]
+    sched_migrate_task_format: Option<TestSchedMigrateTaskFormat>,
     #[prost(message, optional, tag = "2417")]
     sched_switch_format: Option<TestSchedSwitchFormat>,
+    #[prost(message, optional, tag = "2420")]
+    sched_wakeup_format: Option<TestSchedWakeupFormat>,
+    #[prost(message, optional, tag = "2421")]
+    sched_wakeup_new_format: Option<TestSchedWakeupFormat>,
+    #[prost(message, optional, tag = "2422")]
+    sched_waking_format: Option<TestSchedWakeupFormat>,
+    #[prost(message, optional, tag = "4002")]
+    sched_blocked_reason_format: Option<TestSchedBlockedReasonFormat>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedBlockedReasonFormat {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(uint64, tag = "2")]
+    caller: u64,
+    #[prost(uint32, tag = "3")]
+    io_wait: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedKthreadStopFormat {
+    #[prost(string, tag = "1")]
+    comm: String,
+    #[prost(int32, tag = "2")]
+    pid: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedMigrateTaskFormat {
+    #[prost(string, tag = "1")]
+    comm: String,
+    #[prost(int32, tag = "2")]
+    pid: i32,
+    #[prost(int32, tag = "3")]
+    prio: i32,
+    #[prost(int32, tag = "4")]
+    orig_cpu: i32,
+    #[prost(int32, tag = "5")]
+    dest_cpu: i32,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -265,11 +448,30 @@ struct TestSchedSwitchFormat {
     next_prio: i32,
 }
 
+#[derive(Clone, PartialEq, Message)]
+struct TestSchedWakeupFormat {
+    #[prost(string, tag = "1")]
+    comm: String,
+    #[prost(int32, tag = "2")]
+    pid: i32,
+    #[prost(int32, tag = "3")]
+    prio: i32,
+    #[prost(int32, tag = "4")]
+    success: i32,
+    #[prost(int32, tag = "5")]
+    target_cpu: i32,
+}
+
 fn ftrace_plugin_with_sched_switch() -> TestProfilerPluginData {
     let result = TestTracePluginResult {
         ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
             cpu: 0,
             event: vec![TestFtraceEvent {
+                timestamp: 10,
+                tgid: 500,
+                comm: "switch_source".to_string(),
+                sched_kthread_stop_format: None,
+                sched_migrate_task_format: None,
                 sched_switch_format: Some(TestSchedSwitchFormat {
                     prev_comm: "RenderThread".to_string(),
                     prev_pid: 42,
@@ -279,7 +481,156 @@ fn ftrace_plugin_with_sched_switch() -> TestProfilerPluginData {
                     next_pid: 100,
                     next_prio: 120,
                 }),
+                sched_wakeup_format: None,
+                sched_wakeup_new_format: None,
+                sched_waking_format: None,
+                sched_blocked_reason_format: None,
             }],
+            overwrite: 0,
+        }],
+    };
+
+    TestProfilerPluginData {
+        name: "ftrace-plugin".to_string(),
+        status: 1,
+        data: result.encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
+    }
+}
+
+fn ftrace_plugin_with_sched_events() -> TestProfilerPluginData {
+    let result = TestTracePluginResult {
+        ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
+            cpu: 3,
+            event: vec![
+                TestFtraceEvent {
+                    timestamp: 10,
+                    tgid: 500,
+                    comm: "switch_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: None,
+                    sched_switch_format: Some(TestSchedSwitchFormat {
+                        prev_comm: "RenderThread".to_string(),
+                        prev_pid: 42,
+                        prev_prio: 120,
+                        prev_state: 1,
+                        next_comm: "main".to_string(),
+                        next_pid: 100,
+                        next_prio: 120,
+                    }),
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 20,
+                    tgid: 500,
+                    comm: "blocked_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: None,
+                    sched_switch_format: None,
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: Some(TestSchedBlockedReasonFormat {
+                        pid: 42,
+                        caller: 0xdead_beef,
+                        io_wait: 1,
+                    }),
+                },
+                TestFtraceEvent {
+                    timestamp: 25,
+                    tgid: 500,
+                    comm: "kthread_source".to_string(),
+                    sched_kthread_stop_format: Some(TestSchedKthreadStopFormat {
+                        comm: "worker".to_string(),
+                        pid: 77,
+                    }),
+                    sched_migrate_task_format: None,
+                    sched_switch_format: None,
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 30,
+                    tgid: 500,
+                    comm: "migrate_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: Some(TestSchedMigrateTaskFormat {
+                        comm: "RenderThread".to_string(),
+                        pid: 42,
+                        prio: 120,
+                        orig_cpu: 1,
+                        dest_cpu: 3,
+                    }),
+                    sched_switch_format: None,
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 40,
+                    tgid: 500,
+                    comm: "wakeup_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: None,
+                    sched_switch_format: None,
+                    sched_wakeup_format: Some(TestSchedWakeupFormat {
+                        comm: "main".to_string(),
+                        pid: 100,
+                        prio: 120,
+                        success: 1,
+                        target_cpu: 3,
+                    }),
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 50,
+                    tgid: 500,
+                    comm: "wakeup_new_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: None,
+                    sched_switch_format: None,
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: Some(TestSchedWakeupFormat {
+                        comm: "new".to_string(),
+                        pid: 101,
+                        prio: 121,
+                        success: 1,
+                        target_cpu: 2,
+                    }),
+                    sched_waking_format: None,
+                    sched_blocked_reason_format: None,
+                },
+                TestFtraceEvent {
+                    timestamp: 60,
+                    tgid: 500,
+                    comm: "waking_source".to_string(),
+                    sched_kthread_stop_format: None,
+                    sched_migrate_task_format: None,
+                    sched_switch_format: None,
+                    sched_wakeup_format: None,
+                    sched_wakeup_new_format: None,
+                    sched_waking_format: Some(TestSchedWakeupFormat {
+                        comm: "waking".to_string(),
+                        pid: 102,
+                        prio: 122,
+                        success: 1,
+                        target_cpu: 1,
+                    }),
+                    sched_blocked_reason_format: None,
+                },
+            ],
             overwrite: 0,
         }],
     };
