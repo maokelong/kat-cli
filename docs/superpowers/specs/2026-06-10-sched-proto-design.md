@@ -4,7 +4,7 @@
 
 Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 要求按 `types/plugins/ftrace_data` 清单逐步覆盖 htrace protobuf datasource。本 PR 只接入其中的 `sched.proto`：解码 htrace 中的 sched ftrace events，并把每类 sched event 暴露为可查询 SQL 明细表。
 
-Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`、`instant` 属于从事件流生成的派生表。本 PR 在 sched 明细表基础上先提供这两张最小派生表，后续更完整的线程字典、arg_set、sched_slice 等语义另行切片。
+Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`、`instant` 属于从事件流生成的派生表。本 PR 在 sched 明细表基础上补齐最小 sched 派生模型：`process`、`thread`、`thread_state`、`instant`、`sched_slice` 和 `raw_event`。
 
 ## 要解决的问题
 
@@ -13,16 +13,17 @@ Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`
 3. 为 `sched.proto` 中每个 sched message 建表，表名使用 snake_case 事件名，例如 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`。
 4. 从 `sched.proto` 生成 sched 明细 Row、direct table builder 和事件路由，避免在 `hitrace.rs` 手写重复 schema 与长分发表。
 5. direct sched 明细表在 decode 时写入 `serde_arrow::ArrayBuilder`，结束后产出 Arrow `RecordBatch`。
-6. 从 sched 事件生成最小 `thread_state` 和 `instant` 派生表。
+6. 从 sched 事件生成最小 `process`、`thread`、`thread_state`、`instant`、`sched_slice` 和 `raw_event` 派生表。
 
 ## 不做什么
 
 1. 不接入 `types/plugins/ftrace_data/default`。
 2. 不一次性接入 `ftrace_event.proto` 的全部非 sched 分支。
-3. 不复刻 trace_streamer 的完整进程/线程字典、arg_set、binder runnable、sched_slice 等语义。
+3. 不复刻 trace_streamer 的完整 data_dict、arg_set、binder runnable、memory/native hook 计数等语义。
 4. 不引入 issue #22 提到的通用 YAML lifecycle 配置引擎。
 5. 不提交真实 trace fixture，也不把本地 `D:\项目\data\...htrace` 加入仓库。
 6. 不生成逐字段 typed Arrow builder，例如 `UInt64Builder` / `StringBuilder`。
+7. 不新增 C++ TraceStreamer 的 `raw` 表；本次只新增 Rust rewrite 语义下的 `raw_event` 辅助表。
 
 ## Proto 来源
 
@@ -104,12 +105,40 @@ struct EventFamilySpec {
 运行时代码的边界：
 
 1. `src/hitrace/table_builder.rs` 提供轻量 `TableBuilder<T>`，内部使用 `serde_arrow::ArrayBuilder` 逐行 append。
-2. `src/hitrace/derived.rs` 实现 `SchedEventObserver`，承载 `thread_state` / `instant` 派生语义。
+2. `src/hitrace/derived.rs` 实现 `SchedEventObserver`，承载 sched 派生表语义。
 3. `src/hitrace.rs` 只保留流程编排：解码 `ProfilerPluginData.data`，遍历 ftrace event，调用 `SchedDirectTableBuilders::push_event`，最后合并 direct 表与派生表。
 
 这让 sched 明细表的 schema 和路由跟随 proto 生成，派生表业务语义仍显式保留在手写代码里。
 
 ## 派生表契约
+
+`process` 是 sched 事件可推导出的最小进程表：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `uint32` | 等同 `ipid` |
+| `ipid` | `uint32` | 内部进程 id |
+| `pid` | `int32` | 系统进程 id |
+| `name` | `string or null` | 进程名，优先来自主线程名或 exec/fork 信息 |
+| `start_ts` | `uint64 or null` | 首次确认该进程的时间 |
+| `switch_count` | `uint64` | 本 PR 固定为 0 |
+| `thread_count` | `uint64` | 关联线程数 |
+| `slice_count` | `uint64` | 本 PR 固定为 0 |
+| `mem_count` | `uint64` | 本 PR 固定为 0 |
+
+`thread` 是 sched 事件可推导出的最小线程表：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `uint32` | 等同 `itid` |
+| `itid` | `uint32` | 内部线程 id |
+| `tid` | `int32` | 系统线程 id |
+| `name` | `string or null` | 线程名 |
+| `start_ts` | `uint64 or null` | 首次确认该线程的时间 |
+| `end_ts` | `uint64 or null` | 线程结束时间，本 PR 只在明确 exit/free 时补齐 |
+| `ipid` | `uint32 or null` | 所属内部进程 id |
+| `is_main_thread` | `bool or null` | `tid == process.pid` 时为 true；未知进程时为空 |
+| `switch_count` | `uint64` | 作为 next 线程运行的次数 |
 
 `thread_state` 是从 `sched_switch` 生成的最小区间表：
 
@@ -118,7 +147,9 @@ struct EventFamilySpec {
 | `ts` | `uint64` | 状态开始时间 |
 | `dur` | `uint64 or null` | 到下一次状态变化的持续时间 |
 | `cpu` | `uint32 or null` | 运行态所在 CPU；非运行态为空 |
-| `tid` | `int32` | 线程 id |
+| `itid` | `uint32` | 内部线程 id，可关联 `thread.itid` |
+| `tid` | `int32` | 系统线程 id |
+| `pid` | `int32 or null` | 所属系统进程 id |
 | `state` | `string` | `Running` 或 `prev_state:<value>` |
 | `comm` | `string` | 线程名 |
 
@@ -126,7 +157,7 @@ struct EventFamilySpec {
 
 1. 每个 `sched_switch` 产生一行 `next_pid` 的 `Running` 状态。
 2. 每个 `sched_switch` 产生一行 `prev_pid` 的 `prev_state:<prev_state>` 状态。
-3. 同一 `tid` 上一行状态在新状态开始时补齐 `dur`。
+3. 同一 `itid` 上一行状态在新状态开始时补齐 `dur`。
 4. 最后一段没有结束事件时 `dur = null`。
 
 `instant` 是从唤醒事件生成的最小瞬时表：
@@ -135,10 +166,35 @@ struct EventFamilySpec {
 | --- | --- | --- |
 | `ts` | `uint64` | 事件时间 |
 | `name` | `string` | `sched_wakeup`、`sched_wakeup_new` 或 `sched_waking` |
-| `ref` | `int32` | 被唤醒 tid，即 message `pid` |
-| `wakeup_from` | `int32` | 触发唤醒的 event tgid |
-| `ref_type` | `string` | 固定为 `tid` |
+| `ref` | `uint32` | 被唤醒线程的 `itid` |
+| `wakeup_from` | `uint32` | 触发唤醒线程的 `itid` |
+| `ref_type` | `string` | 固定为 `itid` |
 | `value` | `double` | 当前固定为 `0.0` |
+
+`sched_slice` 是从 `sched_switch` 生成的 CPU running 区间表：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `uint64` | slice 行 id |
+| `ts` | `uint64` | 运行开始时间 |
+| `dur` | `uint64 or null` | 运行持续时间 |
+| `ts_end` | `uint64 or null` | `ts + dur` |
+| `cpu` | `uint32` | CPU id |
+| `itid` | `uint32` | 运行线程 `itid` |
+| `ipid` | `uint32 or null` | 运行线程所属 `ipid` |
+| `end_state` | `string or null` | 被切出时的状态 |
+| `priority` | `int32` | next 线程优先级 |
+| `arg_setid` | `uint32 or null` | 本 PR 固定为空 |
+
+`raw_event` 是辅助表，用 JSON 保存 sched 事件原始摘要：
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `ts` | `uint64` | 事件时间 |
+| `cpu` | `uint32` | CPU id |
+| `tid` | `int32 or null` | 事件相关系统线程 id |
+| `event_name` | `string` | sched 事件名 |
+| `payload_json` | `string or null` | 事件关键字段 JSON |
 
 ## 数据流
 
@@ -149,7 +205,7 @@ ProfilerPluginData.data
   -> FtraceEvent(timestamp, tgid, comm, sched message fields)
   -> generated SchedDirectTableBuilders
   -> sched_* direct tables
-  -> DerivedTables(thread_state, instant)
+  -> DerivedTables(process, thread, thread_state, instant, sched_slice, raw_event)
   -> DataFusion MemTable
 ```
 
@@ -158,15 +214,15 @@ ProfilerPluginData.data
 1. `proto_contract` 验证上游 `SchedBlockedReasonFormat` 与 `SchedSwitchFormat` 能生成并 round-trip，并验证 generated rows/builders 可用。
 2. datasource 测试构造最小 `.htrace`，覆盖 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 等表可查询。
 3. datasource 测试验证未出现的 sched 表也能注册并返回 `count = 0`。
-4. datasource 测试验证 `thread_state` 和 `instant` 从 sched 事件生成。
+4. datasource 测试验证 `process`、`thread`、`thread_state`、`instant`、`sched_slice` 和 `raw_event` 从 sched 事件生成。
 5. 架构测试约束 `hitrace.rs` 保持薄编排，sched rows/builders 由 build 生成，`build.rs` 使用 event family generator。
 6. 全量运行 `cargo fmt --all -- --check`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`。
-7. 对真实 trace 执行 `sched_switch`、`sched_wakeup`、`thread_state`、`instant` 等 count 查询，并可导出包含所有可解析表的 `.db` 文件。
+7. 对真实 trace 执行 `sched_switch`、`sched_wakeup`、`process`、`thread`、`thread_state`、`instant`、`sched_slice`、`raw_event` 等 count 查询，并可导出包含所有可解析表的 `.db` 文件。
 
 ## 最小交付
 
 1. 上游 `sched.proto` 接入 prost。
 2. `hitrace.proto` 只补齐 sched message 字段。
 3. sched 明细 Row 与 direct table builders 从 `sched.proto` 生成，所有 sched message 建成 SQL 明细表。
-4. `thread_state` 和 `instant` 最小派生表可查询。
+4. `process`、`thread`、`thread_state`、`instant`、`sched_slice`、`raw_event` 最小派生表可查询。
 5. PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、真实 trace 查询、workspace test 和 clippy 结果。
