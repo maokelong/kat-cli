@@ -69,7 +69,8 @@ fn has_profiler_header(bytes: &[u8]) -> bool {
 
 fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     let mut offset = 0usize;
-    let mut profiler_batches = Vec::new();
+    let mut profiler_table = TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?;
+    let mut profiler_section_count = 0usize;
     let mut sched_tables = SchedDirectTableBuilders::new()?;
     let mut derived_tables = DerivedTables::default();
 
@@ -89,26 +90,33 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
             .with_context(|| {
                 format!("failed to parse profiler section at byte {}", section.start)
             })?;
+        profiler_section_count += 1;
         decode_sched_rows(
             &messages,
             section.start,
             &mut sched_tables,
             &mut derived_tables,
         )?;
-        let batch = record_batch_from(messages).with_context(|| {
-            format!(
-                "failed to convert profiler section at byte {} to Arrow",
-                section.start
-            )
-        })?;
-        profiler_batches.push(batch);
+        for message in messages {
+            profiler_table.push(message).with_context(|| {
+                format!(
+                    "failed to append profiler section at byte {} to Arrow builder",
+                    section.start
+                )
+            })?;
+        }
     }
 
     let mut tables = sched_tables.into_tables()?;
     tables.extend(derived_tables.into_tables()?);
+    let profiler_plugin_data = if profiler_section_count == 0 {
+        Vec::new()
+    } else {
+        profiler_table.into_table()?.batches
+    };
 
     Ok(HitraceTables {
-        profiler_plugin_data: profiler_batches,
+        profiler_plugin_data,
         tables,
     })
 }

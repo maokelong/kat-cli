@@ -48,6 +48,18 @@ fn direct_sched_table_builders_are_generated() {
 }
 
 #[test]
+fn profiler_plugin_data_uses_table_builder() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
+        .expect("hitrace parser source can be read");
+
+    assert!(hitrace_rs.contains("TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?"));
+    assert!(!hitrace_rs.contains("let mut profiler_batches = Vec::new();"));
+    assert!(!hitrace_rs.contains("profiler_batches.push(batch);"));
+    assert!(!hitrace_rs.contains("record_batch_from(messages)"));
+}
+
+#[test]
 fn sched_generation_uses_event_family_generator() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let build_rs =
