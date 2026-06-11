@@ -5,6 +5,9 @@ mod query;
 mod sched_rows {
     include!(concat!(env!("OUT_DIR"), "/sched_rows.rs"));
 }
+mod sched_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
+}
 
 pub use query::TraceDatasource;
 

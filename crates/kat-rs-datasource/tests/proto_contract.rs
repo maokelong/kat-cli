@@ -15,6 +15,28 @@ mod sched_rows {
     include!(concat!(env!("OUT_DIR"), "/sched_rows.rs"));
 }
 
+mod hitrace {
+    use arrow_array::RecordBatch;
+
+    pub(crate) struct HitraceTable {
+        pub(crate) name: &'static str,
+        pub(crate) batches: Vec<RecordBatch>,
+    }
+
+    mod table_builder {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/hitrace/table_builder.rs"
+        ));
+    }
+
+    pub(crate) use table_builder::TableBuilder;
+}
+
+mod sched_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
+}
+
 #[test]
 fn generated_proto_includes_sched_switch_format() {
     let value = proto::SchedSwitchFormat {
@@ -115,4 +137,53 @@ fn generated_sched_rows_include_event_metadata_and_message_fields() {
     assert_eq!(row.comm, "RenderThread");
     assert_eq!(row.pid, 42);
     assert_eq!(row.prio, 120);
+}
+
+#[derive(Default)]
+struct CountingObserver {
+    sched_switch_count: usize,
+}
+
+impl sched_table_builders::SchedEventObserver for CountingObserver {
+    fn observe_sched_switch(&mut self, _row: &sched_rows::SchedSwitchRow) {
+        self.sched_switch_count += 1;
+    }
+}
+
+#[test]
+fn generated_sched_table_builders_route_direct_events_to_tables_and_observer() {
+    let mut builders =
+        sched_table_builders::SchedDirectTableBuilders::new().expect("builders are created");
+    let mut observer = CountingObserver::default();
+
+    builders
+        .push_event(
+            3,
+            proto::kat::hitrace::FtraceEvent {
+                timestamp: 20,
+                tgid: 500,
+                comm: "source".to_string(),
+                sched_switch_format: Some(proto::SchedSwitchFormat {
+                    prev_comm: "render".to_string(),
+                    prev_pid: 42,
+                    prev_prio: 120,
+                    prev_state: 1,
+                    next_comm: "main".to_string(),
+                    next_pid: 7,
+                    next_prio: 100,
+                }),
+                ..Default::default()
+            },
+            &mut observer,
+        )
+        .expect("event is routed");
+
+    let tables = builders.into_tables().expect("tables are built");
+    let sched_switch = tables
+        .iter()
+        .find(|table| table.name == "sched_switch")
+        .expect("sched_switch table exists");
+
+    assert_eq!(observer.sched_switch_count, 1);
+    assert_eq!(sched_switch.batches[0].num_rows(), 1);
 }
