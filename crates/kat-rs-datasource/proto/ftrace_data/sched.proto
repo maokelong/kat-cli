@@ -5,8 +5,9 @@ package kat.hitrace;
 option optimize_for = LITE_RUNTIME;
 
 // Adapted from trace_streamer ftrace_data/sched.proto.
+// Each message maps to a Linux ftrace event format under:
+// /sys/kernel/debug/tracing/events/sched/<event>/format
 
-// category: sched
 // /sys/kernel/debug/tracing/events/sched/sched_blocked_reason/format
 message SchedBlockedReasonFormat {
   int32 pid = 1;
@@ -14,7 +15,6 @@ message SchedBlockedReasonFormat {
   uint32 io_wait = 3;
 }
 
-// category: sched
 // /sys/kernel/debug/tracing/events/sched/sched_kthread_stop/format
 message SchedKthreadStopFormat {
   string comm = 1;
