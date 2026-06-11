@@ -86,25 +86,23 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
             continue;
         }
 
-        let messages = decode_len_prefixed_messages::<ProfilerPluginData>(section.body(bytes))
-            .with_context(|| {
-                format!("failed to parse profiler section at byte {}", section.start)
-            })?;
         profiler_section_count += 1;
-        decode_sched_rows(
-            &messages,
-            section.start,
-            &mut sched_tables,
-            &mut derived_tables,
-        )?;
-        for message in messages {
+        for_each_len_prefixed_message::<ProfilerPluginData, _>(section.body(bytes), |message| {
+            decode_sched_message(
+                &message,
+                section.start,
+                &mut sched_tables,
+                &mut derived_tables,
+            )?;
             profiler_table.push(message).with_context(|| {
                 format!(
                     "failed to append profiler section at byte {} to Arrow builder",
                     section.start
                 )
             })?;
-        }
+            Ok(())
+        })
+        .with_context(|| format!("failed to parse profiler section at byte {}", section.start))?;
     }
 
     let mut tables = sched_tables.into_tables()?;
@@ -130,23 +128,22 @@ where
     Ok(serde_arrow::to_record_batch(&fields, &rows)?)
 }
 
-fn decode_sched_rows(
-    messages: &[ProfilerPluginData],
+fn decode_sched_message(
+    message: &ProfilerPluginData,
     section_start: usize,
     sched_tables: &mut SchedDirectTableBuilders,
     derived_tables: &mut DerivedTables,
 ) -> Result<()> {
-    for message in messages
-        .iter()
-        .filter(|message| message.name == FTRACE_PLUGIN_NAME)
-    {
-        let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
-            format!("failed to decode ftrace payload in profiler section at byte {section_start}")
-        })?;
-        for detail in result.ftrace_cpu_detail {
-            for event in detail.event {
-                sched_tables.push_event(detail.cpu, event, derived_tables)?;
-            }
+    if message.name != FTRACE_PLUGIN_NAME {
+        return Ok(());
+    }
+
+    let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
+        format!("failed to decode ftrace payload in profiler section at byte {section_start}")
+    })?;
+    for detail in result.ftrace_cpu_detail {
+        for event in detail.event {
+            sched_tables.push_event(detail.cpu, event, derived_tables)?;
         }
     }
 
@@ -207,12 +204,12 @@ fn read_profiler_section(bytes: &[u8], offset: usize) -> Result<ProfilerSection>
     })
 }
 
-fn decode_len_prefixed_messages<T>(bytes: &[u8]) -> Result<Vec<T>>
+fn for_each_len_prefixed_message<T, F>(bytes: &[u8], mut visitor: F) -> Result<()>
 where
     T: Message + Default,
+    F: FnMut(T) -> Result<()>,
 {
     let mut offset = 0usize;
-    let mut messages = Vec::new();
 
     while offset < bytes.len() {
         ensure_available(bytes, offset, SEGMENT_LENGTH_SIZE, "segment length")?;
@@ -221,13 +218,14 @@ where
         ensure_available(bytes, offset, len, "profiler segment")?;
 
         let segment = &bytes[offset..offset + len];
-        let message =
-            T::decode(segment).context("failed to decode length-prefixed protobuf message")?;
-        messages.push(message);
+        let message = T::decode(segment).with_context(|| {
+            format!("failed to decode length-prefixed protobuf message at byte {offset}")
+        })?;
+        visitor(message)?;
         offset += len;
     }
 
-    Ok(messages)
+    Ok(())
 }
 
 fn ensure_available(bytes: &[u8], offset: usize, len: usize, context: &str) -> Result<()> {

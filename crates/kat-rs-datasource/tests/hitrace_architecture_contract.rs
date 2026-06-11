@@ -60,6 +60,19 @@ fn profiler_plugin_data_uses_table_builder() {
 }
 
 #[test]
+fn profiler_plugin_data_streams_len_prefixed_messages() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
+        .expect("hitrace parser source can be read");
+
+    assert!(hitrace_rs.contains("for_each_len_prefixed_message::<ProfilerPluginData, _>"));
+    assert!(!hitrace_rs.contains("fn decode_len_prefixed_messages"));
+    assert!(!hitrace_rs.contains("let messages = decode_len_prefixed_messages"));
+    assert!(!hitrace_rs.contains("fn decode_sched_rows"));
+    assert!(!hitrace_rs.contains("messages: &[ProfilerPluginData]"));
+}
+
+#[test]
 fn sched_generation_uses_event_family_generator() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let build_rs =
