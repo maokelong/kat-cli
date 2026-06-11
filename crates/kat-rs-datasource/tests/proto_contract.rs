@@ -50,3 +50,34 @@ fn generated_proto_includes_upstream_sched_messages() {
     assert_eq!(decoded.caller, 0xfeed_beef);
     assert_eq!(decoded.io_wait, 1);
 }
+
+#[test]
+fn generated_ftrace_event_uses_direct_sched_fields() {
+    let value = proto::kat::hitrace::FtraceEvent {
+        timestamp: 10,
+        tgid: 500,
+        comm: "source".to_string(),
+        sched_switch_format: Some(proto::SchedSwitchFormat {
+            prev_comm: "render".to_string(),
+            prev_pid: 42,
+            prev_prio: 120,
+            prev_state: 1,
+            next_comm: "main".to_string(),
+            next_pid: 7,
+            next_prio: 100,
+        }),
+        sched_blocked_reason_format: Some(proto::SchedBlockedReasonFormat {
+            pid: 42,
+            caller: 0xfeed_beef,
+            io_wait: 1,
+        }),
+        ..Default::default()
+    };
+
+    let decoded =
+        proto::kat::hitrace::FtraceEvent::decode(value.encode_to_vec().as_slice()).expect("decode");
+
+    assert_eq!(decoded.timestamp, 10);
+    assert!(decoded.sched_switch_format.is_some());
+    assert!(decoded.sched_blocked_reason_format.is_some());
+}

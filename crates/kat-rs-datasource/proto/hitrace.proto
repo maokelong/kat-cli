@@ -31,31 +31,28 @@ message FtraceEvent {
   uint64 timestamp = 1;
   int32 tgid = 2;
   string comm = 3;
-
-  oneof event {
-    .SchedKthreadStopFormat sched_kthread_stop_format = 2400;
-    .SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
-    .SchedMigrateTaskFormat sched_migrate_task_format = 2402;
-    .SchedMoveNumaFormat sched_move_numa_format = 2403;
-    .SchedPiSetprioFormat sched_pi_setprio_format = 2404;
-    .SchedProcessExecFormat sched_process_exec_format = 2405;
-    .SchedProcessExitFormat sched_process_exit_format = 2406;
-    .SchedProcessForkFormat sched_process_fork_format = 2407;
-    .SchedProcessFreeFormat sched_process_free_format = 2408;
-    .SchedProcessWaitFormat sched_process_wait_format = 2409;
-    .SchedStatBlockedFormat sched_stat_blocked_format = 2410;
-    .SchedStatIowaitFormat sched_stat_iowait_format = 2411;
-    .SchedStatRuntimeFormat sched_stat_runtime_format = 2412;
-    .SchedStatSleepFormat sched_stat_sleep_format = 2413;
-    .SchedStatWaitFormat sched_stat_wait_format = 2414;
-    .SchedStickNumaFormat sched_stick_numa_format = 2415;
-    .SchedSwapNumaFormat sched_swap_numa_format = 2416;
-    .SchedSwitchFormat sched_switch_format = 2417;
-    .SchedWaitTaskFormat sched_wait_task_format = 2418;
-    .SchedWakeIdleWithoutIpiFormat sched_wake_idle_without_ipi_format = 2419;
-    .SchedWakeupFormat sched_wakeup_format = 2420;
-    .SchedWakeupNewFormat sched_wakeup_new_format = 2421;
-    .SchedWakingFormat sched_waking_format = 2422;
-    .SchedBlockedReasonFormat sched_blocked_reason_format = 4002;
-  }
+  .SchedKthreadStopFormat sched_kthread_stop_format = 2400;
+  .SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
+  .SchedMigrateTaskFormat sched_migrate_task_format = 2402;
+  .SchedMoveNumaFormat sched_move_numa_format = 2403;
+  .SchedPiSetprioFormat sched_pi_setprio_format = 2404;
+  .SchedProcessExecFormat sched_process_exec_format = 2405;
+  .SchedProcessExitFormat sched_process_exit_format = 2406;
+  .SchedProcessForkFormat sched_process_fork_format = 2407;
+  .SchedProcessFreeFormat sched_process_free_format = 2408;
+  .SchedProcessWaitFormat sched_process_wait_format = 2409;
+  .SchedStatBlockedFormat sched_stat_blocked_format = 2410;
+  .SchedStatIowaitFormat sched_stat_iowait_format = 2411;
+  .SchedStatRuntimeFormat sched_stat_runtime_format = 2412;
+  .SchedStatSleepFormat sched_stat_sleep_format = 2413;
+  .SchedStatWaitFormat sched_stat_wait_format = 2414;
+  .SchedStickNumaFormat sched_stick_numa_format = 2415;
+  .SchedSwapNumaFormat sched_swap_numa_format = 2416;
+  .SchedSwitchFormat sched_switch_format = 2417;
+  .SchedWaitTaskFormat sched_wait_task_format = 2418;
+  .SchedWakeIdleWithoutIpiFormat sched_wake_idle_without_ipi_format = 2419;
+  .SchedWakeupFormat sched_wakeup_format = 2420;
+  .SchedWakeupNewFormat sched_wakeup_new_format = 2421;
+  .SchedWakingFormat sched_waking_format = 2422;
+  .SchedBlockedReasonFormat sched_blocked_reason_format = 4002;
 }

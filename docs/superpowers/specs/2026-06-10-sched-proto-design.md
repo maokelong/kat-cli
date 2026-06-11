@@ -11,7 +11,7 @@ Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`
 ## 要解决的问题
 
 1. 将上游 `sched.proto` 纳入 `kat-rs-datasource` 的 prost 生成流程。
-2. 在 `hitrace.proto` 的 `FtraceEvent` 中补齐 sched oneof 分支，使 htrace 解码路径能识别 sched 事件。
+2. 在 `hitrace.proto` 的 `FtraceEvent` 中补齐 sched message 字段，使 htrace 解码路径能识别 sched 事件。
 3. 为 `sched.proto` 中每个 sched message 建表，表名使用 snake_case 事件名，例如 `sched_blocked_reason`、`sched_migrate_task`、`sched_switch`、`sched_wakeup`。
 4. 每张 sched 明细表包含事件公共元数据和 proto message 字段，便于查询详细信息。
 5. 从 sched 事件最小生成两张派生表：
@@ -22,7 +22,7 @@ Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 提到 `thread_state`
 ## 不做什么
 
 1. 不接入 `types/plugins/ftrace_data/default`。
-2. 不一次性接入 `ftrace_event.proto` 的全部非 sched oneof 分支。
+2. 不一次性接入 `ftrace_event.proto` 的全部非 sched 分支。
 3. 不复刻 trace_streamer 的完整进程/线程字典、arg_set、binder runnable、sched_slice 等语义。
 4. 不引入 YAML lifecycle 配置引擎；issue #22 的通用 YAML 方案留给后续独立切片。
 5. 不提交真实 trace fixture，也不把本地 `D:\项目\data\...htrace` 加入仓库。
@@ -42,7 +42,7 @@ D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\ftrace_event.proto
 crates/kat-rs-datasource/proto/ftrace_data/sched.proto
 ```
 
-`ftrace_event.proto` 不整体复制；只把 sched oneof 分支和 tag 写入 kat-rs 的 `hitrace.proto`，避免把非 sched 的 300+ 分支带入本次 PR。
+`ftrace_event.proto` 不整体复制；只把 sched message 字段和 tag 写入 kat-rs 的 `hitrace.proto`，避免把非 sched 的 300+ 分支带入本次 PR。
 
 ## 明细表契约
 
@@ -134,7 +134,7 @@ event_comm
 ProfilerPluginData.data
   -> TracePluginResult
   -> FtraceCpuDetailMsg(cpu)
-  -> FtraceEvent(timestamp, tgid, comm, oneof sched event)
+  -> FtraceEvent(timestamp, tgid, comm, sched message fields)
   -> sched_* 明细表 rows
   -> thread_state / instant derived rows
   -> DataFusion MemTable
@@ -153,7 +153,7 @@ ProfilerPluginData.data
 ## 最小交付
 
 1. 上游 `sched.proto` 接入 prost。
-2. `hitrace.proto` 只补齐 sched oneof 分支。
+2. `hitrace.proto` 只补齐 sched message 字段。
 3. 所有 sched message 建成 SQL 明细表。
 4. `thread_state` 和 `instant` 最小派生表可查询。
 5. 在新分支提交并创建 PR，PR 说明包含 issue #25 checklist 项、issue #22 派生表关系、SQL 表变化、端到端测试、真实 trace 查询、workspace test 和 clippy 结果。

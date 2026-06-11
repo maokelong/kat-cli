@@ -4,7 +4,7 @@
 
 **Goal:** 接入上游 `sched.proto`，为所有 sched event 建明细表，并生成最小 `thread_state` / `instant` 派生表。
 
-**Architecture:** `hitrace.proto` 只补 sched oneof 分支，保持非 sched ftrace events 不进入本次切片。datasource 在解码 `TracePluginResult` 时把每个 sched event 拆到对应 `sched_*` 原始表，同时从 `sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 生成派生表。
+**Architecture:** `hitrace.proto` 只补 sched message 字段，保持非 sched ftrace events 不进入本次切片。datasource 在解码 `TracePluginResult` 时把每个 sched event 拆到对应 `sched_*` 原始表，同时从 `sched_switch`、`sched_wakeup`、`sched_wakeup_new`、`sched_waking` 生成派生表。
 
 **Tech Stack:** Rust 2024, prost/prost-build, serde/serde_arrow, DataFusion, Cargo integration tests.
 
@@ -16,7 +16,7 @@
   - 从 `D:\项目\trace_streamer\src\protos\types\plugins\ftrace_data\sched.proto` 原样复制。
 - Modify: `crates/kat-rs-datasource/proto/hitrace.proto`
   - import sched proto。
-  - 给 `FtraceEvent` 添加公共字段 `timestamp`、`tgid`、`comm` 和 sched-only oneof。
+  - 给 `FtraceEvent` 添加公共字段 `timestamp`、`tgid`、`comm` 和 sched message 字段。
 - Modify: `crates/kat-rs-datasource/build.rs`
   - 编译 `hitrace.proto` 与 `ftrace_data/sched.proto`。
 - Modify: `crates/kat-rs-datasource/src/lib.rs`
@@ -180,7 +180,7 @@ Expected: FAIL because the new tables are not registered yet.
 - Modify: `crates/kat-rs-datasource/src/hitrace.rs`
 - Modify: `crates/kat-rs-datasource/src/query.rs`
 
-- [ ] **Step 1: Add sched-only oneof branches**
+- [ ] **Step 1: Add direct sched message fields**
 
 `FtraceEvent` must include:
 
@@ -189,33 +189,30 @@ message FtraceEvent {
   uint64 timestamp = 1;
   int32 tgid = 2;
   string comm = 3;
-
-  oneof event {
-    .SchedKthreadStopFormat sched_kthread_stop_format = 2400;
-    .SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
-    .SchedMigrateTaskFormat sched_migrate_task_format = 2402;
-    .SchedMoveNumaFormat sched_move_numa_format = 2403;
-    .SchedPiSetprioFormat sched_pi_setprio_format = 2404;
-    .SchedProcessExecFormat sched_process_exec_format = 2405;
-    .SchedProcessExitFormat sched_process_exit_format = 2406;
-    .SchedProcessForkFormat sched_process_fork_format = 2407;
-    .SchedProcessFreeFormat sched_process_free_format = 2408;
-    .SchedProcessWaitFormat sched_process_wait_format = 2409;
-    .SchedStatBlockedFormat sched_stat_blocked_format = 2410;
-    .SchedStatIowaitFormat sched_stat_iowait_format = 2411;
-    .SchedStatRuntimeFormat sched_stat_runtime_format = 2412;
-    .SchedStatSleepFormat sched_stat_sleep_format = 2413;
-    .SchedStatWaitFormat sched_stat_wait_format = 2414;
-    .SchedStickNumaFormat sched_stick_numa_format = 2415;
-    .SchedSwapNumaFormat sched_swap_numa_format = 2416;
-    .SchedSwitchFormat sched_switch_format = 2417;
-    .SchedWaitTaskFormat sched_wait_task_format = 2418;
-    .SchedWakeIdleWithoutIpiFormat sched_wake_idle_without_ipi_format = 2419;
-    .SchedWakeupFormat sched_wakeup_format = 2420;
-    .SchedWakeupNewFormat sched_wakeup_new_format = 2421;
-    .SchedWakingFormat sched_waking_format = 2422;
-    .SchedBlockedReasonFormat sched_blocked_reason_format = 4002;
-  }
+  .SchedKthreadStopFormat sched_kthread_stop_format = 2400;
+  .SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
+  .SchedMigrateTaskFormat sched_migrate_task_format = 2402;
+  .SchedMoveNumaFormat sched_move_numa_format = 2403;
+  .SchedPiSetprioFormat sched_pi_setprio_format = 2404;
+  .SchedProcessExecFormat sched_process_exec_format = 2405;
+  .SchedProcessExitFormat sched_process_exit_format = 2406;
+  .SchedProcessForkFormat sched_process_fork_format = 2407;
+  .SchedProcessFreeFormat sched_process_free_format = 2408;
+  .SchedProcessWaitFormat sched_process_wait_format = 2409;
+  .SchedStatBlockedFormat sched_stat_blocked_format = 2410;
+  .SchedStatIowaitFormat sched_stat_iowait_format = 2411;
+  .SchedStatRuntimeFormat sched_stat_runtime_format = 2412;
+  .SchedStatSleepFormat sched_stat_sleep_format = 2413;
+  .SchedStatWaitFormat sched_stat_wait_format = 2414;
+  .SchedStickNumaFormat sched_stick_numa_format = 2415;
+  .SchedSwapNumaFormat sched_swap_numa_format = 2416;
+  .SchedSwitchFormat sched_switch_format = 2417;
+  .SchedWaitTaskFormat sched_wait_task_format = 2418;
+  .SchedWakeIdleWithoutIpiFormat sched_wake_idle_without_ipi_format = 2419;
+  .SchedWakeupFormat sched_wakeup_format = 2420;
+  .SchedWakeupNewFormat sched_wakeup_new_format = 2421;
+  .SchedWakingFormat sched_waking_format = 2422;
+  .SchedBlockedReasonFormat sched_blocked_reason_format = 4002;
 }
 ```
 
@@ -260,7 +257,7 @@ struct InstantRow {
 
 - [ ] **Step 3: Decode sched events**
 
-Replace the single `sched_switch_rows` vector with a `SchedRows` struct containing one `Vec<_>` per table plus `thread_state` and `instant`. Dispatch on `proto::kat::hitrace::ftrace_event::Event` and push rows.
+Replace the single `sched_switch_rows` vector with a `SchedRows` struct containing one `Vec<_>` per table plus `thread_state` and `instant`. Check each direct sched message field on `FtraceEvent` and push rows.
 
 - [ ] **Step 4: Register all tables**
 

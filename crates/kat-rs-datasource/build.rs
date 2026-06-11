@@ -11,10 +11,6 @@ fn main() {
         ".SchedSwitchFormat",
         "#[derive(serde::Serialize, serde::Deserialize)]",
     );
-    config.enum_attribute(
-        ".kat.hitrace.FtraceEvent.event",
-        "#[allow(clippy::enum_variant_names)]",
-    );
     config.field_attribute(
         ".kat.hitrace.ProfilerPluginData.data",
         "#[serde(with = \"serde_bytes\")]",

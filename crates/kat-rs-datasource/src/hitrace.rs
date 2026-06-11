@@ -19,8 +19,7 @@ use crate::{
         SchedStatBlockedFormat, SchedStatIowaitFormat, SchedStatRuntimeFormat,
         SchedStatSleepFormat, SchedStatWaitFormat, SchedStickNumaFormat, SchedSwapNumaFormat,
         SchedSwitchFormat, SchedWaitTaskFormat, SchedWakeIdleWithoutIpiFormat, SchedWakeupFormat,
-        SchedWakeupNewFormat, SchedWakingFormat, TracePluginResult,
-        kat::hitrace::{FtraceEvent, ftrace_event::Event},
+        SchedWakeupNewFormat, SchedWakingFormat, TracePluginResult, kat::hitrace::FtraceEvent,
     },
 };
 
@@ -192,94 +191,109 @@ struct SchedRows {
 impl SchedRows {
     fn push_event(&mut self, cpu: u32, event: FtraceEvent) {
         let meta = SchedEventMeta::from_event(cpu, &event);
-        let Some(event) = event.event else {
-            return;
-        };
 
-        match event {
-            Event::SchedKthreadStopFormat(message) => self
-                .sched_kthread_stop
-                .push(SchedKthreadStopRow::new(&meta, message)),
-            Event::SchedKthreadStopRetFormat(message) => self
-                .sched_kthread_stop_ret
-                .push(SchedKthreadStopRetRow::new(&meta, message)),
-            Event::SchedMigrateTaskFormat(message) => self
-                .sched_migrate_task
-                .push(SchedMigrateTaskRow::new(&meta, message)),
-            Event::SchedMoveNumaFormat(message) => self
-                .sched_move_numa
-                .push(SchedMoveNumaRow::new(&meta, message)),
-            Event::SchedPiSetprioFormat(message) => self
-                .sched_pi_setprio
-                .push(SchedPiSetprioRow::new(&meta, message)),
-            Event::SchedProcessExecFormat(message) => self
-                .sched_process_exec
-                .push(SchedProcessExecRow::new(&meta, message)),
-            Event::SchedProcessExitFormat(message) => self
-                .sched_process_exit
-                .push(SchedProcessExitRow::new(&meta, message)),
-            Event::SchedProcessForkFormat(message) => self
-                .sched_process_fork
-                .push(SchedProcessForkRow::new(&meta, message)),
-            Event::SchedProcessFreeFormat(message) => self
-                .sched_process_free
-                .push(SchedProcessFreeRow::new(&meta, message)),
-            Event::SchedProcessWaitFormat(message) => self
-                .sched_process_wait
-                .push(SchedProcessWaitRow::new(&meta, message)),
-            Event::SchedStatBlockedFormat(message) => self
-                .sched_stat_blocked
-                .push(SchedStatDelayRow::from_blocked(&meta, message)),
-            Event::SchedStatIowaitFormat(message) => self
-                .sched_stat_iowait
-                .push(SchedStatDelayRow::from_iowait(&meta, message)),
-            Event::SchedStatRuntimeFormat(message) => self
-                .sched_stat_runtime
-                .push(SchedStatRuntimeRow::new(&meta, message)),
-            Event::SchedStatSleepFormat(message) => self
-                .sched_stat_sleep
-                .push(SchedStatDelayRow::from_sleep(&meta, message)),
-            Event::SchedStatWaitFormat(message) => self
-                .sched_stat_wait
-                .push(SchedStatDelayRow::from_wait(&meta, message)),
-            Event::SchedStickNumaFormat(message) => self
-                .sched_stick_numa
-                .push(SchedStickNumaRow::new(&meta, message)),
-            Event::SchedSwapNumaFormat(message) => self
-                .sched_swap_numa
-                .push(SchedSwapNumaRow::new(&meta, message)),
-            Event::SchedSwitchFormat(message) => {
-                let row = SchedSwitchRow::new(&meta, message);
-                self.thread_state.push_switch(&row);
-                self.sched_switch.push(row);
-            }
-            Event::SchedWaitTaskFormat(message) => self
-                .sched_wait_task
-                .push(SchedWaitTaskRow::new(&meta, message)),
-            Event::SchedWakeIdleWithoutIpiFormat(message) => self
-                .sched_wake_idle_without_ipi
-                .push(SchedWakeIdleWithoutIpiRow::new(&meta, message)),
-            Event::SchedWakeupFormat(message) => {
-                let row = SchedWakeupRow::from_wakeup(&meta, message);
-                self.instant
-                    .push(InstantRow::from_wakeup(&row, "sched_wakeup"));
-                self.sched_wakeup.push(row);
-            }
-            Event::SchedWakeupNewFormat(message) => {
-                let row = SchedWakeupRow::from_wakeup_new(&meta, message);
-                self.instant
-                    .push(InstantRow::from_wakeup(&row, "sched_wakeup_new"));
-                self.sched_wakeup_new.push(row);
-            }
-            Event::SchedWakingFormat(message) => {
-                let row = SchedWakeupRow::from_waking(&meta, message);
-                self.instant
-                    .push(InstantRow::from_wakeup(&row, "sched_waking"));
-                self.sched_waking.push(row);
-            }
-            Event::SchedBlockedReasonFormat(message) => self
-                .sched_blocked_reason
-                .push(SchedBlockedReasonRow::new(&meta, message)),
+        if let Some(message) = event.sched_kthread_stop_format {
+            self.sched_kthread_stop
+                .push(SchedKthreadStopRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_kthread_stop_ret_format {
+            self.sched_kthread_stop_ret
+                .push(SchedKthreadStopRetRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_migrate_task_format {
+            self.sched_migrate_task
+                .push(SchedMigrateTaskRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_move_numa_format {
+            self.sched_move_numa
+                .push(SchedMoveNumaRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_pi_setprio_format {
+            self.sched_pi_setprio
+                .push(SchedPiSetprioRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_process_exec_format {
+            self.sched_process_exec
+                .push(SchedProcessExecRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_process_exit_format {
+            self.sched_process_exit
+                .push(SchedProcessExitRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_process_fork_format {
+            self.sched_process_fork
+                .push(SchedProcessForkRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_process_free_format {
+            self.sched_process_free
+                .push(SchedProcessFreeRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_process_wait_format {
+            self.sched_process_wait
+                .push(SchedProcessWaitRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_stat_blocked_format {
+            self.sched_stat_blocked
+                .push(SchedStatDelayRow::from_blocked(&meta, message));
+        }
+        if let Some(message) = event.sched_stat_iowait_format {
+            self.sched_stat_iowait
+                .push(SchedStatDelayRow::from_iowait(&meta, message));
+        }
+        if let Some(message) = event.sched_stat_runtime_format {
+            self.sched_stat_runtime
+                .push(SchedStatRuntimeRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_stat_sleep_format {
+            self.sched_stat_sleep
+                .push(SchedStatDelayRow::from_sleep(&meta, message));
+        }
+        if let Some(message) = event.sched_stat_wait_format {
+            self.sched_stat_wait
+                .push(SchedStatDelayRow::from_wait(&meta, message));
+        }
+        if let Some(message) = event.sched_stick_numa_format {
+            self.sched_stick_numa
+                .push(SchedStickNumaRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_swap_numa_format {
+            self.sched_swap_numa
+                .push(SchedSwapNumaRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_switch_format {
+            let row = SchedSwitchRow::new(&meta, message);
+            self.thread_state.push_switch(&row);
+            self.sched_switch.push(row);
+        }
+        if let Some(message) = event.sched_wait_task_format {
+            self.sched_wait_task
+                .push(SchedWaitTaskRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_wake_idle_without_ipi_format {
+            self.sched_wake_idle_without_ipi
+                .push(SchedWakeIdleWithoutIpiRow::new(&meta, message));
+        }
+        if let Some(message) = event.sched_wakeup_format {
+            let row = SchedWakeupRow::from_wakeup(&meta, message);
+            self.instant
+                .push(InstantRow::from_wakeup(&row, "sched_wakeup"));
+            self.sched_wakeup.push(row);
+        }
+        if let Some(message) = event.sched_wakeup_new_format {
+            let row = SchedWakeupRow::from_wakeup_new(&meta, message);
+            self.instant
+                .push(InstantRow::from_wakeup(&row, "sched_wakeup_new"));
+            self.sched_wakeup_new.push(row);
+        }
+        if let Some(message) = event.sched_waking_format {
+            let row = SchedWakeupRow::from_waking(&meta, message);
+            self.instant
+                .push(InstantRow::from_wakeup(&row, "sched_waking"));
+            self.sched_waking.push(row);
+        }
+        if let Some(message) = event.sched_blocked_reason_format {
+            self.sched_blocked_reason
+                .push(SchedBlockedReasonRow::new(&meta, message));
         }
     }
 
