@@ -61,7 +61,8 @@ catalog/query
 3. 新增 `catalog`，提供 `TraceRecord`、`TraceRecordSink`、`TraceDataset`、`TraceTable`、`TableCategory`。
 4. 新增 `sinks/arrow`，把 `ProfilerPluginData` 和 sched direct event records 转换为 Arrow `RecordBatch`。
 5. `query` 层只消费 `TraceDataset`，不直接依赖 hitrace/ftrace 内部 table builder。
-6. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
+6. 抽象 ftrace event family 接入入口，让 Arrow sink 依赖 `FtraceEventTableBuilders` 聚合 builder，而不是直接依赖 sched 专用 builder。
+7. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
 
 ## 非目标
 
@@ -69,7 +70,7 @@ catalog/query
 2. 不补全 upstream ftrace 全量 schema、`common_fields`、oneof/descriptor 语义。
 3. 不接入 sched 之外的 irq、binder、power 等新 event family。
 4. 不实现 `thread_state`、`instant`、`sched_slice`、`process`、`thread`、`raw_event` 等派生表。
-5. 不把 build script 的 proto 文本扫描升级为 descriptor-driven generator。
+5. 不把 build script 的 proto 文本扫描升级为 descriptor-driven generator；本 PR 只把 family 配置和聚合入口抽象出来。
 6. 不设计多 sink 插件系统；本 PR 只保留一个 Arrow sink，但 parser 与 sink 通过 trait 解耦。
 
 ## 设计
@@ -91,7 +92,14 @@ trait TraceRecordSink {
 
 `domains/ftrace` 负责把 ftrace-plugin payload 解码为 `FtraceEventRecord`。该 record 包含 `EventContext` 和原始 `FtraceEvent`，让后续 sink 可以继续生成当前 sched direct tables。由于当前 proto 仍是本地裁剪版，本 PR 不补 `common_fields` 和完整 oneof，只保留后续 schema PR 的边界位置。
 
-`sinks/arrow` 实现 `TraceRecordSink`。它接收 `ProfilerPluginData` 写入 `profiler_plugin_data` raw table，接收 `FtraceEventRecord` 后交给生成的 `SchedDirectTableBuilders` 写入 sched direct event tables。生成代码依赖 `domains::ftrace::FtraceEventRecord` 和 `sinks::arrow::{DirectEventTableBuilder, EventMeta}`，不再依赖 hitrace 或旧 `ftrace` 顶层模块。
+`sinks/arrow` 实现 `TraceRecordSink`。它接收 `ProfilerPluginData` 写入 `profiler_plugin_data` raw table，接收 `FtraceEventRecord` 后交给生成的 `FtraceEventTableBuilders` 聚合入口。当前聚合入口只有 sched 一个 family，但 sink 不再直接依赖 sched 专用 builder。生成代码依赖 `domains::ftrace::FtraceEventRecord` 和 `sinks::arrow::{DirectEventTableBuilder, EventMeta}`，不再依赖 hitrace 或旧 `ftrace` 顶层模块。
+
+`build.rs` 使用 `FTRACE_EVENT_FAMILIES` 配置 ftrace event family。当前只配置 `sched`，生成：
+
+- `FtraceEventTableBuilders`：family-neutral 聚合入口，供 Arrow sink 调用。
+- `SchedEventFamilyTables`：sched family 的具体 direct table builder 集合。
+
+后续新增 irq、binder、power 时，应先补对应 proto 和 `FtraceEvent` 字段，再在 `FTRACE_EVENT_FAMILIES` 中新增 family 配置；本 PR 不实际新增这些 family。
 
 `query` 创建 `ArrowSink`，调用 `formats::hitrace::decode_file`，再把 `TraceDataset` 中的 `TraceTable` 注册为 DataFusion `MemTable`。这样 query 只消费 catalog，而不关心输入格式和领域解码细节。
 
@@ -99,11 +107,11 @@ trait TraceRecordSink {
 
 新增/更新架构契约测试：
 
-- `formats/hitrace` 不包含 `TracePluginResult::decode`、`SchedDirectTableBuilders`、`ArrayBuilder`、`RecordBatch`。
+- `formats/hitrace` 不包含 `TracePluginResult::decode`、sched/family table builders、`ArrayBuilder`、`RecordBatch`。
 - `domains/ftrace` 包含 `TracePluginResult::decode` 和 `TraceRecord::FtraceEvent`，但不包含 Arrow/table builder。
-- `sinks/arrow` 实现 `TraceRecordSink`，并拥有 `SchedDirectTableBuilders` 和 direct table builder。
+- `sinks/arrow` 实现 `TraceRecordSink`，并通过 `FtraceEventTableBuilders` 聚合入口写 direct event tables。
 - `query` 消费 `TraceDataset`，不再消费 `load_hitrace_tables` 或旧 `FtraceTables`。
-- 生成的 sched builders 接收 `FtraceEventRecord`，并依赖 `sinks::arrow`。
+- 生成的 `FtraceEventTableBuilders` 接收 `FtraceEventRecord`，分发到当前 sched family，并依赖 `sinks::arrow`。
 
 保留行为测试：
 

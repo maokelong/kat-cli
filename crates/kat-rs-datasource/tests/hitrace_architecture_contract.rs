@@ -114,7 +114,8 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(catalog.contains("pub(crate) struct TraceTable"));
 
     assert!(sink_mod.contains("impl TraceRecordSink for ArrowSink"));
-    assert!(sink_mod.contains("SchedDirectTableBuilders::new()?"));
+    assert!(sink_mod.contains("FtraceEventTableBuilders::new()?"));
+    assert!(!sink_mod.contains("SchedDirectTableBuilders"));
     assert!(sink_mod.contains("TraceDataset::new(tables)"));
     assert!(sink_table_builder.contains("ArrayBuilder"));
     assert!(sink_table_builder.contains("pub(crate) struct DirectEventTableBuilder"));
@@ -141,14 +142,18 @@ fn query_consumes_trace_dataset_catalog() {
 #[test]
 fn sched_generation_uses_arrow_sink_and_ftrace_records() {
     let build_rs = source("build.rs");
-    let generated_builders =
-        fs::read_to_string(format!("{}/sched_table_builders.rs", env!("OUT_DIR")))
-            .expect("generated sched table builders can be read");
+    let generated_builders = fs::read_to_string(format!(
+        "{}/ftrace_event_table_builders.rs",
+        env!("OUT_DIR")
+    ))
+    .expect("generated ftrace event table builders can be read");
 
     for marker in [
         "struct EventFamilySpec",
-        "const SCHED_FAMILY: EventFamilySpec",
-        "generate_event_family_code(&SCHED_FAMILY, &sched_messages)",
+        "const FTRACE_EVENT_FAMILIES: &[EventFamilySpec]",
+        "generate_ftrace_event_table_builders(&event_families)",
+        "FtraceEventTableBuilders",
+        "SchedEventFamilyTables",
         "domains::ftrace::FtraceEventRecord",
         "sinks::arrow::{DirectEventTableBuilder, EventMeta}",
         "catalog::TraceTable",
@@ -171,13 +176,17 @@ fn sched_generation_uses_arrow_sink_and_ftrace_records() {
             "pub(crate) fn push_event(&mut self, record: FtraceEventRecord) -> Result<()>"
         )
     );
-    assert!(generated_builders.contains("let meta = EventMeta::from_record(&record);"));
-    assert!(generated_builders.contains("let event = record.event;"));
+    assert!(generated_builders.contains("self.sched.push_event(&record)?;"));
+    assert!(generated_builders.contains("fn push_event(&mut self, record: &FtraceEventRecord)"));
+    assert!(generated_builders.contains("let meta = EventMeta::from_record(record);"));
+    assert!(generated_builders.contains("let event = &record.event;"));
+    assert!(generated_builders.contains("event.sched_switch_format.clone()"));
     assert!(generated_builders.contains("self.sched_switch.push(meta.clone(), message)?"));
 
     for marker in [
         "crate::ftrace",
         "FtraceTable",
+        "SchedDirectTableBuilders",
         "FtraceEvent,",
         "push_event(&mut self, cpu: u32",
         "EventMeta::from_event(cpu, &event)",

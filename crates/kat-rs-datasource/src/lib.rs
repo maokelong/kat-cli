@@ -1,12 +1,12 @@
 mod catalog;
 mod domains;
 mod formats;
+mod ftrace_event_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
+}
 mod json;
 mod mmap;
 mod query;
-mod sched_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
-}
 mod sinks;
 
 pub use query::TraceDatasource;

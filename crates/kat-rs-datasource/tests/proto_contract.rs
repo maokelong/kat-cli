@@ -41,8 +41,8 @@ mod sinks {
     }
 }
 
-mod sched_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
+mod ftrace_event_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
 }
 
 #[test]
@@ -118,9 +118,9 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
 }
 
 #[test]
-fn generated_sched_table_builders_route_direct_events_to_tables() {
+fn generated_ftrace_event_table_builders_route_direct_events_to_tables() {
     let mut builders =
-        sched_table_builders::SchedDirectTableBuilders::new().expect("builders are created");
+        ftrace_event_table_builders::FtraceEventTableBuilders::new().expect("builders are created");
 
     builders
         .push_event(domains::ftrace::FtraceEventRecord::new(
