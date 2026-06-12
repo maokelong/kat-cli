@@ -1,167 +1,193 @@
 use std::fs;
 
+fn source(path: &str) -> String {
+    fs::read_to_string(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path))
+        .unwrap_or_else(|error| panic!("{path} can be read: {error}"))
+}
+
+fn joined_sources(paths: &[&str]) -> String {
+    paths
+        .iter()
+        .map(|path| source(path))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
-fn hitrace_parser_only_wires_direct_tables() {
+fn datasource_uses_reviewer_layer_boundaries() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
-        .expect("hitrace parser source can be read");
-    let derived_rs_path = format!("{manifest_dir}/src/hitrace/derived.rs");
+
+    for path in [
+        "src/formats/mod.rs",
+        "src/formats/hitrace/mod.rs",
+        "src/formats/hitrace/file.rs",
+        "src/formats/hitrace/profiler.rs",
+        "src/formats/hitrace/segment.rs",
+        "src/domains/mod.rs",
+        "src/domains/ftrace/mod.rs",
+        "src/domains/ftrace/event.rs",
+        "src/domains/ftrace/packet.rs",
+        "src/sinks/mod.rs",
+        "src/sinks/arrow/mod.rs",
+        "src/sinks/arrow/table_builder.rs",
+        "src/catalog.rs",
+    ] {
+        assert!(
+            std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
+            "{path} should exist"
+        );
+    }
+
+    for path in ["src/hitrace.rs", "src/ftrace.rs", "src/ftrace/mod.rs"] {
+        assert!(
+            !std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
+            "{path} should not remain as a datasource center"
+        );
+    }
+}
+
+#[test]
+fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
+    let hitrace_sources = joined_sources(&[
+        "src/formats/hitrace/mod.rs",
+        "src/formats/hitrace/file.rs",
+        "src/formats/hitrace/profiler.rs",
+        "src/formats/hitrace/segment.rs",
+    ]);
+
+    assert!(hitrace_sources.contains("TraceRecordSink"));
+    assert!(hitrace_sources.contains("decode_plugin_payload"));
+    assert!(hitrace_sources.contains("for_each_len_prefixed_message::<ProfilerPluginData, _>"));
 
     for marker in [
-        "mod derived",
-        "DerivedTables",
+        "TracePluginResult::decode",
+        "SchedDirectTableBuilders",
+        "ArrayBuilder",
+        "RecordBatch",
+        "MemTable",
         "thread_state",
-        "instant",
         "sched_slice",
         "raw_event",
     ] {
         assert!(
-            !hitrace_rs.contains(marker),
-            "{marker} should not be wired into the hitrace parser"
+            !hitrace_sources.contains(marker),
+            "{marker} should not live in formats/hitrace"
         );
     }
-    assert!(
-        !std::path::Path::new(&derived_rs_path).exists(),
-        "derived tables should be added back in a separate slice"
-    );
 }
 
 #[test]
-fn direct_sched_table_builders_are_generated() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
-        .expect("hitrace parser source can be read");
-    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
-        .expect("ftrace domain source can be read");
-    let lib_rs =
-        fs::read_to_string(format!("{manifest_dir}/src/lib.rs")).expect("lib source can be read");
+fn ftrace_domain_decodes_payload_to_neutral_records() {
+    let ftrace_sources = joined_sources(&[
+        "src/domains/ftrace/mod.rs",
+        "src/domains/ftrace/event.rs",
+        "src/domains/ftrace/packet.rs",
+    ]);
+
+    assert!(ftrace_sources.contains("TracePluginResult::decode"));
+    assert!(ftrace_sources.contains("TraceRecord::FtraceEvent"));
+    assert!(ftrace_sources.contains("FtraceEventRecord::new"));
+    assert!(ftrace_sources.contains("pub(crate) const FTRACE_PLUGIN_NAME"));
+
+    for marker in [
+        "SchedDirectTableBuilders",
+        "DirectEventTableBuilder",
+        "ArrayBuilder",
+        "RecordBatch",
+    ] {
+        assert!(
+            !ftrace_sources.contains(marker),
+            "{marker} should not live in domains/ftrace"
+        );
+    }
+}
+
+#[test]
+fn arrow_sink_owns_record_to_table_conversion() {
+    let sink_mod = source("src/sinks/arrow/mod.rs");
+    let sink_table_builder = source("src/sinks/arrow/table_builder.rs");
+    let catalog = source("src/catalog.rs");
+
+    assert!(catalog.contains("pub(crate) enum TraceRecord"));
+    assert!(catalog.contains("pub(crate) trait TraceRecordSink"));
+    assert!(catalog.contains("pub(crate) struct TraceDataset"));
+    assert!(catalog.contains("pub(crate) struct TraceTable"));
+
+    assert!(sink_mod.contains("impl TraceRecordSink for ArrowSink"));
+    assert!(sink_mod.contains("SchedDirectTableBuilders::new()?"));
+    assert!(sink_mod.contains("TraceDataset::new(tables)"));
+    assert!(sink_table_builder.contains("ArrayBuilder"));
+    assert!(sink_table_builder.contains("pub(crate) struct DirectEventTableBuilder"));
+    assert!(sink_table_builder.contains("pub(crate) struct EventMeta"));
+}
+
+#[test]
+fn query_consumes_trace_dataset_catalog() {
+    let query = source("src/query.rs");
+
+    assert!(query.contains("TraceDataset"));
+    assert!(query.contains("register_dataset(&ctx, sink.finish()?)?"));
+    assert!(query.contains("hitrace::decode_file(path.as_ref(), &mut sink)?"));
+    assert!(query.contains("ArrowSink::new()?"));
+
+    for marker in ["load_hitrace_tables", "HITRACE_TABLE", "FtraceTables"] {
+        assert!(
+            !query.contains(marker),
+            "{marker} should not be consumed directly by query"
+        );
+    }
+}
+
+#[test]
+fn sched_generation_uses_arrow_sink_and_ftrace_records() {
+    let build_rs = source("build.rs");
     let generated_builders =
         fs::read_to_string(format!("{}/sched_table_builders.rs", env!("OUT_DIR")))
             .expect("generated sched table builders can be read");
-
-    assert!(ftrace_rs.contains("SchedDirectTableBuilders::new()?"));
-    assert!(!hitrace_rs.contains("SchedDirectTableBuilders"));
-    assert!(!hitrace_rs.contains("DerivedTables::default()"));
-    assert!(!hitrace_rs.contains("struct SchedRows"));
-    assert!(!hitrace_rs.contains("sched_switch: TableBuilder<SchedSwitchRow>"));
-    assert!(!hitrace_rs.contains("SchedSwitchRow::new(&meta, message)"));
-    assert!(!lib_rs.contains("mod sched_rows"));
-
-    assert!(!generated_builders.contains("pub(crate) trait SchedEventObserver"));
-    assert!(
-        generated_builders.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}")
-    );
-    assert!(!generated_builders.contains("hitrace::{DirectEventTableBuilder"));
-    assert!(generated_builders.contains("pub(crate) struct SchedDirectTableBuilders"));
-    assert!(generated_builders.contains("sched_switch: DirectEventTableBuilder"));
-    assert!(
-        generated_builders
-            .contains("DirectEventTableBuilder::new::<SchedSwitchFormat>(\"sched_switch\")?")
-    );
-    assert!(generated_builders.contains("let meta = EventMeta::from_event(cpu, &event);"));
-    assert!(generated_builders.contains("self.sched_switch.push(meta.clone(), message)?"));
-    assert!(!generated_builders.contains("TableBuilder<EventRow<SchedSwitchFormat>>"));
-    assert!(!generated_builders.contains("TableBuilder::new_from_sample"));
-    assert!(!generated_builders.contains("SchedSwitchRow"));
-    assert!(!generated_builders.contains("SchedEventMeta"));
-    assert!(!generated_builders.contains("sched_rows"));
-    assert!(!generated_builders.contains("observer.observe_sched_switch(&row);"));
-}
-
-#[test]
-fn profiler_plugin_data_uses_table_builder() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
-        .expect("hitrace parser source can be read");
-    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
-        .expect("ftrace domain source can be read");
-
-    assert!(hitrace_rs.contains("mod table_builder;"));
-    assert!(hitrace_rs.contains("use table_builder::TableBuilder;"));
-    assert!(!ftrace_rs.contains(
-        "pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta, TableBuilder};"
-    ));
-    assert!(hitrace_rs.contains("TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?"));
-    assert!(!hitrace_rs.contains("let mut profiler_batches = Vec::new();"));
-    assert!(!hitrace_rs.contains("profiler_batches.push(batch);"));
-    assert!(!hitrace_rs.contains("record_batch_from(messages)"));
-}
-
-#[test]
-fn profiler_plugin_data_streams_len_prefixed_messages() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
-        .expect("hitrace parser source can be read");
-
-    assert!(hitrace_rs.contains("for_each_len_prefixed_message::<ProfilerPluginData, _>"));
-    assert!(!hitrace_rs.contains("fn decode_len_prefixed_messages"));
-    assert!(!hitrace_rs.contains("let messages = decode_len_prefixed_messages"));
-    assert!(!hitrace_rs.contains("fn decode_sched_rows"));
-    assert!(!hitrace_rs.contains("messages: &[ProfilerPluginData]"));
-}
-
-#[test]
-fn sched_generation_uses_event_family_generator() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let build_rs =
-        fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("build script can be read");
 
     for marker in [
         "struct EventFamilySpec",
         "const SCHED_FAMILY: EventFamilySpec",
         "generate_event_family_code(&SCHED_FAMILY, &sched_messages)",
-        "fn generate_event_family_code(",
-        "fn render_event_table_builders(family: &EventFamilySpec, messages: &[ProtoMessage])",
+        "domains::ftrace::FtraceEventRecord",
+        "sinks::arrow::{DirectEventTableBuilder, EventMeta}",
+        "catalog::TraceTable",
     ] {
         assert!(build_rs.contains(marker), "{marker} should exist");
+        assert!(
+            generated_builders.contains(marker)
+                || !matches!(
+                    marker,
+                    "domains::ftrace::FtraceEventRecord"
+                        | "sinks::arrow::{DirectEventTableBuilder, EventMeta}"
+                        | "catalog::TraceTable"
+                ),
+            "{marker} should exist in generated builders when it is a generated import"
+        );
     }
+
+    assert!(
+        generated_builders.contains(
+            "pub(crate) fn push_event(&mut self, record: FtraceEventRecord) -> Result<()>"
+        )
+    );
+    assert!(generated_builders.contains("let meta = EventMeta::from_record(&record);"));
+    assert!(generated_builders.contains("let event = record.event;"));
+    assert!(generated_builders.contains("self.sched_switch.push(meta.clone(), message)?"));
 
     for marker in [
+        "crate::ftrace",
+        "FtraceTable",
+        "FtraceEvent,",
+        "push_event(&mut self, cpu: u32",
+        "EventMeta::from_event(cpu, &event)",
         "rows_file",
-        "meta_name",
-        "rust_type:",
-        "fn render_event_rows",
-        "fn render_row_struct",
-        "fn rust_type",
-        "fn generate_sched_code",
-        "fn render_sched_rows",
-        "fn render_sched_table_builders",
+        "render_sched_rows",
+        "SchedSwitchRow",
     ] {
-        assert!(!build_rs.contains(marker), "{marker} should be generalized");
+        assert!(
+            !generated_builders.contains(marker) && !build_rs.contains(marker),
+            "{marker} should not remain in generated table builder plumbing"
+        );
     }
-}
-
-#[test]
-fn ftrace_domain_owns_payload_decode_and_sched_tables() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
-        .expect("hitrace parser source can be read");
-    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
-        .expect("ftrace domain source can be read");
-    let build_rs =
-        fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("build script can be read");
-    let generated_builders =
-        fs::read_to_string(format!("{}/sched_table_builders.rs", env!("OUT_DIR")))
-            .expect("generated sched table builders can be read");
-
-    assert!(hitrace_rs.contains("FtraceTables::new()?"));
-    assert!(hitrace_rs.contains("ftrace_tables.push_plugin_payload("));
-    assert!(
-        !std::path::Path::new(&format!("{manifest_dir}/src/ftrace.rs")).exists(),
-        "ftrace domain entry should live in src/ftrace/mod.rs"
-    );
-    assert!(!hitrace_rs.contains("TracePluginResult"));
-    assert!(!hitrace_rs.contains("SchedDirectTableBuilders"));
-    assert!(!hitrace_rs.contains("decode_sched_message"));
-
-    assert!(ftrace_rs.contains("TracePluginResult::decode"));
-    assert!(ftrace_rs.contains("SchedDirectTableBuilders::new()?"));
-    assert!(ftrace_rs.contains("pub(crate) struct FtraceTables"));
-    assert!(ftrace_rs.contains("pub(crate) struct FtraceTable"));
-
-    assert!(build_rs.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}"));
-    assert!(
-        generated_builders.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}")
-    );
-    assert!(!generated_builders.contains("crate::hitrace::{DirectEventTableBuilder"));
 }

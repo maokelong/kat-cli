@@ -1,11 +1,13 @@
-mod ftrace;
-mod hitrace;
+mod catalog;
+mod domains;
+mod formats;
 mod json;
 mod mmap;
 mod query;
 mod sched_table_builders {
     include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
 }
+mod sinks;
 
 pub use query::TraceDatasource;
 

@@ -1,14 +1,14 @@
-# ftrace 领域边界拆分设计
+# ftrace datasource 架构边界收敛设计
 
 ## 背景
 
-Issue [#27](https://github.com/maokelong/kat-rs/issues/27) 是 #25 后续小 PR 的架构边界切片。#25 / PR #26 已验证 `.htrace -> ftrace-plugin -> sched direct tables -> DataFusion` 纵向链路，但 review 指出当前实现把 htrace/profiler 文件容器解析、ftrace-plugin payload 解码、sched direct table 写入放在同一层。
+Issue [#27](https://github.com/maokelong/kat-rs/issues/27) 是 #25 / PR #26 之后的架构边界切片。PR #26 已验证 `.htrace -> ftrace-plugin -> sched direct tables -> DataFusion` 的纵向链路，但 review 指出当前实现容易把 `.htrace` 文件容器、profiler plugin envelope、ftrace 领域语义、Arrow 落表和 SQL 注册都固化到同一条过程式主链中。
 
-本次只做最小边界收敛：把 ftrace 领域逻辑从 `hitrace` 入口拆出。它不是完整 datasource 重构，也不引入 `formats/`、`domains/`、`sinks/`、catalog 或 `TraceRecord` 抽象。
+当前 PR 原本只计划拆出 ftrace domain。由于 reviewer 希望这个 PR 直接完成更明确的架构边界，本设计把范围升级为 PR #26 review comment 里的第一阶段落地：建立 `formats/hitrace`、`domains/ftrace`、`sinks/arrow` 和 `catalog` 的代码边界，并用中立 `TraceRecord` / `TraceRecordSink` 断开 parser 直接写 Arrow 表的耦合。
 
-## 事实源与边界判断
+## 事实源与层次
 
-PR #26 的架构 review 给出的核心边界是：
+PR #26 review 给出的事实层次是：
 
 ```text
 .htrace file
@@ -21,85 +21,96 @@ PR #26 的架构 review 给出的核心边界是：
                       -> sched_switch / sched_wakeup / ...
 ```
 
-OpenHarmony `developtools_profiler` 当前 commit `9c0250d0a2c93d153f50150756045fd3fcd1c22f` 也支持这个划分：
+OpenHarmony `developtools_profiler` 也支持这个划分：
 
-- `TraceFileHeader` 定义 `.htrace` 外层 profiler container，包含 `HEADER_SIZE = 1024`、`HEADER_MAGIC = 0x464F5250534F484F`、`dataType`、`segments`、`sha256` 等字段。
-- `TraceFileReader::Read` 按 4 字节长度前缀读取 protobuf message，再 `ParseFromArray`。
-- `ProfilerPluginData` 是 profiler envelope，字段包含 `name`、`status`、`data`、`clock_id`、`tv_sec`、`tv_nsec`、`version`、`sample_interval`。
-- `TracePluginResult` 和 `FtraceEvent` 属于 ftrace 领域；上游 `FtraceEvent` 有公共字段和大 `oneof event`，但本次仍只保留当前 sched direct tables 所需的本地裁剪 schema。
+- `.htrace` 外层是 profiler trace file container，包含 `TraceFileHeader`、section length、`dataType` 等容器字段。
+- `ProfilerPluginData` 是 profiler plugin envelope，`name` 决定 payload 属于哪个 plugin。
+- `TracePluginResult`、`FtraceCpuDetailMsg`、`FtraceEvent` 属于 ftrace-plugin payload 语义。
+- sched event 只是 ftrace event family 的第一批 direct tables，不应把 datasource 架构设计成“只有 sched 的 hitrace parser”。
 
-因此，本次代码边界采用：
+因此本 PR 的职责边界调整为：
 
 ```text
-hitrace entry
+formats/hitrace
   -> 读取 .htrace/profiler section
-  -> streaming decode ProfilerPluginData
-  -> 保留 profiler_plugin_data 表写入
-  -> 按 plugin name 分发 ftrace-plugin payload
+  -> streaming decode length-prefixed ProfilerPluginData
+  -> 按 plugin name 分发 payload
+  -> 只向 TraceRecordSink 推送中立 record
 
-ftrace module
+domains/ftrace
   -> decode TracePluginResult
   -> 遍历 FtraceCpuDetailMsg / FtraceEvent
-  -> 写入现有 sched direct table builders
-  -> 返回现有 query 层可注册的 RecordBatch 表
+  -> 产出 FtraceEventRecord
+  -> 不写 Arrow，不注册 SQL 表
+
+sinks/arrow
+  -> 接收 TraceRecord
+  -> 写 profiler_plugin_data raw table
+  -> 写 sched direct event tables
+  -> 输出 TraceDataset
+
+catalog/query
+  -> TraceDataset / TraceTable 描述可注册表
+  -> query 只消费 dataset 并注册 DataFusion MemTable
 ```
 
 ## 目标
 
-1. 新增 `ftrace` 领域模块，承接 ftrace-plugin payload 解码和 sched direct table 写入。
-2. `hitrace` 入口不再直接引用 `TracePluginResult` 或 `SchedDirectTableBuilders`。
-3. `hitrace` 入口保留 `.htrace` header/section、len-prefixed `ProfilerPluginData` streaming decode、`profiler_plugin_data` 表写入和 plugin 分发。
-4. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
-5. 保持现有 build script 生成 sched direct table builders 的方式，不在本 PR 改 generator 架构。
+1. 新增 `formats/hitrace`，让 `.htrace` 容器解析不再作为 datasource 中心文件存在。
+2. 新增 `domains/ftrace`，由 ftrace domain 独立负责 `TracePluginResult` 和 `FtraceEvent` 语义。
+3. 新增 `catalog`，提供 `TraceRecord`、`TraceRecordSink`、`TraceDataset`、`TraceTable`、`TableCategory`。
+4. 新增 `sinks/arrow`，把 `ProfilerPluginData` 和 sched direct event records 转换为 Arrow `RecordBatch`。
+5. `query` 层只消费 `TraceDataset`，不直接依赖 hitrace/ftrace 内部 table builder。
+6. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
 
 ## 非目标
 
-1. 不做完整 `formats/hitrace` 目录拆分。
-2. 不引入 `TraceRecord`、sink trait、多 sink 机制或 Arrow/DataFusion sink 解耦。
-3. 不引入 `TraceDataset`、`TableCatalog`、`TableCategory` 或完整 datasource catalog。
-4. 不补全 upstream ftrace 全量 schema、`common_fields` 或 oneof/descriptor 语义。
-5. 不接入 sched 之外的新事件域。
-6. 不实现 `thread_state`、`instant`、`sched_slice`、`process`、`thread`、`raw_event` 等派生表。
-7. 不把 build script 的 proto 文本扫描升级为 descriptor-driven generator。
+1. 不在本 PR 引入 perfetto、bytrace text、hiperf 等新输入格式。
+2. 不补全 upstream ftrace 全量 schema、`common_fields`、oneof/descriptor 语义。
+3. 不接入 sched 之外的 irq、binder、power 等新 event family。
+4. 不实现 `thread_state`、`instant`、`sched_slice`、`process`、`thread`、`raw_event` 等派生表。
+5. 不把 build script 的 proto 文本扫描升级为 descriptor-driven generator。
+6. 不设计多 sink 插件系统；本 PR 只保留一个 Arrow sink，但 parser 与 sink 通过 trait 解耦。
 
 ## 设计
 
-新增 `crates/kat-rs-datasource/src/ftrace/mod.rs`，并把现有 direct event table 写入胶水从 `hitrace` 移到 `ftrace` 领域下。`ftrace` 模块暴露小接口：
+`catalog` 是解码链路的中立接口：
 
 ```rust
-pub(crate) const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
+enum TraceRecord {
+    ProfilerPluginData(ProfilerPluginData),
+    FtraceEvent(FtraceEventRecord),
+}
 
-pub(crate) struct FtraceTables { ... }
-
-impl FtraceTables {
-    pub(crate) fn new() -> Result<Self>;
-    pub(crate) fn push_plugin_payload(&mut self, data: &[u8], section_start: usize) -> Result<()>;
-    pub(crate) fn into_tables(self) -> Result<Vec<FtraceTable>>;
+trait TraceRecordSink {
+    fn push(&mut self, record: TraceRecord) -> Result<()>;
 }
 ```
 
-`hitrace` 入口只根据 `ProfilerPluginData.name` 判断是否分发给 `FtraceTables::push_plugin_payload`。错误上下文仍保留 profiler section byte offset，因为这是 htrace container 能提供的定位信息。
+`formats/hitrace` 只负责 `.htrace` container 和 `ProfilerPluginData` envelope。它根据 `ProfilerPluginData.name == "ftrace-plugin"` 调用 ftrace domain decoder，但不理解 `TracePluginResult` 内部结构，也不创建 Arrow builder。
 
-`FtraceTable` 只是本次切片需要的轻量返回结构，包含 `name` 和 `RecordBatch`。它不是 catalog，也不表达表类别、元数据或 datasource 统一模型。
+`domains/ftrace` 负责把 ftrace-plugin payload 解码为 `FtraceEventRecord`。该 record 包含 `EventContext` 和原始 `FtraceEvent`，让后续 sink 可以继续生成当前 sched direct tables。由于当前 proto 仍是本地裁剪版，本 PR 不补 `common_fields` 和完整 oneof，只保留后续 schema PR 的边界位置。
 
-`profiler_plugin_data` 表仍是 htrace/profiler envelope 表，通用 `TableBuilder<ProfilerPluginData>` 保留在 `hitrace` 下，不放进 ftrace 领域模块。
+`sinks/arrow` 实现 `TraceRecordSink`。它接收 `ProfilerPluginData` 写入 `profiler_plugin_data` raw table，接收 `FtraceEventRecord` 后交给生成的 `SchedDirectTableBuilders` 写入 sched direct event tables。生成代码依赖 `domains::ftrace::FtraceEventRecord` 和 `sinks::arrow::{DirectEventTableBuilder, EventMeta}`，不再依赖 hitrace 或旧 `ftrace` 顶层模块。
 
-生成的 `SchedDirectTableBuilders` 应改为依赖 `crate::ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}`。这样 sched direct table 写入依赖 ftrace domain，而不再反向依赖 hitrace 入口。
+`query` 创建 `ArrowSink`，调用 `formats::hitrace::decode_file`，再把 `TraceDataset` 中的 `TraceTable` 注册为 DataFusion `MemTable`。这样 query 只消费 catalog，而不关心输入格式和领域解码细节。
 
 ## 测试与验证
 
-新增架构契约测试：
+新增/更新架构契约测试：
 
-- `hitrace.rs` 不再包含 `TracePluginResult`、`SchedDirectTableBuilders`、`decode_sched_message` 等 ftrace/sched 领域实现痕迹。
-- `src/ftrace/mod.rs` 包含 `TracePluginResult::decode`、`SchedDirectTableBuilders::new()?` 和 payload 写入入口。
-- 生成的 sched builders 使用 `crate::ftrace` 的 table builder 类型。
+- `formats/hitrace` 不包含 `TracePluginResult::decode`、`SchedDirectTableBuilders`、`ArrayBuilder`、`RecordBatch`。
+- `domains/ftrace` 包含 `TracePluginResult::decode` 和 `TraceRecord::FtraceEvent`，但不包含 Arrow/table builder。
+- `sinks/arrow` 实现 `TraceRecordSink`，并拥有 `SchedDirectTableBuilders` 和 direct table builder。
+- `query` 消费 `TraceDataset`，不再消费 `load_hitrace_tables` 或旧 `FtraceTables`。
+- 生成的 sched builders 接收 `FtraceEventRecord`，并依赖 `sinks::arrow`。
 
-保留并运行现有行为测试：
+保留行为测试：
 
-- sched direct tables 查询结果保持不变。
-- CLI 查询方式保持不变。
 - `profiler_plugin_data` 仍可查询。
-- malformed/unsupported hitrace section 行为保持不变。
+- sched direct tables 仍可查询，字段名和表名不变。
+- malformed/unsupported hitrace section 行为保持可验证。
+- scalar SQL 查询仍可在 datasource 上执行。
 
 完整验证命令：
 

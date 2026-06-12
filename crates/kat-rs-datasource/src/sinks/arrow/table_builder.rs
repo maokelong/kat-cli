@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_arrow::{
@@ -5,9 +7,10 @@ use serde_arrow::{
     schema::{SchemaLike, TracingOptions},
 };
 
-use crate::proto::kat::hitrace::FtraceEvent;
-
-use super::FtraceTable;
+use crate::{
+    catalog::{TableCategory, TraceTable},
+    domains::ftrace::FtraceEventRecord,
+};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct EventMeta {
@@ -18,12 +21,12 @@ pub(crate) struct EventMeta {
 }
 
 impl EventMeta {
-    pub(crate) fn from_event(cpu: u32, event: &FtraceEvent) -> Self {
+    pub(crate) fn from_record(record: &FtraceEventRecord) -> Self {
         Self {
-            event_timestamp: event.timestamp,
-            event_cpu: cpu,
-            event_tgid: event.tgid,
-            event_comm: event.comm.clone(),
+            event_timestamp: record.context.timestamp,
+            event_cpu: record.context.cpu,
+            event_tgid: record.context.tgid,
+            event_comm: record.context.comm.clone(),
         }
     }
 
@@ -76,18 +79,55 @@ impl DirectEventTableBuilder {
         Ok(())
     }
 
-    pub(crate) fn into_table(self) -> Result<FtraceTable> {
-        into_table(self.name, self.builder)
+    pub(crate) fn into_table(self) -> Result<TraceTable> {
+        into_table(self.name, TableCategory::DirectEvent, self.builder)
     }
 }
 
-fn into_table(name: &'static str, builder: ArrayBuilder) -> Result<FtraceTable> {
-    Ok(FtraceTable {
+pub(crate) struct TableBuilder<T> {
+    name: &'static str,
+    builder: ArrayBuilder,
+    _row: PhantomData<T>,
+}
+
+impl<T> TableBuilder<T> {
+    pub(crate) fn new(name: &'static str) -> Result<Self>
+    where
+        for<'de> T: Deserialize<'de>,
+    {
+        let fields = Vec::<arrow_schema::FieldRef>::from_type::<T>(TracingOptions::default())?;
+        Ok(Self {
+            name,
+            builder: ArrayBuilder::from_arrow(&fields)?,
+            _row: PhantomData,
+        })
+    }
+
+    pub(crate) fn push(&mut self, row: T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        self.builder.push(row)?;
+        Ok(())
+    }
+
+    pub(crate) fn into_table(self, category: TableCategory) -> Result<TraceTable> {
+        into_table(self.name, category, self.builder)
+    }
+}
+
+fn into_table(
+    name: &'static str,
+    category: TableCategory,
+    builder: ArrayBuilder,
+) -> Result<TraceTable> {
+    Ok(TraceTable::new(
         name,
-        batches: vec![
+        category,
+        vec![
             builder
                 .into_record_batch()
                 .with_context(|| format!("failed to convert {name} table to Arrow"))?,
         ],
-    })
+    ))
 }

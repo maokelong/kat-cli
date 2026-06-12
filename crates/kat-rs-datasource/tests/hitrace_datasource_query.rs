@@ -225,6 +225,12 @@ async fn query_json_converts_scalar_result_types() {
 
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+    let empty_table_rows = datasource
+        .query_json("select count(*) as count from profiler_plugin_data")
+        .await
+        .expect("empty profiler_plugin_data table can be queried");
+    assert_eq!(empty_table_rows, json!([{ "count": 0 }]));
+
     let rows = datasource
         .query_json(
             "select true as flag, \
