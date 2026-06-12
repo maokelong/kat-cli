@@ -9,7 +9,7 @@ use log::debug;
 use serde_json::Value;
 
 use crate::{
-    hitrace::{HITRACE_TABLE, SCHED_SWITCH_TABLE, load_hitrace_tables},
+    hitrace::{HITRACE_TABLE, load_hitrace_tables},
     json::batches_to_json,
 };
 
@@ -22,19 +22,15 @@ impl TraceDatasource {
         let ctx = SessionContext::new();
         let tables = load_hitrace_tables(path.as_ref())?;
 
-        for (name, batches, empty_message) in [
-            (
-                HITRACE_TABLE,
-                tables.profiler_plugin_data,
-                "hitrace file contains no protobuf sections",
-            ),
-            (
-                SCHED_SWITCH_TABLE,
-                tables.sched_switch,
-                "sched_switch table is missing",
-            ),
-        ] {
-            register_batches(&ctx, name, batches, empty_message)?;
+        register_batches(
+            &ctx,
+            HITRACE_TABLE,
+            tables.profiler_plugin_data,
+            "hitrace file contains no protobuf sections",
+        )?;
+
+        for table in tables.tables {
+            register_batches(&ctx, table.name, table.batches, "hitrace table is missing")?;
         }
 
         Ok(Self { ctx })

@@ -1,4 +1,11 @@
-//! Parses hitrace files into Arrow batches backed by profiler plugin segments.
+//! Temporary hitrace format pipeline for the sched direct-table slice.
+//!
+//! This module currently orchestrates the `.htrace` container, ftrace plugin
+//! payload, and Arrow direct-table sink. It is not intended to be the long-term
+//! datasource architecture boundary; later slices should separate
+//! `formats/hitrace`, `domains/ftrace`, `sinks/arrow`, and the query catalog.
+
+mod table_builder;
 
 use std::path::Path;
 
@@ -6,16 +13,16 @@ use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
 use log::debug;
 use prost::Message;
-use serde::{Deserialize, Serialize};
-use serde_arrow::schema::{SchemaLike, TracingOptions};
 
 use crate::{
     mmap::with_mapped_file,
-    proto::{ProfilerPluginData, SchedSwitchFormat, TracePluginResult},
+    proto::{ProfilerPluginData, TracePluginResult},
+    sched_table_builders::SchedDirectTableBuilders,
 };
 
+pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta, TableBuilder};
+
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
-pub(crate) const SCHED_SWITCH_TABLE: &str = "sched_switch";
 
 const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 const PROFILER_HEADER_SIZE: usize = 1024;
@@ -23,9 +30,14 @@ const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 const SEGMENT_LENGTH_SIZE: usize = 4;
 
+pub(crate) struct HitraceTable {
+    pub(crate) name: &'static str,
+    pub(crate) batches: Vec<RecordBatch>,
+}
+
 pub(crate) struct HitraceTables {
     pub(crate) profiler_plugin_data: Vec<RecordBatch>,
-    pub(crate) sched_switch: Vec<RecordBatch>,
+    pub(crate) tables: Vec<HitraceTable>,
 }
 
 pub(crate) fn load_hitrace_tables(path: &Path) -> Result<HitraceTables> {
@@ -34,9 +46,9 @@ pub(crate) fn load_hitrace_tables(path: &Path) -> Result<HitraceTables> {
     let tables = with_mapped_file(path, parse_hitrace_bytes)?;
 
     debug!(
-        "built {} profiler batches and {} sched_switch batches",
+        "built {} profiler batches and {} derived/event tables",
         tables.profiler_plugin_data.len(),
-        tables.sched_switch.len()
+        tables.tables.len()
     );
     Ok(tables)
 }
@@ -58,8 +70,9 @@ fn has_profiler_header(bytes: &[u8]) -> bool {
 
 fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     let mut offset = 0usize;
-    let mut profiler_batches = Vec::new();
-    let mut sched_switch_rows = Vec::new();
+    let mut profiler_table = TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?;
+    let mut profiler_section_count = 0usize;
+    let mut sched_tables = SchedDirectTableBuilders::new()?;
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
@@ -73,58 +86,52 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
             continue;
         }
 
-        let messages = decode_len_prefixed_messages::<ProfilerPluginData>(section.body(bytes))
-            .with_context(|| {
-                format!("failed to parse profiler section at byte {}", section.start)
+        profiler_section_count += 1;
+        for_each_len_prefixed_message::<ProfilerPluginData, _>(section.body(bytes), |message| {
+            decode_sched_message(&message, section.start, &mut sched_tables)?;
+            profiler_table.push(message).with_context(|| {
+                format!(
+                    "failed to append profiler section at byte {} to Arrow builder",
+                    section.start
+                )
             })?;
-        sched_switch_rows.extend(decode_sched_switch_rows(&messages, section.start)?);
-        let batch = record_batch_from(messages).with_context(|| {
-            format!(
-                "failed to convert profiler section at byte {} to Arrow",
-                section.start
-            )
-        })?;
-        profiler_batches.push(batch);
+            Ok(())
+        })
+        .with_context(|| format!("failed to parse profiler section at byte {}", section.start))?;
     }
 
+    let tables = sched_tables.into_tables()?;
+    let profiler_plugin_data = if profiler_section_count == 0 {
+        Vec::new()
+    } else {
+        profiler_table.into_table()?.batches
+    };
+
     Ok(HitraceTables {
-        profiler_plugin_data: profiler_batches,
-        sched_switch: vec![record_batch_from(sched_switch_rows)?],
+        profiler_plugin_data,
+        tables,
     })
 }
 
-fn record_batch_from<T>(rows: Vec<T>) -> Result<RecordBatch>
-where
-    T: Serialize,
-    for<'de> T: Deserialize<'de>,
-{
-    let fields = Vec::<arrow_schema::FieldRef>::from_type::<T>(TracingOptions::default())?;
-    Ok(serde_arrow::to_record_batch(&fields, &rows)?)
-}
-
-fn decode_sched_switch_rows(
-    messages: &[ProfilerPluginData],
+fn decode_sched_message(
+    message: &ProfilerPluginData,
     section_start: usize,
-) -> Result<Vec<SchedSwitchFormat>> {
-    let mut rows = Vec::new();
-    for message in messages
-        .iter()
-        .filter(|message| message.name == FTRACE_PLUGIN_NAME)
-    {
-        let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
-            format!("failed to decode ftrace payload in profiler section at byte {section_start}")
-        })?;
-        for detail in result.ftrace_cpu_detail {
-            rows.extend(
-                detail
-                    .event
-                    .into_iter()
-                    .filter_map(|event| event.sched_switch_format),
-            );
+    sched_tables: &mut SchedDirectTableBuilders,
+) -> Result<()> {
+    if message.name != FTRACE_PLUGIN_NAME {
+        return Ok(());
+    }
+
+    let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
+        format!("failed to decode ftrace payload in profiler section at byte {section_start}")
+    })?;
+    for detail in result.ftrace_cpu_detail {
+        for event in detail.event {
+            sched_tables.push_event(detail.cpu, event)?;
         }
     }
 
-    Ok(rows)
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -167,12 +174,12 @@ fn read_profiler_section(bytes: &[u8], offset: usize) -> Result<ProfilerSection>
     })
 }
 
-fn decode_len_prefixed_messages<T>(bytes: &[u8]) -> Result<Vec<T>>
+fn for_each_len_prefixed_message<T, F>(bytes: &[u8], mut visitor: F) -> Result<()>
 where
     T: Message + Default,
+    F: FnMut(T) -> Result<()>,
 {
     let mut offset = 0usize;
-    let mut messages = Vec::new();
 
     while offset < bytes.len() {
         ensure_available(bytes, offset, SEGMENT_LENGTH_SIZE, "segment length")?;
@@ -181,13 +188,14 @@ where
         ensure_available(bytes, offset, len, "profiler segment")?;
 
         let segment = &bytes[offset..offset + len];
-        let message =
-            T::decode(segment).context("failed to decode length-prefixed protobuf message")?;
-        messages.push(message);
+        let message = T::decode(segment).with_context(|| {
+            format!("failed to decode length-prefixed protobuf message at byte {offset}")
+        })?;
+        visitor(message)?;
         offset += len;
     }
 
-    Ok(messages)
+    Ok(())
 }
 
 fn ensure_available(bytes: &[u8], offset: usize, len: usize, context: &str) -> Result<()> {
