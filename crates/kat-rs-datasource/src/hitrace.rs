@@ -1,4 +1,9 @@
-//! Parses hitrace files into Arrow batches backed by profiler plugin segments.
+//! Temporary hitrace format pipeline for the sched direct-table slice.
+//!
+//! This module currently orchestrates the `.htrace` container, ftrace plugin
+//! payload, and Arrow direct-table sink. It is not intended to be the long-term
+//! datasource architecture boundary; later slices should separate
+//! `formats/hitrace`, `domains/ftrace`, `sinks/arrow`, and the query catalog.
 
 mod table_builder;
 

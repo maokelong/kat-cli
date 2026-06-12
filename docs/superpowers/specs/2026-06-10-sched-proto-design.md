@@ -6,6 +6,21 @@ Issue [#25](https://github.com/maokelong/kat-rs/issues/25) 需要补齐 sched ft
 
 Issue [#22](https://github.com/maokelong/kat-rs/issues/22) 中的 `thread_state`、`instant` 等派生表不进入本 PR，后续用单独设计和 PR 实现。
 
+## PR 定位
+
+本 PR 是 sched direct tables 的最小功能验证，不作为 datasource 最终解码架构落地。当前实现只验证 `.htrace -> ftrace-plugin -> sched direct tables -> DataFusion` 这条纵向链路。
+
+当前的 `hitrace.rs` 仍然承担临时编排职责：它同时串联 hitrace/profiler container、ftrace plugin payload 和 Arrow direct table sink。后续架构 PR 应把这些职责拆开：
+
+```text
+formats/hitrace  -> .htrace 文件容器、ProfilerPluginData envelope、segment streaming decode
+domains/ftrace   -> TracePluginResult、FtraceEvent、common fields、event family 语义
+sinks/arrow      -> TraceRecord / direct events 到 Arrow RecordBatch
+catalog/query    -> TraceDataset/TableCatalog 注册到 DataFusion
+```
+
+因此，本 PR 不新增 `TraceRecord`、`TraceDataset`、`formats/`、`domains/` 或 `sinks/` 目录。相关边界会在后续独立 PR 中设计和迁移。
+
 ## 目标
 
 1. 增加 `proto/ftrace_data/sched.proto`，使用 `package kat.hitrace`，格式与 `hitrace.proto` 保持一致。
