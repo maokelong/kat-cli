@@ -9,10 +9,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use log::debug;
 
-use crate::{
-    catalog::{TraceRecord, TraceRecordSink},
-    mmap::with_mapped_file,
-};
+use crate::{catalog::TraceRecordSink, mmap::with_mapped_file};
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
 use profiler::decode_profiler_section;
@@ -45,7 +42,6 @@ fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> 
             continue;
         }
 
-        sink.push(TraceRecord::ProfilerSection)?;
         decode_profiler_section(section, bytes, sink)?;
     }
 

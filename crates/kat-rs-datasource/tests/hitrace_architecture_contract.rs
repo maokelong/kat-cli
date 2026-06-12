@@ -55,11 +55,8 @@ fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
         "src/formats/hitrace/segment.rs",
     ]);
 
-    assert!(hitrace_sources.contains("TraceRecordSink"));
-    assert!(hitrace_sources.contains("decode_plugin_payload"));
-    assert!(hitrace_sources.contains("for_each_len_prefixed_message::<ProfilerPluginData, _>"));
-
     for marker in [
+        "TraceRecord::ProfilerSection",
         "TracePluginResult::decode",
         "SchedDirectTableBuilders",
         "ArrayBuilder",
@@ -84,11 +81,6 @@ fn ftrace_domain_decodes_payload_to_neutral_records() {
         "src/domains/ftrace/packet.rs",
     ]);
 
-    assert!(ftrace_sources.contains("TracePluginResult::decode"));
-    assert!(ftrace_sources.contains("TraceRecord::FtraceEvent"));
-    assert!(ftrace_sources.contains("FtraceEventRecord::new"));
-    assert!(ftrace_sources.contains("pub(crate) const FTRACE_PLUGIN_NAME"));
-
     for marker in [
         "SchedDirectTableBuilders",
         "DirectEventTableBuilder",
@@ -108,15 +100,11 @@ fn arrow_sink_owns_record_to_table_conversion() {
     let sink_table_builder = source("src/sinks/arrow/table_builder.rs");
     let catalog = source("src/catalog.rs");
 
-    assert!(catalog.contains("pub(crate) enum TraceRecord"));
-    assert!(catalog.contains("pub(crate) trait TraceRecordSink"));
-    assert!(catalog.contains("pub(crate) struct TraceDataset"));
-    assert!(catalog.contains("pub(crate) struct TraceTable"));
-
-    assert!(sink_mod.contains("impl TraceRecordSink for ArrowSink"));
-    assert!(sink_mod.contains("FtraceEventTableBuilders::new()?"));
+    assert!(!catalog.contains("ProfilerSection"));
+    assert!(!sink_mod.contains("ProfilerSection"));
+    assert!(!sink_mod.contains("profiler_table_seen"));
+    assert!(!sink_mod.contains("profiler_rows"));
     assert!(!sink_mod.contains("SchedDirectTableBuilders"));
-    assert!(sink_mod.contains("TraceDataset::new(tables)"));
     assert!(sink_table_builder.contains("ArrayBuilder"));
     assert!(sink_table_builder.contains("pub(crate) struct DirectEventTableBuilder"));
     assert!(sink_table_builder.contains("pub(crate) struct EventMeta"));
@@ -125,11 +113,6 @@ fn arrow_sink_owns_record_to_table_conversion() {
 #[test]
 fn query_consumes_trace_dataset_catalog() {
     let query = source("src/query.rs");
-
-    assert!(query.contains("TraceDataset"));
-    assert!(query.contains("register_dataset(&ctx, sink.finish()?)?"));
-    assert!(query.contains("hitrace::decode_file(path.as_ref(), &mut sink)?"));
-    assert!(query.contains("ArrowSink::new()?"));
 
     for marker in ["load_hitrace_tables", "HITRACE_TABLE", "FtraceTables"] {
         assert!(
@@ -140,48 +123,13 @@ fn query_consumes_trace_dataset_catalog() {
 }
 
 #[test]
-fn sched_generation_uses_arrow_sink_and_ftrace_records() {
+fn ftrace_event_family_generation_avoids_old_sched_entrypoint() {
     let build_rs = source("build.rs");
     let generated_builders = fs::read_to_string(format!(
         "{}/ftrace_event_table_builders.rs",
         env!("OUT_DIR")
     ))
     .expect("generated ftrace event table builders can be read");
-
-    for marker in [
-        "struct EventFamilySpec",
-        "const FTRACE_EVENT_FAMILIES: &[EventFamilySpec]",
-        "generate_ftrace_event_table_builders(&event_families)",
-        "FtraceEventTableBuilders",
-        "SchedEventFamilyTables",
-        "domains::ftrace::FtraceEventRecord",
-        "sinks::arrow::{DirectEventTableBuilder, EventMeta}",
-        "catalog::TraceTable",
-    ] {
-        assert!(build_rs.contains(marker), "{marker} should exist");
-        assert!(
-            generated_builders.contains(marker)
-                || !matches!(
-                    marker,
-                    "domains::ftrace::FtraceEventRecord"
-                        | "sinks::arrow::{DirectEventTableBuilder, EventMeta}"
-                        | "catalog::TraceTable"
-                ),
-            "{marker} should exist in generated builders when it is a generated import"
-        );
-    }
-
-    assert!(
-        generated_builders.contains(
-            "pub(crate) fn push_event(&mut self, record: FtraceEventRecord) -> Result<()>"
-        )
-    );
-    assert!(generated_builders.contains("self.sched.push_event(&record)?;"));
-    assert!(generated_builders.contains("fn push_event(&mut self, record: &FtraceEventRecord)"));
-    assert!(generated_builders.contains("let meta = EventMeta::from_record(record);"));
-    assert!(generated_builders.contains("let event = &record.event;"));
-    assert!(generated_builders.contains("event.sched_switch_format.clone()"));
-    assert!(generated_builders.contains("self.sched_switch.push(meta.clone(), message)?"));
 
     for marker in [
         "crate::ftrace",

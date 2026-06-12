@@ -117,6 +117,22 @@ async fn build_skips_unsupported_profiler_sections() {
 }
 
 #[tokio::test]
+async fn build_exposes_empty_profiler_table_without_profiler_records() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("unsupported-only-section.hitrace");
+    fs::write(&trace_path, profiler_section_body(99, vec![1, 2, 3])).expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+    let rows = datasource
+        .query_json("select count(*) as count from profiler_plugin_data")
+        .await
+        .expect("empty profiler_plugin_data table can be queried");
+
+    assert_eq!(rows, json!([{ "count": 0 }]));
+}
+
+#[tokio::test]
 async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("sched-switch.hitrace");

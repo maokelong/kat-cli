@@ -44,7 +44,6 @@ impl TraceDataset {
 }
 
 pub(crate) enum TraceRecord {
-    ProfilerSection,
     ProfilerPluginData(ProfilerPluginData),
     FtraceEvent(Box<FtraceEventRecord>),
 }
