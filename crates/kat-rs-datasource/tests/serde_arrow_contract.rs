@@ -74,7 +74,7 @@ fn serde_arrow_builds_record_batch_from_prost_struct() {
 }
 
 #[test]
-fn serde_arrow_flattens_event_row_from_samples() {
+fn serde_arrow_writes_event_row_with_separately_combined_fields() {
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
     struct EventMeta {
         event_timestamp: u64,
@@ -99,9 +99,13 @@ fn serde_arrow_flattens_event_row_from_samples() {
         message: M,
     }
 
-    let sample = [EventRow::<SchedSwitchFormat>::default()];
-    let fields = Vec::<arrow_schema::FieldRef>::from_samples(&sample, TracingOptions::default())
-        .expect("flattened schema is traced from sample");
+    let mut fields =
+        Vec::<arrow_schema::FieldRef>::from_type::<EventMeta>(TracingOptions::default())
+            .expect("event meta schema is traced");
+    fields.extend(
+        Vec::<arrow_schema::FieldRef>::from_type::<SchedSwitchFormat>(TracingOptions::default())
+            .expect("message schema is traced"),
+    );
     let mut builder =
         serde_arrow::ArrayBuilder::from_arrow(&fields).expect("array builder is created");
     builder

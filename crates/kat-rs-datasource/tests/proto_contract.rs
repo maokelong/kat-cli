@@ -18,6 +18,7 @@ mod hitrace {
         pub(crate) batches: Vec<RecordBatch>,
     }
 
+    #[allow(dead_code)]
     mod table_builder {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -25,7 +26,7 @@ mod hitrace {
         ));
     }
 
-    pub(crate) use table_builder::{EventMeta, EventRow, TableBuilder};
+    pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta};
 }
 
 mod sched_table_builders {
@@ -137,6 +138,63 @@ fn generated_sched_table_builders_route_direct_events_to_tables() {
         .expect("sched_switch table exists");
 
     assert_eq!(sched_switch.batches[0].num_rows(), 1);
+}
+
+#[test]
+fn direct_event_table_builder_combines_meta_and_message_fields() {
+    let event = proto::kat::hitrace::FtraceEvent {
+        timestamp: 20,
+        tgid: 500,
+        comm: "source".to_string(),
+        ..Default::default()
+    };
+    let meta = hitrace::EventMeta::from_event(3, &event);
+    let mut builder =
+        hitrace::DirectEventTableBuilder::new::<proto::kat::hitrace::SchedSwitchFormat>(
+            "sched_switch",
+        )
+        .expect("builder is created from meta and message schemas");
+
+    builder
+        .push(
+            meta,
+            proto::kat::hitrace::SchedSwitchFormat {
+                prev_comm: "render".to_string(),
+                prev_pid: 42,
+                prev_prio: 120,
+                prev_state: 1,
+                next_comm: "main".to_string(),
+                next_pid: 7,
+                next_prio: 100,
+            },
+        )
+        .expect("event row is appended");
+
+    let table = builder.into_table().expect("table is built");
+    let batch = &table.batches[0];
+    let schema = batch.schema();
+
+    assert_eq!(batch.num_rows(), 1);
+    for field in [
+        "event_timestamp",
+        "event_cpu",
+        "event_tgid",
+        "event_comm",
+        "prev_comm",
+        "prev_pid",
+        "prev_prio",
+        "prev_state",
+        "next_comm",
+        "next_pid",
+        "next_prio",
+    ] {
+        assert!(
+            schema.field_with_name(field).is_ok(),
+            "{field} should be a top-level column"
+        );
+    }
+    assert!(schema.field_with_name("meta").is_err());
+    assert!(schema.field_with_name("message").is_err());
 }
 
 #[test]

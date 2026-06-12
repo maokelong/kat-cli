@@ -46,10 +46,15 @@ fn direct_sched_table_builders_are_generated() {
 
     assert!(!generated_builders.contains("pub(crate) trait SchedEventObserver"));
     assert!(generated_builders.contains("pub(crate) struct SchedDirectTableBuilders"));
-    assert!(generated_builders.contains("sched_switch: TableBuilder<EventRow<SchedSwitchFormat>>"));
-    assert!(generated_builders.contains("TableBuilder::new_from_sample(\"sched_switch\")?"));
+    assert!(generated_builders.contains("sched_switch: DirectEventTableBuilder"));
+    assert!(
+        generated_builders
+            .contains("DirectEventTableBuilder::new::<SchedSwitchFormat>(\"sched_switch\")?")
+    );
     assert!(generated_builders.contains("let meta = EventMeta::from_event(cpu, &event);"));
-    assert!(generated_builders.contains("EventRow::new(meta.clone(), message)"));
+    assert!(generated_builders.contains("self.sched_switch.push(meta.clone(), message)?"));
+    assert!(!generated_builders.contains("TableBuilder<EventRow<SchedSwitchFormat>>"));
+    assert!(!generated_builders.contains("TableBuilder::new_from_sample"));
     assert!(!generated_builders.contains("SchedSwitchRow"));
     assert!(!generated_builders.contains("SchedEventMeta"));
     assert!(!generated_builders.contains("sched_rows"));

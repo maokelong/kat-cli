@@ -28,6 +28,11 @@ impl EventMeta {
             event_comm: event.comm.clone(),
         }
     }
+
+    fn arrow_fields() -> Result<Vec<arrow_schema::FieldRef>> {
+        Vec::<arrow_schema::FieldRef>::from_type::<Self>(TracingOptions::default())
+            .context("failed to trace event metadata Arrow schema")
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -60,16 +65,6 @@ impl<T> TableBuilder<T> {
         Self::from_fields(name, &fields)
     }
 
-    pub(crate) fn new_from_sample(name: &'static str) -> Result<Self>
-    where
-        T: Default + Serialize,
-    {
-        let sample = [T::default()];
-        let fields =
-            Vec::<arrow_schema::FieldRef>::from_samples(&sample, TracingOptions::default())?;
-        Self::from_fields(name, &fields)
-    }
-
     fn from_fields(name: &'static str, fields: &[arrow_schema::FieldRef]) -> Result<Self> {
         Ok(Self {
             name,
@@ -87,14 +82,51 @@ impl<T> TableBuilder<T> {
     }
 
     pub(crate) fn into_table(self) -> Result<HitraceTable> {
-        let name = self.name;
-        Ok(HitraceTable {
+        into_table(self.name, self.builder)
+    }
+}
+
+pub(crate) struct DirectEventTableBuilder {
+    name: &'static str,
+    builder: ArrayBuilder,
+}
+
+impl DirectEventTableBuilder {
+    pub(crate) fn new<M>(name: &'static str) -> Result<Self>
+    where
+        for<'de> M: Deserialize<'de>,
+    {
+        let mut fields = EventMeta::arrow_fields()?;
+        fields.extend(Vec::<arrow_schema::FieldRef>::from_type::<M>(
+            TracingOptions::default(),
+        )?);
+
+        Ok(Self {
             name,
-            batches: vec![
-                self.builder
-                    .into_record_batch()
-                    .with_context(|| format!("failed to convert {name} table to Arrow"))?,
-            ],
+            builder: ArrayBuilder::from_arrow(&fields)?,
         })
     }
+
+    pub(crate) fn push<M>(&mut self, meta: EventMeta, message: M) -> Result<()>
+    where
+        M: Serialize,
+    {
+        self.builder.push(EventRow::new(meta, message))?;
+        Ok(())
+    }
+
+    pub(crate) fn into_table(self) -> Result<HitraceTable> {
+        into_table(self.name, self.builder)
+    }
+}
+
+fn into_table(name: &'static str, builder: ArrayBuilder) -> Result<HitraceTable> {
+    Ok(HitraceTable {
+        name,
+        batches: vec![
+            builder
+                .into_record_batch()
+                .with_context(|| format!("failed to convert {name} table to Arrow"))?,
+        ],
+    })
 }
