@@ -31,13 +31,16 @@ fn direct_sched_table_builders_are_generated() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
         .expect("hitrace parser source can be read");
+    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
+        .expect("ftrace domain source can be read");
     let lib_rs =
         fs::read_to_string(format!("{manifest_dir}/src/lib.rs")).expect("lib source can be read");
     let generated_builders =
         fs::read_to_string(format!("{}/sched_table_builders.rs", env!("OUT_DIR")))
             .expect("generated sched table builders can be read");
 
-    assert!(hitrace_rs.contains("SchedDirectTableBuilders::new()?"));
+    assert!(ftrace_rs.contains("SchedDirectTableBuilders::new()?"));
+    assert!(!hitrace_rs.contains("SchedDirectTableBuilders"));
     assert!(!hitrace_rs.contains("DerivedTables::default()"));
     assert!(!hitrace_rs.contains("struct SchedRows"));
     assert!(!hitrace_rs.contains("sched_switch: TableBuilder<SchedSwitchRow>"));
@@ -45,6 +48,10 @@ fn direct_sched_table_builders_are_generated() {
     assert!(!lib_rs.contains("mod sched_rows"));
 
     assert!(!generated_builders.contains("pub(crate) trait SchedEventObserver"));
+    assert!(
+        generated_builders.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}")
+    );
+    assert!(!generated_builders.contains("hitrace::{DirectEventTableBuilder"));
     assert!(generated_builders.contains("pub(crate) struct SchedDirectTableBuilders"));
     assert!(generated_builders.contains("sched_switch: DirectEventTableBuilder"));
     assert!(
@@ -66,7 +73,14 @@ fn profiler_plugin_data_uses_table_builder() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
         .expect("hitrace parser source can be read");
+    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
+        .expect("ftrace domain source can be read");
 
+    assert!(hitrace_rs.contains("mod table_builder;"));
+    assert!(hitrace_rs.contains("use table_builder::TableBuilder;"));
+    assert!(!ftrace_rs.contains(
+        "pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta, TableBuilder};"
+    ));
     assert!(hitrace_rs.contains("TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?"));
     assert!(!hitrace_rs.contains("let mut profiler_batches = Vec::new();"));
     assert!(!hitrace_rs.contains("profiler_batches.push(batch);"));
@@ -115,4 +129,39 @@ fn sched_generation_uses_event_family_generator() {
     ] {
         assert!(!build_rs.contains(marker), "{marker} should be generalized");
     }
+}
+
+#[test]
+fn ftrace_domain_owns_payload_decode_and_sched_tables() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let hitrace_rs = fs::read_to_string(format!("{manifest_dir}/src/hitrace.rs"))
+        .expect("hitrace parser source can be read");
+    let ftrace_rs = fs::read_to_string(format!("{manifest_dir}/src/ftrace/mod.rs"))
+        .expect("ftrace domain source can be read");
+    let build_rs =
+        fs::read_to_string(format!("{manifest_dir}/build.rs")).expect("build script can be read");
+    let generated_builders =
+        fs::read_to_string(format!("{}/sched_table_builders.rs", env!("OUT_DIR")))
+            .expect("generated sched table builders can be read");
+
+    assert!(hitrace_rs.contains("FtraceTables::new()?"));
+    assert!(hitrace_rs.contains("ftrace_tables.push_plugin_payload("));
+    assert!(
+        !std::path::Path::new(&format!("{manifest_dir}/src/ftrace.rs")).exists(),
+        "ftrace domain entry should live in src/ftrace/mod.rs"
+    );
+    assert!(!hitrace_rs.contains("TracePluginResult"));
+    assert!(!hitrace_rs.contains("SchedDirectTableBuilders"));
+    assert!(!hitrace_rs.contains("decode_sched_message"));
+
+    assert!(ftrace_rs.contains("TracePluginResult::decode"));
+    assert!(ftrace_rs.contains("SchedDirectTableBuilders::new()?"));
+    assert!(ftrace_rs.contains("pub(crate) struct FtraceTables"));
+    assert!(ftrace_rs.contains("pub(crate) struct FtraceTable"));
+
+    assert!(build_rs.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}"));
+    assert!(
+        generated_builders.contains("ftrace::{DirectEventTableBuilder, EventMeta, FtraceTable}")
+    );
+    assert!(!generated_builders.contains("crate::hitrace::{DirectEventTableBuilder"));
 }

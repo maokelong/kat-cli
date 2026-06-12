@@ -1,9 +1,9 @@
-//! Temporary hitrace format pipeline for the sched direct-table slice.
+//! Temporary hitrace format pipeline for profiler container decoding.
 //!
-//! This module currently orchestrates the `.htrace` container, ftrace plugin
-//! payload, and Arrow direct-table sink. It is not intended to be the long-term
-//! datasource architecture boundary; later slices should separate
-//! `formats/hitrace`, `domains/ftrace`, `sinks/arrow`, and the query catalog.
+//! This module currently owns the `.htrace` container and profiler envelope
+//! decoding. ftrace payload semantics live in the ftrace domain module; later
+//! slices may still separate `formats/hitrace`, `sinks/arrow`, and catalog
+//! boundaries.
 
 mod table_builder;
 
@@ -15,29 +15,27 @@ use log::debug;
 use prost::Message;
 
 use crate::{
+    ftrace::{FTRACE_PLUGIN_NAME, FtraceTable, FtraceTables},
     mmap::with_mapped_file,
-    proto::{ProfilerPluginData, TracePluginResult},
-    sched_table_builders::SchedDirectTableBuilders,
+    proto::ProfilerPluginData,
 };
 
-pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta, TableBuilder};
+use table_builder::TableBuilder;
 
 pub(crate) const HITRACE_TABLE: &str = "profiler_plugin_data";
 
-const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 const SEGMENT_LENGTH_SIZE: usize = 4;
 
 pub(crate) struct HitraceTable {
-    pub(crate) name: &'static str,
     pub(crate) batches: Vec<RecordBatch>,
 }
 
 pub(crate) struct HitraceTables {
     pub(crate) profiler_plugin_data: Vec<RecordBatch>,
-    pub(crate) tables: Vec<HitraceTable>,
+    pub(crate) tables: Vec<FtraceTable>,
 }
 
 pub(crate) fn load_hitrace_tables(path: &Path) -> Result<HitraceTables> {
@@ -72,7 +70,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     let mut offset = 0usize;
     let mut profiler_table = TableBuilder::<ProfilerPluginData>::new(HITRACE_TABLE)?;
     let mut profiler_section_count = 0usize;
-    let mut sched_tables = SchedDirectTableBuilders::new()?;
+    let mut ftrace_tables = FtraceTables::new()?;
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
@@ -88,7 +86,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
 
         profiler_section_count += 1;
         for_each_len_prefixed_message::<ProfilerPluginData, _>(section.body(bytes), |message| {
-            decode_sched_message(&message, section.start, &mut sched_tables)?;
+            dispatch_profiler_message(&message, section.start, &mut ftrace_tables)?;
             profiler_table.push(message).with_context(|| {
                 format!(
                     "failed to append profiler section at byte {} to Arrow builder",
@@ -100,7 +98,7 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
         .with_context(|| format!("failed to parse profiler section at byte {}", section.start))?;
     }
 
-    let tables = sched_tables.into_tables()?;
+    let tables = ftrace_tables.into_tables()?;
     let profiler_plugin_data = if profiler_section_count == 0 {
         Vec::new()
     } else {
@@ -113,25 +111,16 @@ fn parse_hitrace_sections(bytes: &[u8]) -> Result<HitraceTables> {
     })
 }
 
-fn decode_sched_message(
+fn dispatch_profiler_message(
     message: &ProfilerPluginData,
     section_start: usize,
-    sched_tables: &mut SchedDirectTableBuilders,
+    ftrace_tables: &mut FtraceTables,
 ) -> Result<()> {
     if message.name != FTRACE_PLUGIN_NAME {
         return Ok(());
     }
 
-    let result = TracePluginResult::decode(message.data.as_slice()).with_context(|| {
-        format!("failed to decode ftrace payload in profiler section at byte {section_start}")
-    })?;
-    for detail in result.ftrace_cpu_detail {
-        for event in detail.event {
-            sched_tables.push_event(detail.cpu, event)?;
-        }
-    }
-
-    Ok(())
+    ftrace_tables.push_plugin_payload(message.data.as_slice(), section_start)
 }
 
 #[derive(Clone, Copy, Debug)]

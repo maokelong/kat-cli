@@ -1,3 +1,4 @@
+mod ftrace;
 mod hitrace;
 mod json;
 mod mmap;

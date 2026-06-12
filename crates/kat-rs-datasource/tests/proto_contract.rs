@@ -10,10 +10,10 @@ mod proto {
     }
 }
 
-mod hitrace {
+mod ftrace {
     use arrow_array::RecordBatch;
 
-    pub(crate) struct HitraceTable {
+    pub(crate) struct FtraceTable {
         pub(crate) name: &'static str,
         pub(crate) batches: Vec<RecordBatch>,
     }
@@ -22,7 +22,7 @@ mod hitrace {
     mod table_builder {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/hitrace/table_builder.rs"
+            "/src/ftrace/table_builder.rs"
         ));
     }
 
@@ -148,9 +148,9 @@ fn direct_event_table_builder_combines_meta_and_message_fields() {
         comm: "source".to_string(),
         ..Default::default()
     };
-    let meta = hitrace::EventMeta::from_event(3, &event);
+    let meta = ftrace::EventMeta::from_event(3, &event);
     let mut builder =
-        hitrace::DirectEventTableBuilder::new::<proto::kat::hitrace::SchedSwitchFormat>(
+        ftrace::DirectEventTableBuilder::new::<proto::kat::hitrace::SchedSwitchFormat>(
             "sched_switch",
         )
         .expect("builder is created from meta and message schemas");
