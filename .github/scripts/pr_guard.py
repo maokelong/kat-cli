@@ -19,6 +19,8 @@ LARGE_FIXTURE_LABEL = "approved-large-fixture"
 BINARY_LABEL = "approved-binary-artifact"
 NO_ISSUE_LABEL = "no-issue-needed"
 
+COMMIT_IDENTITY_SEPARATOR = "\x1f"
+
 MAX_CHANGED_FILES = 30
 MAX_ADDITIONS = 1600
 MAX_TOTAL_DIFF = 2400
@@ -102,6 +104,13 @@ AI_COMPONENTS = {
     "llm_outputs",
 }
 
+AI_AGENT_IDENTITY_PATTERN = re.compile(
+    r"(^|[^a-z0-9])"
+    r"(aider|chatgpt|claude|codex|copilot|cursor|devin|doubao|gemini|kimi|qwen|trae|windsurf)"
+    r"([^a-z0-9]|$)",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class ChangedFile:
@@ -111,6 +120,16 @@ class ChangedFile:
     additions: int = 0
     deletions: int = 0
     binary: bool = False
+
+
+@dataclass(frozen=True)
+class CommitIdentity:
+    sha: str
+    subject: str
+    author_name: str
+    author_email: str
+    committer_name: str
+    committer_email: str
 
 
 @dataclass(frozen=True)
@@ -224,6 +243,42 @@ def collect_changed_files(base: str, head: str, repo: Path) -> list[ChangedFile]
     )
     numstat = parse_numstat(run_git(["diff", "--numstat", "--no-renames", diff_range], repo))
     return merge_diff_data(name_status, numstat)
+
+
+def is_zero_sha(ref: str) -> bool:
+    return bool(re.fullmatch(r"0+", ref))
+
+
+def parse_commit_identities(text: str) -> list[CommitIdentity]:
+    commits: list[CommitIdentity] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\n")
+        if not line:
+            continue
+        parts = line.split(COMMIT_IDENTITY_SEPARATOR, 5)
+        if len(parts) != 6:
+            continue
+        sha, author_name, author_email, committer_name, committer_email, subject = parts
+        commits.append(
+            CommitIdentity(
+                sha=sha,
+                subject=subject,
+                author_name=author_name,
+                author_email=author_email,
+                committer_name=committer_name,
+                committer_email=committer_email,
+            )
+        )
+    return commits
+
+
+def collect_commit_identities(base: str, head: str, repo: Path) -> list[CommitIdentity]:
+    commit_format = (
+        f"%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%s"
+    )
+    rev_range = head if is_zero_sha(base) else f"{base}..{head}"
+    output = run_git(["log", f"--format={commit_format}", rev_range], repo)
+    return parse_commit_identities(output)
 
 
 def parse_event(path: str | None) -> PullRequestContext:
@@ -385,7 +440,18 @@ def contains_required_workflow_signal(text: str, signal: str) -> bool:
     if signal == "pr guard tests":
         return bool(re.search(r"\bpython(?:3)?\s+\.github/scripts/test_pr_guard\.py\b", content))
     if signal == "pr guard":
-        return bool(re.search(r"\bpython(?:3)?\s+\.github/scripts/pr_guard\.py\b", content))
+        return any(
+            re.search(r"\bpython(?:3)?\s+\.github/scripts/pr_guard\.py\b", line)
+            and "--identity-only" not in line
+            for line in content.splitlines()
+        )
+    if signal == "commit identity guard":
+        return bool(
+            re.search(
+                r"\bpython(?:3)?\s+\.github/scripts/pr_guard\.py\b[^\n]*\s--identity-only\b",
+                content,
+            )
+        )
     return signal in content
 
 
@@ -420,10 +486,47 @@ def git_blob_size(repo: Path, ref: str, path: str) -> int:
         return 0
 
 
+def is_ai_agent_identity(name: str, email: str) -> bool:
+    return bool(AI_AGENT_IDENTITY_PATTERN.search(f"{name} {email}"))
+
+
+def format_identity_violation(commit: CommitIdentity, role: str) -> str:
+    if role == "author":
+        name = commit.author_name
+        email = commit.author_email
+    else:
+        name = commit.committer_name
+        email = commit.committer_email
+    return f"{commit.sha[:7]} {role} {name} <{email}>"
+
+
+def find_ai_agent_commit_identities(commit_identities: Iterable[CommitIdentity]) -> list[str]:
+    violations: list[str] = []
+    for commit in commit_identities:
+        if is_ai_agent_identity(commit.author_name, commit.author_email):
+            violations.append(format_identity_violation(commit, "author"))
+        if is_ai_agent_identity(commit.committer_name, commit.committer_email):
+            violations.append(format_identity_violation(commit, "committer"))
+    return violations
+
+
+def evaluate_commit_identities(commit_identities: list[CommitIdentity]) -> tuple[list[str], int]:
+    violations = find_ai_agent_commit_identities(commit_identities)
+    if not violations:
+        return [], 0
+    return [
+        "AI agent commit identities are not allowed. Rewrite the commits so both author "
+        "and committer identify a human responsible for the change: "
+        + "; ".join(violations)
+        + "."
+    ], len(violations)
+
+
 def evaluate(
     context: PullRequestContext,
     changed_files: list[ChangedFile],
     repo: Path | None = None,
+    commit_identities: list[CommitIdentity] | None = None,
 ) -> Evaluation:
     labels = {label.lower() for label in context.labels}
     failures: list[str] = []
@@ -434,6 +537,12 @@ def evaluate(
     total_diff = additions + deletions
     binary_files = [item.path for item in changed_files if item.binary]
     changed_count = len(changed_files)
+
+    if commit_identities is None and repo and context.base and context.head:
+        commit_identities = collect_commit_identities(context.base, context.head, repo)
+    commit_identities = commit_identities or []
+    identity_failures, identity_violation_count = evaluate_commit_identities(commit_identities)
+    failures.extend(identity_failures)
 
     if not has_label(labels, NO_ISSUE_LABEL) and not has_linked_issue(context.body):
         failures.append(
@@ -518,6 +627,8 @@ def evaluate(
             "deletions": deletions,
             "total_diff": total_diff,
             "binary_files": len(binary_files),
+            "commits_checked": len(commit_identities),
+            "ai_agent_identity_hits": identity_violation_count,
         },
         changed_files=changed_files,
     )
@@ -558,7 +669,14 @@ def evaluate_workflows(
         if disabled:
             failures.append(f"CI workflow `{item.path}` appears disabled by {', '.join(disabled)}.")
 
-        for signal in ("pull_request", "cargo check", "cargo test", "pr guard tests", "pr guard"):
+        for signal in (
+            "pull_request",
+            "cargo check",
+            "cargo test",
+            "pr guard tests",
+            "pr guard",
+            "commit identity guard",
+        ):
             if contains_required_workflow_signal(
                 old_content, signal
             ) and not contains_required_workflow_signal(new_content, signal):
@@ -581,7 +699,17 @@ def render_summary(evaluation: Evaluation) -> str:
         "| Metric | Value |",
         "| --- | ---: |",
     ]
-    for key in ("changed_files", "additions", "deletions", "total_diff", "binary_files"):
+    for key in (
+        "changed_files",
+        "additions",
+        "deletions",
+        "total_diff",
+        "binary_files",
+        "commits_checked",
+        "ai_agent_identity_hits",
+    ):
+        if key not in evaluation.metrics:
+            continue
         lines.append(f"| {key.replace('_', ' ').title()} | {evaluation.metrics.get(key, 0)} |")
 
     lines.extend(["", "## Failures"])
@@ -621,11 +749,18 @@ def append_step_summary(markdown: str) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Check PR size, issue binding, artifacts, and workflow safety.")
+    parser = argparse.ArgumentParser(
+        description="Check PR size, issue binding, artifacts, workflow safety, and commit identities."
+    )
     parser.add_argument("--event", default=os.environ.get("GITHUB_EVENT_PATH"), help="Path to GitHub event JSON.")
     parser.add_argument("--base", help="Base git ref or SHA. Overrides event pull_request.base.")
     parser.add_argument("--head", help="Head git ref or SHA. Overrides event pull_request.head.")
     parser.add_argument("--repo", default=".", help="Repository path.")
+    parser.add_argument(
+        "--identity-only",
+        action="store_true",
+        help="Only check commit author and committer identities.",
+    )
     return parser
 
 
@@ -640,6 +775,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if not context.base or not context.head:
         raise SystemExit("Both base and head refs are required via event JSON or --base/--head.")
+
+    if args.identity_only:
+        commit_identities = collect_commit_identities(context.base, context.head, repo)
+        identity_failures, identity_violation_count = evaluate_commit_identities(commit_identities)
+        evaluation = Evaluation(
+            failures=identity_failures,
+            metrics={
+                "commits_checked": len(commit_identities),
+                "ai_agent_identity_hits": identity_violation_count,
+            },
+        )
+        append_step_summary(render_summary(evaluation))
+        return 0 if evaluation.ok else 1
 
     changed_files = collect_changed_files(context.base, context.head, repo)
     evaluation = evaluate(context, changed_files, repo)
