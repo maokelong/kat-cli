@@ -134,6 +134,60 @@ class PrGuardTests(unittest.TestCase):
             pr_guard.is_forbidden_intermediate_path("reports/ai-output/result.json")
         )
 
+    def test_ai_agent_commit_author_or_committer_fails(self) -> None:
+        changed_files = [pr_guard.ChangedFile(path="src/lib.rs", additions=1)]
+        commits = [
+            pr_guard.CommitIdentity(
+                sha="abc1234",
+                subject="feat: add query",
+                author_name="Codex",
+                author_email="codex@openai.com",
+                committer_name="Alice",
+                committer_email="alice@example.com",
+            ),
+            pr_guard.CommitIdentity(
+                sha="def5678",
+                subject="fix: wire table",
+                author_name="Bob",
+                author_email="bob@example.com",
+                committer_name="Claude",
+                committer_email="claude@example.com",
+            ),
+        ]
+
+        evaluation = pr_guard.evaluate(
+            issue_context(
+                pr_guard.NO_ISSUE_LABEL,
+                pr_guard.LARGE_CHANGE_LABEL,
+            ),
+            changed_files,
+            commit_identities=commits,
+        )
+
+        self.assertFalse(evaluation.ok)
+        failures = "\n".join(evaluation.failures)
+        self.assertIn("AI agent commit identities are not allowed", failures)
+        self.assertIn("abc1234 author Codex <codex@openai.com>", failures)
+        self.assertIn("def5678 committer Claude <claude@example.com>", failures)
+
+    def test_human_commit_identity_passes(self) -> None:
+        evaluation = pr_guard.evaluate(
+            issue_context(),
+            [pr_guard.ChangedFile(path="src/lib.rs", additions=1)],
+            commit_identities=[
+                pr_guard.CommitIdentity(
+                    sha="abc1234",
+                    subject="feat: add query",
+                    author_name="Alice",
+                    author_email="alice@example.com",
+                    committer_name="Bob",
+                    committer_email="bob@example.com",
+                ),
+            ],
+        )
+
+        self.assertTrue(evaluation.ok)
+
     def test_generated_dump_paths_are_forbidden(self) -> None:
         self.assertTrue(pr_guard.is_forbidden_intermediate_path("generated/output.json"))
         self.assertTrue(pr_guard.is_forbidden_intermediate_path("reports/debug-dump.json"))
@@ -221,6 +275,30 @@ jobs:
         )
         self.assertFalse(
             pr_guard.contains_required_workflow_signal(missing_guard_only, "pr guard")
+        )
+
+    def test_commit_identity_guard_workflow_signal_is_required_when_present(self) -> None:
+        old = """
+on: push
+jobs:
+  test:
+    steps:
+      - run: python .github/scripts/pr_guard.py --identity-only --base "$BASE" --head "$HEAD"
+"""
+        weakened = """
+on: push
+jobs:
+  test:
+    steps:
+      - run: echo skipped
+"""
+
+        self.assertTrue(
+            pr_guard.contains_required_workflow_signal(old, "commit identity guard")
+        )
+        self.assertFalse(pr_guard.contains_required_workflow_signal(old, "pr guard"))
+        self.assertFalse(
+            pr_guard.contains_required_workflow_signal(weakened, "commit identity guard")
         )
 
 
