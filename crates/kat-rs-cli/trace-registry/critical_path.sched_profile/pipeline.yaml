@@ -1,0 +1,25 @@
+id: critical_path.sched_profile
+kind: probe
+inputs:
+  itid: { type: number, required: true, aliases: [utid] }
+  start_ts: { type: timestamp, required: true }
+  end_ts: { type: timestamp, required: true }
+  max_rows: { type: number, required: false, default: 2000 }
+pipeline:
+  - create_view:
+      name: sched_profile
+      sql: queries/sched_profile.sql
+  - query_window:
+      target: sched_profile
+      mode: full
+      limit: input.max_rows
+  - operator:
+      name: profile_sched_slices
+outputs:
+  schema: evidence.critical_path_sched_profile.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [sched_slice]
+  max_rows: 2000

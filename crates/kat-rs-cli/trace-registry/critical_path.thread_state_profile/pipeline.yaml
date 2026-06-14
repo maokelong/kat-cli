@@ -1,0 +1,34 @@
+id: critical_path.thread_state_profile
+kind: probe
+inputs:
+  itid: { type: number, required: true, aliases: [utid] }
+  start_ts: { type: timestamp, required: true }
+  end_ts: { type: timestamp, required: true }
+  depth: { type: number, required: true }
+  max_depth: { type: number, required: false, default: 8 }
+  min_segment_ns: { type: duration, required: false, default: 100000 }
+  max_rows: { type: number, required: false, default: 5000 }
+  visited_edges: { type: array, required: false, default: [] }
+  candidate_frontier: { type: array, required: false, default: [] }
+  selected_edge: { type: object, required: false }
+  explained_intervals: { type: array, required: false, default: [] }
+  root_window: { type: object, required: false }
+  inherited_blocking_context: { type: object, required: false }
+pipeline:
+  - create_view:
+      name: thread_state_profile
+      sql: queries/thread_state_profile.sql
+  - query_window:
+      target: thread_state_profile
+      mode: full
+      limit: input.max_rows
+  - operator:
+      name: profile_thread_state
+outputs:
+  schema: evidence.critical_path_thread_state_profile.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [thread_state, instant, thread, process]
+  max_rows: 5000

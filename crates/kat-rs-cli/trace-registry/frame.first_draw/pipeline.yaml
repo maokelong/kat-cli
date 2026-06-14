@@ -1,0 +1,23 @@
+id: frame.first_draw
+kind: probe
+inputs:
+  process_query: { type: string, required: true }
+  max_rows: { type: number, required: false, default: 20 }
+pipeline:
+  - create_view:
+      name: frame_first_draw
+      sql: queries/frame_first_draw.sql
+  - query_window:
+      target: frame_first_draw
+      mode: full
+      limit: input.max_rows
+  - operator:
+      name: extract_first_draw_window
+outputs:
+  schema: evidence.frame_first_draw.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [callstack, thread, process]
+  max_rows: 20

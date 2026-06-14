@@ -1,0 +1,17 @@
+id: trace.inspect
+kind: probe
+inputs:
+  db: { type: path, required: true, aliases: [trace] }
+pipeline:
+  - query_window:
+      target: __metadata__
+      mode: metadata
+      limit: 10000
+  - operator:
+      name: inspect_trace
+outputs:
+  schema: evidence.trace_inspect.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]

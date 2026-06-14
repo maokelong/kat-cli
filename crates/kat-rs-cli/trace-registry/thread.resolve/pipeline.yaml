@@ -1,0 +1,23 @@
+id: thread.resolve
+kind: probe
+inputs:
+  thread_query: { type: string, required: true }
+  max_rows: { type: number, required: false, default: 20 }
+pipeline:
+  - create_view:
+      name: thread_resolve
+      sql: queries/thread_resolve.sql
+  - query_window:
+      target: thread_resolve
+      mode: full
+      limit: input.max_rows
+  - operator:
+      name: resolve_thread_candidates
+outputs:
+  schema: evidence.thread_resolve.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [thread, process]
+  max_rows: 20

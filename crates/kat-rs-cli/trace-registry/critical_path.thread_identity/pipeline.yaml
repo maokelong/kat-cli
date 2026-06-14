@@ -1,0 +1,22 @@
+id: critical_path.thread_identity
+kind: probe
+inputs:
+  itids: { type: array, required: true, aliases: [utids] }
+pipeline:
+  - create_view:
+      name: thread_identity
+      sql: queries/thread_identity.sql
+  - query_window:
+      target: thread_identity
+      mode: full
+      limit: 1000
+  - operator:
+      name: classify_thread_identity
+outputs:
+  schema: evidence.critical_path_thread_identity.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [thread, process]
+  max_rows: 1000

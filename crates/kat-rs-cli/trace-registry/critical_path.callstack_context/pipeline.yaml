@@ -1,0 +1,25 @@
+id: critical_path.callstack_context
+kind: probe
+inputs:
+  itid: { type: number, required: false, aliases: [utid] }
+  start_ts: { type: timestamp, required: true }
+  end_ts: { type: timestamp, required: true }
+  max_rows: { type: number, required: false, default: 2000 }
+pipeline:
+  - create_view:
+      name: callstack_context
+      sql: queries/callstack_context.sql
+  - query_window:
+      target: callstack_context
+      mode: full
+      limit: input.max_rows
+  - operator:
+      name: profile_callstack_context
+outputs:
+  schema: evidence.critical_path_callstack_context.v1
+safety:
+  readonly: true
+  network: false
+  writes: [stdout, run_dir/evidence.jsonl]
+  allowed_tables: [callstack, thread, process]
+  max_rows: 2000
