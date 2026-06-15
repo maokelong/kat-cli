@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+kat-rs-datasource = { path = "../kat-rs-datasource" }
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
@@ -14,4 +15,6 @@ tower-http.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
+tempfile.workspace = true
 tower.workspace = true

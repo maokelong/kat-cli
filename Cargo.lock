@@ -1934,8 +1934,11 @@ name = "kat-rs-daemon"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "flate2",
+ "kat-rs-datasource",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "tower",

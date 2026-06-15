@@ -4,6 +4,7 @@ pub mod error;
 pub mod identity;
 pub mod registry;
 pub mod routes;
+pub mod service;
 pub mod state;
 
 pub use config::DaemonConfig;
