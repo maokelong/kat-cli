@@ -16,7 +16,7 @@ pub enum ErrorCode {
     ValidationFailed,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ApiError {
     pub status: StatusCode,
     pub code: ErrorCode,
