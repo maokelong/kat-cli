@@ -1,5 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
+use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, Parser)]
@@ -19,8 +20,16 @@ pub enum Command {
 pub struct QueryArgs {
     #[arg(long, value_enum)]
     pub source: SourceArg,
-    #[arg(long)]
-    pub file: PathBuf,
+    #[arg(
+        long,
+        required_if_eq("source", "hitrace"),
+        conflicts_with_all = ["observations_file", "traces_file"]
+    )]
+    pub file: Option<PathBuf>,
+    #[arg(long, required_if_eq("source", "langfuse"), conflicts_with = "file")]
+    pub observations_file: Option<PathBuf>,
+    #[arg(long, required_if_eq("source", "langfuse"), conflicts_with = "file")]
+    pub traces_file: Option<PathBuf>,
     #[arg(long)]
     pub sql: String,
 }
@@ -28,6 +37,16 @@ pub struct QueryArgs {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum SourceArg {
     Hitrace,
+    Langfuse,
+}
+
+impl SourceArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            SourceArg::Hitrace => "hitrace",
+            SourceArg::Langfuse => "langfuse",
+        }
+    }
 }
 
 pub async fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -49,7 +68,17 @@ async fn run_inner(cli: Cli, out: &mut dyn Write) -> Result<(), CommandError> {
 
 async fn run_query(args: QueryArgs, out: &mut dyn Write) -> Result<(), CommandError> {
     let datasource = match args.source {
-        SourceArg::Hitrace => kat_rs_datasource::TraceDatasource::from_hitrace(args.file),
+        SourceArg::Hitrace => {
+            let file = required_path_arg(args.file, "--file", args.source)?;
+            kat_rs_datasource::TraceDatasource::from_hitrace(file)
+        }
+        SourceArg::Langfuse => {
+            let observations_file =
+                required_path_arg(args.observations_file, "--observations-file", args.source)?;
+            let traces_file = required_path_arg(args.traces_file, "--traces-file", args.source)?;
+            kat_rs_datasource::TraceDatasource::from_langfuse_legacy(observations_file, traces_file)
+                .await
+        }
     }
     .map_err(CommandError::from_runtime)?;
 
@@ -61,6 +90,19 @@ async fn run_query(args: QueryArgs, out: &mut dyn Write) -> Result<(), CommandEr
     serde_json::to_writer(&mut *out, &rows).map_err(CommandError::from_runtime)?;
     writeln!(out).map_err(CommandError::from_runtime)?;
     Ok(())
+}
+
+fn required_path_arg(
+    value: Option<PathBuf>,
+    name: &'static str,
+    source: SourceArg,
+) -> Result<PathBuf, CommandError> {
+    value.ok_or_else(|| {
+        CommandError::from_runtime(anyhow!(
+            "{name} is required when --source {}",
+            source.as_str()
+        ))
+    })
 }
 
 enum CommandError {

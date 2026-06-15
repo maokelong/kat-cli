@@ -18,5 +18,6 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 prost.workspace = true
 tempfile.workspace = true

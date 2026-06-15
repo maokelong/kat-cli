@@ -1,5 +1,6 @@
 mod hitrace;
 mod json;
+mod langfuse;
 mod mmap;
 mod query;
 mod sched_table_builders {

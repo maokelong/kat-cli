@@ -23,5 +23,6 @@ prost-build.workspace = true
 protoc-bin-vendored.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

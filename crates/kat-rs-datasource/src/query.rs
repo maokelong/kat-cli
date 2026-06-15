@@ -4,13 +4,17 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use arrow_array::RecordBatch;
-use datafusion::{datasource::MemTable, prelude::SessionContext};
+use datafusion::{
+    datasource::{MemTable, file_format::file_compression_type::FileCompressionType},
+    prelude::{JsonReadOptions, SessionContext},
+};
 use log::debug;
 use serde_json::Value;
 
 use crate::{
     hitrace::{HITRACE_TABLE, load_hitrace_tables},
     json::batches_to_json,
+    langfuse::legacy_json_tables,
 };
 
 pub struct TraceDatasource {
@@ -36,6 +40,19 @@ impl TraceDatasource {
         Ok(Self { ctx })
     }
 
+    pub async fn from_langfuse_legacy(
+        observations_path: impl AsRef<Path>,
+        traces_path: impl AsRef<Path>,
+    ) -> Result<Self> {
+        let ctx = SessionContext::new();
+
+        for table in legacy_json_tables(observations_path.as_ref(), traces_path.as_ref()) {
+            register_jsonl_gz(&ctx, table.name, table.path).await?;
+        }
+
+        Ok(Self { ctx })
+    }
+
     pub async fn query_json(&self, sql: &str) -> Result<Value> {
         debug!("running datasource sql: {sql}");
 
@@ -55,6 +72,25 @@ fn register_batches(
     let schema = batches.first().context(empty_message)?.schema();
     let table = MemTable::try_new(schema, vec![batches])?;
     ctx.register_table(name, Arc::new(table))?;
+    debug!("registered datasource table: {name}");
+
+    Ok(())
+}
+
+async fn register_jsonl_gz(ctx: &SessionContext, name: &str, path: &Path) -> Result<()> {
+    let path = path.to_str().with_context(|| {
+        format!(
+            "Langfuse export path is not valid UTF-8: {}",
+            path.display()
+        )
+    })?;
+    let options = JsonReadOptions::default()
+        .file_extension(".jsonl.gz")
+        .file_compression_type(FileCompressionType::GZIP);
+
+    ctx.register_json(name, path, options)
+        .await
+        .with_context(|| format!("failed to register Langfuse JSONL table {name} from {path}"))?;
     debug!("registered datasource table: {name}");
 
     Ok(())
