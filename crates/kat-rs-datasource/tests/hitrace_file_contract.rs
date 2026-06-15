@@ -1,4 +1,3 @@
-// hitrace 文件契约测试覆盖私有 header 读取逻辑，避免测试重新回到 src 模块。
 #[allow(dead_code)]
 mod hitrace_file {
     include!(concat!(

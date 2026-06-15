@@ -1,4 +1,4 @@
-// 查询层只消费已物化的数据集目录，并把 SQL 执行结果转换成 JSON。
+//! Owns the built DataFusion context and exposes SQL-to-JSON query capability.
 
 use std::{path::Path, sync::Arc};
 

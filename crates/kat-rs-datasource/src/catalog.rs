@@ -1,4 +1,4 @@
-// 表目录只描述 sink 产出的查询表，不承载解析阶段的中间协议。
+// Trace dataset catalog consumed by query registration.
 
 use arrow_array::RecordBatch;
 

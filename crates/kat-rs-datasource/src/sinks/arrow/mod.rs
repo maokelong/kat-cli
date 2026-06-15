@@ -1,4 +1,4 @@
-// Arrow sink 是当前唯一表物化实现，负责把记录流转换为可注册查询表。
+//! Arrow sink for trace records.
 
 mod table_builder;
 

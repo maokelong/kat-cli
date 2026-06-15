@@ -1,4 +1,3 @@
-// registry 负责按插件名匹配 decoder，并统一配置、数据和收尾生命周期。
 use anyhow::Result;
 
 use crate::{domains::ftrace::FTRACE_PLUGIN_DECODER, record::TraceRecordSink};

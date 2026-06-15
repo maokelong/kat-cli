@@ -1,4 +1,3 @@
-// serde_arrow 契约测试锁定 prost 结构到 Arrow 表的字段展开方式。
 use arrow_schema::DataType;
 use prost::Message;
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-// `.htrace` 适配器只负责容器校验、section 遍历和插件流转入口调用。
+//! `.htrace` profiler container format adapter.
 
 mod file;
 

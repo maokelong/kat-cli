@@ -1,4 +1,3 @@
-// datasource crate 对外只暴露查询入口，内部按格式、流转、领域、sink 分层。
 mod catalog;
 mod domains;
 mod formats;

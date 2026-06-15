@@ -1,4 +1,3 @@
-// 分段解析只处理 length-prefixed protobuf 消息边界，具体消息语义由调用方决定。
 use anyhow::{Result, bail};
 use prost::Message;
 

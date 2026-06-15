@@ -1,4 +1,3 @@
-// 表 builder 封装 serde_arrow 细节，让 sink 只关心追加行和生成表目录。
 use std::marker::PhantomData;
 
 use anyhow::{Context, Result};

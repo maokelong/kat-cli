@@ -1,4 +1,3 @@
-// envelope 抽出插件名、配置/数据类型和载荷元信息，作为 registry 分发边界。
 use crate::proto::ProfilerPluginData;
 
 const CONFIG_SUFFIX: &str = "_config";
