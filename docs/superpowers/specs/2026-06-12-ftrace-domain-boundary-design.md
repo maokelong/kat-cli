@@ -40,7 +40,8 @@ formats/hitrace
 plugin_flow
   -> streaming decode length-prefixed ProfilerPluginData
   -> 建模 PluginEnvelopeKind::{Data, Config}
-  -> 通过静态 registry 按 plugin name 分发 data payload
+  -> 通过声明式 PluginDecoderSpec 创建每次 decode 独立的 PluginDecoder registry
+  -> 按 plugin name 调用 configure / decode_data / finish 生命周期
   -> config 和 unknown plugin envelope 只保留 raw record，不进入 domain decoder
 
 record
@@ -68,7 +69,7 @@ catalog/query
 ## 目标
 
 1. 新增 `formats/hitrace`，让 `.htrace` 容器解析不再作为 datasource 中心文件存在。
-2. 新增 `plugin_flow`，由它负责 `ProfilerPluginData` envelope、`PluginEnvelopeKind::{Data, Config}` 和 plugin payload registry。
+2. 新增 `plugin_flow`，由它负责 `ProfilerPluginData` envelope、`PluginEnvelopeKind::{Data, Config}`、声明式 plugin decoder 注册和 decoder 生命周期调度。
 3. 新增 `domains/ftrace`，由 ftrace domain 独立负责 `TracePluginResult` 和 `FtraceEvent` 语义。
 4. 新增 `record`，提供 `TraceRecord`、`TraceRecordSink` 这层 pre-sink record stream。
 5. 收敛 `catalog`，只提供 `TraceDataset`、`TraceTable`、`TableCategory` 这层 post-sink 表目录。
@@ -108,7 +109,7 @@ trait TraceRecordSink {
 
 `formats/hitrace` 显式建模 `TraceFileHeader` 的已知字段，当前读取 `magic`、`length`、`version`、`segments`、`sha256`、`data_type`。本 PR 仍只强校验 `magic` 和 `length`；`segments` / `sha256` 先作为事实字段保留，不在当前切片里做完整完整性校验。
 
-`plugin_flow` 是本项目的 profiler plugin envelope 流转层。它 streaming decode length-prefixed `ProfilerPluginData`，从 `name` 派生 `PluginEnvelopeKind::{Data, Config}`：`*_config` 进入 config envelope，其余进入 data envelope。`plugin_flow` 通过静态 `PluginPayloadRegistry` 把已知 data payload 分发给 domain decoder；config envelope 和 unknown plugin envelope 只作为 raw `ProfilerPluginData` 进入 `TraceRecordSink`，不触发 domain 解码。
+`plugin_flow` 是本项目的 profiler plugin envelope 流转层。它 streaming decode length-prefixed `ProfilerPluginData`，从 `name` 派生 `PluginEnvelopeKind::{Data, Config}`：`*_config` 进入 config envelope，其余进入 data envelope。`plugin_flow` 通过声明式 `PluginDecoderSpec` 创建每次 decode 独立的 `PluginDecoder` registry，并按 `configure()`、`decode_data()`、`finish()` 生命周期调度已知 plugin；config envelope 和 unknown plugin envelope 仍作为 raw `ProfilerPluginData` 进入 `TraceRecordSink`，unknown plugin 不触发 domain 解码。
 
 `domains/ftrace` 负责把 ftrace-plugin payload 解码为 `FtraceEventRecord`。该 record 包含 `EventContext` 和原始 `FtraceEvent`，让后续 sink 可以继续生成当前 sched direct tables。由于当前 proto 仍是本地裁剪版，本 PR 不补 `common_fields` 和完整 oneof，只保留后续 schema PR 的边界位置。
 
@@ -131,7 +132,7 @@ trait TraceRecordSink {
 
 - `formats/hitrace` 不包含 `TracePluginResult::decode`、sched/family table builders、`ArrayBuilder`、`RecordBatch`。
 - `formats/hitrace` 不包含 `domains::ftrace`、`FTRACE_PLUGIN_NAME`、`decode_plugin_payload` 或 `ProfilerPluginData`。
-- `plugin_flow` 拥有 `PluginEnvelopeKind`、`PluginPayloadRegistry` 和 length-prefixed `ProfilerPluginData` 解码。
+- `plugin_flow` 拥有 `PluginEnvelopeKind`、`PluginDecoder`、`PluginDecoderSpec`、`PluginPayloadRegistry` 和 length-prefixed `ProfilerPluginData` 解码。
 - `domains/ftrace` 不包含 Arrow/table builder。
 - `TraceRecord` 不包含 `ProfilerSection` 控制事件。
 - `sinks/arrow` 不直接依赖旧 `SchedDirectTableBuilders`。

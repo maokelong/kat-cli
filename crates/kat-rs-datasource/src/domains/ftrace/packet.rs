@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
-    plugin_flow::PluginEnvelope,
+    plugin_flow::{PluginDecoder, PluginDecoderSpec, PluginEnvelope},
     proto::TracePluginResult,
     record::{TraceRecord, TraceRecordSink},
 };
@@ -10,8 +10,30 @@ use crate::{
 use super::FtraceEventRecord;
 
 pub(crate) const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
+pub(crate) const FTRACE_PLUGIN_DECODER: PluginDecoderSpec =
+    PluginDecoderSpec::new(new_ftrace_plugin_decoder);
 
-pub(crate) fn decode_plugin_payload(
+fn new_ftrace_plugin_decoder() -> Box<dyn PluginDecoder> {
+    Box::new(FtracePluginDecoder)
+}
+
+struct FtracePluginDecoder;
+
+impl PluginDecoder for FtracePluginDecoder {
+    fn plugin_name(&self) -> &'static str {
+        FTRACE_PLUGIN_NAME
+    }
+
+    fn decode_data(
+        &mut self,
+        envelope: &PluginEnvelope<'_>,
+        sink: &mut dyn TraceRecordSink,
+    ) -> Result<()> {
+        decode_plugin_payload(envelope, sink)
+    }
+}
+
+fn decode_plugin_payload(
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {

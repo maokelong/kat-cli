@@ -86,9 +86,15 @@ fn plugin_flow_owns_plugin_envelope_dispatch() {
     ]);
 
     assert!(plugin_flow_sources.contains("PluginEnvelopeKind"));
+    assert!(plugin_flow_sources.contains("trait PluginDecoder"));
+    assert!(plugin_flow_sources.contains("fn configure("));
+    assert!(plugin_flow_sources.contains("fn decode_data("));
+    assert!(plugin_flow_sources.contains("fn finish("));
+    assert!(plugin_flow_sources.contains("PluginDecoderSpec"));
     assert!(plugin_flow_sources.contains("PluginPayloadRegistry"));
     assert!(plugin_flow_sources.contains("ProfilerPluginData"));
     assert!(plugin_flow_sources.contains("domains::ftrace"));
+    assert!(!plugin_flow_sources.contains("DecodePluginPayload"));
     assert!(!plugin_flow_sources.contains("ArrayBuilder"));
     assert!(!plugin_flow_sources.contains("RecordBatch"));
     assert!(!plugin_flow_sources.contains("MemTable"));

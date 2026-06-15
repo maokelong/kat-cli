@@ -8,7 +8,9 @@ use anyhow::{Result, bail};
 use log::debug;
 
 use crate::{
-    mmap::with_mapped_file, plugin_flow::decode_plugin_section_body, record::TraceRecordSink,
+    mmap::with_mapped_file,
+    plugin_flow::{PluginPayloadRegistry, decode_plugin_section_body},
+    record::TraceRecordSink,
 };
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
@@ -28,6 +30,7 @@ fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
     let mut offset = 0usize;
+    let mut plugin_registry = PluginPayloadRegistry::default();
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
@@ -41,8 +44,13 @@ fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> 
             continue;
         }
 
-        decode_plugin_section_body(section.body(bytes), section.start, sink)?;
+        decode_plugin_section_body(
+            section.body(bytes),
+            section.start,
+            &mut plugin_registry,
+            sink,
+        )?;
     }
 
-    Ok(())
+    plugin_registry.finish(sink)
 }
