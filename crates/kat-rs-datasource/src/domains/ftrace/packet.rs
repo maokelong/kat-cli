@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
-    hdf::PluginEnvelope,
+    plugin_flow::PluginEnvelope,
     proto::TracePluginResult,
     record::{TraceRecord, TraceRecordSink},
 };

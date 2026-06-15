@@ -7,7 +7,9 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use log::debug;
 
-use crate::{hdf::decode_plugin_section_body, mmap::with_mapped_file, record::TraceRecordSink};
+use crate::{
+    mmap::with_mapped_file, plugin_flow::decode_plugin_section_body, record::TraceRecordSink,
+};
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
 

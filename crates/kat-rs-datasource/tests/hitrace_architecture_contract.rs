@@ -21,10 +21,10 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/formats/mod.rs",
         "src/formats/hitrace/mod.rs",
         "src/formats/hitrace/file.rs",
-        "src/hdf/mod.rs",
-        "src/hdf/envelope.rs",
-        "src/hdf/registry.rs",
-        "src/hdf/segment.rs",
+        "src/plugin_flow/mod.rs",
+        "src/plugin_flow/envelope.rs",
+        "src/plugin_flow/registry.rs",
+        "src/plugin_flow/segment.rs",
         "src/domains/mod.rs",
         "src/domains/ftrace/mod.rs",
         "src/domains/ftrace/event.rs",
@@ -77,21 +77,21 @@ fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
 }
 
 #[test]
-fn hdf_owns_plugin_envelope_dispatch() {
-    let hdf_sources = joined_sources(&[
-        "src/hdf/mod.rs",
-        "src/hdf/envelope.rs",
-        "src/hdf/registry.rs",
-        "src/hdf/segment.rs",
+fn plugin_flow_owns_plugin_envelope_dispatch() {
+    let plugin_flow_sources = joined_sources(&[
+        "src/plugin_flow/mod.rs",
+        "src/plugin_flow/envelope.rs",
+        "src/plugin_flow/registry.rs",
+        "src/plugin_flow/segment.rs",
     ]);
 
-    assert!(hdf_sources.contains("PluginEnvelopeKind"));
-    assert!(hdf_sources.contains("PluginPayloadRegistry"));
-    assert!(hdf_sources.contains("ProfilerPluginData"));
-    assert!(hdf_sources.contains("domains::ftrace"));
-    assert!(!hdf_sources.contains("ArrayBuilder"));
-    assert!(!hdf_sources.contains("RecordBatch"));
-    assert!(!hdf_sources.contains("MemTable"));
+    assert!(plugin_flow_sources.contains("PluginEnvelopeKind"));
+    assert!(plugin_flow_sources.contains("PluginPayloadRegistry"));
+    assert!(plugin_flow_sources.contains("ProfilerPluginData"));
+    assert!(plugin_flow_sources.contains("domains::ftrace"));
+    assert!(!plugin_flow_sources.contains("ArrayBuilder"));
+    assert!(!plugin_flow_sources.contains("RecordBatch"));
+    assert!(!plugin_flow_sources.contains("MemTable"));
 }
 
 #[test]

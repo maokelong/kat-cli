@@ -133,9 +133,9 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
 }
 
 #[tokio::test]
-async fn hdf_dispatch_ignores_config_and_unknown_plugin_payloads() {
+async fn plugin_flow_dispatch_ignores_config_and_unknown_plugin_payloads() {
     let dir = tempdir().expect("tempdir is created");
-    let trace_path = dir.path().join("hdf-envelopes.hitrace");
+    let trace_path = dir.path().join("plugin-flow-envelopes.hitrace");
     fs::write(
         &trace_path,
         profiler_section(vec![

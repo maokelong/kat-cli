@@ -4,9 +4,9 @@ mod formats;
 mod ftrace_event_table_builders {
     include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
 }
-mod hdf;
 mod json;
 mod mmap;
+mod plugin_flow;
 mod query;
 mod record;
 mod sinks;

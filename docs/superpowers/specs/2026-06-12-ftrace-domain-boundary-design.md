@@ -4,7 +4,7 @@
 
 Issue [#27](https://github.com/maokelong/kat-rs/issues/27) 是 #25 / PR #26 之后的架构边界切片。PR #26 已验证 `.htrace -> ftrace-plugin -> sched direct tables -> DataFusion` 的纵向链路，但 review 指出当前实现容易把 `.htrace` 文件容器、profiler plugin envelope、ftrace 领域语义、Arrow 落表和 SQL 注册都固化到同一条过程式主链中。
 
-当前 PR 原本只计划拆出 ftrace domain。由于 reviewer 希望这个 PR 直接完成更明确的架构边界，本设计把范围升级为 PR #26 review comment 里的第一阶段落地：建立 `formats/hitrace`、`hdf`、`domains/ftrace`、`record`、`sinks/arrow` 和 `catalog` 的代码边界，并用中立 `TraceRecord` / `TraceRecordSink` 断开 parser 直接写 Arrow 表的耦合。
+当前 PR 原本只计划拆出 ftrace domain。由于 reviewer 希望这个 PR 直接完成更明确的架构边界，本设计把范围升级为 PR #26 review comment 里的第一阶段落地：建立 `formats/hitrace`、`plugin_flow`、`domains/ftrace`、`record`、`sinks/arrow` 和 `catalog` 的代码边界，并用中立 `TraceRecord` / `TraceRecordSink` 断开 parser 直接写 Arrow 表的耦合。
 
 ## 事实源与层次
 
@@ -35,9 +35,9 @@ OpenHarmony `developtools_profiler` 也支持这个划分：
 formats/hitrace
   -> 读取 .htrace/profiler section
   -> 显式建模 TraceFileHeader 已知字段
-  -> 把 protobuf section body 交给 hdf
+  -> 把 protobuf section body 交给 plugin_flow
 
-hdf
+plugin_flow
   -> streaming decode length-prefixed ProfilerPluginData
   -> 建模 PluginEnvelopeKind::{Data, Config}
   -> 通过静态 registry 按 plugin name 分发 data payload
@@ -68,7 +68,7 @@ catalog/query
 ## 目标
 
 1. 新增 `formats/hitrace`，让 `.htrace` 容器解析不再作为 datasource 中心文件存在。
-2. 新增 `hdf`，由它负责 `ProfilerPluginData` envelope、`PluginEnvelopeKind::{Data, Config}` 和 plugin payload registry。
+2. 新增 `plugin_flow`，由它负责 `ProfilerPluginData` envelope、`PluginEnvelopeKind::{Data, Config}` 和 plugin payload registry。
 3. 新增 `domains/ftrace`，由 ftrace domain 独立负责 `TracePluginResult` 和 `FtraceEvent` 语义。
 4. 新增 `record`，提供 `TraceRecord`、`TraceRecordSink` 这层 pre-sink record stream。
 5. 收敛 `catalog`，只提供 `TraceDataset`、`TraceTable`、`TableCategory` 这层 post-sink 表目录。
@@ -85,7 +85,7 @@ catalog/query
 4. 不实现 `thread_state`、`instant`、`sched_slice`、`process`、`thread`、`raw_event` 等派生表。
 5. 不把 build script 的 proto 文本扫描升级为 descriptor-driven generator；本 PR 只把 family 配置和聚合入口抽象出来。
 6. 不设计多 sink 插件系统；本 PR 只保留一个 Arrow sink，但 parser 与 sink 通过 trait 解耦。
-7. 不引入 OpenHarmony Hardware Driver Foundation、plugin service IPC、HCS/HDI 或设备端插件生命周期；本 PR 的 `hdf` 只表示 HiProfiler Data Flow。
+7. 不引入 OpenHarmony Hardware Driver Foundation、plugin service IPC、HCS/HDI 或设备端插件生命周期；本 PR 的 `plugin_flow` 只表示 profiler plugin envelope 流转。
 
 ## 设计
 
@@ -108,7 +108,7 @@ trait TraceRecordSink {
 
 `formats/hitrace` 显式建模 `TraceFileHeader` 的已知字段，当前读取 `magic`、`length`、`version`、`segments`、`sha256`、`data_type`。本 PR 仍只强校验 `magic` 和 `length`；`segments` / `sha256` 先作为事实字段保留，不在当前切片里做完整完整性校验。
 
-`hdf` 是本项目的 HiProfiler Data Flow 层。它 streaming decode length-prefixed `ProfilerPluginData`，从 `name` 派生 `PluginEnvelopeKind::{Data, Config}`：`*_config` 进入 config envelope，其余进入 data envelope。`hdf` 通过静态 `PluginPayloadRegistry` 把已知 data payload 分发给 domain decoder；config envelope 和 unknown plugin envelope 只作为 raw `ProfilerPluginData` 进入 `TraceRecordSink`，不触发 domain 解码。
+`plugin_flow` 是本项目的 profiler plugin envelope 流转层。它 streaming decode length-prefixed `ProfilerPluginData`，从 `name` 派生 `PluginEnvelopeKind::{Data, Config}`：`*_config` 进入 config envelope，其余进入 data envelope。`plugin_flow` 通过静态 `PluginPayloadRegistry` 把已知 data payload 分发给 domain decoder；config envelope 和 unknown plugin envelope 只作为 raw `ProfilerPluginData` 进入 `TraceRecordSink`，不触发 domain 解码。
 
 `domains/ftrace` 负责把 ftrace-plugin payload 解码为 `FtraceEventRecord`。该 record 包含 `EventContext` 和原始 `FtraceEvent`，让后续 sink 可以继续生成当前 sched direct tables。由于当前 proto 仍是本地裁剪版，本 PR 不补 `common_fields` 和完整 oneof，只保留后续 schema PR 的边界位置。
 
@@ -131,7 +131,7 @@ trait TraceRecordSink {
 
 - `formats/hitrace` 不包含 `TracePluginResult::decode`、sched/family table builders、`ArrayBuilder`、`RecordBatch`。
 - `formats/hitrace` 不包含 `domains::ftrace`、`FTRACE_PLUGIN_NAME`、`decode_plugin_payload` 或 `ProfilerPluginData`。
-- `hdf` 拥有 `PluginEnvelopeKind`、`PluginPayloadRegistry` 和 length-prefixed `ProfilerPluginData` 解码。
+- `plugin_flow` 拥有 `PluginEnvelopeKind`、`PluginPayloadRegistry` 和 length-prefixed `ProfilerPluginData` 解码。
 - `domains/ftrace` 不包含 Arrow/table builder。
 - `TraceRecord` 不包含 `ProfilerSection` 控制事件。
 - `sinks/arrow` 不直接依赖旧 `SchedDirectTableBuilders`。
