@@ -18,6 +18,12 @@ mod catalog {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/catalog.rs"));
 }
 
+mod record {
+    #![allow(dead_code)]
+
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/record.rs"));
+}
+
 mod domains {
     pub(crate) mod ftrace {
         include!(concat!(
@@ -43,6 +49,39 @@ mod sinks {
 
 mod ftrace_event_table_builders {
     include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
+}
+
+#[test]
+fn trace_record_stream_models_pre_sink_records() {
+    let plugin = proto::ProfilerPluginData {
+        name: "ftrace-plugin".to_string(),
+        ..Default::default()
+    };
+
+    match record::TraceRecord::ProfilerPluginData(plugin) {
+        record::TraceRecord::ProfilerPluginData(record) => {
+            assert_eq!(record.name, "ftrace-plugin");
+        }
+        record::TraceRecord::FtraceEvent(_) => unreachable!("expected plugin data record"),
+    }
+
+    let event = domains::ftrace::FtraceEventRecord::new(
+        3,
+        proto::kat::hitrace::FtraceEvent {
+            timestamp: 20,
+            tgid: 500,
+            comm: "source".to_string(),
+            ..Default::default()
+        },
+    );
+
+    match record::TraceRecord::FtraceEvent(Box::new(event)) {
+        record::TraceRecord::FtraceEvent(record) => {
+            assert_eq!(record.context.cpu, 3);
+            assert_eq!(record.event.timestamp, 20);
+        }
+        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
+    }
 }
 
 #[test]

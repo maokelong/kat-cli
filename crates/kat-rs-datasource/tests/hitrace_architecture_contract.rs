@@ -31,6 +31,7 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/sinks/arrow/mod.rs",
         "src/sinks/arrow/table_builder.rs",
         "src/catalog.rs",
+        "src/record.rs",
     ] {
         assert!(
             std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
@@ -100,6 +101,8 @@ fn arrow_sink_owns_record_to_table_conversion() {
     let sink_table_builder = source("src/sinks/arrow/table_builder.rs");
     let catalog = source("src/catalog.rs");
 
+    assert!(!catalog.contains("TraceRecord"));
+    assert!(!catalog.contains("TraceRecordSink"));
     assert!(!catalog.contains("ProfilerSection"));
     assert!(!sink_mod.contains("ProfilerSection"));
     assert!(!sink_mod.contains("profiler_table_seen"));

@@ -4,7 +4,7 @@
 
 Issue [#27](https://github.com/maokelong/kat-rs/issues/27) 是 #25 / PR #26 之后的架构边界切片。PR #26 已验证 `.htrace -> ftrace-plugin -> sched direct tables -> DataFusion` 的纵向链路，但 review 指出当前实现容易把 `.htrace` 文件容器、profiler plugin envelope、ftrace 领域语义、Arrow 落表和 SQL 注册都固化到同一条过程式主链中。
 
-当前 PR 原本只计划拆出 ftrace domain。由于 reviewer 希望这个 PR 直接完成更明确的架构边界，本设计把范围升级为 PR #26 review comment 里的第一阶段落地：建立 `formats/hitrace`、`domains/ftrace`、`sinks/arrow` 和 `catalog` 的代码边界，并用中立 `TraceRecord` / `TraceRecordSink` 断开 parser 直接写 Arrow 表的耦合。
+当前 PR 原本只计划拆出 ftrace domain。由于 reviewer 希望这个 PR 直接完成更明确的架构边界，本设计把范围升级为 PR #26 review comment 里的第一阶段落地：建立 `formats/hitrace`、`domains/ftrace`、`record`、`sinks/arrow` 和 `catalog` 的代码边界，并用中立 `TraceRecord` / `TraceRecordSink` 断开 parser 直接写 Arrow 表的耦合。
 
 ## 事实源与层次
 
@@ -33,9 +33,15 @@ OpenHarmony `developtools_profiler` 也支持这个划分：
 ```text
 formats/hitrace
   -> 读取 .htrace/profiler section
+  -> 显式建模最小 TraceFileHeader
   -> streaming decode length-prefixed ProfilerPluginData
   -> 按 plugin name 分发 payload
   -> 只向 TraceRecordSink 推送中立 record
+
+record
+  -> TraceRecord / TraceRecordSink
+  -> 连接 format/domain decoder 与 sink
+  -> 不描述已物化表
 
 domains/ftrace
   -> decode TracePluginResult
@@ -58,11 +64,12 @@ catalog/query
 
 1. 新增 `formats/hitrace`，让 `.htrace` 容器解析不再作为 datasource 中心文件存在。
 2. 新增 `domains/ftrace`，由 ftrace domain 独立负责 `TracePluginResult` 和 `FtraceEvent` 语义。
-3. 新增 `catalog`，提供 `TraceRecord`、`TraceRecordSink`、`TraceDataset`、`TraceTable`、`TableCategory`。
-4. 新增 `sinks/arrow`，把 `ProfilerPluginData` 和 sched direct event records 转换为 Arrow `RecordBatch`。
-5. `query` 层只消费 `TraceDataset`，不直接依赖 hitrace/ftrace 内部 table builder。
-6. 抽象 ftrace event family 接入入口，让 Arrow sink 依赖 `FtraceEventTableBuilders` 聚合 builder，而不是直接依赖 sched 专用 builder。
-7. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
+3. 新增 `record`，提供 `TraceRecord`、`TraceRecordSink` 这层 pre-sink record stream。
+4. 收敛 `catalog`，只提供 `TraceDataset`、`TraceTable`、`TableCategory` 这层 post-sink 表目录。
+5. 新增 `sinks/arrow`，把 `ProfilerPluginData` 和 sched direct event records 转换为 Arrow `RecordBatch`。
+6. `query` 层只消费 `TraceDataset`，不直接依赖 hitrace/ftrace 内部 table builder。
+7. 抽象 ftrace event family 接入入口，让 Arrow sink 依赖 `FtraceEventTableBuilders` 聚合 builder，而不是直接依赖 sched 专用 builder。
+8. 保持现有 SQL 表名、字段名、CLI 查询入口和 sched direct table 查询结果不变。
 
 ## 非目标
 
@@ -75,7 +82,7 @@ catalog/query
 
 ## 设计
 
-`catalog` 是解码链路的中立接口：
+`record` 是解码链路的中立 pre-sink 接口：
 
 ```rust
 enum TraceRecord {
@@ -88,7 +95,11 @@ trait TraceRecordSink {
 }
 ```
 
+`catalog` 只保留 post-sink 的 `TraceDataset` / `TraceTable` / `TableCategory`。它描述已经物化、可注册到 query 层的表，不再混入 `TraceRecord` / `TraceRecordSink` 这类流式解码协议。
+
 `formats/hitrace` 只负责 `.htrace` container 和 `ProfilerPluginData` envelope。它根据 `ProfilerPluginData.name == "ftrace-plugin"` 调用 ftrace domain decoder，但不理解 `TracePluginResult` 内部结构，也不创建 Arrow builder。
+
+`formats/hitrace` 显式建模最小 `TraceFileHeader`，当前只读取并验证本 PR 已用到的 `magic`、`length`、`data_type`。upstream header 里的 `segments`、`sha256`、clock、plugin metadata 等字段先不展开，避免把后续 schema 对齐工作塞进这个边界切片。
 
 `domains/ftrace` 负责把 ftrace-plugin payload 解码为 `FtraceEventRecord`。该 record 包含 `EventContext` 和原始 `FtraceEvent`，让后续 sink 可以继续生成当前 sched direct tables。由于当前 proto 仍是本地裁剪版，本 PR 不补 `common_fields` 和完整 oneof，只保留后续 schema PR 的边界位置。
 

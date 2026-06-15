@@ -5,15 +5,16 @@ mod table_builder;
 use anyhow::Result;
 
 use crate::{
-    catalog::{
-        PROFILER_PLUGIN_DATA_TABLE, TableCategory, TraceDataset, TraceRecord, TraceRecordSink,
-    },
+    catalog::{TableCategory, TraceDataset},
     ftrace_event_table_builders::FtraceEventTableBuilders,
     proto::ProfilerPluginData,
+    record::{TraceRecord, TraceRecordSink},
 };
 
 use table_builder::TableBuilder;
 pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta};
+
+const PROFILER_PLUGIN_DATA_TABLE: &str = "profiler_plugin_data";
 
 pub(crate) struct ArrowSink {
     profiler_table: TableBuilder<ProfilerPluginData>,

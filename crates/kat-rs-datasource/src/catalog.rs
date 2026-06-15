@@ -1,11 +1,6 @@
-// Trace dataset catalog shared by decoders, sinks, and query registration.
+// Trace dataset catalog consumed by query registration.
 
-use anyhow::Result;
 use arrow_array::RecordBatch;
-
-use crate::{domains::ftrace::FtraceEventRecord, proto::ProfilerPluginData};
-
-pub(crate) const PROFILER_PLUGIN_DATA_TABLE: &str = "profiler_plugin_data";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TableCategory {
@@ -41,13 +36,4 @@ impl TraceDataset {
     pub(crate) fn new(tables: Vec<TraceTable>) -> Self {
         Self { tables }
     }
-}
-
-pub(crate) enum TraceRecord {
-    ProfilerPluginData(ProfilerPluginData),
-    FtraceEvent(Box<FtraceEventRecord>),
-}
-
-pub(crate) trait TraceRecordSink {
-    fn push(&mut self, record: TraceRecord) -> Result<()>;
 }

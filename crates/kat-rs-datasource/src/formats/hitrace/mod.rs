@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use log::debug;
 
-use crate::{catalog::TraceRecordSink, mmap::with_mapped_file};
+use crate::{mmap::with_mapped_file, record::TraceRecordSink};
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
 use profiler::decode_profiler_section;
@@ -34,10 +34,10 @@ fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> 
         let section = read_profiler_section(bytes, offset)?;
         offset = section.end;
 
-        if section.data_type != HIPROFILER_PROTOBUF_BIN {
+        if section.header.data_type != HIPROFILER_PROTOBUF_BIN {
             debug!(
                 "skip unsupported profiler section data_type={} section_len={}",
-                section.data_type, section.len
+                section.header.data_type, section.header.length
             );
             continue;
         }

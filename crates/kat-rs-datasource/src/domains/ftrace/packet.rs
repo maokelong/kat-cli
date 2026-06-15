@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
-    catalog::{TraceRecord, TraceRecordSink},
     proto::TracePluginResult,
+    record::{TraceRecord, TraceRecordSink},
 };
 
 use super::FtraceEventRecord;

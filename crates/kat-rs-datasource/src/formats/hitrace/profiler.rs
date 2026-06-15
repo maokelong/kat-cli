@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    catalog::{TraceRecord, TraceRecordSink},
     domains::ftrace::{FTRACE_PLUGIN_NAME, decode_plugin_payload},
     proto::ProfilerPluginData,
+    record::{TraceRecord, TraceRecordSink},
 };
 
 use super::{file::ProfilerSection, segment::for_each_len_prefixed_message};

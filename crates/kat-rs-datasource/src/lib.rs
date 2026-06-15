@@ -7,6 +7,7 @@ mod ftrace_event_table_builders {
 mod json;
 mod mmap;
 mod query;
+mod record;
 mod sinks;
 
 pub use query::TraceDatasource;
