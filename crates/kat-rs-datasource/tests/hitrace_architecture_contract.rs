@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::PathBuf};
 
 fn source(path: &str) -> String {
     fs::read_to_string(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path))
@@ -11,6 +11,43 @@ fn joined_sources(paths: &[&str]) -> String {
         .map(|path| source(path))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[test]
+fn datasource_tests_live_under_tests_directory() {
+    let mut stack = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
+    let forbidden_markers = ["#[cfg(test)]", "#[test]", "#[tokio::test]"];
+
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            for entry in fs::read_dir(&path)
+                .unwrap_or_else(|error| panic!("{} can be listed: {error}", path.display()))
+            {
+                stack.push(
+                    entry
+                        .unwrap_or_else(|error| {
+                            panic!("{} entry can be read: {error}", path.display())
+                        })
+                        .path(),
+                );
+            }
+            continue;
+        }
+
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{} can be read: {error}", path.display()));
+        for marker in forbidden_markers {
+            assert!(
+                !source.contains(marker),
+                "{} should keep tests under tests/",
+                path.display()
+            );
+        }
+    }
 }
 
 #[test]
