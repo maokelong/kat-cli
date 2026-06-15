@@ -25,6 +25,15 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: ErrorCode::BadRequest,
+            message: message.into(),
+            details: None,
+        }
+    }
+
     pub fn datasource_not_found(datasource_id: impl Into<String>) -> Self {
         let datasource_id = datasource_id.into();
 

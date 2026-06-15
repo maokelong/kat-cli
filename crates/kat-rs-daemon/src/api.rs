@@ -47,7 +47,7 @@ pub enum InputRole {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "source")]
+#[serde(tag = "source", deny_unknown_fields)]
 pub enum CreateDatasourceRequest {
     #[serde(rename = "HITRACE")]
     Hitrace { file: String },

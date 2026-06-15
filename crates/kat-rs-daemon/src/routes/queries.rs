@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, State, rejection::JsonRejection},
     routing::post,
 };
 
@@ -19,8 +19,10 @@ pub fn routes() -> Router<AppState> {
 async fn query(
     State(state): State<AppState>,
     Path(datasource_id): Path<String>,
-    Json(request): Json<QueryRequest>,
+    request: Result<Json<QueryRequest>, JsonRejection>,
 ) -> Result<Json<DataEnvelopeWithMeta<QueryResponse, QueryMeta>>, ApiError> {
+    let Json(request) =
+        request.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let started_at = Instant::now();
     let data = state
         .datasource_service

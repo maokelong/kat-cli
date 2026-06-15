@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -27,8 +27,10 @@ pub fn routes() -> Router<AppState> {
 
 async fn create_datasource(
     State(state): State<AppState>,
-    Json(request): Json<CreateDatasourceRequest>,
+    request: Result<Json<CreateDatasourceRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
+    let Json(request) =
+        request.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let (datasource, created) = state.datasource_service.create(request).await?;
     let status = if created {
         StatusCode::CREATED
@@ -41,20 +43,21 @@ async fn create_datasource(
 
 async fn list_datasources(
     State(state): State<AppState>,
-    Query(query): Query<ListDatasourcesQuery>,
-) -> Json<PaginatedEnvelope<DatasourceDto>> {
+    query: Result<Query<ListDatasourcesQuery>, QueryRejection>,
+) -> Result<Json<PaginatedEnvelope<DatasourceDto>>, ApiError> {
+    let Query(query) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
     let list = state.datasource_service.list(limit, offset).await;
 
-    Json(PaginatedEnvelope {
+    Ok(Json(PaginatedEnvelope {
         data: list.data,
         pagination: Pagination {
             limit: list.limit,
             offset: list.offset,
             total_items: list.total_items,
         },
-    })
+    }))
 }
 
 async fn get_datasource(

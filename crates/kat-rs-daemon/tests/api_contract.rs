@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     io::Write,
+    net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -253,6 +254,83 @@ async fn query_endpoint_returns_structured_error_for_missing_datasource() {
 }
 
 #[tokio::test]
+async fn datasource_create_rejects_malformed_json_with_bad_request_envelope() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_raw_json(app, "POST", "/v1/datasources", r#"{"source":"HITRACE""#).await;
+
+    assert_bad_request_envelope(response);
+}
+
+#[tokio::test]
+async fn datasource_create_rejects_unknown_fields_with_bad_request_envelope() {
+    let fixture = LangfuseFixture::new();
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    for field in ["sizeBytes", "modifiedAt"] {
+        let response = request_json(
+            app.clone(),
+            "POST",
+            "/v1/datasources",
+            Some(json!({
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+                field: 1,
+            })),
+        )
+        .await;
+
+        assert_bad_request_envelope(response);
+    }
+}
+
+#[tokio::test]
+async fn datasource_list_rejects_invalid_query_params_with_bad_request_envelope() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_json(app, "GET", "/v1/datasources?limit=abc", None).await;
+
+    assert_bad_request_envelope(response);
+}
+
+#[tokio::test]
+async fn query_endpoint_rejects_wrong_json_types_before_datasource_lookup() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasources/ds_missing/queries",
+        Some(json!({
+            "sql": 1
+        })),
+    )
+    .await;
+
+    assert_bad_request_envelope(response);
+}
+
+#[tokio::test]
+async fn serve_rejects_non_loopback_host_before_bind() {
+    let result = tokio::time::timeout(
+        Duration::from_millis(100),
+        kat_rs_daemon::serve(kat_rs_daemon::DaemonConfig {
+            host: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            port: 0,
+        }),
+    )
+    .await
+    .expect("serve rejects non-loopback host before serving");
+    let error = result.expect_err("non-loopback host is rejected");
+
+    assert!(
+        format!("{error:#}").contains("loopback"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[tokio::test]
 async fn datasource_list_clamps_limit_in_pagination() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
 
@@ -333,6 +411,45 @@ async fn request_json(
     };
 
     JsonResponse { status, body }
+}
+
+async fn request_raw_json(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    body: impl Into<Body>,
+) -> JsonResponse {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(body.into())
+        .expect("request builds");
+
+    let response = app.oneshot(request).await.expect("response is returned");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = serde_json::from_slice(&body).expect("json body");
+
+    JsonResponse { status, body }
+}
+
+fn assert_bad_request_envelope(response: JsonResponse) {
+    assert_eq!(
+        response.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "BAD_REQUEST");
+    assert!(
+        response.body["error"]["message"].is_string(),
+        "{:?}",
+        response.body
+    );
+    assert!(response.body["error"]["details"].is_null());
 }
 
 struct LangfuseFixture {
