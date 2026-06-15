@@ -1,11 +1,15 @@
-mod hitrace;
-mod json;
-mod langfuse;
-mod mmap;
-mod query;
-mod sched_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
+mod catalog;
+mod domains;
+mod formats;
+mod ftrace_event_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
 }
+mod json;
+mod mmap;
+mod plugin_flow;
+mod query;
+mod record;
+mod sinks;
 
 pub use query::TraceDatasource;
 

@@ -1,4 +1,4 @@
-//! Langfuse legacy blob export format mapping.
+//! Langfuse legacy blob export format adapter.
 
 use std::path::Path;
 

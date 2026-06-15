@@ -88,10 +88,10 @@ kat-rs-cli
 
 | 文件 | 职责 |
 | --- | --- |
-| `crates/kat-rs-datasource/src/langfuse.rs` | Langfuse legacy format 的表名和文件到表的映射 |
+| `crates/kat-rs-datasource/src/formats/langfuse/mod.rs` | Langfuse legacy format 的表名和文件到表的映射 |
 | `crates/kat-rs-datasource/src/query.rs` | 创建 DataFusion context，注册 format 模块返回的表，执行 SQL |
 
-本次不移动现有 `hitrace.rs`，避免把 Langfuse 切片扩大成目录重构。后续如果整理成 `formats/hitrace`、`formats/langfuse`，应单独设计并一起迁移。
+当前代码已经把输入格式适配器放在 `formats/` 下，因此 Langfuse 也放入 `formats/langfuse`。本次仍不扩大到 catalog、sink 或 domain 边界重构。
 
 DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读取应复用 DataFusion/Arrow JSON datasource：
 
