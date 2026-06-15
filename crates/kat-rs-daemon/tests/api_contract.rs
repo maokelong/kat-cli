@@ -113,6 +113,117 @@ async fn langfuse_datasource_create_reuses_identity_and_can_be_deleted() {
 }
 
 #[tokio::test]
+async fn query_endpoint_returns_envelope_rows_and_meta() {
+    let fixture = LangfuseFixture::new();
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasources",
+        Some(json!({
+            "source": "LANGFUSE_LEGACY",
+            "observationsFile": fixture.observations_path(),
+            "tracesFile": fixture.traces_path(),
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+    let datasource_id = create.body["data"]["id"]
+        .as_str()
+        .expect("created datasource id");
+
+    let query = request_json(
+        app,
+        "POST",
+        &format!("/v1/datasources/{datasource_id}/queries"),
+        Some(json!({
+            "sql": "select count(*) as trace_count from langfuse_traces"
+        })),
+    )
+    .await;
+
+    assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
+    assert_eq!(query.body["data"]["rowCount"], 1);
+    assert_eq!(query.body["data"]["rows"][0]["trace_count"], 1);
+    assert_eq!(query.body["meta"]["datasourceId"], datasource_id);
+    assert!(
+        query.body["meta"]["elapsedMs"].is_number(),
+        "{:?}",
+        query.body
+    );
+}
+
+#[tokio::test]
+async fn query_endpoint_returns_query_failed_for_invalid_sql() {
+    let fixture = LangfuseFixture::new();
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasources",
+        Some(json!({
+            "source": "LANGFUSE_LEGACY",
+            "observationsFile": fixture.observations_path(),
+            "tracesFile": fixture.traces_path(),
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+    let datasource_id = create.body["data"]["id"]
+        .as_str()
+        .expect("created datasource id");
+
+    let query = request_json(
+        app,
+        "POST",
+        &format!("/v1/datasources/{datasource_id}/queries"),
+        Some(json!({
+            "sql": "select * from missing_table"
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        query.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        query.body
+    );
+    assert_eq!(query.body["error"]["code"], "QUERY_FAILED");
+}
+
+#[tokio::test]
+async fn query_endpoint_returns_structured_error_for_missing_datasource() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasources/ds_missing/queries",
+        Some(json!({
+            "sql": "select 1"
+        })),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::NOT_FOUND, "{:?}", response.body);
+    assert_eq!(
+        response.body,
+        json!({
+            "error": {
+                "code": "DATASOURCE_NOT_FOUND",
+                "message": "datasource not found",
+                "details": {
+                    "datasourceId": "ds_missing"
+                }
+            }
+        })
+    );
+}
+
+#[tokio::test]
 async fn datasource_list_clamps_limit_in_pagination() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
 

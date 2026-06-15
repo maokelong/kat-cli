@@ -45,6 +45,15 @@ impl ApiError {
         }
     }
 
+    pub fn query_failed(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: ErrorCode::QueryFailed,
+            message: message.into(),
+            details: None,
+        }
+    }
+
     pub fn internal(_message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

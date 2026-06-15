@@ -116,7 +116,7 @@ impl DatasourceService {
             .datasource
             .query_json(&request.sql)
             .await
-            .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+            .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
         let rows = rows_as_array(rows)?;
         let row_count = rows.len();
 
