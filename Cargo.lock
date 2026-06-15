@@ -1921,6 +1921,7 @@ dependencies = [
  "clap",
  "env_logger",
  "flate2",
+ "kat-rs-daemon",
  "kat-rs-datasource",
  "log",
  "prost",
@@ -1933,6 +1934,7 @@ dependencies = [
 name = "kat-rs-daemon"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "flate2",
  "kat-rs-datasource",

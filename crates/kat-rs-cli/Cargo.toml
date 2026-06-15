@@ -12,6 +12,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 env_logger.workspace = true
+kat-rs-daemon = { path = "../kat-rs-daemon" }
 kat-rs-datasource = { path = "../kat-rs-datasource" }
 log.workspace = true
 serde_json.workspace = true

@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::Write,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use axum::{
@@ -12,6 +13,29 @@ use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
 use tempfile::{TempDir, tempdir};
 use tower::ServiceExt;
+
+#[tokio::test]
+async fn server_delete_returns_shutdown_state() {
+    let state = kat_rs_daemon::AppState::new_for_tests();
+    let shutdown = state.shutdown.clone();
+    let notified = shutdown.notified();
+    let app = kat_rs_daemon::router(state);
+
+    let response = request_json(app, "DELETE", "/v1/server", None).await;
+
+    assert_eq!(response.status, StatusCode::ACCEPTED, "{:?}", response.body);
+    assert_eq!(
+        response.body,
+        json!({
+            "data": {
+                "state": "SHUTTING_DOWN"
+            }
+        })
+    );
+    tokio::time::timeout(Duration::from_millis(100), notified)
+        .await
+        .expect("shutdown is notified");
+}
 
 #[tokio::test]
 async fn health_endpoint_returns_ok() {
@@ -208,7 +232,12 @@ async fn query_endpoint_returns_structured_error_for_missing_datasource() {
     )
     .await;
 
-    assert_eq!(response.status, StatusCode::NOT_FOUND, "{:?}", response.body);
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
     assert_eq!(
         response.body,
         json!({

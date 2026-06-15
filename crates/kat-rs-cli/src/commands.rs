@@ -1,7 +1,14 @@
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::{Read, Write},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+
+const DAEMON_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Parser)]
 #[command(name = "kat-rs")]
@@ -13,7 +20,28 @@ pub struct Cli {
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum Command {
+    Daemon(DaemonArgs),
     Query(QueryArgs),
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct DaemonArgs {
+    #[command(subcommand)]
+    pub command: DaemonCommand,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum DaemonCommand {
+    Start(DaemonEndpointArgs),
+    Stop(DaemonEndpointArgs),
+}
+
+#[derive(Clone, Copy, Debug, Args)]
+pub struct DaemonEndpointArgs {
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
+    pub host: IpAddr,
+    #[arg(long, default_value_t = 3030)]
+    pub port: u16,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -62,7 +90,93 @@ pub async fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 
 async fn run_inner(cli: Cli, out: &mut dyn Write) -> Result<(), CommandError> {
     match cli.command {
+        Command::Daemon(args) => run_daemon(args).await,
         Command::Query(args) => run_query(args, out).await,
+    }
+}
+
+async fn run_daemon(args: DaemonArgs) -> Result<(), CommandError> {
+    match args.command {
+        DaemonCommand::Start(args) => run_daemon_start(args).await,
+        DaemonCommand::Stop(args) => run_daemon_stop(args),
+    }
+}
+
+async fn run_daemon_start(args: DaemonEndpointArgs) -> Result<(), CommandError> {
+    ensure_loopback_host(args.host)?;
+
+    kat_rs_daemon::serve(kat_rs_daemon::DaemonConfig {
+        host: args.host,
+        port: args.port,
+    })
+    .await
+    .map(|_| ())
+    .map_err(CommandError::from_runtime)
+}
+
+fn run_daemon_stop(args: DaemonEndpointArgs) -> Result<(), CommandError> {
+    ensure_loopback_host(args.host)?;
+
+    let addr = SocketAddr::new(args.host, args.port);
+    let mut stream = TcpStream::connect_timeout(&addr, DAEMON_STOP_TIMEOUT).map_err(|error| {
+        CommandError::from_runtime(anyhow!("daemon stop failed to connect to {addr}: {error}"))
+    })?;
+    stream
+        .set_read_timeout(Some(DAEMON_STOP_TIMEOUT))
+        .map_err(|error| {
+            CommandError::from_runtime(anyhow!(
+                "daemon stop failed to set read timeout for {addr}: {error}"
+            ))
+        })?;
+    stream
+        .set_write_timeout(Some(DAEMON_STOP_TIMEOUT))
+        .map_err(|error| {
+            CommandError::from_runtime(anyhow!(
+                "daemon stop failed to set write timeout for {addr}: {error}"
+            ))
+        })?;
+
+    let request = format!(
+        "DELETE /v1/server HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        args.host, args.port
+    );
+
+    stream.write_all(request.as_bytes()).map_err(|error| {
+        CommandError::from_runtime(anyhow!(
+            "daemon stop failed to send shutdown request to {addr}: {error}"
+        ))
+    })?;
+    stream.flush().map_err(|error| {
+        CommandError::from_runtime(anyhow!(
+            "daemon stop failed to flush shutdown request to {addr}: {error}"
+        ))
+    })?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|error| {
+        CommandError::from_runtime(anyhow!(
+            "daemon stop failed to read shutdown response from {addr}: {error}"
+        ))
+    })?;
+
+    let status_line = response.lines().next().unwrap_or("<empty response>");
+    let status = status_line.split_whitespace().nth(1);
+    if status == Some("202") {
+        Ok(())
+    } else {
+        Err(CommandError::from_runtime(anyhow!(
+            "daemon stop failed: expected HTTP 202, got {status_line}"
+        )))
+    }
+}
+
+fn ensure_loopback_host(host: IpAddr) -> Result<(), CommandError> {
+    if host.is_loopback() {
+        Ok(())
+    } else {
+        Err(CommandError::from_runtime(anyhow!(
+            "daemon host must be a loopback IP address"
+        )))
     }
 }
 
