@@ -2,18 +2,20 @@
 
 ## 背景
 
-Langfuse legacy 源文件可能达到 2GB+。如果继续沿用当前 CLI 的单次命令生命周期，用户连续执行多条查询时，每次 `kat-rs query --file ... --sql ...` 都会重新加载 datasource，反复支付大文件读取、解析、Arrow/DataFusion 构建成本。
+Langfuse legacy export 由 `observations/*.jsonl.gz` 和 `traces/*.jsonl.gz` 文件组成，单个文件可能达到 2GB+。如果继续沿用当前 CLI 的单次命令生命周期，用户连续执行多条查询时，每次 `kat-rs query --source langfuse --observations-file ... --traces-file ... --sql ...` 都会重新创建 `TraceDatasource`，反复支付文件校验、DataFusion JSONL/GZ 表注册、schema 推断和查询上下文构建成本。
 
-这个问题的根因不是单次加载不够快，而是 datasource 生命周期放在短生命周期 CLI 进程里。长期方向应把 datasource 生命周期提升到本机 daemon，由 CLI、MCP 或调试工具通过 HTTP API 使用同一个已加载 datasource。
+这个问题的根因不是单次加载不够快，而是 datasource 生命周期放在短生命周期 CLI 进程里。长期方向应把 datasource 生命周期提升到本机 daemon，由 CLI、MCP 或调试工具通过 HTTP API 使用同一个已注册 datasource。
+
+当前最新代码中，Langfuse legacy 通过 `TraceDatasource::from_langfuse_legacy(observations_path, traces_path)` 注册两张 DataFusion JSONL/GZ 外部表：`langfuse_observations` 和 `langfuse_traces`。它不把两张表完整转成内存 `RecordBatch`；daemon 第一版复用的是 `SessionContext`、表注册和 datasource handle，查询时仍由 DataFusion 扫描源文件。
 
 ## 要解决的问题
 
 本次设计要解决：
 
 1. 为 Langfuse legacy 等大文件 datasource 提供本机常驻生命周期。
-2. 让同一个文件连续查询时复用 daemon 内存中的 datasource。
+2. 让同一个 datasource identity 连续查询时复用 daemon 中已注册的 datasource。
 3. 提供可直接用 URL/curl/MCP 调试的 REST API。
-4. 让服务端负责文件身份识别，避免信任客户端传入的 size/mtime。
+4. 让服务端负责输入文件组身份识别，避免信任客户端传入的 size/mtime。
 5. 为后续磁盘缓存、内存水位控制和 MCP 接入保留清晰边界。
 
 ## 不做什么
@@ -52,32 +54,44 @@ API 使用资源路径，不使用 RPC 风格路径。
 ```text
 GET    /v1/health
 POST   /v1/datasources
-GET    /v1/datasources
+GET    /v1/datasources?limit=100&offset=0
 GET    /v1/datasources/{datasourceId}
 DELETE /v1/datasources/{datasourceId}
 POST   /v1/datasources/{datasourceId}/queries
+DELETE /v1/server
 ```
 
 ### 创建或复用 datasource
 
 `POST /v1/datasources`
 
-请求：
+请求按 `source` 做 source-specific schema。Langfuse legacy 请求：
 
 ```json
 {
   "source": "LANGFUSE_LEGACY",
-  "path": "C:\\abs\\langfuse.jsonl"
+  "observationsFile": "C:\\abs\\observations.jsonl.gz",
+  "tracesFile": "C:\\abs\\traces.jsonl.gz"
+}
+```
+
+hitrace 请求：
+
+```json
+{
+  "source": "HITRACE",
+  "file": "C:\\abs\\trace.hitrace"
 }
 ```
 
 服务端负责：
 
 1. 校验 `source` 是单值枚举。
-2. canonicalize `path`。
-3. 读取文件 metadata，生成 `FileIdentityKey(source, canonical_path, size, mtime)`。
-4. 命中已加载 datasource 时返回 `200 OK`。
-5. 未命中时同步加载，成功后返回 `201 Created`。
+2. 按 `source` 校验必需文件字段，拒绝无关字段。
+3. canonicalize 每个输入文件路径。
+4. 读取每个输入文件 metadata，生成 `DatasourceIdentityKey(source, inputs)`。
+5. 命中已加载 datasource 时返回 `200 OK`。
+6. 未命中时同步加载，成功后返回 `201 Created`。
 
 返回：
 
@@ -86,11 +100,20 @@ POST   /v1/datasources/{datasourceId}/queries
   "data": {
     "id": "ds_01J...",
     "source": "LANGFUSE_LEGACY",
-    "path": "C:\\abs\\langfuse.jsonl",
-    "fileIdentity": {
-      "sizeBytes": 2147483648,
-      "modifiedAt": "2026-06-15T10:12:30.123Z"
-    },
+    "inputs": [
+      {
+        "role": "OBSERVATIONS",
+        "path": "C:\\abs\\observations.jsonl.gz",
+        "sizeBytes": 2147483648,
+        "modifiedAt": "2026-06-15T10:12:30.123Z"
+      },
+      {
+        "role": "TRACES",
+        "path": "C:\\abs\\traces.jsonl.gz",
+        "sizeBytes": 134217728,
+        "modifiedAt": "2026-06-15T10:12:31.123Z"
+      }
+    ],
     "state": "READY",
     "createdAt": "2026-06-15T10:12:31.000Z",
     "lastAccessedAt": "2026-06-15T10:12:31.000Z"
@@ -108,7 +131,7 @@ POST   /v1/datasources/{datasourceId}/queries
 
 ```json
 {
-  "sql": "select count(*) as count from traces"
+  "sql": "select count(*) as count from langfuse_traces"
 }
 ```
 
@@ -132,6 +155,37 @@ POST   /v1/datasources/{datasourceId}/queries
 ```
 
 查询结果使用 envelope，便于后续添加 schema、阶段耗时、截断信息和资源指标。
+
+### 列出 datasource
+
+`GET /v1/datasources` 支持分页参数 `limit` 和 `offset`。第一版 registry 规模通常很小，但列表接口仍保持稳定分页形态。
+
+返回：
+
+```json
+{
+  "data": [],
+  "pagination": {
+    "limit": 100,
+    "offset": 0,
+    "totalItems": 0
+  }
+}
+```
+
+### 关闭 daemon
+
+`DELETE /v1/server` 是本机 daemon 生命周期控制接口，只监听 `127.0.0.1`，不作为远程管理 API。成功后返回 `202 Accepted`，daemon 在响应写出后触发 graceful shutdown。
+
+返回：
+
+```json
+{
+  "data": {
+    "state": "SHUTTING_DOWN"
+  }
+}
+```
 
 ### 错误响应
 
@@ -157,7 +211,7 @@ HTTP 状态码约定：
 | `400` | JSON 格式错误或参数类型错误 |
 | `404` | datasource 不存在 |
 | `409` | 资源状态冲突 |
-| `422` | source、path 或 SQL 语义校验失败 |
+| `422` | source、输入路径或 SQL 语义校验失败 |
 | `500` | 服务端内部错误，响应不暴露内部栈 |
 
 ## Crate 与模块边界
@@ -195,16 +249,22 @@ Axum handler 保持薄，只负责 `State`、`Path`、`Json` extraction、调用
 
 ## Datasource 表示
 
-第一版不使用 `Arc<dyn QueryableDatasource>`。Rust 中 async trait object 会带来 object safety 和 `async_trait` 复杂度，而当前 source 数量少，用枚举更直接：
+最新代码中 hitrace 和 Langfuse legacy 都由 `TraceDatasource` 承载：hitrace 构建内存 `MemTable`，Langfuse legacy 注册 DataFusion JSONL/GZ 外部表。因此 daemon 第一版不新增 `LangfuseLegacyDatasource` 类型，也不使用 `Arc<dyn QueryableDatasource>`。
 
 ```rust
-enum LoadedDatasource {
-    Hitrace(TraceDatasource),
-    LangfuseLegacy(LangfuseLegacyDatasource),
+struct DatasourceEntry {
+    source: DatasourceSource,
+    datasource: Arc<TraceDatasource>,
+    // id, identity, timestamps...
 }
 ```
 
-后续 source 增多或插件化需求明确后，再评估 trait object 或 enum dispatch 之外的扩展方式。
+source-specific 差异只放在 loader 中：
+
+1. `HITRACE` 调用 `TraceDatasource::from_hitrace(file)`。
+2. `LANGFUSE_LEGACY` 调用 `TraceDatasource::from_langfuse_legacy(observations_file, traces_file).await`。
+
+后续如果 source 需要不同 query 能力，再评估 enum dispatch 或 trait object。
 
 ## Registry 与并发
 
@@ -213,24 +273,24 @@ registry 使用一个内部锁保护互相关联的索引，避免多个 `RwLock
 ```text
 RegistryInner
   entries: datasource_id -> Arc<DatasourceEntry>
-  by_identity: FileIdentityKey -> datasource_id
-  inflight: FileIdentityKey -> Arc<LoadSlot>
+  by_identity: DatasourceIdentityKey -> datasource_id
+  inflight: DatasourceIdentityKey -> Arc<LoadSlot>
 ```
 
 `DatasourceEntry` 保存：
 
 1. datasource id
 2. source
-3. canonical path
-4. file identity
+3. canonical input files
+4. datasource identity
 5. `READY` state
-6. loaded datasource
+6. `TraceDatasource`
 7. created_at
 8. last_accessed_at
 
-并发创建同一个文件时，使用内部 inflight 协调：
+并发创建同一个 datasource identity 时，使用内部 inflight 协调：
 
-1. service 生成 `FileIdentityKey`。
+1. service 生成 `DatasourceIdentityKey`。
 2. registry 查 `by_identity`，命中则直接返回已加载 datasource。
 3. 未命中但 `inflight` 存在时，当前请求等待同一个 `LoadSlot`。
 4. 未命中且无 `inflight` 时，当前请求插入 `LoadSlot` 并成为 loader。
@@ -257,7 +317,9 @@ kat-rs daemon start --host 127.0.0.1 --port 0
 kat-rs daemon stop
 ```
 
-`start` 启动 Axum server。默认监听 `127.0.0.1`，端口可配置。`stop` 关闭本机 daemon。
+`start` 启动 Axum server。默认监听 `127.0.0.1`，端口可配置。第一版以前台进程运行，并支持 Ctrl-C graceful shutdown。
+
+`stop` 向本机 daemon 发送 `DELETE /v1/server`。它只关闭同一台机器上的 daemon，不引入远程控制或自动拉起。
 
 第一版不把 `kat-rs query` 接到 daemon。HTTP API 是主要查询入口，便于用 curl、浏览器工具和 MCP 直接调试。
 
@@ -266,7 +328,7 @@ kat-rs daemon stop
 API contract 测试：
 
 1. `POST /v1/datasources` 新建 datasource 返回 `201`。
-2. 同一文件第二次 `POST /v1/datasources` 返回 `200` 且同一个 id。
+2. 同一输入文件组第二次 `POST /v1/datasources` 返回 `200` 且同一个 id。
 3. `GET /v1/datasources` 返回列表。
 4. `GET /v1/datasources/{id}` 返回单个资源。
 5. `DELETE /v1/datasources/{id}` 后再次 `GET` 返回 `404`。
@@ -274,14 +336,14 @@ API contract 测试：
 
 服务端身份测试：
 
-1. request 只传 `source/path`。
-2. size/mtime 来自服务端 stat。
-3. 文件变更后再次 `POST` 得到新的 datasource id。
+1. request 只传 source-specific 文件路径，例如 `observationsFile` 和 `tracesFile`。
+2. 每个输入文件的 size/mtime 来自服务端 stat。
+3. 任一输入文件变更后再次 `POST` 得到新的 datasource id。
 
 并发测试：
 
 1. 用 fake loader 注入延迟。
-2. N 个并发 `POST /v1/datasources` 同一文件只触发一次 load。
+2. N 个并发 `POST /v1/datasources` 同一输入文件组只触发一次 load。
 3. 所有成功请求返回同一个 datasource id。
 4. load 失败时等待者都拿到同类错误，不重复 load。
 
