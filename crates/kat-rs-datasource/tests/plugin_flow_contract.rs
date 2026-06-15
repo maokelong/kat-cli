@@ -15,41 +15,15 @@ mod proto {
 
 mod domains {
     pub(crate) mod ftrace {
-        #![allow(dead_code)]
+        use crate::plugin_flow::{PluginDecoder, PluginDecoderSpec};
 
-        use anyhow::Result;
-
-        use crate::{
-            plugin_flow::{PluginDecoder, PluginDecoderSpec, PluginEnvelope},
-            record::TraceRecordSink,
-        };
-
-        include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/domains/ftrace/event.rs"
-        ));
+        pub(crate) struct FtraceEventRecord;
 
         pub(crate) const FTRACE_PLUGIN_DECODER: PluginDecoderSpec =
             PluginDecoderSpec::new(new_ftrace_plugin_decoder);
 
         fn new_ftrace_plugin_decoder() -> Box<dyn PluginDecoder> {
-            Box::new(NoopFtraceDecoder)
-        }
-
-        struct NoopFtraceDecoder;
-
-        impl PluginDecoder for NoopFtraceDecoder {
-            fn plugin_name(&self) -> &'static str {
-                "ftrace-plugin"
-            }
-
-            fn decode_data(
-                &mut self,
-                _envelope: &PluginEnvelope<'_>,
-                _sink: &mut dyn TraceRecordSink,
-            ) -> Result<()> {
-                Ok(())
-            }
+            unreachable!("default ftrace decoder is not used by this contract test")
         }
     }
 }
@@ -84,14 +58,10 @@ mod plugin_flow {
     pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
 }
 
-#[derive(Default)]
-struct RecordingSink {
-    records: Vec<record::TraceRecord>,
-}
+struct RecordingSink;
 
 impl record::TraceRecordSink for RecordingSink {
-    fn push(&mut self, record: record::TraceRecord) -> Result<()> {
-        self.records.push(record);
+    fn push(&mut self, _record: record::TraceRecord) -> Result<()> {
         Ok(())
     }
 }
@@ -111,7 +81,7 @@ impl plugin_flow::PluginDecoder for RecordingDecoder {
         EVENTS.with(|events| {
             events
                 .borrow_mut()
-                .push(format!("configure:{}", envelope.envelope_name));
+                .push(format!("configure:{}", envelope.envelope_name))
         });
         Ok(())
     }
@@ -124,7 +94,7 @@ impl plugin_flow::PluginDecoder for RecordingDecoder {
         EVENTS.with(|events| {
             events
                 .borrow_mut()
-                .push(format!("decode_data:{}", envelope.envelope_name));
+                .push(format!("decode_data:{}", envelope.envelope_name))
         });
         Ok(())
     }
@@ -146,20 +116,12 @@ fn plugin_message(name: &str) -> proto::ProfilerPluginData {
     }
 }
 
-fn reset_events() {
-    EVENTS.with(|events| events.borrow_mut().clear());
-}
-
-fn recorded_events() -> Vec<String> {
-    EVENTS.with(|events| events.borrow().clone())
-}
-
 #[test]
 fn registry_dispatches_config_data_and_finish_to_matching_decoder() {
-    reset_events();
+    EVENTS.with(|events| events.borrow_mut().clear());
     let specs = [plugin_flow::PluginDecoderSpec::new(new_recording_decoder)];
     let mut registry = plugin_flow::PluginPayloadRegistry::new(&specs);
-    let mut sink = RecordingSink::default();
+    let mut sink = RecordingSink;
 
     let config = plugin_message("demo-plugin_config");
     let config = plugin_flow::PluginEnvelope::from_profiler_plugin_data(&config, 10);
@@ -180,7 +142,7 @@ fn registry_dispatches_config_data_and_finish_to_matching_decoder() {
     registry.finish(&mut sink).expect("finish dispatch");
 
     assert_eq!(
-        recorded_events(),
+        EVENTS.with(|events| events.borrow().clone()),
         vec![
             "configure:demo-plugin_config".to_string(),
             "decode_data:demo-plugin".to_string(),
