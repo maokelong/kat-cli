@@ -8,29 +8,80 @@ mod proto {
             include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
         }
     }
+
+    pub(crate) use kat::hitrace::ProfilerPluginData;
 }
 
-mod hitrace {
-    use arrow_array::RecordBatch;
+mod catalog {
+    #![allow(dead_code)]
 
-    pub(crate) struct HitraceTable {
-        pub(crate) name: &'static str,
-        pub(crate) batches: Vec<RecordBatch>,
-    }
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/catalog.rs"));
+}
 
-    #[allow(dead_code)]
-    mod table_builder {
+mod record {
+    #![allow(dead_code)]
+
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/record.rs"));
+}
+
+mod domains {
+    pub(crate) mod ftrace {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/hitrace/table_builder.rs"
+            "/src/domains/ftrace/event.rs"
         ));
     }
-
-    pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta};
 }
 
-mod sched_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/sched_table_builders.rs"));
+mod sinks {
+    pub(crate) mod arrow {
+        #[allow(dead_code)]
+        mod table_builder {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/sinks/arrow/table_builder.rs"
+            ));
+        }
+
+        pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta};
+    }
+}
+
+mod ftrace_event_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
+}
+
+#[test]
+fn trace_record_stream_models_pre_sink_records() {
+    let plugin = proto::ProfilerPluginData {
+        name: "ftrace-plugin".to_string(),
+        ..Default::default()
+    };
+
+    match record::TraceRecord::ProfilerPluginData(plugin) {
+        record::TraceRecord::ProfilerPluginData(record) => {
+            assert_eq!(record.name, "ftrace-plugin");
+        }
+        record::TraceRecord::FtraceEvent(_) => unreachable!("expected plugin data record"),
+    }
+
+    let event = domains::ftrace::FtraceEventRecord::new(
+        3,
+        proto::kat::hitrace::FtraceEvent {
+            timestamp: 20,
+            tgid: 500,
+            comm: "source".to_string(),
+            ..Default::default()
+        },
+    );
+
+    match record::TraceRecord::FtraceEvent(Box::new(event)) {
+        record::TraceRecord::FtraceEvent(record) => {
+            assert_eq!(record.context.cpu, 3);
+            assert_eq!(record.event.timestamp, 20);
+        }
+        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
+    }
 }
 
 #[test]
@@ -106,12 +157,12 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
 }
 
 #[test]
-fn generated_sched_table_builders_route_direct_events_to_tables() {
+fn generated_ftrace_event_table_builders_route_direct_events_to_tables() {
     let mut builders =
-        sched_table_builders::SchedDirectTableBuilders::new().expect("builders are created");
+        ftrace_event_table_builders::FtraceEventTableBuilders::new().expect("builders are created");
 
     builders
-        .push_event(
+        .push_event(domains::ftrace::FtraceEventRecord::new(
             3,
             proto::kat::hitrace::FtraceEvent {
                 timestamp: 20,
@@ -128,7 +179,7 @@ fn generated_sched_table_builders_route_direct_events_to_tables() {
                 }),
                 ..Default::default()
             },
-        )
+        ))
         .expect("event is routed");
 
     let tables = builders.into_tables().expect("tables are built");
@@ -148,12 +199,12 @@ fn direct_event_table_builder_combines_meta_and_message_fields() {
         comm: "source".to_string(),
         ..Default::default()
     };
-    let meta = hitrace::EventMeta::from_event(3, &event);
-    let mut builder =
-        hitrace::DirectEventTableBuilder::new::<proto::kat::hitrace::SchedSwitchFormat>(
-            "sched_switch",
-        )
-        .expect("builder is created from meta and message schemas");
+    let record = domains::ftrace::FtraceEventRecord::new(3, event);
+    let meta = sinks::arrow::EventMeta::from_record(&record);
+    let mut builder = sinks::arrow::DirectEventTableBuilder::new::<
+        proto::kat::hitrace::SchedSwitchFormat,
+    >("sched_switch")
+    .expect("builder is created from meta and message schemas");
 
     builder
         .push(

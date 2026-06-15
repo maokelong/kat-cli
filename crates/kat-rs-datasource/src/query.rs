@@ -3,14 +3,15 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
-use arrow_array::RecordBatch;
 use datafusion::{datasource::MemTable, prelude::SessionContext};
 use log::debug;
 use serde_json::Value;
 
 use crate::{
-    hitrace::{HITRACE_TABLE, load_hitrace_tables},
+    catalog::{TraceDataset, TraceTable},
+    formats::hitrace,
     json::batches_to_json,
+    sinks::arrow::ArrowSink,
 };
 
 pub struct TraceDatasource {
@@ -20,18 +21,9 @@ pub struct TraceDatasource {
 impl TraceDatasource {
     pub fn from_hitrace(path: impl AsRef<Path>) -> Result<Self> {
         let ctx = SessionContext::new();
-        let tables = load_hitrace_tables(path.as_ref())?;
-
-        register_batches(
-            &ctx,
-            HITRACE_TABLE,
-            tables.profiler_plugin_data,
-            "hitrace file contains no protobuf sections",
-        )?;
-
-        for table in tables.tables {
-            register_batches(&ctx, table.name, table.batches, "hitrace table is missing")?;
-        }
+        let mut sink = ArrowSink::new()?;
+        hitrace::decode_file(path.as_ref(), &mut sink)?;
+        register_dataset(&ctx, sink.finish()?)?;
 
         Ok(Self { ctx })
     }
@@ -46,16 +38,26 @@ impl TraceDatasource {
     }
 }
 
-fn register_batches(
-    ctx: &SessionContext,
-    name: &str,
-    batches: Vec<RecordBatch>,
-    empty_message: &'static str,
-) -> Result<()> {
-    let schema = batches.first().context(empty_message)?.schema();
-    let table = MemTable::try_new(schema, vec![batches])?;
-    ctx.register_table(name, Arc::new(table))?;
-    debug!("registered datasource table: {name}");
+fn register_dataset(ctx: &SessionContext, dataset: TraceDataset) -> Result<()> {
+    for table in dataset.tables {
+        register_table(ctx, table)?;
+    }
+
+    Ok(())
+}
+
+fn register_table(ctx: &SessionContext, table: TraceTable) -> Result<()> {
+    let schema = table
+        .batches
+        .first()
+        .with_context(|| format!("datasource table {} is missing batches", table.name))?
+        .schema();
+    let mem_table = MemTable::try_new(schema, vec![table.batches])?;
+    ctx.register_table(table.name, Arc::new(mem_table))?;
+    debug!(
+        "registered datasource table: {} category={:?}",
+        table.name, table.category
+    );
 
     Ok(())
 }
