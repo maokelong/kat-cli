@@ -1,3 +1,4 @@
+// hitrace 文件头读取集中在这里，格式层据此切分 profiler section。
 use anyhow::{Result, bail};
 
 pub(crate) const PROFILER_HEADER_SIZE: usize = 1024;

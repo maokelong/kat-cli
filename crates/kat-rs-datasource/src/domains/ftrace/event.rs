@@ -1,3 +1,4 @@
+// ftrace 事件记录保留事件公共上下文和原始事件体，供后续 sink 决定物化方式。
 use crate::proto::kat::hitrace::FtraceEvent;
 
 #[derive(Clone, Debug)]

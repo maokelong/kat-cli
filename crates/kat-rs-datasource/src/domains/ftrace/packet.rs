@@ -1,3 +1,4 @@
+// ftrace 插件 decoder 按 plugin_flow 生命周期接入，只处理 data envelope。
 use anyhow::{Context, Result};
 use prost::Message;
 

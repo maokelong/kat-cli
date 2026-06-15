@@ -1,3 +1,4 @@
+// CLI 命令测试覆盖参数校验、错误输出和 JSON 查询结果的用户可见行为。
 use std::fs;
 
 use clap::{CommandFactory, Parser};

@@ -1,3 +1,4 @@
+// plugin_flow 契约测试验证 registry 生命周期，同时保持测试代码位于 tests 目录。
 use std::cell::RefCell;
 
 use anyhow::Result;

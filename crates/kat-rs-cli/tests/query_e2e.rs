@@ -1,3 +1,4 @@
+// CLI 端到端测试用真实命令进程确认查询入口和 datasource 集成可用。
 use std::{fs, process::Command};
 
 use prost::Message;

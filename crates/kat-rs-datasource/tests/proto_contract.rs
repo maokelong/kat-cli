@@ -1,3 +1,4 @@
+// proto 契约测试确认生成类型、表路由和上游 schema 摘取结果保持一致。
 use prost::Message;
 use std::fs;
 

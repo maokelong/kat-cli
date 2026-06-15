@@ -1,4 +1,4 @@
-//! Converts Arrow query results into the JSON array returned by datasource APIs.
+// JSON 转换层统一处理 DataFusion 查询结果到 datasource API 返回值的形态。
 
 use anyhow::Result;
 use arrow_array::RecordBatch;

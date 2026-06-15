@@ -1,4 +1,4 @@
-//! Provides scoped file mapping so build-time parsing releases the trace file.
+// 文件映射封装成闭包作用域，确保构建 datasource 后能及时释放 trace 文件句柄。
 
 use std::{fs::File, path::Path};
 

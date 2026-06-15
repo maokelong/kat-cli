@@ -1,3 +1,4 @@
+// 构建脚本生成 protobuf 类型和 ftrace 事件表路由代码，避免手写重复表装配。
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
 const FTRACE_EVENT_TABLE_BUILDERS_FILE: &str = "ftrace_event_table_builders.rs";

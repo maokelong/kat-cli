@@ -1,3 +1,4 @@
+// 架构契约测试用源码边界检查保护当前分层，防止小 PR 回退到旧耦合。
 use std::{fs, path::PathBuf};
 
 fn source(path: &str) -> String {

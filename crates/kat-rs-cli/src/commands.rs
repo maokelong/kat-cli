@@ -1,3 +1,4 @@
+// CLI 命令层只负责参数解析、错误输出和把查询请求转给 datasource。
 use std::{io::Write, path::PathBuf};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};

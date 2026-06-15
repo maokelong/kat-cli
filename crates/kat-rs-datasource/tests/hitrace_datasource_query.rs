@@ -1,3 +1,4 @@
+// datasource 查询测试用最小 htrace 样本覆盖容器解析、插件流转和 SQL 查询行为。
 use std::fs;
 
 use prost::Message;

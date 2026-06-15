@@ -1,4 +1,4 @@
-//! ftrace plugin domain decoding.
+// ftrace domain 只负责插件载荷到中立事件记录的转换，不直接生成查询表。
 
 mod event;
 mod packet;

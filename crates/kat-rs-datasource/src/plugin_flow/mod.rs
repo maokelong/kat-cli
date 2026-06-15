@@ -1,3 +1,4 @@
+// plugin_flow 承接 profiler 插件流转：解析分段、保留 raw record 并调度已知 decoder。
 mod envelope;
 mod registry;
 mod segment;
