@@ -4,12 +4,16 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
+    BadRequest,
+    DatasourceNotFound,
     Internal,
+    QueryFailed,
+    ValidationFailed,
 }
 
 #[derive(Debug)]
@@ -18,6 +22,37 @@ pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
     pub details: Option<Value>,
+}
+
+impl ApiError {
+    pub fn datasource_not_found(datasource_id: impl Into<String>) -> Self {
+        let datasource_id = datasource_id.into();
+
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: ErrorCode::DatasourceNotFound,
+            message: "datasource not found".to_owned(),
+            details: Some(json!({ "datasourceId": datasource_id })),
+        }
+    }
+
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: ErrorCode::ValidationFailed,
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn internal(_message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: ErrorCode::Internal,
+            message: "internal server error".to_string(),
+            details: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
