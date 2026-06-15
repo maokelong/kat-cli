@@ -133,6 +133,59 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
 }
 
 #[tokio::test]
+async fn hdf_dispatch_ignores_config_and_unknown_plugin_payloads() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("hdf-envelopes.hitrace");
+    fs::write(
+        &trace_path,
+        profiler_section(vec![
+            TestProfilerPluginData {
+                name: "ftrace-plugin_config".to_string(),
+                status: 0,
+                data: vec![1, 2, 3],
+                clock_id: 2,
+                tv_sec: 10,
+                tv_nsec: 100,
+                version: "1.0".to_string(),
+                sample_interval: 8,
+            },
+            TestProfilerPluginData {
+                name: "unknown-plugin".to_string(),
+                status: 0,
+                data: vec![9, 9, 9],
+                clock_id: 2,
+                tv_sec: 11,
+                tv_nsec: 200,
+                version: "1.0".to_string(),
+                sample_interval: 9,
+            },
+        ]),
+    )
+    .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    let raw_rows = datasource
+        .query_json("select name, data from profiler_plugin_data order by name")
+        .await
+        .expect("raw profiler table is queryable");
+    assert_eq!(
+        raw_rows,
+        json!([
+            { "name": "ftrace-plugin_config", "data": "010203" },
+            { "name": "unknown-plugin", "data": "090909" }
+        ])
+    );
+
+    let direct_rows = datasource
+        .query_json("select count(*) as count from sched_switch")
+        .await
+        .expect("direct table remains queryable");
+    assert_eq!(direct_rows, json!([{ "count": 0 }]));
+}
+
+#[tokio::test]
 async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("sched-switch.hitrace");

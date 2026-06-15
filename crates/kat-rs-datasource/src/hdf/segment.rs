@@ -1,7 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{Result, bail};
 use prost::Message;
-
-use super::file::ensure_available;
 
 const SEGMENT_LENGTH_SIZE: usize = 4;
 
@@ -19,11 +17,21 @@ where
         ensure_available(bytes, offset, len, "profiler segment")?;
 
         let segment = &bytes[offset..offset + len];
-        let message = T::decode(segment).with_context(|| {
-            format!("failed to decode length-prefixed protobuf message at byte {offset}")
+        let message = T::decode(segment).map_err(|source| {
+            anyhow::anyhow!(
+                "failed to decode length-prefixed protobuf message at byte {offset}: {source}"
+            )
         })?;
         visitor(message)?;
         offset += len;
+    }
+
+    Ok(())
+}
+
+fn ensure_available(bytes: &[u8], offset: usize, len: usize, context: &str) -> Result<()> {
+    if bytes.len().saturating_sub(offset) < len {
+        bail!("truncated {context} at byte {offset}");
     }
 
     Ok(())

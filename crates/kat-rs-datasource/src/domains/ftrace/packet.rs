@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
+    hdf::PluginEnvelope,
     proto::TracePluginResult,
     record::{TraceRecord, TraceRecordSink},
 };
@@ -11,12 +12,17 @@ use super::FtraceEventRecord;
 pub(crate) const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 
 pub(crate) fn decode_plugin_payload(
-    payload: &[u8],
-    section_start: usize,
-    sink: &mut impl TraceRecordSink,
+    envelope: &PluginEnvelope<'_>,
+    sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
-    let result = TracePluginResult::decode(payload).with_context(|| {
-        format!("failed to decode ftrace payload in profiler section at byte {section_start}")
+    let result = TracePluginResult::decode(envelope.payload).with_context(|| {
+        format!(
+            "failed to decode {} payload in profiler section at byte {} version={} sample_interval={}",
+            envelope.envelope_name,
+            envelope.section_start,
+            envelope.version,
+            envelope.sample_interval
+        )
     })?;
 
     for detail in result.ftrace_cpu_detail {

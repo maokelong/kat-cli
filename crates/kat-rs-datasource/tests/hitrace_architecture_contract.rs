@@ -21,8 +21,10 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/formats/mod.rs",
         "src/formats/hitrace/mod.rs",
         "src/formats/hitrace/file.rs",
-        "src/formats/hitrace/profiler.rs",
-        "src/formats/hitrace/segment.rs",
+        "src/hdf/mod.rs",
+        "src/hdf/envelope.rs",
+        "src/hdf/registry.rs",
+        "src/hdf/segment.rs",
         "src/domains/mod.rs",
         "src/domains/ftrace/mod.rs",
         "src/domains/ftrace/event.rs",
@@ -49,14 +51,14 @@ fn datasource_uses_reviewer_layer_boundaries() {
 
 #[test]
 fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
-    let hitrace_sources = joined_sources(&[
-        "src/formats/hitrace/mod.rs",
-        "src/formats/hitrace/file.rs",
-        "src/formats/hitrace/profiler.rs",
-        "src/formats/hitrace/segment.rs",
-    ]);
+    let hitrace_sources =
+        joined_sources(&["src/formats/hitrace/mod.rs", "src/formats/hitrace/file.rs"]);
 
     for marker in [
+        "domains::ftrace",
+        "FTRACE_PLUGIN_NAME",
+        "decode_plugin_payload",
+        "ProfilerPluginData",
         "TraceRecord::ProfilerSection",
         "TracePluginResult::decode",
         "SchedDirectTableBuilders",
@@ -72,6 +74,24 @@ fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
             "{marker} should not live in formats/hitrace"
         );
     }
+}
+
+#[test]
+fn hdf_owns_plugin_envelope_dispatch() {
+    let hdf_sources = joined_sources(&[
+        "src/hdf/mod.rs",
+        "src/hdf/envelope.rs",
+        "src/hdf/registry.rs",
+        "src/hdf/segment.rs",
+    ]);
+
+    assert!(hdf_sources.contains("PluginEnvelopeKind"));
+    assert!(hdf_sources.contains("PluginPayloadRegistry"));
+    assert!(hdf_sources.contains("ProfilerPluginData"));
+    assert!(hdf_sources.contains("domains::ftrace"));
+    assert!(!hdf_sources.contains("ArrayBuilder"));
+    assert!(!hdf_sources.contains("RecordBatch"));
+    assert!(!hdf_sources.contains("MemTable"));
 }
 
 #[test]

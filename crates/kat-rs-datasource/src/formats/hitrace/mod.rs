@@ -1,18 +1,15 @@
 //! `.htrace` profiler container format adapter.
 
 mod file;
-mod profiler;
-mod segment;
 
 use std::path::Path;
 
 use anyhow::{Result, bail};
 use log::debug;
 
-use crate::{mmap::with_mapped_file, record::TraceRecordSink};
+use crate::{hdf::decode_plugin_section_body, mmap::with_mapped_file, record::TraceRecordSink};
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
-use profiler::decode_profiler_section;
 
 pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
     debug!("decoding hitrace format from {}", path.display());
@@ -42,7 +39,7 @@ fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> 
             continue;
         }
 
-        decode_profiler_section(section, bytes, sink)?;
+        decode_plugin_section_body(section.body(bytes), section.start, sink)?;
     }
 
     Ok(())
