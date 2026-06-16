@@ -1,4 +1,4 @@
-use std::{fs, fs::File, io::Write, path::Path};
+use std::{fs, fs::File, io::Write, path::Path, time::Duration};
 
 use clap::{CommandFactory, Parser};
 use flate2::{Compression, write::GzEncoder};
@@ -116,6 +116,61 @@ fn help_command_prints_usage() {
     assert!(help.contains("--observations-file"));
     assert!(help.contains("--traces-file"));
     assert!(help.contains("--sql"));
+}
+
+#[test]
+fn daemon_help_lists_start_and_stop() {
+    let mut command = Cli::command();
+    let help = command
+        .find_subcommand_mut("daemon")
+        .expect("daemon subcommand exists")
+        .render_long_help()
+        .to_string();
+
+    assert!(help.contains("start"));
+    assert!(help.contains("stop"));
+}
+
+#[tokio::test]
+async fn daemon_start_rejects_non_loopback_host_before_serving() {
+    let cli = Cli::try_parse_from([
+        "kat-rs", "daemon", "start", "--host", "0.0.0.0", "--port", "3030",
+    ])
+    .expect("daemon start args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = tokio::time::timeout(Duration::from_millis(100), run(cli, &mut out, &mut err))
+        .await
+        .expect("daemon start rejects before serving");
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        String::from_utf8_lossy(&err).contains("loopback"),
+        "stderr: {}",
+        String::from_utf8_lossy(&err)
+    );
+}
+
+#[tokio::test]
+async fn daemon_stop_rejects_non_loopback_host_before_connecting() {
+    let cli = Cli::try_parse_from([
+        "kat-rs", "daemon", "stop", "--host", "0.0.0.0", "--port", "3030",
+    ])
+    .expect("daemon stop args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = run(cli, &mut out, &mut err).await;
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        String::from_utf8_lossy(&err).contains("loopback"),
+        "stderr: {}",
+        String::from_utf8_lossy(&err)
+    );
 }
 
 #[test]
