@@ -51,6 +51,46 @@ async fn registers_legacy_langfuse_jsonl_gz_tables_for_sql_queries() {
 }
 
 #[tokio::test]
+async fn build_materializes_legacy_langfuse_tables_without_source_files() {
+    let dir = tempdir().expect("tempdir is created");
+    let observations_path = dir.path().join("observations.jsonl.gz");
+    let traces_path = dir.path().join("traces.jsonl.gz");
+
+    write_jsonl_gz(
+        &observations_path,
+        &[
+            r#"{"id":"obs-1","trace_id":"trace-1","type":"GENERATION","input":"prompt","output":"completion"}"#,
+        ],
+    );
+    write_jsonl_gz(
+        &traces_path,
+        &[r#"{"id":"trace-1","name":"chat request","user_id":"user-1"}"#],
+    );
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
+            .await
+            .expect("datasource builds");
+
+    fs::remove_file(&observations_path).expect("observations source can be removed");
+    fs::remove_file(&traces_path).expect("traces source can be removed");
+
+    let rows = datasource
+        .query_json(
+            "select o.id, t.name as trace_name \
+             from langfuse_observations o \
+             join langfuse_traces t on o.trace_id = t.id",
+        )
+        .await
+        .expect("query succeeds after source files are gone");
+
+    assert_eq!(
+        rows,
+        json!([{ "id": "obs-1", "trace_name": "chat request" }])
+    );
+}
+
+#[tokio::test]
 async fn rejects_invalid_langfuse_jsonl_gz_without_parse_error_table() {
     let dir = tempdir().expect("tempdir is created");
     let observations_path = dir.path().join("observations.jsonl.gz");

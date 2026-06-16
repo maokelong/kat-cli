@@ -39,7 +39,7 @@ impl TraceDatasource {
 
         for table in langfuse::legacy_json_tables(observations_path.as_ref(), traces_path.as_ref())
         {
-            register_jsonl_gz(&ctx, table.name, table.path).await?;
+            register_materialized_jsonl_gz(&ctx, table.name, table.path).await?;
         }
 
         Ok(Self { ctx })
@@ -79,21 +79,41 @@ fn register_table(ctx: &SessionContext, table: TraceTable) -> Result<()> {
     Ok(())
 }
 
-async fn register_jsonl_gz(ctx: &SessionContext, name: &str, path: &Path) -> Result<()> {
+async fn register_materialized_jsonl_gz(
+    ctx: &SessionContext,
+    name: &str,
+    path: &Path,
+) -> Result<()> {
     let path = path.to_str().with_context(|| {
         format!(
             "Langfuse export path is not valid UTF-8: {}",
             path.display()
         )
     })?;
+    let staging_ctx = SessionContext::new();
     let options = JsonReadOptions::default()
         .file_extension(".jsonl.gz")
         .file_compression_type(FileCompressionType::GZIP);
 
-    ctx.register_json(name, path, options)
+    staging_ctx
+        .register_json(name, path, options)
         .await
         .with_context(|| format!("failed to register Langfuse JSONL table {name} from {path}"))?;
-    debug!("registered datasource table: {name}");
+    let dataframe = staging_ctx
+        .table(name)
+        .await
+        .with_context(|| format!("failed to read Langfuse JSONL table {name} from {path}"))?;
+    let batches = dataframe.collect().await.with_context(|| {
+        format!("failed to materialize Langfuse JSONL table {name} from {path}")
+    })?;
+    let schema = batches
+        .first()
+        .with_context(|| format!("Langfuse JSONL table {name} from {path} produced no batches"))?
+        .schema();
+    let mem_table = MemTable::try_new(schema, vec![batches])?;
+
+    ctx.register_table(name, Arc::new(mem_table))?;
+    debug!("registered materialized datasource table: {name}");
 
     Ok(())
 }
