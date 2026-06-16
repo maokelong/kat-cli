@@ -6,23 +6,25 @@ Langfuse legacy export 由 `observations/*.jsonl.gz` 和 `traces/*.jsonl.gz` 文
 
 这个问题的根因不是单次加载不够快，而是 datasource 生命周期放在短生命周期 CLI 进程里。长期方向应把 datasource 生命周期提升到本机 daemon，由 CLI、MCP 或调试工具通过 HTTP API 使用同一个已注册 datasource。
 
-当前最新代码中，Langfuse legacy 通过 `TraceDatasource::from_langfuse_legacy(observations_path, traces_path)` 注册两张 DataFusion JSONL/GZ 外部表：`langfuse_observations` 和 `langfuse_traces`。它不把两张表完整转成内存 `RecordBatch`；daemon 第一版复用的是 `SessionContext`、表注册和 datasource handle，查询时仍由 DataFusion 扫描源文件。
+当前最新代码中，Langfuse legacy 通过 `TraceDatasource::from_langfuse_legacy(observations_path, traces_path)` 注册两张 DataFusion JSONL/GZ 外部表：`langfuse_observations` 和 `langfuse_traces`。这只复用了 `SessionContext`、表注册和 datasource handle；查询时仍由 DataFusion 扫描、解压和解析源 `.jsonl.gz` 文件，不能满足“连续查询不反复加载大文件”的核心目标。
+
+本设计调整为第一版内存物化：`POST /v1/datasources` 首次创建时完整读取 observations/traces，解压并解析为 Arrow `RecordBatch`，注册为 DataFusion `MemTable`。`READY` 表示 datasource 已经脱离原始 `.jsonl.gz` 文件进入可查询内存表；后续查询只访问内存表，不再扫描源文件。
 
 ## 要解决的问题
 
 本次设计要解决：
 
 1. 为 Langfuse legacy 等大文件 datasource 提供本机常驻生命周期。
-2. 让同一个 datasource identity 连续查询时复用 daemon 中已注册的 datasource。
+2. 让同一个 datasource identity 首次创建时完成内存物化，连续查询复用 daemon 中已物化的 datasource。
 3. 提供可直接用 URL/curl/MCP 调试的 REST API。
 4. 让服务端负责输入文件组身份识别，避免信任客户端传入的 size/mtime。
-5. 为后续磁盘缓存、内存水位控制和 MCP 接入保留清晰边界。
+5. 为后续磁盘物化、内存水位控制和 MCP 接入保留清晰边界。
 
 ## 不做什么
 
 1. 不做远程访问、多用户隔离或鉴权；第一版只监听 `127.0.0.1`。
 2. 不做 daemon 自动拉起；第一版由用户显式启动和关闭。
-3. 不做磁盘缓存。磁盘缓存后续用于内存压力控制，不作为本次冷启动加速手段。
+3. 不做磁盘物化缓存。第一版采用内存物化；如果真实大数据集超过 32GB 本机内存可承受范围，允许用更小真实数据集验证语义。
 4. 不做 idle timeout、LRU 或内存水位淘汰；第一版只支持显式关闭 datasource。
 5. 不做异步 `LOADING` 状态；第一版创建请求同步返回 `READY` 或错误。
 6. 不让 `kat-rs query` 包装 daemon；第一版 CLI 只负责 daemon 启停，查询直接走 HTTP API。
@@ -30,7 +32,7 @@ Langfuse legacy export 由 `observations/*.jsonl.gz` 和 `traces/*.jsonl.gz` 文
 
 ## 方案选择
 
-采用本机 Axum REST daemon：
+采用本机 Axum REST daemon + Langfuse 内存物化：
 
 ```text
 CLI / MCP / curl
@@ -39,13 +41,15 @@ CLI / MCP / curl
   -> DatasourceService
   -> DatasourceRegistry
   -> kat-rs-datasource
+  -> in-memory MemTable
 ```
 
 备选方案及取舍：
 
 1. 批量 SQL 模式实现更小，但不能解决用户反复执行多个 CLI 进程时重复加载的问题，也不能承接 MCP。
-2. 磁盘 columnar/materialized cache 可以跨进程复用，但会把第一刀带向缓存格式、失效和落盘成本，偏离生命周期问题。
-3. daemon REST API 能直接修正 datasource 生命周期边界，并自然支持后续 MCP 和人工 URL 调试。
+2. 只注册 DataFusion JSONL/GZ 外部表改动更小，但查询仍会反复扫描源 `.jsonl.gz`，不能解决本需求。
+3. 磁盘 columnar/materialized cache 更适合 2GB+ gzip 长期治理和内存压力控制，但会引入缓存目录、失效、清理和落盘成本；第一版先用内存物化验证产品语义。
+4. daemon REST API 能直接修正 datasource 生命周期边界，并自然支持后续 MCP 和人工 URL 调试。
 
 ## REST API
 
@@ -90,8 +94,8 @@ hitrace 请求：
 2. 按 `source` 校验必需文件字段，拒绝无关字段。
 3. canonicalize 每个输入文件路径。
 4. 读取每个输入文件 metadata，生成 `DatasourceIdentityKey(source, inputs)`。
-5. 命中已加载 datasource 时返回 `200 OK`。
-6. 未命中时同步加载，成功后返回 `201 Created`。
+5. 命中已物化 datasource 时返回 `200 OK`。
+6. 未命中时同步加载并内存物化，成功后返回 `201 Created`。
 
 返回：
 
@@ -121,7 +125,7 @@ hitrace 请求：
 }
 ```
 
-第一版只有 `READY` 状态。加载失败直接返回错误响应，不创建 `FAILED` 资源。
+第一版只有 `READY` 状态。`READY` 表示 source-specific 输入已经转换为 daemon 持有的可查询 datasource；对 Langfuse legacy 来说，它必须是不再依赖原始 `.jsonl.gz` 的内存表。加载或物化失败直接返回错误响应，不创建 `FAILED` 资源。
 
 ### 查询 datasource
 
@@ -249,7 +253,7 @@ Axum handler 保持薄，只负责 `State`、`Path`、`Json` extraction、调用
 
 ## Datasource 表示
 
-最新代码中 hitrace 和 Langfuse legacy 都由 `TraceDatasource` 承载：hitrace 构建内存 `MemTable`，Langfuse legacy 注册 DataFusion JSONL/GZ 外部表。因此 daemon 第一版不新增 `LangfuseLegacyDatasource` 类型，也不使用 `Arc<dyn QueryableDatasource>`。
+最新代码中 hitrace 和 Langfuse legacy 都由 `TraceDatasource` 承载。调整后两者都以 DataFusion `MemTable` 作为查询表：hitrace 继续把解码后的 trace records 注册为 `MemTable`；Langfuse legacy 在 datasource 创建阶段读取 `.jsonl.gz`，把 observations/traces 物化为 Arrow batches，再注册为 `MemTable`。因此 daemon 第一版不新增 `LangfuseLegacyDatasource` 类型，也不使用 `Arc<dyn QueryableDatasource>`。
 
 ```rust
 struct DatasourceEntry {
@@ -262,7 +266,7 @@ struct DatasourceEntry {
 source-specific 差异只放在 loader 中：
 
 1. `HITRACE` 调用 `TraceDatasource::from_hitrace(file)`。
-2. `LANGFUSE_LEGACY` 调用 `TraceDatasource::from_langfuse_legacy(observations_file, traces_file).await`。
+2. `LANGFUSE_LEGACY` 调用 `TraceDatasource::from_langfuse_legacy(observations_file, traces_file).await`，该函数必须完成内存物化并注册内存表，而不是只注册外部 JSONL/GZ 路径。
 
 后续如果 source 需要不同 query 能力，再评估 enum dispatch 或 trait object。
 
@@ -295,7 +299,7 @@ RegistryInner
 3. 未命中但 `inflight` 存在时，当前请求等待同一个 `LoadSlot`。
 4. 未命中且无 `inflight` 时，当前请求插入 `LoadSlot` 并成为 loader。
 5. loader 获取 `loadLimiter` permit。
-6. loader 用 `tokio::task::spawn_blocking` 执行大文件加载。
+6. loader 用合适的阻塞隔离执行大文件加载和内存物化，避免阻塞 Axum/Tokio runtime 的核心调度线程。
 7. 加载成功后短暂持有 registry 写锁，插入 `entries` 和 `by_identity`，移除 `inflight`。
 8. loader 写入 `LoadSlot` 结果并通知等待者。
 9. 等待者复用同一个结果；失败时所有等待者收到同类结构化错误，不重复加载。
@@ -352,6 +356,8 @@ API contract 测试：
 1. 创建 datasource 后，`POST /v1/datasources/{id}/queries` 返回 envelope。
 2. 不存在 id 返回 `404`。
 3. SQL 执行错误返回结构化错误，不把 anyhow/debug 栈直接暴露给 HTTP 客户端。
+4. Langfuse datasource 创建成功后，删除或改名原始 observations/traces `.jsonl.gz` 文件，已有 datasource 的查询仍成功。
+5. 同一 Langfuse datasource 连续查询时，不重新打开原始 `.jsonl.gz` 文件；删除源文件后的查询成功是该语义的验收证据。
 
 CLI 测试：
 
@@ -374,5 +380,5 @@ cargo clippy --workspace --all-targets -- -D warnings
 2. `kat-rs query` 自动连接 daemon 或显式 `--daemon`。
 3. daemon 自动拉起。
 4. 异步 datasource create，增加 `LOADING/FAILED` 状态。
-5. 磁盘缓存、spill、内存水位、LRU 和 idle timeout。
+5. 磁盘 columnar 物化、spill、内存水位、LRU 和 idle timeout。
 6. 远程访问、鉴权和多用户隔离。
