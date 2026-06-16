@@ -34,7 +34,6 @@ legacy 模式下，`observations/` 只包含 observation-level 字段，不包�
 8. 不解析 `metadata`、`usage_details`、`cost_details`、`input`、`output` 等 JSON 字符串或对象为额外列。
 9. 不截断、摘要或脱敏 `input` / `output`。
 10. 不改变 hitrace datasource 的行为。
-11. 不做磁盘物化缓存；第一版 Langfuse 加载后驻留内存。
 
 ## 最小交付
 
@@ -72,7 +71,7 @@ group by o.trace_id, t.name
 
 ## 架构
 
-实现复用现有 `TraceDatasource` 和 `query_json(sql)`，同时新增一个很薄的 Langfuse format 模块，与当前 `hitrace.rs` 的“输入格式适配器”角色保持一致。`kat-rs` 不新增 Langfuse 专用业务 parser，不定义完整 Langfuse Rust struct。
+实现复用现有 `TraceDatasource` 和 `query_json(sql)`，同时新增一个很薄的 Langfuse format 模块，与当前 `hitrace.rs` 的“输入格式适配器”角色保持一致。`kat-rs` 不新增 Langfuse 专用 JSON parser，不定义完整 Langfuse Rust struct。
 
 ```text
 kat-rs-cli
@@ -80,11 +79,8 @@ kat-rs-cli
   -> TraceDatasource::from_langfuse_legacy(observations_path, traces_path)
   -> langfuse::legacy_json_tables(observations_path, traces_path)
   -> DataFusion SessionContext
-  -> read_jsonl_gz("langfuse_observations", observations_path, JsonReadOptions)
-  -> read_jsonl_gz("langfuse_traces", traces_path, JsonReadOptions)
-  -> collect Arrow RecordBatch
-  -> register MemTable("langfuse_observations")
-  -> register MemTable("langfuse_traces")
+  -> register_json("langfuse_observations", observations_path, JsonReadOptions)
+  -> register_json("langfuse_traces", traces_path, JsonReadOptions)
   -> query_json(sql)
 ```
 
@@ -97,14 +93,14 @@ kat-rs-cli
 
 当前代码已经把输入格式适配器放在 `formats/` 下，因此 Langfuse 也放入 `formats/langfuse`。本次仍不扩大到 catalog、sink 或 domain 边界重构。
 
-DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读取应复用 DataFusion/Arrow JSON datasource 完成构建期物化：
+DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读取应复用 DataFusion/Arrow JSON datasource：
 
 - 使用 `JsonReadOptions`。
 - 设置 `file_extension(".jsonl.gz")`。
 - 设置 gzip compression。
 - 若 DataFusion gzip 读取需要 feature gate，则在 workspace 的 `datafusion` 依赖上启用 `compression` feature。
 
-这样项目代码只保留表名、CLI 参数、内存表注册和错误上下文等 glue code。构建完成后，`TraceDatasource` 不应再依赖原始 `.jsonl.gz` 路径；后续查询只访问已注册的 `MemTable`。
+这样项目代码只保留表名、CLI 参数和错误上下文等 glue code。
 
 ## 参数规则
 
@@ -119,7 +115,7 @@ DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读�
 
 ## 字段与类型策略
 
-第一版不手写 schema。字段和类型由 DataFusion JSON reader 在内存物化阶段从输入文件推断。
+第一版不手写 schema。字段和类型由 DataFusion JSON reader 从输入文件推断。
 
 理由：
 
@@ -131,7 +127,6 @@ DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读�
 
 1. 如果某些字段在样本行中全是 null 或跨行类型不一致，DataFusion schema inference 可能不稳定。
 2. 如果真实 Langfuse export 出现嵌套 object/array，SQL 使用方式可能依赖 DataFusion 对 nested JSON 的支持。
-3. `.jsonl.gz` 解压和 Arrow string buffer 会放大内存占用；第一版以内存语义正确为目标，不承诺所有 2GB+ gzip 文件都能在 32GB 内存机器上完整加载。
 
 第一版只通过 fixture 覆盖已确认的核心字段：`id`、`trace_id`、`type`、`name`、`start_time`、`end_time`、`input`、`output`、`user_id`、`session_id`。后续如需要稳定字段契约，再增加显式 schema。
 
@@ -140,7 +135,7 @@ DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读�
 1. 文件不存在、打不开、不是 gzip、不是合法 JSONL、DataFusion schema 推断失败：命令失败，返回非 0 退出码。
 2. SQL 引用不存在的表或字段：沿用 DataFusion 错误。
 3. observations 与 traces 中的 id 不匹配：不预检，SQL join 自然返回匹配结果。
-4. `input` / `output` 太大：不特殊处理；如果加载阶段内存不足，命令失败并返回错误。
+4. `input` / `output` 太大：不特殊处理；用户通过 SQL 自己选择字段。
 5. 不提供 `langfuse_parse_errors`，因为 `kat-rs` 不是清洗型 ETL；输入结构错误应直接失败。
 6. 错误输出不得包含凭据、对象存储 secret、Langfuse API key 等敏感信息。
 
@@ -155,10 +150,9 @@ DataFusion 已在项目依赖图中，用于 SQL 查询。Langfuse JSONL/GZ 读�
    ```
 
 2. datasource 测试验证 `input` / `output` 返回完整字符串，不被截断。
-3. datasource 测试在构建成功后删除或改名原始 `observations.jsonl.gz` 和 `traces.jsonl.gz`，再执行 SQL，确认查询仍成功。
-4. CLI 测试验证 `--source langfuse --observations-file ... --traces-file ... --sql ...` 输出 JSON rows。
-5. CLI 或 datasource 错误测试覆盖坏 gzip 或坏 JSONL，确认失败且不 panic。
-6. 现有 hitrace datasource 和 CLI 测试继续通过，证明 `--source hitrace --file ...` 行为未变。
+3. CLI 测试验证 `--source langfuse --observations-file ... --traces-file ... --sql ...` 输出 JSON rows。
+4. CLI 或 datasource 错误测试覆盖坏 gzip 或坏 JSONL，确认失败且不 panic。
+5. 现有 hitrace datasource 和 CLI 测试继续通过，证明 `--source hitrace --file ...` 行为未变。
 
 最终验证命令：
 
@@ -171,7 +165,6 @@ cargo test --workspace
 1. `kat-rs query --source langfuse --observations-file <file> --traces-file <file> --sql <sql>` 可以查询两张 Langfuse legacy 原始表。
 2. 可以用 SQL join `langfuse_observations.trace_id = langfuse_traces.id`。
 3. `input` / `output` 完整保留为查询结果中的字符串。
-4. 构建 datasource 后，已有 datasource 查询不依赖原始 `.jsonl.gz` 文件；删除或改名源文件后查询仍成功。
-5. 无 `langfuse_parse_errors`、timeline、quality、rollup 等派生表。
-6. 坏输入直接失败，不 panic。
-7. `cargo test --workspace` 通过。
+4. 无 `langfuse_parse_errors`、timeline、quality、rollup 等派生表。
+5. 坏输入直接失败，不 panic。
+6. `cargo test --workspace` 通过。
