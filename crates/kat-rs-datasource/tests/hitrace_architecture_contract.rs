@@ -58,17 +58,23 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/formats/mod.rs",
         "src/formats/hitrace/mod.rs",
         "src/formats/hitrace/file.rs",
-        "src/plugin_flow/mod.rs",
-        "src/plugin_flow/envelope.rs",
-        "src/plugin_flow/registry.rs",
-        "src/plugin_flow/segment.rs",
+        "src/formats/hitrace/profiler/mod.rs",
+        "src/formats/hitrace/profiler/envelope.rs",
+        "src/formats/hitrace/profiler/framing.rs",
+        "src/formats/hitrace/profiler/payload.rs",
+        "src/formats/hitrace/profiler/registry.rs",
         "src/domains/mod.rs",
         "src/domains/ftrace/mod.rs",
         "src/domains/ftrace/event.rs",
         "src/domains/ftrace/packet.rs",
+        "src/domains/native_hook/mod.rs",
+        "src/domains/native_hook/event.rs",
+        "src/domains/native_hook/packet.rs",
         "src/sinks/mod.rs",
         "src/sinks/arrow/mod.rs",
-        "src/sinks/arrow/table_builder.rs",
+        "src/sinks/arrow/native_hook.rs",
+        "src/sinks/arrow/ftrace.rs",
+        "src/sinks/arrow/table.rs",
         "src/catalog.rs",
         "src/record.rs",
     ] {
@@ -78,7 +84,18 @@ fn datasource_uses_reviewer_layer_boundaries() {
         );
     }
 
-    for path in ["src/hitrace.rs", "src/ftrace.rs", "src/ftrace/mod.rs"] {
+    for path in [
+        "src/hitrace.rs",
+        "src/ftrace.rs",
+        "src/ftrace/mod.rs",
+        "src/plugin_flow/mod.rs",
+        "src/plugin_flow/envelope.rs",
+        "src/plugin_flow/registry.rs",
+        "src/plugin_flow/segment.rs",
+        "src/formats/hitrace/profiler/segment.rs",
+        "src/sinks/arrow/event_table.rs",
+        "src/sinks/arrow/table_builder.rs",
+    ] {
         assert!(
             !std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
             "{path} should not remain as a datasource center"
@@ -87,13 +104,16 @@ fn datasource_uses_reviewer_layer_boundaries() {
 }
 
 #[test]
-fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
-    let hitrace_sources =
-        joined_sources(&["src/formats/hitrace/mod.rs", "src/formats/hitrace/file.rs"]);
+fn hitrace_file_adapter_does_not_decode_plugins_or_write_arrow() {
+    let hitrace_file = source("src/formats/hitrace/file.rs");
 
     for marker in [
         "domains::ftrace",
+        "domains::native_hook",
         "FTRACE_PLUGIN_NAME",
+        "nativehook",
+        "hookdaemon",
+        "NativeHook",
         "decode_plugin_payload",
         "ProfilerPluginData",
         "TraceRecord::ProfilerSection",
@@ -107,34 +127,70 @@ fn hitrace_format_adapter_does_not_decode_ftrace_or_write_arrow() {
         "raw_event",
     ] {
         assert!(
-            !hitrace_sources.contains(marker),
-            "{marker} should not live in formats/hitrace"
+            !hitrace_file.contains(marker),
+            "{marker} should not live in formats/hitrace/file"
         );
     }
 }
 
 #[test]
-fn plugin_flow_owns_plugin_envelope_dispatch() {
-    let plugin_flow_sources = joined_sources(&[
-        "src/plugin_flow/mod.rs",
-        "src/plugin_flow/envelope.rs",
-        "src/plugin_flow/registry.rs",
-        "src/plugin_flow/segment.rs",
+fn profiler_envelope_mechanism_does_not_own_domain_decoders() {
+    let profiler_sources = joined_sources(&[
+        "src/formats/hitrace/profiler/mod.rs",
+        "src/formats/hitrace/profiler/envelope.rs",
+        "src/formats/hitrace/profiler/framing.rs",
+        "src/formats/hitrace/profiler/payload.rs",
+        "src/formats/hitrace/profiler/registry.rs",
     ]);
 
-    assert!(plugin_flow_sources.contains("PluginEnvelopeKind"));
-    assert!(plugin_flow_sources.contains("trait PluginDecoder"));
-    assert!(plugin_flow_sources.contains("fn configure("));
-    assert!(plugin_flow_sources.contains("fn decode_data("));
-    assert!(plugin_flow_sources.contains("fn finish("));
-    assert!(plugin_flow_sources.contains("PluginDecoderSpec"));
-    assert!(plugin_flow_sources.contains("PluginPayloadRegistry"));
-    assert!(plugin_flow_sources.contains("ProfilerPluginData"));
-    assert!(plugin_flow_sources.contains("domains::ftrace"));
-    assert!(!plugin_flow_sources.contains("DecodePluginPayload"));
-    assert!(!plugin_flow_sources.contains("ArrayBuilder"));
-    assert!(!plugin_flow_sources.contains("RecordBatch"));
-    assert!(!plugin_flow_sources.contains("MemTable"));
+    assert!(profiler_sources.contains("PluginEnvelopeKind"));
+    assert!(profiler_sources.contains("trait PluginDecoder"));
+    assert!(profiler_sources.contains("fn configure("));
+    assert!(profiler_sources.contains("fn decode_data("));
+    assert!(profiler_sources.contains("fn finish("));
+    assert!(profiler_sources.contains("PluginDecoderSpec"));
+    assert!(profiler_sources.contains("PluginPayloadRegistry"));
+    assert!(profiler_sources.contains("ProfilerPluginData"));
+    assert!(profiler_sources.contains("for_each_profiler_envelope_frame"));
+    assert!(!profiler_sources.contains("for_each_len_prefixed_message"));
+    assert!(profiler_sources.contains("decode_payload"));
+
+    for marker in [
+        "domains::ftrace",
+        "domains::native_hook",
+        "TracePluginResult",
+        "BatchNativeHookData",
+        "NativeHookConfig",
+        "FTRACE_PLUGIN_DECODER",
+        "NATIVE_HOOK_PLUGIN_DECODER",
+        "HOOK_DAEMON_PLUGIN_DECODER",
+        "DecodePluginPayload",
+        "ArrayBuilder",
+        "RecordBatch",
+        "MemTable",
+    ] {
+        assert!(
+            !profiler_sources.contains(marker),
+            "{marker} should not live in the profiler envelope mechanism"
+        );
+    }
+}
+
+#[test]
+fn hitrace_pipeline_assembles_profiler_decoder_specs() {
+    let pipeline = source("src/formats/hitrace/mod.rs");
+
+    for marker in [
+        "FTRACE_PLUGIN_DECODER",
+        "NATIVE_HOOK_PLUGIN_DECODER",
+        "HOOK_DAEMON_PLUGIN_DECODER",
+        "PluginPayloadRegistry::new",
+    ] {
+        assert!(
+            pipeline.contains(marker),
+            "{marker} should be assembled by the hitrace pipeline"
+        );
+    }
 }
 
 #[test]
@@ -144,6 +200,8 @@ fn ftrace_domain_decodes_payload_to_neutral_records() {
         "src/domains/ftrace/event.rs",
         "src/domains/ftrace/packet.rs",
     ]);
+
+    assert!(ftrace_sources.contains("pub(crate) enum FtraceRecord"));
 
     for marker in [
         "SchedDirectTableBuilders",
@@ -161,7 +219,18 @@ fn ftrace_domain_decodes_payload_to_neutral_records() {
 #[test]
 fn arrow_sink_owns_record_to_table_conversion() {
     let sink_mod = source("src/sinks/arrow/mod.rs");
-    let sink_table_builder = source("src/sinks/arrow/table_builder.rs");
+    let ftrace_sink = source("src/sinks/arrow/ftrace.rs");
+    let native_hook_sink = source("src/sinks/arrow/native_hook.rs");
+    let table = source("src/sinks/arrow/table.rs");
+    let native_hook_domain = joined_sources(&[
+        "src/domains/native_hook/mod.rs",
+        "src/domains/native_hook/event.rs",
+        "src/domains/native_hook/packet.rs",
+    ]);
+    let generated_native_hook_records =
+        fs::read_to_string(format!("{}/native_hook_records.rs", env!("OUT_DIR")))
+            .expect("generated native hook records can be read");
+    let record = source("src/record.rs");
     let catalog = source("src/catalog.rs");
 
     assert!(!catalog.contains("TraceRecord"));
@@ -171,9 +240,77 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(!sink_mod.contains("profiler_table_seen"));
     assert!(!sink_mod.contains("profiler_rows"));
     assert!(!sink_mod.contains("SchedDirectTableBuilders"));
-    assert!(sink_table_builder.contains("ArrayBuilder"));
-    assert!(sink_table_builder.contains("pub(crate) struct DirectEventTableBuilder"));
-    assert!(sink_table_builder.contains("pub(crate) struct EventMeta"));
+    assert!(!sink_mod.contains("mod event_table"));
+    assert!(sink_mod.contains("mod ftrace"));
+    assert!(sink_mod.contains("mod native_hook"));
+    assert!(sink_mod.contains("FtraceTableSet"));
+    assert!(sink_mod.contains("NativeHookTableSet"));
+    assert!(table.contains("pub(crate) struct MessageTableBuilder"));
+    assert!(!table.contains("pub(crate) struct TableBuilder"));
+    assert!(table.contains("pub(crate) struct EventTableBuilder"));
+    assert!(table.contains("pub(crate) struct EventTableRow"));
+    assert!(table.contains("ArrayBuilder"));
+    assert!(!table.contains("FtraceEventRecord"));
+    assert!(!table.contains("EventMeta"));
+    assert!(!table.contains("NativeHookEvent"));
+    assert!(ftrace_sink.contains("pub(crate) struct FtraceEventTableBuilder"));
+    assert!(!ftrace_sink.contains("DirectEventTableBuilder"));
+    assert!(ftrace_sink.contains("pub(crate) struct EventMeta"));
+    assert!(ftrace_sink.contains("FtraceEventRecord"));
+    assert!(ftrace_sink.contains("EventTableBuilder<EventMeta>"));
+    assert!(!ftrace_sink.contains("pub(crate) struct EventRow"));
+    assert!(native_hook_sink.contains("pub(crate) struct NativeHookEventMeta"));
+    assert!(native_hook_sink.contains("pub(crate) struct NativeHookEventTableBuilder"));
+    assert!(native_hook_sink.contains("EventTableBuilder<NativeHookEventMeta>"));
+    assert!(!native_hook_sink.contains("pub(crate) struct NativeHookEventRow"));
+    assert!(!native_hook_sink.contains("pub(crate) struct NativeHookTableSet"));
+    assert!(!native_hook_sink.contains("struct AllocRow"));
+    assert!(!native_hook_sink.contains("struct TraceAllocRow"));
+    assert!(!native_hook_sink.contains("NativeHookRecord"));
+    assert!(!native_hook_sink.contains("NativeHookData"));
+    assert!(!native_hook_sink.contains("native_hook_data::Event"));
+    assert!(!native_hook_sink.contains("Event::AllocEvent"));
+    assert!(!native_hook_sink.contains("Event::MapsInfo"));
+    assert!(!native_hook_domain.contains("pub(crate) enum NativeHookRecord"));
+    assert!(!native_hook_domain.contains("native_hook_data::Event"));
+    assert!(!native_hook_domain.contains("Event::AllocEvent"));
+    assert!(!native_hook_domain.contains("Event::MapsInfo"));
+    assert!(generated_native_hook_records.contains("pub(crate) enum NativeHookRecord"));
+    assert!(generated_native_hook_records.contains("native_hook_data::Event"));
+    assert!(generated_native_hook_records.contains("Event::AllocEvent"));
+    assert!(generated_native_hook_records.contains("Event::MapsInfo"));
+    assert!(generated_native_hook_records.contains("NativeHookRecord::MapsInfo"));
+    assert!(generated_native_hook_records.contains("NativeHookRecord::SymbolTable"));
+    assert!(record.contains("Ftrace(Box<FtraceRecord>)"));
+    assert!(!record.contains("FtraceEvent("));
+    assert!(record.contains("NativeHook(Box<NativeHookRecord>)"));
+    assert!(!record.contains("NativeHookConfig("));
+    assert!(!record.contains("NativeHookEvent("));
+}
+
+#[test]
+fn native_hook_table_builders_are_generated_from_oneof_mapping() {
+    let build_rs = source("build.rs");
+    let generated_builders =
+        fs::read_to_string(format!("{}/native_hook_table_builders.rs", env!("OUT_DIR")))
+            .expect("generated native hook table builders can be read");
+
+    assert!(!build_rs.contains("const NATIVE_HOOK_EVENT_TABLES"));
+    assert!(generated_builders.contains("pub(crate) struct NativeHookTableSet"));
+    assert!(!generated_builders.contains("pub(crate) struct NativeHookTableBuilders"));
+    assert!(generated_builders.contains("native_hook_trace_alloc"));
+    assert!(generated_builders.contains("NativeHookRecord::TraceAlloc"));
+    assert!(generated_builders.contains("NativeHookEventTableBuilder::new::<TraceAllocEvent>"));
+    assert!(generated_builders.contains("native_hook_maps_info"));
+    assert!(generated_builders.contains("NativeHookRecord::MapsInfo"));
+    assert!(generated_builders.contains("NativeHookEventTableBuilder::new::<MapsInfo>"));
+    assert!(generated_builders.contains("native_hook_symbol_table"));
+    assert!(generated_builders.contains("NativeHookRecord::SymbolTable"));
+    assert!(generated_builders.contains("NativeHookEventTableBuilder::new::<SymbolTable>"));
+    assert!(generated_builders.contains("MessageTableBuilder<NativeHookConfig>"));
+    assert!(!generated_builders.contains("config: TableBuilder<NativeHookConfig>"));
+    assert!(!generated_builders.contains("struct AllocRow"));
+    assert!(!generated_builders.contains("struct TraceAllocRow"));
 }
 
 #[test]
@@ -189,8 +326,77 @@ fn query_consumes_trace_dataset_catalog() {
 }
 
 #[test]
+fn build_script_splits_codegen_by_responsibility() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let build_rs = source("build.rs");
+
+    for path in [
+        "build/proto_codegen.rs",
+        "build/ftrace_arrow_codegen.rs",
+        "build/native_hook_domain_codegen.rs",
+        "build/native_hook_arrow_codegen.rs",
+    ] {
+        assert!(
+            std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
+            "{path} should exist"
+        );
+    }
+
+    for path in [
+        "build/proto_parse.rs",
+        "build/ftrace_codegen.rs",
+        "build/native_hook_codegen.rs",
+    ] {
+        assert!(
+            !std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
+            "{path} should be removed after splitting build code by served layer"
+        );
+    }
+
+    for module in [
+        "mod ftrace_arrow_codegen;",
+        "mod native_hook_arrow_codegen;",
+        "mod native_hook_domain_codegen;",
+        "mod proto_codegen;",
+    ] {
+        assert!(build_rs.contains(module), "{module} should be declared");
+    }
+
+    for marker in [
+        "mod ftrace_codegen;",
+        "mod native_hook_codegen;",
+        "mod proto_parse;",
+        "fn parse_proto_messages",
+        "fs::read_to_string",
+        "fn render_ftrace_event_table_builders",
+        "fn render_native_hook_table_builders",
+        "fn render_native_hook_records",
+    ] {
+        assert!(
+            !build_rs.contains(marker),
+            "{marker} should live in a focused build helper"
+        );
+    }
+
+    assert!(
+        build_rs.contains(".load_fds(&proto_files, &[\"proto\"])"),
+        "build.rs should load descriptor data before custom codegen"
+    );
+    assert!(
+        build_rs.contains(".compile_fds(fds)"),
+        "build.rs should compile the same descriptor data after custom codegen"
+    );
+}
+
+#[test]
 fn ftrace_event_family_generation_avoids_old_sched_entrypoint() {
     let build_rs = source("build.rs");
+    let ftrace_arrow_codegen = source("build/ftrace_arrow_codegen.rs");
+    let native_hook_domain_codegen = source("build/native_hook_domain_codegen.rs");
+    let native_hook_arrow_codegen = source("build/native_hook_arrow_codegen.rs");
+    let build_script_sources = format!(
+        "{build_rs}\n{ftrace_arrow_codegen}\n{native_hook_domain_codegen}\n{native_hook_arrow_codegen}"
+    );
     let generated_builders = fs::read_to_string(format!(
         "{}/ftrace_event_table_builders.rs",
         env!("OUT_DIR")
@@ -199,7 +405,7 @@ fn ftrace_event_family_generation_avoids_old_sched_entrypoint() {
 
     for marker in [
         "crate::ftrace",
-        "FtraceTable",
+        "FtraceTable,",
         "SchedDirectTableBuilders",
         "FtraceEvent,",
         "push_event(&mut self, cpu: u32",
@@ -209,8 +415,21 @@ fn ftrace_event_family_generation_avoids_old_sched_entrypoint() {
         "SchedSwitchRow",
     ] {
         assert!(
-            !generated_builders.contains(marker) && !build_rs.contains(marker),
+            !generated_builders.contains(marker) && !build_script_sources.contains(marker),
             "{marker} should not remain in generated table builder plumbing"
         );
     }
+
+    assert!(native_hook_domain_codegen.contains("proto/native_hook/native_hook_config.proto"));
+    assert!(native_hook_domain_codegen.contains("proto/native_hook/native_hook_result.proto"));
+
+    let ftrace_family_decl = ftrace_arrow_codegen
+        .split("FTRACE_EVENT_FAMILIES")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) struct EventFamilySpec").next())
+        .expect("FTRACE_EVENT_FAMILIES declaration can be found");
+    assert!(
+        !ftrace_family_decl.contains("native_hook"),
+        "native hook protos should not be ftrace event families"
+    );
 }

@@ -1962,6 +1962,7 @@ dependencies = [
  "memmap2",
  "prost",
  "prost-build",
+ "prost-types",
  "protoc-bin-vendored",
  "serde",
  "serde_arrow",

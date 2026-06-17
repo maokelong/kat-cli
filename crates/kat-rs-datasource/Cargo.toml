@@ -20,6 +20,7 @@ serde_json.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true
+prost-types.workspace = true
 protoc-bin-vendored.workspace = true
 
 [dev-dependencies]

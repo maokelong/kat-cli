@@ -1,6 +1,11 @@
 use crate::proto::kat::hitrace::FtraceEvent;
 
 #[derive(Clone, Debug)]
+pub(crate) enum FtraceRecord {
+    Event(Box<FtraceEventRecord>),
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct EventContext {
     pub(crate) timestamp: u64,
     pub(crate) cpu: u32,

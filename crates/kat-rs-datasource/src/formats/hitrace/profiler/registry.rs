@@ -1,13 +1,17 @@
 use anyhow::Result;
 
-use crate::{domains::ftrace::FTRACE_PLUGIN_DECODER, record::TraceRecordSink};
+use crate::record::TraceRecordSink;
 
 use super::{PluginEnvelope, PluginEnvelopeKind};
 
 pub(crate) trait PluginDecoder {
     fn plugin_name(&self) -> &'static str;
 
-    fn configure(&mut self, _envelope: &PluginEnvelope<'_>) -> Result<()> {
+    fn configure(
+        &mut self,
+        _envelope: &PluginEnvelope<'_>,
+        _sink: &mut dyn TraceRecordSink,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -61,7 +65,7 @@ impl PluginPayloadRegistry {
         };
 
         match envelope.kind {
-            PluginEnvelopeKind::Config => decoder.configure(envelope),
+            PluginEnvelopeKind::Config => decoder.configure(envelope, sink),
             PluginEnvelopeKind::Data => decoder.decode_data(envelope, sink),
         }
     }
@@ -72,13 +76,5 @@ impl PluginPayloadRegistry {
         }
 
         Ok(())
-    }
-}
-
-static DECODERS: &[PluginDecoderSpec] = &[FTRACE_PLUGIN_DECODER];
-
-impl Default for PluginPayloadRegistry {
-    fn default() -> Self {
-        Self::new(DECODERS)
     }
 }

@@ -1,0 +1,194 @@
+// Adapted from OpenHarmony developtools_profiler plugins/native_hook/native_hook_result.proto.
+
+syntax = "proto3";
+
+package kat.native_hook;
+
+option optimize_for = LITE_RUNTIME;
+
+message Frame {
+    uint64 ip = 1;
+    uint64 sp = 2;
+    string symbol_name = 3;
+    string file_path = 4;
+    uint64 offset = 5;
+    uint64 symbol_offset = 6;
+    uint32 symbol_name_id = 7;
+    uint32 file_path_id = 8;
+}
+
+message AllocEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    uint64 size = 4;
+    repeated Frame frame_info = 5;
+    uint32 thread_name_id = 6;
+    uint32 stack_id = 7;
+}
+
+message FreeEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    repeated Frame frame_info = 4;
+    uint32 thread_name_id = 5;
+    uint32 stack_id = 6;
+}
+
+message MmapEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    string type = 4;
+    uint64 size = 5;
+    repeated Frame frame_info = 6;
+    uint32 thread_name_id = 7;
+    uint32 stack_id = 8;
+}
+
+message MunmapEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    uint64 size = 4;
+    repeated Frame frame_info = 5;
+    uint32 thread_name_id = 6;
+    uint32 stack_id = 7;
+}
+
+message StackMap {
+    uint32 id = 1;
+    repeated uint64 frame_map_id = 2;
+    repeated uint64 ip = 3;
+    int32 pid = 4;
+}
+
+message FrameMap {
+    uint32 id = 1;
+    Frame frame = 2;
+    int32 pid = 3;
+}
+
+message MemTagEvent {
+    uint64 addr = 1;
+    uint64 size = 2;
+    string tag = 3;
+    int32 pid = 4;
+}
+
+message FilePathMap {
+    uint32 id = 1;
+    string name = 2;
+    int32 pid = 3;
+}
+
+message SymbolMap {
+    uint32 id = 1;
+    string name = 2;
+    int32 pid = 3;
+}
+
+message ThreadNameMap {
+    uint32 id = 1;
+    string name = 2;
+    int32 pid = 3;
+}
+
+message MapsInfo {
+    uint32 pid = 1;
+    uint64 start = 2;
+    uint64 end = 3;
+    uint64 offset = 4;
+    uint32 file_path_id = 5;
+}
+
+message SymbolTable {
+    uint32 file_path_id = 1;
+    uint64 text_exec_vaddr = 2;
+    uint64 text_exec_vaddr_file_offset = 3;
+    uint32 sym_entry_size = 4;
+    bytes sym_table = 5;
+    bytes str_table = 6;
+    int32 pid = 7;
+}
+
+enum TraceType {
+    FD = 0;
+    THREAD = 1;
+    GPU_VK = 2;
+    GPU_GLES = 3;
+    GPU_CL = 4;
+    OTHER = 5;
+};
+
+message TraceAllocEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    TraceType trace_type = 4;
+    string tag_name = 5;
+    uint64 size = 6;
+    repeated Frame frame_info = 7;
+    uint32 thread_name_id = 8;
+    uint32 stack_id = 9;
+}
+
+message TraceFreeEvent {
+    int32 pid = 1;
+    int32 tid = 2;
+    uint64 addr = 3;
+    TraceType trace_type = 4;
+    string tag_name = 5;
+    repeated Frame frame_info = 6;
+    uint32 thread_name_id = 7;
+    uint32 stack_id = 8;
+}
+
+message RecordStatisticsEvent {
+    uint32 pid = 1;
+    uint32 callstack_id = 2;
+    enum MemoryType {
+        MALLOC = 0;
+        MMAP = 1;
+        FILE_PAGE_MSG = 2;
+        MEMORY_USING_MSG = 3;
+        FD = 4;
+        THREAD = 5;
+        GPU_VK = 6;
+        GPU_GLES = 7;
+        GPU_CL = 8;
+    };
+    MemoryType type = 3;
+    uint64 apply_count = 4;
+    uint64 release_count = 5;
+    uint64 apply_size = 6;
+    uint64 release_size = 7;
+    string tag_name = 8;
+}
+
+message NativeHookData {
+    uint64 tv_sec = 1;
+    uint64 tv_nsec = 2;
+    oneof event {
+        AllocEvent alloc_event = 3;
+        FreeEvent free_event = 4;
+        MmapEvent mmap_event = 5;
+        MunmapEvent munmap_event = 6;
+        MemTagEvent tag_event = 7;
+        FilePathMap file_path = 8;
+        SymbolMap symbol_name = 9;
+        ThreadNameMap thread_name_map = 10;
+        MapsInfo maps_info = 11;
+        SymbolTable symbol_tab = 12;
+        FrameMap frame_map = 13;
+        StackMap stack_map = 14;
+        RecordStatisticsEvent statistics_event = 15;
+        TraceAllocEvent trace_alloc_event = 16;
+        TraceFreeEvent trace_free_event = 17;
+    }
+}
+
+message BatchNativeHookData {
+    repeated NativeHookData events = 1;
+}

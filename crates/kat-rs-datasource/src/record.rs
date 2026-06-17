@@ -2,11 +2,15 @@
 
 use anyhow::Result;
 
-use crate::{domains::ftrace::FtraceEventRecord, proto::ProfilerPluginData};
+use crate::{
+    domains::{ftrace::FtraceRecord, native_hook::NativeHookRecord},
+    proto::ProfilerPluginData,
+};
 
 pub(crate) enum TraceRecord {
     ProfilerPluginData(ProfilerPluginData),
-    FtraceEvent(Box<FtraceEventRecord>),
+    Ftrace(Box<FtraceRecord>),
+    NativeHook(Box<NativeHookRecord>),
 }
 
 pub(crate) trait TraceRecordSink {

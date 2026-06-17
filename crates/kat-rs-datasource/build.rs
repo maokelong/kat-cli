@@ -1,42 +1,69 @@
-use std::{env, fmt::Write as _, fs, path::PathBuf};
+#[path = "build/ftrace_arrow_codegen.rs"]
+mod ftrace_arrow_codegen;
+#[path = "build/native_hook_arrow_codegen.rs"]
+mod native_hook_arrow_codegen;
+#[path = "build/native_hook_domain_codegen.rs"]
+mod native_hook_domain_codegen;
+#[path = "build/proto_codegen.rs"]
+mod proto_codegen;
 
-const FTRACE_EVENT_TABLE_BUILDERS_FILE: &str = "ftrace_event_table_builders.rs";
-const FTRACE_EVENT_TABLE_BUILDERS_NAME: &str = "FtraceEventTableBuilders";
+use ftrace_arrow_codegen::{
+    EventFamily, FTRACE_EVENT_FAMILIES, generate_ftrace_event_table_builders,
+};
+use native_hook_arrow_codegen::generate_native_hook_table_builders;
+use native_hook_domain_codegen::{
+    NATIVE_HOOK_PROTO_FILES, NATIVE_HOOK_RESULT_PROTO, generate_native_hook_records,
+    native_hook_events_from_descriptor, native_hook_serializable_messages,
+};
+use proto_codegen::{message_in_file, messages_in_file};
 
-const FTRACE_EVENT_FAMILIES: &[EventFamilySpec] = &[EventFamilySpec {
-    proto_path: "proto/ftrace_data/sched.proto",
-    field_name: "sched",
-    tables_name: "SchedEventFamilyTables",
-}];
-
-struct EventFamilySpec {
-    proto_path: &'static str,
-    field_name: &'static str,
-    tables_name: &'static str,
-}
+const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
+    "proto/ftrace_data/ftrace_event.proto",
+    "proto/ftrace_data/trace_plugin_result.proto",
+];
 
 fn main() {
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc is available");
     let proto_files = std::iter::once("proto/hitrace.proto")
+        .chain(FTRACE_PAYLOAD_PROTO_FILES.iter().copied())
         .chain(FTRACE_EVENT_FAMILIES.iter().map(|family| family.proto_path))
+        .chain(NATIVE_HOOK_PROTO_FILES.iter().copied())
         .collect::<Vec<_>>();
-    let event_families = FTRACE_EVENT_FAMILIES
-        .iter()
-        .map(|spec| {
-            let source = fs::read_to_string(spec.proto_path).expect("event family proto is read");
-            EventFamily {
-                spec,
-                messages: parse_proto_messages(&source),
-            }
-        })
-        .collect::<Vec<_>>();
-
     let mut config = prost_build::Config::new();
     config.protoc_executable(protoc);
+    let fds = config
+        .load_fds(&proto_files, &["proto"])
+        .expect("proto descriptors load");
+    let event_families = FTRACE_EVENT_FAMILIES
+        .iter()
+        .map(|spec| EventFamily {
+            spec,
+            messages: messages_in_file(&fds, spec.proto_path),
+        })
+        .collect::<Vec<_>>();
+    let native_hook_messages = messages_in_file(&fds, NATIVE_HOOK_RESULT_PROTO);
+    let native_hook_data = message_in_file(&fds, NATIVE_HOOK_RESULT_PROTO, "NativeHookData");
+    let native_hook_events =
+        native_hook_events_from_descriptor(native_hook_data, &native_hook_messages);
+
     config.type_attribute(
         ".kat.hitrace.ProfilerPluginData",
         "#[derive(serde::Serialize, serde::Deserialize)]",
     );
+    config.type_attribute(
+        ".kat.native_hook.NativeHookConfig",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+    config.enum_attribute(
+        ".kat.native_hook.NativeHookData.event",
+        "#[allow(clippy::enum_variant_names)]",
+    );
+    for message_name in
+        native_hook_serializable_messages(&native_hook_messages, &native_hook_events)
+    {
+        let path = format!(".kat.native_hook.{message_name}");
+        config.type_attribute(&path, "#[derive(serde::Serialize, serde::Deserialize)]");
+    }
     for family in &event_families {
         for message in &family.messages {
             let path = format!(".kat.hitrace.{}", message.name);
@@ -47,230 +74,24 @@ fn main() {
         ".kat.hitrace.ProfilerPluginData.data",
         "#[serde(with = \"serde_bytes\")]",
     );
+    config.field_attribute(
+        ".kat.native_hook.SymbolTable.sym_table",
+        "#[serde(with = \"serde_bytes\")]",
+    );
+    config.field_attribute(
+        ".kat.native_hook.SymbolTable.str_table",
+        "#[serde(with = \"serde_bytes\")]",
+    );
     config
-        .compile_protos(&proto_files, &["proto"])
+        .compile_fds(fds)
         .expect("hitrace and event family protos compile");
     generate_ftrace_event_table_builders(&event_families)
         .expect("ftrace event table builders are written");
+    generate_native_hook_records(&native_hook_events).expect("native hook records are written");
+    generate_native_hook_table_builders(&native_hook_events)
+        .expect("native hook table builders are written");
 
     for proto_file in proto_files {
         println!("cargo:rerun-if-changed={proto_file}");
     }
-}
-
-struct EventFamily<'a> {
-    spec: &'a EventFamilySpec,
-    messages: Vec<ProtoMessage>,
-}
-
-#[derive(Clone, Debug)]
-struct ProtoMessage {
-    name: String,
-    table_name: String,
-}
-
-fn generate_ftrace_event_table_builders(families: &[EventFamily<'_>]) -> std::io::Result<()> {
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set"));
-    fs::write(
-        out_dir.join(FTRACE_EVENT_TABLE_BUILDERS_FILE),
-        render_ftrace_event_table_builders(families),
-    )
-}
-
-fn parse_proto_messages(source: &str) -> Vec<ProtoMessage> {
-    let mut messages = Vec::new();
-    let mut current: Option<ProtoMessage> = None;
-
-    for raw_line in source.lines() {
-        let line = raw_line.trim();
-        if line.starts_with("message ") && line.ends_with('{') {
-            let name = line
-                .trim_start_matches("message ")
-                .trim_end_matches('{')
-                .trim()
-                .to_string();
-            let base_name = name.strip_suffix("Format").unwrap_or(&name).to_string();
-            current = Some(ProtoMessage {
-                name,
-                table_name: camel_to_snake(&base_name),
-            });
-            continue;
-        }
-
-        if line == "}" {
-            if let Some(message) = current.take() {
-                messages.push(message);
-            }
-            continue;
-        }
-    }
-
-    messages
-}
-
-fn render_ftrace_event_table_builders(families: &[EventFamily<'_>]) -> String {
-    let mut output = String::new();
-    output.push_str("// @generated by crates/kat-rs-datasource/build.rs. Do not edit.\n\n");
-    output.push_str("use anyhow::Result;\n\n");
-    output.push_str("use crate::{\n");
-    output.push_str("    catalog::TraceTable,\n");
-    output.push_str("    domains::ftrace::FtraceEventRecord,\n");
-    output.push_str("    proto::kat::hitrace::{\n");
-    for family in families {
-        for message in &family.messages {
-            writeln!(output, "        {},", message.name).expect("write to string");
-        }
-    }
-    output.push_str("    },\n");
-    output.push_str("    sinks::arrow::{DirectEventTableBuilder, EventMeta},\n");
-    output.push_str("};\n\n");
-
-    render_aggregate_table_builders(&mut output, families);
-    for family in families {
-        render_event_family_table_builders(&mut output, family);
-    }
-
-    output
-}
-
-fn render_aggregate_table_builders(output: &mut String, families: &[EventFamily<'_>]) {
-    writeln!(
-        output,
-        "pub(crate) struct {} {{",
-        FTRACE_EVENT_TABLE_BUILDERS_NAME
-    )
-    .expect("write to string");
-    for family in families {
-        writeln!(
-            output,
-            "    {}: {},",
-            family.spec.field_name, family.spec.tables_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("}\n\n");
-
-    writeln!(output, "impl {} {{", FTRACE_EVENT_TABLE_BUILDERS_NAME).expect("write to string");
-    output.push_str("    pub(crate) fn new() -> Result<Self> {\n");
-    output.push_str("        Ok(Self {\n");
-    for family in families {
-        writeln!(
-            output,
-            "            {}: {}::new()?,",
-            family.spec.field_name, family.spec.tables_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("        })\n");
-    output.push_str("    }\n\n");
-
-    output.push_str(
-        "    pub(crate) fn push_event(&mut self, record: FtraceEventRecord) -> Result<()> {\n",
-    );
-    for family in families {
-        writeln!(
-            output,
-            "        self.{}.push_event(&record)?;",
-            family.spec.field_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("        Ok(())\n");
-    output.push_str("    }\n\n");
-
-    output.push_str("    pub(crate) fn into_tables(self) -> Result<Vec<TraceTable>> {\n");
-    output.push_str("        let mut tables = Vec::new();\n");
-    for family in families {
-        writeln!(
-            output,
-            "        tables.extend(self.{}.into_tables()?);",
-            family.spec.field_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("        Ok(tables)\n");
-    output.push_str("    }\n");
-    output.push_str("}\n\n");
-}
-
-fn render_event_family_table_builders(output: &mut String, family: &EventFamily<'_>) {
-    writeln!(output, "pub(crate) struct {} {{", family.spec.tables_name).expect("write to string");
-    for message in &family.messages {
-        writeln!(
-            output,
-            "    {}: DirectEventTableBuilder,",
-            message.table_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("}\n\n");
-
-    writeln!(output, "impl {} {{", family.spec.tables_name).expect("write to string");
-    output.push_str("    pub(crate) fn new() -> Result<Self> {\n");
-    output.push_str("        Ok(Self {\n");
-    for message in &family.messages {
-        writeln!(
-            output,
-            "            {}: DirectEventTableBuilder::new::<{}>({:?})?,",
-            message.table_name, message.name, message.table_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("        })\n");
-    output.push_str("    }\n\n");
-
-    output.push_str("    #[allow(clippy::clone_on_copy)]\n");
-    output.push_str("    fn push_event(&mut self, record: &FtraceEventRecord) -> Result<()> {\n");
-    output.push_str("        let meta = EventMeta::from_record(record);\n");
-    output.push_str("        let event = &record.event;\n");
-    for message in &family.messages {
-        writeln!(
-            output,
-            "        if let Some(message) = event.{}.clone() {{",
-            event_field_name(message)
-        )
-        .expect("write to string");
-        writeln!(
-            output,
-            "            self.{}.push(meta.clone(), message)?;",
-            message.table_name
-        )
-        .expect("write to string");
-        output.push_str("        }\n");
-    }
-    output.push_str("\n        Ok(())\n");
-    output.push_str("    }\n\n");
-
-    output.push_str("    pub(crate) fn into_tables(self) -> Result<Vec<TraceTable>> {\n");
-    output.push_str("        Ok(vec![\n");
-    for message in &family.messages {
-        writeln!(
-            output,
-            "            self.{}.into_table()?,",
-            message.table_name
-        )
-        .expect("write to string");
-    }
-    output.push_str("        ])\n");
-    output.push_str("    }\n");
-    output.push_str("}\n");
-}
-
-fn event_field_name(message: &ProtoMessage) -> String {
-    camel_to_snake(&message.name)
-}
-
-fn camel_to_snake(name: &str) -> String {
-    let mut snake = String::new();
-    for (index, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                snake.push('_');
-            }
-            snake.push(ch.to_ascii_lowercase());
-        } else {
-            snake.push(ch);
-        }
-    }
-    snake
 }

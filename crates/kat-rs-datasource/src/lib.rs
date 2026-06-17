@@ -6,7 +6,9 @@ mod ftrace_event_table_builders {
 }
 mod json;
 mod mmap;
-mod plugin_flow;
+mod native_hook_table_builders {
+    include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
+}
 mod query;
 mod record;
 mod sinks;
@@ -19,7 +21,12 @@ pub(crate) mod proto {
         pub(crate) mod hitrace {
             include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
         }
+
+        pub(crate) mod native_hook {
+            include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
+        }
     }
 
     pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginResult};
+    pub(crate) use kat::native_hook::{BatchNativeHookData, NativeHookConfig};
 }

@@ -7,9 +7,14 @@ mod proto {
         pub mod hitrace {
             include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
         }
+
+        pub mod native_hook {
+            include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
+        }
     }
 
     pub(crate) use kat::hitrace::ProfilerPluginData;
+    pub(crate) use kat::native_hook::NativeHookConfig;
 }
 
 mod catalog {
@@ -31,19 +36,45 @@ mod domains {
             "/src/domains/ftrace/event.rs"
         ));
     }
+
+    pub(crate) mod native_hook {
+        #![allow(dead_code)]
+
+        mod event {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/domains/native_hook/event.rs"
+            ));
+        }
+
+        mod records {
+            include!(concat!(env!("OUT_DIR"), "/native_hook_records.rs"));
+        }
+
+        pub(crate) use event::{NativeHookEvent, NativeHookEventContext};
+        pub(crate) use records::NativeHookRecord;
+    }
 }
 
 mod sinks {
     pub(crate) mod arrow {
         #[allow(dead_code)]
-        mod table_builder {
+        mod table {
             include!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/src/sinks/arrow/table_builder.rs"
+                "/src/sinks/arrow/table.rs"
             ));
         }
 
-        pub(crate) use table_builder::{DirectEventTableBuilder, EventMeta};
+        #[allow(dead_code)]
+        mod ftrace {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/sinks/arrow/ftrace.rs"
+            ));
+        }
+
+        pub(crate) use ftrace::{EventMeta, FtraceEventTableBuilder};
     }
 }
 
@@ -62,7 +93,8 @@ fn trace_record_stream_models_pre_sink_records() {
         record::TraceRecord::ProfilerPluginData(record) => {
             assert_eq!(record.name, "ftrace-plugin");
         }
-        record::TraceRecord::FtraceEvent(_) => unreachable!("expected plugin data record"),
+        record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
+        record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
     }
 
     let event = domains::ftrace::FtraceEventRecord::new(
@@ -75,12 +107,58 @@ fn trace_record_stream_models_pre_sink_records() {
         },
     );
 
-    match record::TraceRecord::FtraceEvent(Box::new(event)) {
-        record::TraceRecord::FtraceEvent(record) => {
-            assert_eq!(record.context.cpu, 3);
-            assert_eq!(record.event.timestamp, 20);
-        }
+    match record::TraceRecord::Ftrace(Box::new(domains::ftrace::FtraceRecord::Event(Box::new(
+        event,
+    )))) {
+        record::TraceRecord::Ftrace(record) => match *record {
+            domains::ftrace::FtraceRecord::Event(event) => {
+                assert_eq!(event.context.cpu, 3);
+                assert_eq!(event.event.timestamp, 20);
+            }
+        },
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
+        record::TraceRecord::NativeHook(_) => unreachable!("expected ftrace event record"),
+    }
+
+    let config = proto::NativeHookConfig {
+        pid: 42,
+        process_name: "native".to_string(),
+        ..Default::default()
+    };
+    match record::TraceRecord::NativeHook(Box::new(domains::native_hook::NativeHookRecord::Config(
+        Box::new(config),
+    ))) {
+        record::TraceRecord::NativeHook(record) => match *record {
+            domains::native_hook::NativeHookRecord::Config(config) => {
+                assert_eq!(config.pid, 42);
+                assert_eq!(config.process_name, "native");
+            }
+            _ => unreachable!("expected native hook config"),
+        },
+        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook config"),
+        record::TraceRecord::Ftrace(_) => unreachable!("expected native hook config"),
+    }
+
+    let event = domains::native_hook::NativeHookEvent::new(
+        domains::native_hook::NativeHookEventContext::new(1, 2),
+        proto::kat::native_hook::AllocEvent {
+            pid: 42,
+            ..Default::default()
+        },
+    );
+    match record::TraceRecord::NativeHook(Box::new(domains::native_hook::NativeHookRecord::Alloc(
+        Box::new(event),
+    ))) {
+        record::TraceRecord::NativeHook(record) => match *record {
+            domains::native_hook::NativeHookRecord::Alloc(event) => {
+                assert_eq!(event.context.tv_sec, 1);
+                assert_eq!(event.context.tv_nsec, 2);
+                assert_eq!(event.event.pid, 42);
+            }
+            _ => unreachable!("expected native hook event"),
+        },
+        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook event"),
+        record::TraceRecord::Ftrace(_) => unreachable!("expected native hook event"),
     }
 }
 
@@ -157,29 +235,157 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
 }
 
 #[test]
-fn generated_ftrace_event_table_builders_route_direct_events_to_tables() {
+fn generated_proto_includes_native_hook_config_and_events() {
+    let config = proto::kat::native_hook::NativeHookConfig {
+        pid: 42,
+        save_file: true,
+        file_name: "native-hook.bin".to_string(),
+        process_name: "render".to_string(),
+        statistics_interval: 5,
+        clock: "boottime".to_string(),
+        sample_interval: 10,
+        expand_pids: vec![42, 77],
+        filter_napi_name: "napi".to_string(),
+        ..Default::default()
+    };
+    let decoded =
+        proto::kat::native_hook::NativeHookConfig::decode(config.encode_to_vec().as_slice())
+            .expect("decode");
+
+    assert_eq!(decoded.pid, 42);
+    assert!(decoded.save_file);
+    assert_eq!(decoded.file_name, "native-hook.bin");
+    assert_eq!(decoded.statistics_interval, 5);
+    assert_eq!(decoded.expand_pids, vec![42, 77]);
+
+    let batch =
+        proto::kat::native_hook::BatchNativeHookData {
+            events: vec![
+            proto::kat::native_hook::NativeHookData {
+                tv_sec: 1,
+                tv_nsec: 20,
+                event: Some(proto::kat::native_hook::native_hook_data::Event::AllocEvent(
+                    proto::kat::native_hook::AllocEvent {
+                        pid: 42,
+                        tid: 43,
+                        addr: 0x1000,
+                        size: 64,
+                        thread_name_id: 7,
+                        stack_id: 8,
+                        ..Default::default()
+                    },
+                )),
+            },
+            proto::kat::native_hook::NativeHookData {
+                tv_sec: 2,
+                tv_nsec: 30,
+                event: Some(
+                    proto::kat::native_hook::native_hook_data::Event::StatisticsEvent(
+                        proto::kat::native_hook::RecordStatisticsEvent {
+                            pid: 42,
+                            callstack_id: 9,
+                            r#type:
+                                proto::kat::native_hook::record_statistics_event::MemoryType::Mmap
+                                    as i32,
+                            apply_count: 3,
+                            release_count: 1,
+                            apply_size: 256,
+                            release_size: 128,
+                            tag_name: "ashmem".to_string(),
+                        },
+                    ),
+                ),
+            },
+            proto::kat::native_hook::NativeHookData {
+                tv_sec: 3,
+                tv_nsec: 40,
+                event: Some(
+                    proto::kat::native_hook::native_hook_data::Event::TraceAllocEvent(
+                        proto::kat::native_hook::TraceAllocEvent {
+                            pid: 42,
+                            tid: 44,
+                            addr: 0x2000,
+                            trace_type: proto::kat::native_hook::TraceType::Fd as i32,
+                            tag_name: "fd".to_string(),
+                            size: 16,
+                            thread_name_id: 11,
+                            stack_id: 12,
+                            ..Default::default()
+                        },
+                    ),
+                ),
+            },
+            proto::kat::native_hook::NativeHookData {
+                tv_sec: 4,
+                tv_nsec: 50,
+                event: Some(
+                    proto::kat::native_hook::native_hook_data::Event::TraceFreeEvent(
+                        proto::kat::native_hook::TraceFreeEvent {
+                            pid: 42,
+                            tid: 44,
+                            addr: 0x2000,
+                            trace_type: proto::kat::native_hook::TraceType::Fd as i32,
+                            tag_name: "fd".to_string(),
+                            thread_name_id: 11,
+                            stack_id: 12,
+                            ..Default::default()
+                        },
+                    ),
+                ),
+            },
+        ],
+        };
+
+    let decoded =
+        proto::kat::native_hook::BatchNativeHookData::decode(batch.encode_to_vec().as_slice())
+            .expect("decode");
+
+    assert_eq!(decoded.events.len(), 4);
+    assert_eq!(decoded.events[0].tv_sec, 1);
+    assert!(matches!(
+        decoded.events[0].event,
+        Some(proto::kat::native_hook::native_hook_data::Event::AllocEvent(_))
+    ));
+    assert!(matches!(
+        decoded.events[1].event,
+        Some(proto::kat::native_hook::native_hook_data::Event::StatisticsEvent(_))
+    ));
+    assert!(matches!(
+        decoded.events[2].event,
+        Some(proto::kat::native_hook::native_hook_data::Event::TraceAllocEvent(_))
+    ));
+    assert!(matches!(
+        decoded.events[3].event,
+        Some(proto::kat::native_hook::native_hook_data::Event::TraceFreeEvent(_))
+    ));
+}
+
+#[test]
+fn generated_ftrace_table_set_routes_direct_events_to_tables() {
     let mut builders =
-        ftrace_event_table_builders::FtraceEventTableBuilders::new().expect("builders are created");
+        ftrace_event_table_builders::FtraceTableSet::new().expect("builders are created");
 
     builders
-        .push_event(domains::ftrace::FtraceEventRecord::new(
-            3,
-            proto::kat::hitrace::FtraceEvent {
-                timestamp: 20,
-                tgid: 500,
-                comm: "source".to_string(),
-                sched_switch_format: Some(proto::kat::hitrace::SchedSwitchFormat {
-                    prev_comm: "render".to_string(),
-                    prev_pid: 42,
-                    prev_prio: 120,
-                    prev_state: 1,
-                    next_comm: "main".to_string(),
-                    next_pid: 7,
-                    next_prio: 100,
-                }),
-                ..Default::default()
-            },
-        ))
+        .push_record(domains::ftrace::FtraceRecord::Event(Box::new(
+            domains::ftrace::FtraceEventRecord::new(
+                3,
+                proto::kat::hitrace::FtraceEvent {
+                    timestamp: 20,
+                    tgid: 500,
+                    comm: "source".to_string(),
+                    sched_switch_format: Some(proto::kat::hitrace::SchedSwitchFormat {
+                        prev_comm: "render".to_string(),
+                        prev_pid: 42,
+                        prev_prio: 120,
+                        prev_state: 1,
+                        next_comm: "main".to_string(),
+                        next_pid: 7,
+                        next_prio: 100,
+                    }),
+                    ..Default::default()
+                },
+            ),
+        )))
         .expect("event is routed");
 
     let tables = builders.into_tables().expect("tables are built");
@@ -192,7 +398,7 @@ fn generated_ftrace_event_table_builders_route_direct_events_to_tables() {
 }
 
 #[test]
-fn direct_event_table_builder_combines_meta_and_message_fields() {
+fn ftrace_event_table_builder_combines_meta_and_message_fields() {
     let event = proto::kat::hitrace::FtraceEvent {
         timestamp: 20,
         tgid: 500,
@@ -201,7 +407,7 @@ fn direct_event_table_builder_combines_meta_and_message_fields() {
     };
     let record = domains::ftrace::FtraceEventRecord::new(3, event);
     let meta = sinks::arrow::EventMeta::from_record(&record);
-    let mut builder = sinks::arrow::DirectEventTableBuilder::new::<
+    let mut builder = sinks::arrow::FtraceEventTableBuilder::new::<
         proto::kat::hitrace::SchedSwitchFormat,
     >("sched_switch")
     .expect("builder is created from meta and message schemas");
@@ -246,6 +452,29 @@ fn direct_event_table_builder_combines_meta_and_message_fields() {
     }
     assert!(schema.field_with_name("meta").is_err());
     assert!(schema.field_with_name("message").is_err());
+}
+
+#[test]
+fn ftrace_payload_messages_live_under_ftrace_data_proto() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let hitrace = fs::read_to_string(format!("{manifest_dir}/proto/hitrace.proto"))
+        .expect("hitrace proto source can be read");
+    let ftrace_event = fs::read_to_string(format!(
+        "{manifest_dir}/proto/ftrace_data/ftrace_event.proto"
+    ))
+    .expect("ftrace event proto source can be read");
+    let trace_result = fs::read_to_string(format!(
+        "{manifest_dir}/proto/ftrace_data/trace_plugin_result.proto"
+    ))
+    .expect("trace plugin result proto source can be read");
+
+    assert!(hitrace.contains("message ProfilerPluginData"));
+    assert!(!hitrace.contains("message TracePluginResult"));
+    assert!(!hitrace.contains("message FtraceEvent"));
+    assert!(ftrace_event.contains("message FtraceEvent"));
+    assert!(ftrace_event.contains("import \"ftrace_data/sched.proto\";"));
+    assert!(trace_result.contains("message TracePluginResult"));
+    assert!(trace_result.contains("import \"ftrace_data/ftrace_event.proto\";"));
 }
 
 #[test]
