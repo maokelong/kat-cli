@@ -401,6 +401,22 @@ fn build_script_splits_codegen_by_responsibility() {
         build_rs.contains(".compile_fds(fds)"),
         "build.rs should compile the same descriptor data after custom codegen"
     );
+    assert!(
+        build_rs.contains("PROFILER_ENVELOPE_PROTO_FILES"),
+        "build.rs should keep profiler envelope proto inputs explicit"
+    );
+    assert!(
+        build_rs.contains("proto/profiler/profiler_plugin_data.proto"),
+        "ProfilerPluginData should be sourced from profiler/profiler_plugin_data.proto"
+    );
+    assert!(
+        !build_rs.contains("proto/hitrace.proto"),
+        "ProfilerPluginData should not remain in proto/hitrace.proto"
+    );
+    assert!(
+        !build_rs.contains("proto/services/"),
+        "offline datasource should not source profiler envelope from service/RPC proto paths"
+    );
 }
 
 #[test]

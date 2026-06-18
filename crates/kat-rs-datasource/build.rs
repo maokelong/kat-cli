@@ -21,10 +21,13 @@ const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
     "proto/ftrace_data/ftrace_event.proto",
     "proto/ftrace_data/trace_plugin_result.proto",
 ];
+const PROFILER_ENVELOPE_PROTO_FILES: &[&str] = &["proto/profiler/profiler_plugin_data.proto"];
 
 fn main() {
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc is available");
-    let proto_files = std::iter::once("proto/hitrace.proto")
+    let proto_files = PROFILER_ENVELOPE_PROTO_FILES
+        .iter()
+        .copied()
         .chain(FTRACE_PAYLOAD_PROTO_FILES.iter().copied())
         .chain(FTRACE_EVENT_FAMILIES.iter().map(|family| family.proto_path))
         .chain(NATIVE_HOOK_PROTO_FILES.iter().copied())
@@ -49,6 +52,10 @@ fn main() {
     config.type_attribute(
         ".kat.hitrace.ProfilerPluginData",
         "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+    config.enum_attribute(
+        ".kat.hitrace.ProfilerPluginData.ClockId",
+        "#[allow(clippy::enum_variant_names)]",
     );
     config.type_attribute(
         ".kat.native_hook.NativeHookConfig",

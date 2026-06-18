@@ -10,7 +10,6 @@ use std::{
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
 };
 use tempfile::tempdir;
