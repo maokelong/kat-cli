@@ -1,13 +1,14 @@
-use anyhow::{Context, Result};
-use prost::Message;
+use anyhow::Result;
 
 use crate::{
-    plugin_flow::{PluginDecoder, PluginDecoderSpec, PluginEnvelope},
+    formats::hitrace::profiler::{
+        PluginDecoder, PluginDecoderSpec, PluginEnvelope, decode_payload,
+    },
     proto::TracePluginResult,
     record::{TraceRecord, TraceRecordSink},
 };
 
-use super::FtraceEventRecord;
+use super::{FtraceEventRecord, FtraceRecord};
 
 pub(crate) const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 pub(crate) const FTRACE_PLUGIN_DECODER: PluginDecoderSpec =
@@ -37,20 +38,12 @@ fn decode_plugin_payload(
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
-    let result = TracePluginResult::decode(envelope.payload).with_context(|| {
-        format!(
-            "failed to decode {} payload in profiler section at byte {} version={} sample_interval={}",
-            envelope.envelope_name,
-            envelope.section_start,
-            envelope.version,
-            envelope.sample_interval
-        )
-    })?;
+    let result: TracePluginResult = decode_payload(envelope)?;
 
     for detail in result.ftrace_cpu_detail {
         for event in detail.event {
-            sink.push(TraceRecord::FtraceEvent(Box::new(FtraceEventRecord::new(
-                detail.cpu, event,
+            sink.push(TraceRecord::Ftrace(Box::new(FtraceRecord::Event(
+                Box::new(FtraceEventRecord::new(detail.cpu, event)),
             ))))?;
         }
     }

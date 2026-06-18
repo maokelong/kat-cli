@@ -1,18 +1,17 @@
 mod envelope;
+mod framing;
+mod payload;
 mod registry;
-mod segment;
 
 use anyhow::{Context, Result};
 
-use crate::{
-    proto::ProfilerPluginData,
-    record::{TraceRecord, TraceRecordSink},
-};
+use crate::record::{TraceRecord, TraceRecordSink};
 
 pub(crate) use envelope::{PluginEnvelope, PluginEnvelopeKind};
+pub(crate) use payload::decode_payload;
 pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
 
-use segment::for_each_len_prefixed_message;
+use framing::for_each_profiler_envelope_frame;
 
 pub(crate) fn decode_plugin_section_body(
     section_body: &[u8],
@@ -20,7 +19,7 @@ pub(crate) fn decode_plugin_section_body(
     registry: &mut PluginPayloadRegistry,
     sink: &mut impl TraceRecordSink,
 ) -> Result<()> {
-    for_each_len_prefixed_message::<ProfilerPluginData, _>(section_body, |message| {
+    for_each_profiler_envelope_frame(section_body, |message| {
         {
             let envelope = PluginEnvelope::from_profiler_plugin_data(&message, section_start);
             registry.dispatch(&envelope, sink)?;

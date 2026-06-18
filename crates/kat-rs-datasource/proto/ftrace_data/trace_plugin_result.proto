@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package kat.hitrace;
+
+option optimize_for = LITE_RUNTIME;
+
+import "ftrace_data/ftrace_event.proto";
+
+message TracePluginResult {
+  repeated FtraceCpuDetailMsg ftrace_cpu_detail = 2;
+}
+
+message FtraceCpuDetailMsg {
+  uint32 cpu = 1;
+  repeated FtraceEvent event = 2;
+  uint64 overwrite = 3;
+}

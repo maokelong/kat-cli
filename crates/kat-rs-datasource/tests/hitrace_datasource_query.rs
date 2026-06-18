@@ -1,6 +1,6 @@
 use std::fs;
 
-use prost::Message;
+use prost::{Message, Oneof};
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -38,11 +38,11 @@ async fn build_releases_mmap_and_queries_hitrace_as_json() {
 }
 
 #[test]
-fn build_rejects_len_prefixed_segments_without_hitrace_header() {
+fn build_rejects_profiler_envelope_frames_without_hitrace_header() {
     let dir = tempdir().expect("tempdir is created");
-    let trace_path = dir.path().join("segment-only.hitrace");
+    let trace_path = dir.path().join("frame-only.hitrace");
     let mut bytes = Vec::new();
-    append_segment(
+    append_profiler_envelope_frame(
         &mut bytes,
         TestProfilerPluginData {
             name: "ftrace-plugin".to_string(),
@@ -59,7 +59,7 @@ fn build_rejects_len_prefixed_segments_without_hitrace_header() {
 
     let result = kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path);
     let Err(error) = result else {
-        panic!("segment-only input is rejected");
+        panic!("frame-only input is rejected");
     };
 
     assert!(
@@ -133,7 +133,7 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
 }
 
 #[tokio::test]
-async fn plugin_flow_dispatch_ignores_config_and_unknown_plugin_payloads() {
+async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("plugin-flow-envelopes.hitrace");
     fs::write(
@@ -287,6 +287,166 @@ async fn query_extracts_direct_sched_event_tables() {
 }
 
 #[tokio::test]
+async fn query_extracts_native_hook_config_and_direct_tables() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("native-hook.hitrace");
+    fs::write(
+        &trace_path,
+        profiler_section(vec![
+            native_hook_config_plugin(),
+            native_hook_plugin_with_events(),
+        ]),
+    )
+    .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    let config_rows = datasource
+        .query_json(
+            "select pid, process_name, statistics_interval, sample_interval \
+             from native_hook_config",
+        )
+        .await
+        .expect("native_hook_config query succeeds");
+    assert_eq!(
+        config_rows,
+        json!([{
+            "pid": 42,
+            "process_name": "render",
+            "statistics_interval": 5,
+            "sample_interval": 10,
+        }])
+    );
+
+    let alloc_rows = datasource
+        .query_json(
+            "select tv_sec, tv_nsec, pid, tid, addr, size, thread_name_id, stack_id \
+             from native_hook_alloc",
+        )
+        .await
+        .expect("native_hook_alloc query succeeds");
+    assert_eq!(
+        alloc_rows,
+        json!([{
+            "tv_sec": 1u64,
+            "tv_nsec": 20u64,
+            "pid": 42,
+            "tid": 43,
+            "addr": 4096u64,
+            "size": 64u64,
+            "thread_name_id": 7,
+            "stack_id": 8,
+        }])
+    );
+    assert!(
+        datasource
+            .query_json("select event_ts from native_hook_alloc")
+            .await
+            .is_err(),
+        "native_hook_alloc should not expose derived event_ts"
+    );
+    assert!(
+        datasource
+            .query_json("select event_index from native_hook_alloc")
+            .await
+            .is_err(),
+        "native_hook_alloc should not expose derived event_index"
+    );
+
+    let statistic_rows = datasource
+        .query_json(
+            "select tv_sec, tv_nsec, pid, callstack_id, \"type\", apply_count, tag_name \
+             from native_hook_statistics",
+        )
+        .await
+        .expect("native_hook_statistics query succeeds");
+    assert_eq!(
+        statistic_rows,
+        json!([{
+            "tv_sec": 2u64,
+            "tv_nsec": 30u64,
+            "pid": 42,
+            "callstack_id": 9,
+            "type": 1,
+            "apply_count": 3u64,
+            "tag_name": "ashmem",
+        }])
+    );
+
+    let trace_alloc_rows = datasource
+        .query_json(
+            "select tv_sec, tv_nsec, pid, tid, addr, trace_type, tag_name, size, \
+             thread_name_id, stack_id from native_hook_trace_alloc",
+        )
+        .await
+        .expect("native_hook_trace_alloc query succeeds");
+    assert_eq!(
+        trace_alloc_rows,
+        json!([{
+            "tv_sec": 3u64,
+            "tv_nsec": 40u64,
+            "pid": 42,
+            "tid": 44,
+            "addr": 8192u64,
+            "trace_type": 0,
+            "tag_name": "fd",
+            "size": 16u64,
+            "thread_name_id": 11,
+            "stack_id": 12,
+        }])
+    );
+
+    let trace_free_rows = datasource
+        .query_json(
+            "select tv_sec, tv_nsec, pid, tid, addr, trace_type, tag_name, \
+             thread_name_id, stack_id from native_hook_trace_free",
+        )
+        .await
+        .expect("native_hook_trace_free query succeeds");
+    assert_eq!(
+        trace_free_rows,
+        json!([{
+            "tv_sec": 4u64,
+            "tv_nsec": 50u64,
+            "pid": 42,
+            "tid": 44,
+            "addr": 8192u64,
+            "trace_type": 0,
+            "tag_name": "fd",
+            "thread_name_id": 11,
+            "stack_id": 12,
+        }])
+    );
+
+    let maps_info_rows = datasource
+        .query_json(
+            "select tv_sec, tv_nsec, pid, start, \"end\", \"offset\", file_path_id \
+             from native_hook_maps_info",
+        )
+        .await
+        .expect("native_hook_maps_info query succeeds");
+    assert_eq!(
+        maps_info_rows,
+        json!([{
+            "tv_sec": 5u64,
+            "tv_nsec": 60u64,
+            "pid": 42,
+            "start": 12_288u64,
+            "end": 16_384u64,
+            "offset": 128u64,
+            "file_path_id": 9,
+        }])
+    );
+
+    let raw_rows = datasource
+        .query_json("select count(*) as count from profiler_plugin_data where name = 'nativehook'")
+        .await
+        .expect("raw nativehook envelope remains queryable");
+    assert_eq!(raw_rows, json!([{ "count": 1 }]));
+}
+
+#[tokio::test]
 async fn query_json_converts_scalar_result_types() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("empty.hitrace");
@@ -299,6 +459,18 @@ async fn query_json_converts_scalar_result_types() {
         .await
         .expect("empty profiler_plugin_data table can be queried");
     assert_eq!(empty_table_rows, json!([{ "count": 0 }]));
+
+    let empty_native_hook_rows = datasource
+        .query_json("select count(*) as count from native_hook_alloc")
+        .await
+        .expect("empty native_hook_alloc table can be queried");
+    assert_eq!(empty_native_hook_rows, json!([{ "count": 0 }]));
+
+    let empty_native_hook_symbol_rows = datasource
+        .query_json("select count(*) as count from native_hook_symbol_table")
+        .await
+        .expect("empty native_hook_symbol_table table can be queried");
+    assert_eq!(empty_native_hook_symbol_rows, json!([{ "count": 0 }]));
 
     let rows = datasource
         .query_json(
@@ -377,6 +549,141 @@ struct TestProfilerPluginData {
 struct TestTracePluginResult {
     #[prost(message, repeated, tag = "2")]
     ftrace_cpu_detail: Vec<TestFtraceCpuDetailMsg>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNativeHookConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "7")]
+    process_name: String,
+    #[prost(uint32, tag = "22")]
+    statistics_interval: u32,
+    #[prost(uint32, tag = "24")]
+    sample_interval: u32,
+    #[prost(int32, repeated, tag = "26")]
+    expand_pids: Vec<i32>,
+    #[prost(string, tag = "29")]
+    filter_napi_name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestBatchNativeHookData {
+    #[prost(message, repeated, tag = "1")]
+    events: Vec<TestNativeHookData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNativeHookData {
+    #[prost(uint64, tag = "1")]
+    tv_sec: u64,
+    #[prost(uint64, tag = "2")]
+    tv_nsec: u64,
+    #[prost(oneof = "TestNativeHookEvent", tags = "3, 11, 15, 16, 17")]
+    event: Option<TestNativeHookEvent>,
+}
+
+#[derive(Clone, PartialEq, Oneof)]
+#[allow(clippy::enum_variant_names)]
+enum TestNativeHookEvent {
+    #[prost(message, tag = "3")]
+    AllocEvent(TestAllocEvent),
+    #[prost(message, tag = "11")]
+    MapsInfo(TestMapsInfo),
+    #[prost(message, tag = "15")]
+    StatisticsEvent(TestRecordStatisticsEvent),
+    #[prost(message, tag = "16")]
+    TraceAllocEvent(TestTraceAllocEvent),
+    #[prost(message, tag = "17")]
+    TraceFreeEvent(TestTraceFreeEvent),
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestMapsInfo {
+    #[prost(uint32, tag = "1")]
+    pid: u32,
+    #[prost(uint64, tag = "2")]
+    start: u64,
+    #[prost(uint64, tag = "3")]
+    end: u64,
+    #[prost(uint64, tag = "4")]
+    offset: u64,
+    #[prost(uint32, tag = "5")]
+    file_path_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestAllocEvent {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(int32, tag = "2")]
+    tid: i32,
+    #[prost(uint64, tag = "3")]
+    addr: u64,
+    #[prost(uint64, tag = "4")]
+    size: u64,
+    #[prost(uint32, tag = "6")]
+    thread_name_id: u32,
+    #[prost(uint32, tag = "7")]
+    stack_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestRecordStatisticsEvent {
+    #[prost(uint32, tag = "1")]
+    pid: u32,
+    #[prost(uint32, tag = "2")]
+    callstack_id: u32,
+    #[prost(int32, tag = "3")]
+    r#type: i32,
+    #[prost(uint64, tag = "4")]
+    apply_count: u64,
+    #[prost(uint64, tag = "5")]
+    release_count: u64,
+    #[prost(uint64, tag = "6")]
+    apply_size: u64,
+    #[prost(uint64, tag = "7")]
+    release_size: u64,
+    #[prost(string, tag = "8")]
+    tag_name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestTraceAllocEvent {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(int32, tag = "2")]
+    tid: i32,
+    #[prost(uint64, tag = "3")]
+    addr: u64,
+    #[prost(int32, tag = "4")]
+    trace_type: i32,
+    #[prost(string, tag = "5")]
+    tag_name: String,
+    #[prost(uint64, tag = "6")]
+    size: u64,
+    #[prost(uint32, tag = "8")]
+    thread_name_id: u32,
+    #[prost(uint32, tag = "9")]
+    stack_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestTraceFreeEvent {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(int32, tag = "2")]
+    tid: i32,
+    #[prost(uint64, tag = "3")]
+    addr: u64,
+    #[prost(int32, tag = "4")]
+    trace_type: i32,
+    #[prost(string, tag = "5")]
+    tag_name: String,
+    #[prost(uint32, tag = "7")]
+    thread_name_id: u32,
+    #[prost(uint32, tag = "8")]
+    stack_id: u32,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -662,6 +969,110 @@ fn ftrace_plugin_with_sched_events() -> TestProfilerPluginData {
     }
 }
 
+fn native_hook_config_plugin() -> TestProfilerPluginData {
+    TestProfilerPluginData {
+        name: "nativehook_config".to_string(),
+        status: 0,
+        data: TestNativeHookConfig {
+            pid: 42,
+            process_name: "render".to_string(),
+            statistics_interval: 5,
+            sample_interval: 10,
+            expand_pids: vec![42, 77],
+            filter_napi_name: "napi".to_string(),
+        }
+        .encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 100,
+        version: "1.0".to_string(),
+        sample_interval: 10,
+    }
+}
+
+fn native_hook_plugin_with_events() -> TestProfilerPluginData {
+    TestProfilerPluginData {
+        name: "nativehook".to_string(),
+        status: 1,
+        data: TestBatchNativeHookData {
+            events: vec![
+                TestNativeHookData {
+                    tv_sec: 1,
+                    tv_nsec: 20,
+                    event: Some(TestNativeHookEvent::AllocEvent(TestAllocEvent {
+                        pid: 42,
+                        tid: 43,
+                        addr: 0x1000,
+                        size: 64,
+                        thread_name_id: 7,
+                        stack_id: 8,
+                    })),
+                },
+                TestNativeHookData {
+                    tv_sec: 2,
+                    tv_nsec: 30,
+                    event: Some(TestNativeHookEvent::StatisticsEvent(
+                        TestRecordStatisticsEvent {
+                            pid: 42,
+                            callstack_id: 9,
+                            r#type: 1,
+                            apply_count: 3,
+                            release_count: 1,
+                            apply_size: 256,
+                            release_size: 128,
+                            tag_name: "ashmem".to_string(),
+                        },
+                    )),
+                },
+                TestNativeHookData {
+                    tv_sec: 3,
+                    tv_nsec: 40,
+                    event: Some(TestNativeHookEvent::TraceAllocEvent(TestTraceAllocEvent {
+                        pid: 42,
+                        tid: 44,
+                        addr: 0x2000,
+                        trace_type: 0,
+                        tag_name: "fd".to_string(),
+                        size: 16,
+                        thread_name_id: 11,
+                        stack_id: 12,
+                    })),
+                },
+                TestNativeHookData {
+                    tv_sec: 4,
+                    tv_nsec: 50,
+                    event: Some(TestNativeHookEvent::TraceFreeEvent(TestTraceFreeEvent {
+                        pid: 42,
+                        tid: 44,
+                        addr: 0x2000,
+                        trace_type: 0,
+                        tag_name: "fd".to_string(),
+                        thread_name_id: 11,
+                        stack_id: 12,
+                    })),
+                },
+                TestNativeHookData {
+                    tv_sec: 5,
+                    tv_nsec: 60,
+                    event: Some(TestNativeHookEvent::MapsInfo(TestMapsInfo {
+                        pid: 42,
+                        start: 0x3000,
+                        end: 0x4000,
+                        offset: 0x80,
+                        file_path_id: 9,
+                    })),
+                },
+            ],
+        }
+        .encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 10,
+    }
+}
+
 fn empty_trace_plugin_result() -> Vec<u8> {
     TestTracePluginResult {
         ftrace_cpu_detail: Vec::new(),
@@ -672,7 +1083,7 @@ fn empty_trace_plugin_result() -> Vec<u8> {
 fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
     let mut body = Vec::new();
     for plugin in plugins {
-        append_segment(&mut body, plugin);
+        append_profiler_envelope_frame(&mut body, plugin);
     }
 
     profiler_section_body(HIPROFILER_PROTOBUF_BIN, body)
@@ -687,8 +1098,8 @@ fn profiler_section_body(data_type: u32, body: Vec<u8>) -> Vec<u8> {
     bytes
 }
 
-fn append_segment(bytes: &mut Vec<u8>, plugin: TestProfilerPluginData) {
-    let segment = plugin.encode_to_vec();
-    bytes.extend_from_slice(&(segment.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&segment);
+fn append_profiler_envelope_frame(bytes: &mut Vec<u8>, plugin: TestProfilerPluginData) {
+    let frame = plugin.encode_to_vec();
+    bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&frame);
 }

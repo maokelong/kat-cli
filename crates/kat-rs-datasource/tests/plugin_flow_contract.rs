@@ -8,6 +8,10 @@ mod proto {
         pub mod hitrace {
             include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
         }
+
+        pub mod native_hook {
+            include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
+        }
     }
 
     pub(crate) use kat::hitrace::ProfilerPluginData;
@@ -15,16 +19,15 @@ mod proto {
 
 mod domains {
     pub(crate) mod ftrace {
-        use crate::plugin_flow::{PluginDecoder, PluginDecoderSpec};
+        #[allow(dead_code)]
+        pub(crate) enum FtraceRecord {}
 
+        #[allow(dead_code)]
         pub(crate) struct FtraceEventRecord;
+    }
 
-        pub(crate) const FTRACE_PLUGIN_DECODER: PluginDecoderSpec =
-            PluginDecoderSpec::new(new_ftrace_plugin_decoder);
-
-        fn new_ftrace_plugin_decoder() -> Box<dyn PluginDecoder> {
-            unreachable!("default ftrace decoder is not used by this contract test")
-        }
+    pub(crate) mod native_hook {
+        pub(crate) enum NativeHookRecord {}
     }
 }
 
@@ -34,13 +37,13 @@ mod record {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/record.rs"));
 }
 
-mod plugin_flow {
+mod profiler {
     pub(crate) mod envelope {
         #![allow(dead_code)]
 
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/plugin_flow/envelope.rs"
+            "/src/formats/hitrace/profiler/envelope.rs"
         ));
     }
 
@@ -51,7 +54,7 @@ mod plugin_flow {
 
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/plugin_flow/registry.rs"
+            "/src/formats/hitrace/profiler/registry.rs"
         ));
     }
 
@@ -72,12 +75,16 @@ thread_local! {
 
 struct RecordingDecoder;
 
-impl plugin_flow::PluginDecoder for RecordingDecoder {
+impl profiler::PluginDecoder for RecordingDecoder {
     fn plugin_name(&self) -> &'static str {
         "demo-plugin"
     }
 
-    fn configure(&mut self, envelope: &plugin_flow::PluginEnvelope<'_>) -> Result<()> {
+    fn configure(
+        &mut self,
+        envelope: &profiler::PluginEnvelope<'_>,
+        _sink: &mut dyn record::TraceRecordSink,
+    ) -> Result<()> {
         EVENTS.with(|events| {
             events
                 .borrow_mut()
@@ -88,7 +95,7 @@ impl plugin_flow::PluginDecoder for RecordingDecoder {
 
     fn decode_data(
         &mut self,
-        envelope: &plugin_flow::PluginEnvelope<'_>,
+        envelope: &profiler::PluginEnvelope<'_>,
         _sink: &mut dyn record::TraceRecordSink,
     ) -> Result<()> {
         EVENTS.with(|events| {
@@ -105,7 +112,7 @@ impl plugin_flow::PluginDecoder for RecordingDecoder {
     }
 }
 
-fn new_recording_decoder() -> Box<dyn plugin_flow::PluginDecoder> {
+fn new_recording_decoder() -> Box<dyn profiler::PluginDecoder> {
     Box::new(RecordingDecoder)
 }
 
@@ -119,22 +126,22 @@ fn plugin_message(name: &str) -> proto::ProfilerPluginData {
 #[test]
 fn registry_dispatches_config_data_and_finish_to_matching_decoder() {
     EVENTS.with(|events| events.borrow_mut().clear());
-    let specs = [plugin_flow::PluginDecoderSpec::new(new_recording_decoder)];
-    let mut registry = plugin_flow::PluginPayloadRegistry::new(&specs);
+    let specs = [profiler::PluginDecoderSpec::new(new_recording_decoder)];
+    let mut registry = profiler::PluginPayloadRegistry::new(&specs);
     let mut sink = RecordingSink;
 
     let config = plugin_message("demo-plugin_config");
-    let config = plugin_flow::PluginEnvelope::from_profiler_plugin_data(&config, 10);
+    let config = profiler::PluginEnvelope::from_profiler_plugin_data(&config, 10);
     registry
         .dispatch(&config, &mut sink)
         .expect("config dispatch");
 
     let data = plugin_message("demo-plugin");
-    let data = plugin_flow::PluginEnvelope::from_profiler_plugin_data(&data, 20);
+    let data = profiler::PluginEnvelope::from_profiler_plugin_data(&data, 20);
     registry.dispatch(&data, &mut sink).expect("data dispatch");
 
     let unknown = plugin_message("unknown-plugin");
-    let unknown = plugin_flow::PluginEnvelope::from_profiler_plugin_data(&unknown, 30);
+    let unknown = profiler::PluginEnvelope::from_profiler_plugin_data(&unknown, 30);
     registry
         .dispatch(&unknown, &mut sink)
         .expect("unknown dispatch");

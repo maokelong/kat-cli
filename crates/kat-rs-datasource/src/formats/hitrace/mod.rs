@@ -1,6 +1,7 @@
 //! `.htrace` profiler container format adapter.
 
 mod file;
+pub(crate) mod profiler;
 
 use std::path::Path;
 
@@ -8,12 +9,16 @@ use anyhow::{Result, bail};
 use log::debug;
 
 use crate::{
+    domains::{
+        ftrace::FTRACE_PLUGIN_DECODER,
+        native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
+    },
     mmap::with_mapped_file,
-    plugin_flow::{PluginPayloadRegistry, decode_plugin_section_body},
     record::TraceRecordSink,
 };
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
+use profiler::{PluginPayloadRegistry, decode_plugin_section_body};
 
 pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
     debug!("decoding hitrace format from {}", path.display());
@@ -30,7 +35,12 @@ fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
     let mut offset = 0usize;
-    let mut plugin_registry = PluginPayloadRegistry::default();
+    let decoder_specs = [
+        FTRACE_PLUGIN_DECODER,
+        NATIVE_HOOK_PLUGIN_DECODER,
+        HOOK_DAEMON_PLUGIN_DECODER,
+    ];
+    let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;

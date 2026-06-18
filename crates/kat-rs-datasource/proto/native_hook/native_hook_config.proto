@@ -1,0 +1,39 @@
+// Adapted from OpenHarmony developtools_profiler plugins/native_hook/native_hook_config.proto.
+
+syntax = "proto3";
+
+package kat.native_hook;
+
+option optimize_for = LITE_RUNTIME;
+
+message NativeHookConfig {
+    int32 pid = 1;
+    bool save_file = 2;
+    string file_name = 3;
+    int32 filter_size = 4;
+    int32 smb_pages = 5;
+    int32 max_stack_depth = 6;
+    string process_name = 7;
+    bool malloc_disable = 8;
+    bool mmap_disable = 9;
+    bool free_stack_report = 10;
+    bool munmap_stack_report = 11;
+    uint32 malloc_free_matching_interval = 12;
+    uint32 malloc_free_matching_cnt = 13;
+    bool string_compressed = 14;
+    bool fp_unwind = 15;
+    bool blocked = 16;
+    bool record_accurately = 17;
+    bool startup_mode = 18;
+    bool memtrace_enable = 19;
+    bool offline_symbolization = 20;
+    bool callframe_compress = 21;
+    uint32 statistics_interval = 22;
+    string clock = 23;
+    uint32 sample_interval = 24;
+    bool response_library_mode = 25;
+    repeated int32 expand_pids = 26;
+    int32 js_stack_report = 27;
+    uint32 max_js_stack_depth = 28;
+    string filter_napi_name = 29;
+}
