@@ -15,7 +15,14 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/v1/server", delete(shutdown))
 }
 
-async fn shutdown(State(state): State<AppState>) -> Response {
+#[utoipa::path(
+    delete,
+    path = "/v1/server",
+    responses(
+        (status = 202, description = "Shutdown accepted", body = DataEnvelope<ShutdownResponse>)
+    )
+)]
+pub(crate) async fn shutdown(State(state): State<AppState>) -> Response {
     state.shutdown.notify_waiters();
 
     (

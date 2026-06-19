@@ -92,15 +92,40 @@ async fn openapi_endpoint_returns_current_api_paths() {
 
     assert_eq!(value["openapi"], "3.1.0");
     assert_eq!(value["info"]["title"], "kat-rs local API");
-    for path in [
-        "/v1/health",
-        "/v1/datasources",
-        "/v1/datasources/{datasourceId}",
-        "/v1/datasources/{datasourceId}/queries",
-        "/v1/server",
+    assert!(value["paths"]["/v1/health"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasources"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasources"]["post"].is_object());
+    assert!(value["paths"]["/v1/datasources/{datasourceId}"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasources/{datasourceId}"]["delete"].is_object());
+    assert!(value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"].is_object());
+    assert!(value["paths"]["/v1/server"]["delete"].is_object());
+
+    let schemas = &value["components"]["schemas"];
+    for schema in [
+        "CreateDatasourceRequest",
+        "DatasourceDto",
+        "ErrorEnvelope",
+        "QueryRequest",
+        "QueryResponse",
     ] {
-        assert!(value["paths"][path].is_object(), "missing path {path}");
+        assert!(schemas[schema].is_object(), "missing schema {schema}");
     }
+
+    assert_eq!(
+        value["paths"]["/v1/datasources"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/CreateDatasourceRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["$ref"],
+        "#/components/schemas/QueryRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/datasources/{datasourceId}"]["get"]["responses"]["404"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/ErrorEnvelope"
+    );
 }
 
 #[tokio::test]

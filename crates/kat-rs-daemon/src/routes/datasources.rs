@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{CreateDatasourceRequest, DataEnvelope, DatasourceDto, PaginatedEnvelope, Pagination},
-    error::ApiError,
+    error::{ApiError, ErrorEnvelope},
     state::AppState,
 };
 
@@ -25,7 +25,19 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
-async fn create_datasource(
+#[utoipa::path(
+    post,
+    path = "/v1/datasources",
+    request_body = CreateDatasourceRequest,
+    responses(
+        (status = 200, description = "Existing datasource was reused", body = DataEnvelope<DatasourceDto>),
+        (status = 201, description = "Datasource was created", body = DataEnvelope<DatasourceDto>),
+        (status = 400, description = "Request body is malformed", body = ErrorEnvelope),
+        (status = 422, description = "Datasource input failed validation", body = ErrorEnvelope),
+        (status = 500, description = "Internal server error", body = ErrorEnvelope)
+    )
+)]
+pub(crate) async fn create_datasource(
     State(state): State<AppState>,
     request: Result<Json<CreateDatasourceRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
@@ -41,7 +53,19 @@ async fn create_datasource(
     Ok((status, Json(DataEnvelope { data: datasource })).into_response())
 }
 
-async fn list_datasources(
+#[utoipa::path(
+    get,
+    path = "/v1/datasources",
+    params(
+        ("limit" = Option<usize>, Query, description = "Maximum number of datasources to return"),
+        ("offset" = Option<usize>, Query, description = "Number of datasources to skip")
+    ),
+    responses(
+        (status = 200, description = "Datasource list", body = PaginatedEnvelope<DatasourceDto>),
+        (status = 400, description = "Query parameters are malformed", body = ErrorEnvelope)
+    )
+)]
+pub(crate) async fn list_datasources(
     State(state): State<AppState>,
     query: Result<Query<ListDatasourcesQuery>, QueryRejection>,
 ) -> Result<Json<PaginatedEnvelope<DatasourceDto>>, ApiError> {
@@ -60,7 +84,18 @@ async fn list_datasources(
     }))
 }
 
-async fn get_datasource(
+#[utoipa::path(
+    get,
+    path = "/v1/datasources/{datasourceId}",
+    params(
+        ("datasourceId" = String, Path, description = "Datasource id")
+    ),
+    responses(
+        (status = 200, description = "Datasource metadata", body = DataEnvelope<DatasourceDto>),
+        (status = 404, description = "Datasource not found", body = ErrorEnvelope)
+    )
+)]
+pub(crate) async fn get_datasource(
     State(state): State<AppState>,
     Path(datasource_id): Path<String>,
 ) -> Result<Json<DataEnvelope<DatasourceDto>>, ApiError> {
@@ -69,7 +104,18 @@ async fn get_datasource(
     Ok(Json(DataEnvelope { data: datasource }))
 }
 
-async fn delete_datasource(
+#[utoipa::path(
+    delete,
+    path = "/v1/datasources/{datasourceId}",
+    params(
+        ("datasourceId" = String, Path, description = "Datasource id")
+    ),
+    responses(
+        (status = 204, description = "Datasource deleted"),
+        (status = 404, description = "Datasource not found", body = ErrorEnvelope)
+    )
+)]
+pub(crate) async fn delete_datasource(
     State(state): State<AppState>,
     Path(datasource_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
@@ -79,7 +125,7 @@ async fn delete_datasource(
 }
 
 #[derive(Debug, Deserialize)]
-struct ListDatasourcesQuery {
+pub(crate) struct ListDatasourcesQuery {
     limit: Option<usize>,
     offset: Option<usize>,
 }
