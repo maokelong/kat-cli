@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     name: test
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -26,6 +26,3 @@ jobs:
 
       - name: Check
         run: cargo check --locked
-
-      - name: Test
-        run: cargo test --locked

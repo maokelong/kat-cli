@@ -301,6 +301,65 @@ jobs:
             pr_guard.contains_required_workflow_signal(weakened, "commit identity guard")
         )
 
+    def test_workflow_signal_can_move_to_another_workflow(self) -> None:
+        old_ci = """
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  test:
+    steps:
+      - run: python .github/scripts/pr_guard.py --identity-only --base "$BASE" --head "$HEAD"
+      - run: cargo check --locked
+      - run: cargo test --locked
+"""
+        fast_ci = """
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  test:
+    steps:
+      - run: python .github/scripts/pr_guard.py --identity-only --base "$BASE" --head "$HEAD"
+      - run: cargo check --locked
+"""
+        full_ci = """
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+jobs:
+  full-test:
+    steps:
+      - run: cargo test --locked
+"""
+
+        failures = pr_guard.workflow_signal_failures(
+            ".github/workflows/ci.yml",
+            old_ci,
+            fast_ci,
+            [full_ci],
+        )
+        failures_without_replacement = pr_guard.workflow_signal_failures(
+            ".github/workflows/ci.yml",
+            old_ci,
+            fast_ci,
+            [],
+        )
+
+        self.assertNotIn(
+            "CI workflow `.github/workflows/ci.yml` weakens required signal `cargo test`.",
+            failures,
+        )
+        self.assertIn(
+            "CI workflow `.github/workflows/ci.yml` weakens required signal `cargo test`.",
+            failures_without_replacement,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

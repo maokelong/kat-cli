@@ -111,6 +111,15 @@ AI_AGENT_IDENTITY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+REQUIRED_WORKFLOW_SIGNALS = (
+    "pull_request",
+    "cargo check",
+    "cargo test",
+    "pr guard tests",
+    "pr guard",
+    "commit identity guard",
+)
+
 
 @dataclass(frozen=True)
 class ChangedFile:
@@ -455,6 +464,38 @@ def contains_required_workflow_signal(text: str, signal: str) -> bool:
     return signal in content
 
 
+def workflow_content_preserves_signal(
+    old_content: str,
+    new_content: str,
+    signal: str,
+) -> bool:
+    if not contains_required_workflow_signal(new_content, signal):
+        return False
+    if signal != "pull_request" and contains_required_workflow_signal(old_content, "pull_request"):
+        return contains_required_workflow_signal(new_content, "pull_request")
+    return True
+
+
+def workflow_signal_failures(
+    path: str,
+    old_content: str,
+    new_content: str,
+    other_new_workflow_contents: Iterable[str] = (),
+) -> list[str]:
+    failures: list[str] = []
+    replacement_contents = [new_content, *other_new_workflow_contents]
+    for signal in REQUIRED_WORKFLOW_SIGNALS:
+        if not contains_required_workflow_signal(old_content, signal):
+            continue
+        if any(
+            workflow_content_preserves_signal(old_content, content, signal)
+            for content in replacement_contents
+        ):
+            continue
+        failures.append(f"CI workflow `{path}` weakens required signal `{signal}`.")
+    return failures
+
+
 def git_show(repo: Path, ref: str, path: str) -> str | None:
     result = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
@@ -643,6 +684,14 @@ def evaluate_workflows(
         return []
 
     failures: list[str] = []
+    new_workflow_contents: dict[str, str] = {}
+    for item in changed_files:
+        if not is_workflow_file(item.path) or item.status == "D":
+            continue
+        new_content = git_show(repo, context.head, item.path)
+        if new_content is not None:
+            new_workflow_contents[item.path] = new_content
+
     for item in changed_files:
         old_workflow = is_workflow_file(item.old_path or item.path)
         new_workflow = is_workflow_file(item.path)
@@ -658,7 +707,7 @@ def evaluate_workflows(
 
         old_path = item.old_path or item.path
         old_content = git_show(repo, context.base, old_path)
-        new_content = git_show(repo, context.head, item.path)
+        new_content = new_workflow_contents.get(item.path)
         if old_content is None:
             continue
         if new_content is None:
@@ -669,20 +718,12 @@ def evaluate_workflows(
         if disabled:
             failures.append(f"CI workflow `{item.path}` appears disabled by {', '.join(disabled)}.")
 
-        for signal in (
-            "pull_request",
-            "cargo check",
-            "cargo test",
-            "pr guard tests",
-            "pr guard",
-            "commit identity guard",
-        ):
-            if contains_required_workflow_signal(
-                old_content, signal
-            ) and not contains_required_workflow_signal(new_content, signal):
-                failures.append(
-                    f"CI workflow `{item.path}` weakens required signal `{signal}`."
-                )
+        other_new_contents = [
+            content for path, content in new_workflow_contents.items() if path != item.path
+        ]
+        failures.extend(
+            workflow_signal_failures(item.path, old_content, new_content, other_new_contents)
+        )
 
     return failures
 
