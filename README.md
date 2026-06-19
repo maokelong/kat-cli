@@ -2,17 +2,17 @@
 
 `kat-rs` 是一个用 SQL 查询 trace 与日志文件的 Rust 本地数据引擎。
 
-项目当前把异构输入解码或读取为 Arrow 列式数据，注册到 DataFusion，并通过只监听本机回环地址的 server REST API 返回查询结果。CLI 只负责本机 server 生命周期和 OpenAPI 输出。
+项目当前把异构输入解码或读取为 Arrow/Parquet 列式数据，注册到 DataFusion，并通过只监听本机回环地址的 server REST API 返回查询结果。CLI 只负责本机 server 生命周期和 OpenAPI 输出。
 
 ```text
 trace / log files
   -> format adapter / domain decoder
-  -> Arrow RecordBatch / MemTable
+  -> Arrow RecordBatch / MemTable or local Parquet dataset
   -> DataFusion SQL
   -> JSON
 ```
 
-项目仍处于早期演进阶段，当前版本为 `0.1.0`，公共 API、表结构和内部边界尚未承诺稳定。
+项目仍处于早期演进阶段，当前版本为 `0.1.0`，公共 API、表结构、dataset layout 和内部边界尚未承诺稳定。本地 dataset 是可重新生成的早期列式产物；跨版本不承诺兼容，server 启动后也不会自动把历史 dataset 当作可信运行状态。
 
 ## 项目定位
 
@@ -24,14 +24,14 @@ trace / log files
 - 派生语义尽量表现为可继续查询的表，而不是过早转换成不可组合的 JSON blob；
 - 只实现当前可验证的最小切片，优先复用 Rust、Arrow、DataFusion、Axum 等成熟基础设施。
 
-当前 `main` 已交付 datasource、SQL 查询和本机 REST API。Pack、typed transform DAG、analysis runtime 等能力仍属于 RFC 方向，不是现有命令或稳定接口。
+当前已交付 datasource、SQL 查询、本地列式 dataset 内核和本机 REST API。Pack、typed transform DAG、analysis runtime 等能力仍属于 RFC 方向，不是现有命令或稳定接口。
 
 ## 当前能力
 
 | Source | 输入 | 当前查询面 | 加载方式 |
 | --- | --- | --- | --- |
-| `hitrace` | OpenHarmony `.htrace` profiler container | `profiler_plugin_data` raw table、ftrace sched direct tables、native hook direct/raw tables | 解码后物化为 Arrow `MemTable` |
-| `langfuse` | 一份 legacy `observations.jsonl.gz` 和一份 `traces.jsonl.gz` | `langfuse_observations`、`langfuse_traces` 两张原始表 | gzip JSONL 完整读取后物化为 `MemTable` |
+| `hitrace` | OpenHarmony `.htrace` profiler container | `profiler_plugin_data` raw table、ftrace sched direct tables、native hook direct/raw tables | REST datasource 直接解码为 Arrow `MemTable`；dataset 内核可写入本地 Parquet 后从 catalog 注册查询 |
+| `langfuse` | 一份 legacy `observations.jsonl.gz` 和一份 `traces.jsonl.gz` | `langfuse_observations`、`langfuse_traces` 两张原始表 | REST datasource 读取 gzip JSONL 后物化为 `MemTable`；dataset 内核可写入本地 Parquet 后从 catalog 注册查询 |
 
 所有 SQL 由 DataFusion 执行。业务功能通过本机 REST API 暴露；CLI 不承载 datasource 或 SQL 查询参数。
 
@@ -281,13 +281,17 @@ flowchart LR
     FD --> RS
     ND --> RS
     RS --> AS[Arrow sink]
-    AS --> DS[TraceDataset / MemTable]
+    AS --> AT[ArrowTableSet / MemTable]
+    AS --> DW[dataset writer]
 
     L[Langfuse legacy JSONL.GZ] --> JR[DataFusion JSON reader]
     JR --> LM[materialized MemTable]
+    JR --> DW
+    DW --> PD[Parquet dataset / catalog.json]
 
-    DS --> Q[DataFusion SQL]
+    AT --> Q[DataFusion SQL]
     LM --> Q
+    PD --> Q
     Q --> J[JSON]
 ```
 
@@ -309,17 +313,19 @@ flowchart LR
 
 `TraceRecord` 是 format/domain decoder 与 sink 之间的粗粒度边界。它不会把 `SchedSwitch`、`Alloc`、`Free` 等所有内部事件展开成全局中心枚举。
 
-Arrow sink 负责把 record 投影为表；catalog/query 只消费已经物化的 `TraceDataset`，不理解输入文件和 domain payload。
+Arrow sink 负责把 record 投影为内存态 `ArrowTableSet`；dataset writer 只消费 Arrow `RecordBatch` 并写出 Parquet，catalog/query 不理解输入文件和 domain payload。
 
 新增 profiler plugin 时，应把改动限制在对应 proto、domain decoder、必要的 build-time codegen、Arrow projection 和测试中，不应污染 `.htrace` file reader、profiler mechanism、已有 domain 或 query 层。
 
 ## 数据生命周期与资源边界
 
-`.htrace` 构建 datasource 时使用 mmap 读取文件，完成 Arrow 物化后不再持有源文件句柄。
+server 创建 `.htrace` datasource 时使用 mmap 读取 `.htrace` 文件，完成 Arrow 物化后不再持有源文件句柄。
 
-Langfuse legacy 在 datasource 创建阶段完整读取、解压并物化两个 gzip JSONL 文件；READY 后查询不再访问源文件。
+server 创建 Langfuse legacy datasource 时会完整读取、解压并物化两个 gzip JSONL 文件；READY 后查询不再访问源文件。
 
-server 将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。
+本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。第一版 catalog 只保存 SQL 逻辑表名到 Parquet 相对路径的映射；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
+
+server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 接入本地 dataset 是后续工作。
 
 SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JSON。应通过 `WHERE`、投影、聚合和 `LIMIT` 控制结果规模。
 
@@ -328,10 +334,13 @@ SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JS
 - ftrace 当前只建模 `TracePluginResult.ftrace_cpu_detail` 和 sched event family；尚未覆盖完整 upstream ftrace schema、common fields、CPU stats、clock/symbol/comm metadata、irq、binder、power 等 family。
 - native hook 当前只提供 direct/raw 表，不做 alloc/free 或 mmap/munmap 生命周期、符号化、栈还原和高级内存分析。
 - Langfuse 只支持 legacy observations/traces 单文件输入；不支持 API、S3/COS、目录扫描、glob、`observations_v2`、scores 或派生分析表。
+- Langfuse dataset materialize 中，DataFusion 推断出的顶层空对象列会以 JSON 字符串保存，例如 `{}`；server 直接创建 Langfuse datasource 时仍保持 DataFusion JSON reader 的原始推断行为。
 - Langfuse 的 `input`、`output` 等敏感内容不会自动脱敏。不要向不可信 SQL、终端记录或 HTTP 客户端暴露生产数据。
-- 所有 datasource 当前都以内存 `MemTable` 为主。server 没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
+- 本地 dataset 第一版只支持创建新的完整 dataset；目标路径已存在时失败，替换和删除留给后续 dataset 生命周期接口。
+- 本地 dataset catalog 只接受当前最小表映射字段；不写 dataset manifest，旧 metadata 字段会被拒绝，跨版本数据应重新 materialize。
+- server datasource 当前仍以内存 `MemTable` 为主。server 没有 dataset 集成、磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
 - server 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。
-- SQL 结果没有流式 HTTP 输出或服务端分页；大结果集会增加内存占用。
+- `query_json` 仍会 collect 查询结果后生成 JSON；SQL 结果没有流式 HTTP 输出或服务端分页，大结果集会增加内存占用。
 - 项目尚未提供稳定的 public library API 或 crates.io 发布承诺。
 
 ## 演进方向

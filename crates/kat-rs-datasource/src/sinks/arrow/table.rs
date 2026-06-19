@@ -7,7 +7,7 @@ use serde_arrow::{
     schema::{SchemaLike, TracingOptions},
 };
 
-use crate::catalog::{TableCategory, TraceTable};
+use crate::arrow_table::ArrowTable;
 
 pub(crate) struct MessageTableBuilder<T> {
     name: &'static str,
@@ -36,8 +36,8 @@ impl<T> MessageTableBuilder<T> {
         Ok(())
     }
 
-    pub(crate) fn into_table(self, category: TableCategory) -> Result<TraceTable> {
-        into_table(self.name, category, self.builder)
+    pub(crate) fn into_table(self) -> Result<ArrowTable> {
+        into_table(self.name, self.builder)
     }
 }
 
@@ -89,19 +89,14 @@ impl<Meta> EventTableBuilder<Meta> {
         Ok(())
     }
 
-    pub(crate) fn into_table(self, category: TableCategory) -> Result<TraceTable> {
-        into_table(self.name, category, self.builder)
+    pub(crate) fn into_table(self) -> Result<ArrowTable> {
+        into_table(self.name, self.builder)
     }
 }
 
-pub(super) fn into_table(
-    name: &'static str,
-    category: TableCategory,
-    builder: ArrayBuilder,
-) -> Result<TraceTable> {
-    Ok(TraceTable::new(
+pub(super) fn into_table(name: &'static str, builder: ArrayBuilder) -> Result<ArrowTable> {
+    Ok(ArrowTable::new(
         name,
-        category,
         vec![
             builder
                 .into_record_batch()

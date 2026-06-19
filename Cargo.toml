@@ -18,11 +18,14 @@ arrow-json = "58.0.0"
 arrow-schema = "58.0.0"
 axum = "0.8"
 clap = { version = "4.5", features = ["derive"] }
-datafusion = { version = "53.1.0", default-features = false, features = ["sql", "compression"] }
+datafusion = { version = "53.1.0", default-features = false, features = ["sql", "compression", "parquet"] }
+dunce = "1.0"
 env_logger = "0.11"
 flate2 = "1.0"
+futures = "0.3"
 log = "0.4"
 memmap2 = "0.9"
+parquet = { version = "58.0.0", features = ["arrow"] }
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
@@ -37,4 +40,6 @@ tower-http = { version = "0.6", features = ["trace"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1.45", features = ["macros", "rt-multi-thread", "sync", "net", "signal", "time"] }
 utoipa = "5.5.0"
+url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
+xdg = "3.0"

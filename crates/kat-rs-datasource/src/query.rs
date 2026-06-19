@@ -11,7 +11,8 @@ use log::debug;
 use serde_json::Value;
 
 use crate::{
-    catalog::{TraceDataset, TraceTable},
+    arrow_table::{ArrowTable, ArrowTableSet},
+    dataset::register_dataset_tables,
     formats::{hitrace, langfuse},
     json::batches_to_json,
     sinks::arrow::ArrowSink,
@@ -27,6 +28,13 @@ impl TraceDatasource {
         let mut sink = ArrowSink::new()?;
         hitrace::decode_file(path.as_ref(), &mut sink)?;
         register_dataset(&ctx, sink.finish()?)?;
+
+        Ok(Self { ctx })
+    }
+
+    pub async fn from_dataset(path: impl AsRef<Path>) -> Result<Self> {
+        let ctx = SessionContext::new();
+        register_dataset_tables(&ctx, path.as_ref()).await?;
 
         Ok(Self { ctx })
     }
@@ -55,7 +63,7 @@ impl TraceDatasource {
     }
 }
 
-fn register_dataset(ctx: &SessionContext, dataset: TraceDataset) -> Result<()> {
+fn register_dataset(ctx: &SessionContext, dataset: ArrowTableSet) -> Result<()> {
     for table in dataset.tables {
         register_table(ctx, table)?;
     }
@@ -63,7 +71,7 @@ fn register_dataset(ctx: &SessionContext, dataset: TraceDataset) -> Result<()> {
     Ok(())
 }
 
-fn register_table(ctx: &SessionContext, table: TraceTable) -> Result<()> {
+fn register_table(ctx: &SessionContext, table: ArrowTable) -> Result<()> {
     let schema = table
         .batches
         .first()
@@ -71,10 +79,7 @@ fn register_table(ctx: &SessionContext, table: TraceTable) -> Result<()> {
         .schema();
     let mem_table = MemTable::try_new(schema, vec![table.batches])?;
     ctx.register_table(table.name, Arc::new(mem_table))?;
-    debug!(
-        "registered datasource table: {} category={:?}",
-        table.name, table.category
-    );
+    debug!("registered datasource table: {}", table.name);
 
     Ok(())
 }

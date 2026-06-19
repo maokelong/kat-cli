@@ -75,7 +75,7 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/sinks/arrow/native_hook.rs",
         "src/sinks/arrow/ftrace.rs",
         "src/sinks/arrow/table.rs",
-        "src/catalog.rs",
+        "src/arrow_table.rs",
         "src/record.rs",
     ] {
         assert!(
@@ -231,11 +231,11 @@ fn arrow_sink_owns_record_to_table_conversion() {
         fs::read_to_string(format!("{}/native_hook_records.rs", env!("OUT_DIR")))
             .expect("generated native hook records can be read");
     let record = source("src/record.rs");
-    let catalog = source("src/catalog.rs");
+    let arrow_table = source("src/arrow_table.rs");
 
-    assert!(!catalog.contains("TraceRecord"));
-    assert!(!catalog.contains("TraceRecordSink"));
-    assert!(!catalog.contains("ProfilerSection"));
+    assert!(!arrow_table.contains("TraceRecord"));
+    assert!(!arrow_table.contains("TraceRecordSink"));
+    assert!(!arrow_table.contains("ProfilerSection"));
     assert!(!sink_mod.contains("ProfilerSection"));
     assert!(!sink_mod.contains("profiler_table_seen"));
     assert!(!sink_mod.contains("profiler_rows"));
@@ -314,7 +314,7 @@ fn native_hook_table_builders_are_generated_from_oneof_mapping() {
 }
 
 #[test]
-fn query_consumes_trace_dataset_catalog() {
+fn query_consumes_arrow_table_set() {
     let query = source("src/query.rs");
 
     for marker in ["load_hitrace_tables", "HITRACE_TABLE", "FtraceTables"] {

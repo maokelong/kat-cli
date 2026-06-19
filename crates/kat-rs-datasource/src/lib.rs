@@ -1,10 +1,12 @@
-mod catalog;
+mod arrow_table;
+mod dataset;
 mod domains;
 mod formats;
 mod ftrace_event_table_builders {
     include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
 }
 mod json;
+mod materializer;
 mod mmap;
 mod native_hook_table_builders {
     include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
@@ -13,6 +15,8 @@ mod query;
 mod record;
 mod sinks;
 
+pub use dataset::{DatasetLocator, DatasetResolution, DatasetStore};
+pub use materializer::{materialize_hitrace_dataset, materialize_langfuse_legacy_dataset};
 pub use query::TraceDatasource;
 
 #[allow(dead_code)]

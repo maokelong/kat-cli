@@ -17,10 +17,10 @@ mod proto {
     pub(crate) use kat::native_hook::NativeHookConfig;
 }
 
-mod catalog {
+mod arrow_table {
     #![allow(dead_code)]
 
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/catalog.rs"));
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/arrow_table.rs"));
 }
 
 mod record {

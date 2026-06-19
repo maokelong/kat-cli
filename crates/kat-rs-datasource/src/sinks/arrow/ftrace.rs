@@ -1,10 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    catalog::{TableCategory, TraceTable},
-    domains::ftrace::FtraceEventRecord,
-};
+use crate::{arrow_table::ArrowTable, domains::ftrace::FtraceEventRecord};
 
 use super::table::EventTableBuilder;
 
@@ -49,7 +46,7 @@ impl FtraceEventTableBuilder {
         Ok(())
     }
 
-    pub(crate) fn into_table(self) -> Result<TraceTable> {
-        self.builder.into_table(TableCategory::DirectEvent)
+    pub(crate) fn into_table(self) -> Result<ArrowTable> {
+        self.builder.into_table()
     }
 }
