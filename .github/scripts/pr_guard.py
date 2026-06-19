@@ -781,9 +781,9 @@ def render_summary(evaluation: Evaluation) -> str:
 
 
 def append_step_summary(markdown: str) -> None:
+    print(markdown, end="")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
-        print(markdown)
         return
     with open(summary_path, "a", encoding="utf-8") as handle:
         handle.write(markdown)
