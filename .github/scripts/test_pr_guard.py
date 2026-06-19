@@ -5,6 +5,10 @@ from __future__ import annotations
 
 import sys
 import unittest
+import os
+import tempfile
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 
@@ -359,6 +363,26 @@ jobs:
             "CI workflow `.github/workflows/ci.yml` weakens required signal `cargo test`.",
             failures_without_replacement,
         )
+
+    def test_append_step_summary_prints_when_github_summary_is_set(self) -> None:
+        markdown = "# PR Guard\n\n**Status:** FAIL\n"
+        previous = os.environ.get("GITHUB_STEP_SUMMARY")
+        try:
+            with tempfile.NamedTemporaryFile() as handle:
+                os.environ["GITHUB_STEP_SUMMARY"] = handle.name
+                stdout = StringIO()
+
+                with redirect_stdout(stdout):
+                    pr_guard.append_step_summary(markdown)
+
+                handle.seek(0)
+                self.assertEqual(handle.read().decode("utf-8"), markdown)
+                self.assertEqual(stdout.getvalue(), markdown)
+        finally:
+            if previous is None:
+                os.environ.pop("GITHUB_STEP_SUMMARY", None)
+            else:
+                os.environ["GITHUB_STEP_SUMMARY"] = previous
 
 
 if __name__ == "__main__":
