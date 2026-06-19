@@ -74,8 +74,7 @@ async fn openapi_command_prints_openapi_json() {
     assert_eq!(code, 0, "stderr: {}", String::from_utf8_lossy(&err));
     assert!(err.is_empty());
     let value: serde_json::Value = serde_json::from_slice(&out).expect("stdout json");
-    assert_eq!(value["openapi"], "3.1.0");
-    assert!(value["paths"]["/v1/datasources"].is_object());
+    assert_eq!(value, kat_rs_daemon::openapi_document());
 }
 
 #[tokio::test]

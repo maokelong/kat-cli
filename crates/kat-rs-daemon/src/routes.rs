@@ -4,10 +4,10 @@ use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
-mod datasources;
-mod health;
-mod queries;
-mod server;
+pub(crate) mod datasources;
+pub(crate) mod health;
+pub(crate) mod queries;
+pub(crate) mod server;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
