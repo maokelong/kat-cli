@@ -2,7 +2,7 @@
 
 `kat-rs` 是一个用 SQL 查询 trace 与日志文件的 Rust 本地数据引擎。
 
-项目当前把异构输入解码或读取为 Arrow 列式数据，注册到 DataFusion，并以 JSON 返回查询结果；对于需要连续查询的大文件，还提供只监听本机回环地址的 daemon，用于复用已经加载的 datasource。
+项目当前把异构输入解码或读取为 Arrow 列式数据，注册到 DataFusion，并通过只监听本机回环地址的 server REST API 返回查询结果。CLI 只负责本机 server 生命周期和 OpenAPI 输出。
 
 ```text
 trace / log files
@@ -24,7 +24,7 @@ trace / log files
 - 派生语义尽量表现为可继续查询的表，而不是过早转换成不可组合的 JSON blob；
 - 只实现当前可验证的最小切片，优先复用 Rust、Arrow、DataFusion、Axum 等成熟基础设施。
 
-当前 `main` 已交付 datasource、SQL 查询和本地 daemon。Pack、typed transform DAG、analysis runtime 等能力仍属于 RFC 方向，不是现有命令或稳定接口。
+当前 `main` 已交付 datasource、SQL 查询和本机 REST API。Pack、typed transform DAG、analysis runtime 等能力仍属于 RFC 方向，不是现有命令或稳定接口。
 
 ## 当前能力
 
@@ -33,7 +33,7 @@ trace / log files
 | `hitrace` | OpenHarmony `.htrace` profiler container | `profiler_plugin_data` raw table、ftrace sched direct tables、native hook direct/raw tables | 解码后物化为 Arrow `MemTable` |
 | `langfuse` | 一份 legacy `observations.jsonl.gz` 和一份 `traces.jsonl.gz` | `langfuse_observations`、`langfuse_traces` 两张原始表 | gzip JSONL 完整读取后物化为 `MemTable` |
 
-所有 SQL 由 DataFusion 执行。CLI 将结果作为 JSON 数组写到 stdout；诊断日志与错误不会混入正常 JSON 输出。
+所有 SQL 由 DataFusion 执行。业务功能通过本机 REST API 暴露；CLI 不承载 datasource 或 SQL 查询参数。
 
 ## 构建
 
@@ -61,71 +61,33 @@ cargo run -p kat-rs-cli -- --help
 RUST_LOG=debug cargo run -p kat-rs-cli -- --help
 ```
 
-## 命令行查询
+## 本机 server
 
-### 查询 `.htrace`
-
-```bash
-cargo run --release -p kat-rs-cli -- query \
-  --source hitrace \
-  --file /absolute/path/to/app.htrace \
-  --sql "select event_timestamp, event_cpu, prev_comm, prev_pid, next_comm, next_pid from sched_switch limit 10"
-```
-
-查询 profiler envelope：
-
-```bash
-cargo run --release -p kat-rs-cli -- query \
-  --source hitrace \
-  --file /absolute/path/to/app.htrace \
-  --sql "select name, version, sample_interval from profiler_plugin_data limit 20"
-```
-
-查询 native hook allocation direct table：
-
-```bash
-cargo run --release -p kat-rs-cli -- query \
-  --source hitrace \
-  --file /absolute/path/to/app.htrace \
-  --sql "select tv_sec, tv_nsec, pid, tid, addr, size from native_hook_alloc order by tv_sec, tv_nsec limit 20"
-```
-
-`.htrace` 输入必须包含 `OHOSPROF` header。当前只解码已注册的 profiler protobuf section；不支持的 section data type 会被跳过。所有 profiler envelope，包括 config 和未知 plugin，仍保留在 `profiler_plugin_data` 中。
-
-### 查询 Langfuse legacy export
-
-```bash
-cargo run --release -p kat-rs-cli -- query \
-  --source langfuse \
-  --observations-file /absolute/path/to/observations.jsonl.gz \
-  --traces-file /absolute/path/to/traces.jsonl.gz \
-  --sql "select o.trace_id, t.name as trace_name, count(*) as observation_count from langfuse_observations o join langfuse_traces t on o.trace_id = t.id group by o.trace_id, t.name"
-```
-
-第一版要求显式提供单个 observations 文件和单个 traces 文件，不扫描目录，也不展开 glob。字段类型由 DataFusion JSON reader 从输入推断；`input`、`output` 等内容保持原始值，不截断、不摘要、不脱敏。
-
-输入不是合法 gzip/JSONL 或 schema 推断失败时，datasource 创建直接失败。项目不提供 `langfuse_parse_errors` 清洗表。
-
-## 本地 daemon
-
-daemon 用于把 datasource 生命周期提升到常驻进程中，避免连续查询时反复加载同一批文件。
+server 用于把 datasource 生命周期提升到常驻进程中，避免连续查询时反复加载同一批文件。REST/OpenAPI 是唯一业务功能面；CLI 只负责启动、停止、输出 OpenAPI 和版本信息。
 
 ### 启动与停止
 
 ```bash
-cargo run --release -p kat-rs-cli -- daemon start \
+cargo run --release -p kat-rs-cli -- serve \
   --host 127.0.0.1 \
   --port 3030
 ```
 
-`start` 在前台运行。daemon 强制要求 loopback IP，不接受公网或局域网监听地址。
+`serve` 在前台运行。server 强制要求 loopback IP，不接受公网或局域网监听地址。
 
-停止 daemon：
+停止 server：
 
 ```bash
-cargo run --release -p kat-rs-cli -- daemon stop \
+cargo run --release -p kat-rs-cli -- stop \
   --host 127.0.0.1 \
   --port 3030
+```
+
+输出 OpenAPI：
+
+```bash
+cargo run --release -p kat-rs-cli -- openapi
+curl -sS http://127.0.0.1:3030/openapi.json
 ```
 
 ### REST API
@@ -147,6 +109,8 @@ curl -sS -X POST http://127.0.0.1:3030/v1/datasources \
   }'
 ```
 
+`.htrace` 输入必须包含 `OHOSPROF` header。当前只解码已注册的 profiler protobuf section；不支持的 section data type 会被跳过。所有 profiler envelope，包括 config 和未知 plugin，仍保留在 `profiler_plugin_data` 中。
+
 创建或复用 Langfuse legacy datasource：
 
 ```bash
@@ -158,6 +122,10 @@ curl -sS -X POST http://127.0.0.1:3030/v1/datasources \
     "tracesFile": "/absolute/path/to/traces.jsonl.gz"
   }'
 ```
+
+Langfuse legacy 第一版要求显式提供单个 observations 文件和单个 traces 文件，不扫描目录，也不展开 glob。字段类型由 DataFusion JSON reader 从输入推断；`input`、`output` 等内容保持原始值，不截断、不摘要、不脱敏。
+
+输入不是合法 gzip/JSONL 或 schema 推断失败时，datasource 创建直接失败。项目不提供 `langfuse_parse_errors` 清洗表。
 
 服务端会 canonicalize 文件路径并读取文件 metadata，以 source、路径、大小和修改时间计算 datasource identity。相同且未变化的输入再次创建时会复用同一个 datasource；首次创建返回 `201 Created`，复用时返回 `200 OK`。
 
@@ -192,6 +160,7 @@ curl -sS -X POST \
 其他接口：
 
 ```text
+GET    /openapi.json
 GET    /v1/datasources?limit=100&offset=0
 GET    /v1/datasources/{datasourceId}
 DELETE /v1/datasources/{datasourceId}
@@ -326,7 +295,7 @@ flowchart LR
 
 | Crate | 职责 |
 | --- | --- |
-| `kat-rs-cli` | Clap 命令入口、日志初始化、JSON stdout、daemon 启停 |
+| `kat-rs-cli` | Clap runtime 入口、日志初始化、server 启停、OpenAPI 输出 |
 | `kat-rs-daemon` | loopback Axum server、REST DTO、datasource registry、identity 与并发加载协调 |
 | `kat-rs-datasource` | 输入适配、领域解码、Arrow 物化、DataFusion catalog/query |
 
@@ -350,7 +319,7 @@ Arrow sink 负责把 record 投影为表；catalog/query 只消费已经物化�
 
 Langfuse legacy 在 datasource 创建阶段完整读取、解压并物化两个 gzip JSONL 文件；READY 后查询不再访问源文件。
 
-daemon 将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 daemon。同一 identity 的并发创建会协调为一次实际加载。
+server 将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。
 
 SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JSON。应通过 `WHERE`、投影、聚合和 `LIMIT` 控制结果规模。
 
@@ -360,8 +329,8 @@ SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JS
 - native hook 当前只提供 direct/raw 表，不做 alloc/free 或 mmap/munmap 生命周期、符号化、栈还原和高级内存分析。
 - Langfuse 只支持 legacy observations/traces 单文件输入；不支持 API、S3/COS、目录扫描、glob、`observations_v2`、scores 或派生分析表。
 - Langfuse 的 `input`、`output` 等敏感内容不会自动脱敏。不要向不可信 SQL、终端记录或 HTTP 客户端暴露生产数据。
-- 所有 datasource 当前都以内存 `MemTable` 为主。daemon 没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
-- daemon 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。
+- 所有 datasource 当前都以内存 `MemTable` 为主。server 没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
+- server 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。
 - SQL 结果没有流式 HTTP 输出或服务端分页；大结果集会增加内存占用。
 - 项目尚未提供稳定的 public library API 或 crates.io 发布承诺。
 
@@ -393,7 +362,7 @@ trace files
 - `plan.json`、`state.json` 和 `evidence.jsonl` 作为机器状态事实源，Markdown checklist 只作为可读视图；
 - 报告明确区分 Facts、Inferences 与 Uncertainty。
 
-该方向仍在 [RFC #45](https://github.com/maokelong/kat-rs/issues/45) 讨论中。`probe`、`workflow`、`pack`、`ingest`、`derive`、`analyze` 等命令目前均不属于 `main` 上的可用 CLI。
+该方向仍在 [RFC #45](https://github.com/maokelong/kat-rs/issues/45) 讨论中。`probe`、`workflow`、`pack`、`ingest`、`derive`、`analyze` 等业务能力应优先表现为 REST/OpenAPI 资源，不属于当前 CLI 功能面。
 
 ## 开发与贡献
 

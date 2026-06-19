@@ -70,6 +70,40 @@ async fn health_endpoint_returns_ok() {
 }
 
 #[tokio::test]
+async fn openapi_endpoint_returns_current_api_paths() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/openapi.json")
+                .body(Body::empty())
+                .expect("request builds"),
+        )
+        .await
+        .expect("response is returned");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+
+    assert_eq!(value["openapi"], "3.1.0");
+    assert_eq!(value["info"]["title"], "kat-rs local API");
+    for path in [
+        "/v1/health",
+        "/v1/datasources",
+        "/v1/datasources/{datasourceId}",
+        "/v1/datasources/{datasourceId}/queries",
+        "/v1/server",
+    ] {
+        assert!(value["paths"][path].is_object(), "missing path {path}");
+    }
+}
+
+#[tokio::test]
 async fn langfuse_datasource_create_reuses_identity_and_can_be_deleted() {
     let fixture = LangfuseFixture::new();
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
