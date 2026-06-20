@@ -15,32 +15,34 @@ const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
 const DEFAULT_ENV_CHILD: &str = "KAT_RS_DATASET_CONTRACT_DEFAULT_ENV_CHILD";
-const DEFAULT_ENV_EXPECTED_DATA_HOME: &str = "KAT_RS_DATASET_CONTRACT_EXPECTED_DATA_HOME";
+const DEFAULT_ENV_EXPECTED_PROJECT_DATA_DIR: &str =
+    "KAT_RS_DATASET_CONTRACT_EXPECTED_PROJECT_DATA_DIR";
 
 #[test]
-fn dataset_store_resolves_default_under_data_home() {
+fn dataset_store_resolves_default_under_datasets_dir() {
     let root = tempdir().expect("tempdir");
-    let store = DatasetStore::from_data_home(root.path());
+    let store = DatasetStore::from_datasets_dir(root.path());
 
     let resolved = store
         .resolve(&DatasetLocator::Default)
         .expect("default resolves");
 
-    assert_eq!(
-        resolved.path,
-        root.path().join("kat-rs").join("datasets").join("default")
-    );
+    assert_eq!(resolved.path, root.path().join("default"));
     assert_eq!(resolved.name.as_deref(), Some("default"));
 }
 
+#[cfg(any(target_os = "linux", target_os = "redox"))]
 #[test]
-fn dataset_store_uses_absolute_xdg_data_home() {
+fn dataset_store_uses_absolute_linux_xdg_data_home() {
     let data_home = tempdir().expect("data home tempdir");
     let home = tempdir().expect("home tempdir");
     let platform_home = tempdir().expect("platform home tempdir");
     let output = Command::new(env::current_exe().expect("current test binary"))
         .env(DEFAULT_ENV_CHILD, "1")
-        .env(DEFAULT_ENV_EXPECTED_DATA_HOME, data_home.path())
+        .env(
+            DEFAULT_ENV_EXPECTED_PROJECT_DATA_DIR,
+            data_home.path().join("kat-rs"),
+        )
         .env("XDG_DATA_HOME", data_home.path())
         .env("HOME", home.path())
         .env(
@@ -65,15 +67,16 @@ fn dataset_store_uses_absolute_xdg_data_home() {
     );
 }
 
+#[cfg(any(target_os = "linux", target_os = "redox"))]
 #[test]
-fn dataset_store_ignores_relative_xdg_data_home() {
+fn dataset_store_ignores_relative_linux_xdg_data_home() {
     let home = tempdir().expect("home tempdir");
     let platform_home = tempdir().expect("platform home tempdir");
     let output = Command::new(env::current_exe().expect("current test binary"))
         .env(DEFAULT_ENV_CHILD, "1")
         .env(
-            DEFAULT_ENV_EXPECTED_DATA_HOME,
-            home.path().join(".local").join("share"),
+            DEFAULT_ENV_EXPECTED_PROJECT_DATA_DIR,
+            home.path().join(".local").join("share").join("kat-rs"),
         )
         .env("XDG_DATA_HOME", "relative-data")
         .env("HOME", home.path())
@@ -105,8 +108,9 @@ fn dataset_store_default_from_env_child() {
         return;
     }
 
-    let data_home = PathBuf::from(
-        env::var_os(DEFAULT_ENV_EXPECTED_DATA_HOME).expect("expected data home is set"),
+    let project_data_dir = PathBuf::from(
+        env::var_os(DEFAULT_ENV_EXPECTED_PROJECT_DATA_DIR)
+            .expect("expected project data dir is set"),
     );
     let store = DatasetStore::default_from_env().expect("store resolves");
     let resolved = store
@@ -115,33 +119,27 @@ fn dataset_store_default_from_env_child() {
 
     assert_eq!(
         resolved.path,
-        data_home.join("kat-rs").join("datasets").join("default")
+        project_data_dir.join("datasets").join("default")
     );
 }
 
 #[test]
-fn dataset_store_resolves_named_dataset_under_data_home() {
+fn dataset_store_resolves_named_dataset_under_datasets_dir() {
     let root = tempdir().expect("tempdir");
-    let store = DatasetStore::from_data_home(root.path());
+    let store = DatasetStore::from_datasets_dir(root.path());
 
     let resolved = store
         .resolve(&DatasetLocator::Name("langfuse-prod".to_string()))
         .expect("name resolves");
 
-    assert_eq!(
-        resolved.path,
-        root.path()
-            .join("kat-rs")
-            .join("datasets")
-            .join("langfuse-prod")
-    );
+    assert_eq!(resolved.path, root.path().join("langfuse-prod"));
     assert_eq!(resolved.name.as_deref(), Some("langfuse-prod"));
 }
 
 #[test]
 fn dataset_store_rejects_invalid_names() {
     let root = tempdir().expect("tempdir");
-    let store = DatasetStore::from_data_home(root.path());
+    let store = DatasetStore::from_datasets_dir(root.path());
 
     for value in ["", ".", "..", "a/b", "a\\b"] {
         let result = store.resolve(&DatasetLocator::Name(value.to_string()));

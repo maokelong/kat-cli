@@ -33,7 +33,7 @@ trace columnar data engine + semantic transform pack runtime
 
 ## 方案选择
 
-采用 **XDG data home 下的 named dataset store + Parquet tables + JSON metadata**。
+采用 **平台数据目录下的 named dataset store + Parquet tables + JSON metadata**。
 
 备选方案及取舍：
 
@@ -44,18 +44,18 @@ trace columnar data engine + semantic transform pack runtime
 
 ## Dataset store
 
-dataset store 默认根目录遵循 XDG Base Directory Specification：
+dataset store 默认根目录由 `directories` crate 的 `ProjectDirs::from("io.github", "maokelong", "kat-rs")` 决定：
 
 ```text
-${XDG_DATA_HOME:-$HOME/.local/share}/kat-rs/datasets/
+<project data dir>/datasets/
 ```
 
-如果 `XDG_DATA_HOME` 为空、未设置或不是绝对路径，按规范忽略它并回退到 `$HOME/.local/share`。如果无法解析 home directory，则 resolver 返回明确错误。
+在 Linux 上，project data dir 遵循 XDG：`$XDG_DATA_HOME/kat-rs` 或 `$HOME/.local/share/kat-rs`，相对 `XDG_DATA_HOME` 会由 `directories` 忽略。macOS 使用 `~/Library/Application Support/io.github.maokelong.kat-rs`，Windows 使用 roaming app data 下的 `maokelong/kat-rs/data`。如果无法解析 home directory 或系统数据目录，则 resolver 返回明确错误。
 
 第一版默认 dataset 名为 `default`：
 
 ```text
-$XDG_DATA_HOME/kat-rs/datasets/default/
+<project data dir>/datasets/default/
   catalog.json
   tables/
     *.parquet
@@ -64,11 +64,11 @@ $XDG_DATA_HOME/kat-rs/datasets/default/
 dataset locator 使用同一个 resolver：
 
 - locator 为空时解析为 named dataset `default`。
-- locator value 不含路径分隔符时解析为 `$XDG_DATA_HOME/kat-rs/datasets/<value>/`。
+- locator value 不含路径分隔符时解析为 `<project data dir>/datasets/<value>/`。
 - locator value 是绝对路径或包含路径分隔符时按显式路径解析。
 - named dataset 第一版限制为简单名称，拒绝空字符串、`.`、`..` 和路径分隔符。
 
-这里不引入 `XDG_CACHE_HOME`。真正可丢弃的内部临时文件未来可以放到 cache home，但第一版的 dataset 是用户可复用的数据资产，不是 server 私有缓存。
+这里不使用平台 cache 目录。真正可丢弃的内部临时文件未来可以放到 cache dir，但第一版的 dataset 是用户可复用的数据资产，不是 server 私有缓存。
 
 ## Dataset layout
 
@@ -123,7 +123,7 @@ PR #62 已把用户可见 CLI 收敛为本机 server 生命周期与 OpenAPI 输
 - `materialize_hitrace_dataset(...)`：把 `.htrace` 写成本地 Parquet dataset。
 - `materialize_langfuse_legacy_dataset(...)`：把 Langfuse legacy observations/traces 写成本地 Parquet dataset。
 - `TraceDatasource::from_dataset(...)`：从 dataset catalog 注册 Parquet 表并执行 DataFusion SQL。
-- `DatasetStore` / `DatasetLocator`：提供 XDG data home 下 default/named dataset resolver，以及显式 path dataset。
+- `DatasetStore` / `DatasetLocator`：提供平台数据目录下 default/named dataset resolver，以及显式 path dataset。
 
 server/REST 接入本地 dataset resolver、dataset materialization 和 dataset datasource 创建留给 #60，不混入本切片。
 
@@ -336,7 +336,7 @@ Langfuse legacy 超大批次：
 
 1. `materialize_hitrace_dataset(...)` 生成 dataset，随后 `TraceDatasource::from_dataset(...)` 能查询 sched direct table。
 2. `materialize_langfuse_legacy_dataset(...)` 生成 dataset，随后 `TraceDatasource::from_dataset(...)` 能 join observations/traces。
-3. 设置临时 `XDG_DATA_HOME` 时，默认 resolver 写入并读取该目录下的 `kat-rs/datasets/default`。
+3. Linux 下设置临时绝对 `XDG_DATA_HOME` 时，默认 resolver 写入并读取该目录下的 `kat-rs/datasets/default`；相对 `XDG_DATA_HOME` 会被忽略并回退到 `$HOME/.local/share/kat-rs/datasets/default`。
 4. 目标 dataset 已存在时返回错误。
 5. `TraceDatasource::from_dataset` 只依赖 Parquet dataset；删除源输入文件后查询仍成功。
 6. catalog 中重复表名、缺失 Parquet 文件、逃逸路径会被拒绝。

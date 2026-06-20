@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use directories::ProjectDirs;
 
-#[cfg(any(unix, target_os = "redox"))]
-use xdg::BaseDirectories;
+const PROJECT_QUALIFIER: &str = "io.github";
+const PROJECT_ORGANIZATION: &str = "maokelong";
+const PROJECT_APPLICATION: &str = "kat-rs";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DatasetLocator {
@@ -24,14 +26,22 @@ pub struct DatasetStore {
 }
 
 impl DatasetStore {
-    pub fn from_data_home(data_home: impl AsRef<Path>) -> Self {
+    pub fn from_datasets_dir(datasets_dir: impl AsRef<Path>) -> Self {
         Self {
-            datasets_dir: data_home.as_ref().join("kat-rs").join("datasets"),
+            datasets_dir: datasets_dir.as_ref().to_path_buf(),
         }
     }
 
     pub fn default_from_env() -> Result<Self> {
-        Ok(Self::from_data_home(xdg_data_home()?))
+        let project_dirs =
+            ProjectDirs::from(PROJECT_QUALIFIER, PROJECT_ORGANIZATION, PROJECT_APPLICATION)
+                .ok_or_else(|| {
+                    anyhow!("home directory is required to resolve default platform data directory")
+                })?;
+
+        Ok(Self::from_datasets_dir(
+            project_dirs.data_dir().join("datasets"),
+        ))
     }
 
     pub fn resolve(&self, locator: &DatasetLocator) -> Result<DatasetResolution> {
@@ -54,30 +64,6 @@ impl DatasetStore {
             name: Some(name.to_string()),
         }
     }
-}
-
-#[cfg(any(unix, target_os = "redox"))]
-fn xdg_data_home() -> Result<PathBuf> {
-    BaseDirectories::new()
-        .get_data_home()
-        .ok_or_else(|| anyhow!("home directory is required to resolve default XDG data directory"))
-}
-
-#[cfg(not(any(unix, target_os = "redox")))]
-fn xdg_data_home() -> Result<PathBuf> {
-    if let Some(value) = std::env::var_os("XDG_DATA_HOME") {
-        let path = PathBuf::from(value);
-        if path.is_absolute() {
-            return Ok(path);
-        }
-    }
-
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or_else(|| anyhow!("HOME is required to resolve default XDG data directory"))?;
-
-    Ok(home.join(".local").join("share"))
 }
 
 fn validate_dataset_name(name: &str) -> Result<()> {
