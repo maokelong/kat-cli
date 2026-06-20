@@ -171,6 +171,7 @@ Inspect 只返回 dataset 位置和 catalog 中的轻量表信息，例如：
     },
     "tables": [
       {
+        "kind": "source",
         "name": "langfuse_traces",
         "path": "tables/langfuse.langfuse_traces.parquet",
         "sizeBytes": 12345
@@ -401,7 +402,7 @@ server 创建 `.htrace` datasource 时使用 mmap 读取 `.htrace` 文件，完�
 
 server 创建 Langfuse legacy datasource 时会完整读取、解压并物化两个 gzip JSONL 文件；READY 后查询不再访问源文件。
 
-本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。第一版 catalog 只保存 SQL 逻辑表名到 Parquet 相对路径的映射；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
+本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。当前 catalog 是 dataset 的唯一表注册源，source 表记录 `name`、`path`、`kind: "source"`；derived 表额外记录 `kind: "derived"` 和 `producer.packRef` / `producer.transformId`。catalog 不保存 root version、row count、schema、统计信息、输入 provenance、run/evidence/report 引用或完整 pack manifest；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
 
 server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize、列出/查看/删除本地 dataset，也可以直接给定 dataset 执行 SQL；直接 dataset query 不会把 dataset 注册成 server datasource。
 
@@ -415,7 +416,7 @@ SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JS
 - Langfuse dataset materialize 中，DataFusion 推断出的顶层空对象列会以 JSON 字符串保存，例如 `{}`；server 直接创建 Langfuse datasource 时仍保持 DataFusion JSON reader 的原始推断行为。
 - Langfuse 的 `input`、`output` 等敏感内容不会自动脱敏。不要向不可信 SQL、终端记录或 HTTP 客户端暴露生产数据。
 - 本地 dataset 第一版只支持创建新的完整 dataset；目标路径已存在时失败，替换语义由删除后重新创建表达。
-- 本地 dataset catalog 只接受当前最小表映射字段；不写 dataset manifest，旧 metadata 字段会被拒绝，跨版本数据应重新 materialize。
+- 本地 dataset catalog 只接受当前最小表注册字段；不写 dataset manifest 和 root version，旧 metadata 字段会被拒绝，跨版本数据应重新 materialize。
 - server datasource 当前仍以内存 `MemTable` 为主。server 没有把已有 dataset 打开为 datasource 的接口，也没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
 - server 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。
 - `query_json` 仍会 collect 查询结果后生成 JSON；SQL 结果没有流式 HTTP 输出或服务端分页，大结果集会增加内存占用。

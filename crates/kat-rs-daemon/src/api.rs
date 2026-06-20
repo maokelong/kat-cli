@@ -139,6 +139,7 @@ pub struct DatasetInspectResponse {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetTableDto {
+    pub kind: String,
     pub name: String,
     pub path: String,
     pub size_bytes: u64,

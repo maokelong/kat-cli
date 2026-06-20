@@ -17,6 +17,79 @@ use super::{
     reader::register_dataset_tables,
 };
 
+pub async fn write_derived_dataset_table(
+    dataset_path: &Path,
+    logical_name: &str,
+    pack_ref: &str,
+    transform_id: &str,
+    batches: &[RecordBatch],
+) -> Result<()> {
+    let Some(first_batch) = batches.first() else {
+        bail!("derived dataset table {logical_name} has no record batches");
+    };
+    validate_file_component(logical_name, "derived table name")?;
+    validate_file_component(pack_ref, "packRef")?;
+    validate_file_component(transform_id, "transformId")?;
+
+    let mut catalog = read_catalog(dataset_path)?;
+    if catalog
+        .tables
+        .iter()
+        .any(|table| table.name == logical_name)
+    {
+        bail!("dataset table already exists: {logical_name}");
+    }
+
+    let derived_dir = dataset_path.join("derived").join(pack_ref);
+    fs::create_dir_all(&derived_dir).with_context(|| {
+        format!(
+            "failed to create derived dataset directory: {}",
+            derived_dir.display()
+        )
+    })?;
+
+    let parquet_file_name = format!("{transform_id}.{logical_name}.parquet");
+    let parquet_path = derived_dir.join(&parquet_file_name);
+    let file = File::create(&parquet_path).with_context(|| {
+        format!(
+            "failed to create derived Parquet table: {}",
+            parquet_path.display()
+        )
+    })?;
+    let mut writer = ArrowWriter::try_new(file, first_batch.schema(), None)
+        .with_context(|| format!("failed to create Parquet writer for {logical_name}"))?;
+
+    for batch in batches {
+        writer
+            .write(batch)
+            .with_context(|| format!("failed to write derived Parquet table {logical_name}"))?;
+    }
+    writer
+        .close()
+        .with_context(|| format!("failed to close derived Parquet table {logical_name}"))?;
+
+    let relative_path = format!("derived/{pack_ref}/{parquet_file_name}");
+    catalog.tables.push(DatasetTable::derived(
+        logical_name,
+        relative_path,
+        pack_ref,
+        transform_id,
+    ));
+    write_json(&dataset_path.join("catalog.json"), &catalog)?;
+
+    let ctx = SessionContext::new();
+    register_dataset_tables(&ctx, dataset_path)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to validate dataset after derived table write: {}",
+                dataset_path.display()
+            )
+        })?;
+
+    Ok(())
+}
+
 pub(crate) struct DatasetWriter {
     target_path: PathBuf,
     temp_dir: TempDir,
@@ -154,7 +227,7 @@ impl DatasetTableWriter {
             .close()
             .with_context(|| format!("failed to close Parquet table {logical_name}"))?;
 
-        Ok(DatasetTable::new(logical_name, relative_path))
+        Ok(DatasetTable::source(logical_name, relative_path))
     }
 }
 
@@ -183,6 +256,29 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         .with_context(|| format!("failed to create dataset metadata: {}", path.display()))?;
     serde_json::to_writer_pretty(file, value)
         .with_context(|| format!("failed to write dataset metadata: {}", path.display()))?;
+    Ok(())
+}
+
+fn read_catalog(dataset_path: &Path) -> Result<DatasetCatalog> {
+    let path = dataset_path.join("catalog.json");
+    let json = fs::read_to_string(&path)
+        .with_context(|| format!("failed to read dataset catalog: {}", path.display()))?;
+    serde_json::from_str(&json)
+        .with_context(|| format!("failed to parse dataset catalog: {}", path.display()))
+}
+
+fn validate_file_component(value: &str, label: &str) -> Result<()> {
+    if value.is_empty() {
+        bail!("{label} must not be empty");
+    }
+
+    let path = Path::new(value);
+    if !matches!(path.components().next(), Some(Component::Normal(_)))
+        || path.components().count() != 1
+    {
+        bail!("{label} must be a single path component: {value}");
+    }
+
     Ok(())
 }
 
