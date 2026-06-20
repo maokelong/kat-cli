@@ -58,6 +58,10 @@ impl DatasetStore {
         }
     }
 
+    pub fn datasets_dir(&self) -> &Path {
+        &self.datasets_dir
+    }
+
     fn resolve_name(&self, name: &str) -> DatasetResolution {
         DatasetResolution {
             path: self.datasets_dir.join(name),

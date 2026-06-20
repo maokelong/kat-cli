@@ -93,7 +93,10 @@ async fn openapi_endpoint_returns_current_api_paths() {
     assert_eq!(value["openapi"], "3.1.0");
     assert_eq!(value["info"]["title"], "kat-rs local API");
     assert!(value["paths"]["/v1/health"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasets"]["get"].is_object());
     assert!(value["paths"]["/v1/datasets"]["post"].is_object());
+    assert!(value["paths"]["/v1/datasets/{datasetName}"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasets/{datasetName}"]["delete"].is_object());
     assert!(value["paths"]["/v1/datasets/queries"]["post"].is_object());
     assert!(value["paths"]["/v1/datasources"]["get"].is_object());
     assert!(value["paths"]["/v1/datasources"]["post"].is_object());
@@ -109,12 +112,15 @@ async fn openapi_endpoint_returns_current_api_paths() {
         "DatasetQueryMeta",
         "DatasetQueryRequest",
         "DatasetDto",
+        "DatasetInspectResponse",
         "DatasetLocation",
         "DatasetResponse",
         "DatasetSourceInput",
+        "DatasetTableDto",
         "DatasourceDto",
         "DatasourceQueryMeta",
         "ErrorEnvelope",
+        "PaginatedEnvelope_DatasetDto",
         "QueryRequest",
         "QueryResponse_DatasetQueryMeta",
         "QueryResponse_DatasourceQueryMeta",
@@ -126,6 +132,16 @@ async fn openapi_endpoint_returns_current_api_paths() {
         value["paths"]["/v1/datasets"]["post"]["requestBody"]["content"]["application/json"]["schema"]
             ["$ref"],
         "#/components/schemas/CreateDatasetRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/datasets"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/PaginatedEnvelope_DatasetDto"
+    );
+    assert_eq!(
+        value["paths"]["/v1/datasets/{datasetName}"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_DatasetInspectResponse"
     );
     assert_eq!(
         value["paths"]["/v1/datasets/queries"]["post"]["requestBody"]["content"]["application/json"]
@@ -152,6 +168,179 @@ async fn openapi_endpoint_returns_current_api_paths() {
             ["schema"]["$ref"],
         "#/components/schemas/ErrorEnvelope"
     );
+}
+
+#[tokio::test]
+async fn dataset_lifecycle_lists_inspects_and_deletes_dataset() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "lifecycle-dataset";
+    let dataset_path = datasets_root.join(dataset_name);
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    let list = request_json(
+        app.clone(),
+        "GET",
+        &format!(
+            "/v1/datasets?directory={}&limit=100&offset=0",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(list.status, StatusCode::OK, "{:?}", list.body);
+    assert_eq!(list.body["pagination"]["limit"], 100);
+    assert_eq!(list.body["pagination"]["offset"], 0);
+    assert_eq!(list.body["pagination"]["totalItems"], 1);
+    assert_eq!(list.body["data"][0]["name"], dataset_name);
+    assert_eq!(
+        list.body["data"][0]["directory"],
+        datasets_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        list.body["data"][0]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+
+    let inspect = request_json(
+        app.clone(),
+        "GET",
+        &format!(
+            "/v1/datasets/{dataset_name}?directory={}",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(inspect.status, StatusCode::OK, "{:?}", inspect.body);
+    assert_eq!(inspect.body["data"]["dataset"]["name"], dataset_name);
+    assert_eq!(
+        inspect.body["data"]["dataset"]["directory"],
+        datasets_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        inspect.body["data"]["dataset"]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        inspect.body["data"]["tables"],
+        json!([
+            {
+                "name": "langfuse_observations",
+                "path": "tables/langfuse.langfuse_observations.parquet",
+                "sizeBytes": inspect.body["data"]["tables"][0]["sizeBytes"].clone()
+            },
+            {
+                "name": "langfuse_traces",
+                "path": "tables/langfuse.langfuse_traces.parquet",
+                "sizeBytes": inspect.body["data"]["tables"][1]["sizeBytes"].clone()
+            }
+        ])
+    );
+    assert!(
+        inspect.body["data"]["tables"][0]["sizeBytes"]
+            .as_u64()
+            .expect("table size is numeric")
+            > 0
+    );
+    assert!(
+        inspect.body["data"]["tables"][1]["sizeBytes"]
+            .as_u64()
+            .expect("table size is numeric")
+            > 0
+    );
+    assert!(
+        inspect.body["data"]["tables"][0]["rowCount"].is_null(),
+        "{:?}",
+        inspect.body
+    );
+
+    let delete = request_json(
+        app.clone(),
+        "DELETE",
+        &format!(
+            "/v1/datasets/{dataset_name}?directory={}",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(delete.status, StatusCode::NO_CONTENT, "{:?}", delete.body);
+    assert!(delete.body.is_null(), "{:?}", delete.body);
+    assert!(
+        !dataset_path.exists(),
+        "delete removes the resolved dataset directory"
+    );
+
+    let missing = request_json(
+        app.clone(),
+        "GET",
+        &format!(
+            "/v1/datasets/{dataset_name}?directory={}",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND, "{:?}", missing.body);
+    assert_eq!(missing.body["error"]["code"], "DATASET_NOT_FOUND");
+
+    let empty_list = request_json(
+        app,
+        "GET",
+        &format!(
+            "/v1/datasets?directory={}&limit=100&offset=0",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(empty_list.status, StatusCode::OK, "{:?}", empty_list.body);
+    assert_eq!(empty_list.body["pagination"]["totalItems"], 0);
+    assert_eq!(empty_list.body["data"], json!([]));
+}
+
+#[tokio::test]
+async fn dataset_lifecycle_rejects_relative_directory_with_validation_error() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    for (method, uri) in [
+        ("GET", "/v1/datasets?directory=relative/datasets"),
+        ("GET", "/v1/datasets/my-dataset?directory=relative/datasets"),
+        (
+            "DELETE",
+            "/v1/datasets/my-dataset?directory=relative/datasets",
+        ),
+    ] {
+        let response = request_json(app.clone(), method, uri, None).await;
+        assert_eq!(
+            response.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            response.body
+        );
+        assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+    }
 }
 
 #[tokio::test]
