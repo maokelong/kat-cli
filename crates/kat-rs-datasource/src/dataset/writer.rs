@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::prelude::SessionContext;
-use parquet::arrow::ArrowWriter;
+use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
 use serde::Serialize;
 use tempfile::{Builder, TempDir};
 
@@ -16,6 +16,9 @@ use super::{
     catalog::{DatasetCatalog, DatasetTable},
     reader::register_dataset_tables,
 };
+
+const DATASET_PARQUET_MAX_ROW_GROUP_ROWS: usize = 64 * 1024;
+const DATASET_PARQUET_MAX_ROW_GROUP_BYTES: usize = 64 * 1024 * 1024;
 
 pub async fn write_derived_dataset_table(
     dataset_path: &Path,
@@ -56,8 +59,12 @@ pub async fn write_derived_dataset_table(
             parquet_path.display()
         )
     })?;
-    let mut writer = ArrowWriter::try_new(file, first_batch.schema(), None)
-        .with_context(|| format!("failed to create Parquet writer for {logical_name}"))?;
+    let mut writer = ArrowWriter::try_new(
+        file,
+        first_batch.schema(),
+        Some(dataset_parquet_writer_properties()),
+    )
+    .with_context(|| format!("failed to create Parquet writer for {logical_name}"))?;
 
     for batch in batches {
         writer
@@ -140,26 +147,6 @@ impl DatasetWriter {
         })
     }
 
-    pub(crate) fn write_batches(
-        &mut self,
-        logical_name: &str,
-        parquet_file_name: &str,
-        batches: &[RecordBatch],
-    ) -> Result<()> {
-        let Some(first_batch) = batches.first() else {
-            bail!("dataset table {logical_name} has no record batches");
-        };
-        let mut table_writer =
-            self.start_table(logical_name, parquet_file_name, first_batch.schema())?;
-
-        for batch in batches {
-            table_writer.write(batch)?;
-        }
-
-        self.add_table(table_writer.finish()?);
-        Ok(())
-    }
-
     pub(crate) fn start_table(
         &self,
         logical_name: &str,
@@ -170,7 +157,7 @@ impl DatasetWriter {
         let file = File::create(&parquet_path).with_context(|| {
             format!("failed to create Parquet table: {}", parquet_path.display())
         })?;
-        let writer = ArrowWriter::try_new(file, schema, None)
+        let writer = ArrowWriter::try_new(file, schema, Some(dataset_parquet_writer_properties()))
             .with_context(|| format!("failed to create Parquet writer for {logical_name}"))?;
 
         Ok(DatasetTableWriter {
@@ -202,6 +189,13 @@ impl DatasetWriter {
 
         promote_dataset_write(self)
     }
+}
+
+fn dataset_parquet_writer_properties() -> WriterProperties {
+    WriterProperties::builder()
+        .set_max_row_group_row_count(Some(DATASET_PARQUET_MAX_ROW_GROUP_ROWS))
+        .set_max_row_group_bytes(Some(DATASET_PARQUET_MAX_ROW_GROUP_BYTES))
+        .build()
 }
 
 pub(crate) struct DatasetTableWriter {

@@ -326,6 +326,21 @@ fn query_consumes_arrow_table_set() {
 }
 
 #[test]
+fn hitrace_dataset_materializer_uses_streaming_sink_not_arrow_table_set() {
+    let materializer = source("src/materializer.rs");
+
+    assert!(materializer.contains("impl TraceRecordSink for HitraceDatasetSink"));
+    assert!(materializer.contains("HITRACE_DATASET_FLUSH_RECORDS"));
+
+    for marker in ["ArrowTableSet", "decode_hitrace", "write_hitrace_tables"] {
+        assert!(
+            !materializer.contains(marker),
+            "{marker} should not remain in .htrace dataset materialize"
+        );
+    }
+}
+
+#[test]
 fn build_script_splits_codegen_by_responsibility() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let build_rs = source("build.rs");

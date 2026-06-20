@@ -2,6 +2,7 @@ use arrow_array::{Int32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use flate2::{Compression, write::GzEncoder};
 use kat_rs_datasource::{DatasetLocator, DatasetStore};
+use parquet::file::reader::{FileReader, SerializedFileReader};
 use prost::Message;
 use serde_json::json;
 use std::{
@@ -17,6 +18,7 @@ use tempfile::tempdir;
 const PROFILER_HEADER_SIZE: usize = 1024;
 const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 const HIPROFILER_PROTOBUF_BIN: u32 = 0;
+const EXPECTED_MAX_DATASET_ROW_GROUP_ROWS: i64 = 65_536;
 const DEFAULT_ENV_CHILD: &str = "KAT_RS_DATASET_CONTRACT_DEFAULT_ENV_CHILD";
 const DEFAULT_ENV_EXPECTED_PROJECT_DATA_DIR: &str =
     "KAT_RS_DATASET_CONTRACT_EXPECTED_PROJECT_DATA_DIR";
@@ -661,6 +663,46 @@ async fn derived_table_writer_rejects_path_unsafe_ids() {
     }
 }
 
+#[tokio::test]
+async fn langfuse_dataset_splits_large_tables_into_bounded_row_groups() {
+    let dir = tempdir().expect("tempdir");
+    let observations_path = dir.path().join("observations.jsonl.gz");
+    let traces_path = dir.path().join("traces.jsonl.gz");
+    let dataset_path = dir.path().join("dataset");
+
+    write_jsonl_gz_generated(
+        &observations_path,
+        (EXPECTED_MAX_DATASET_ROW_GROUP_ROWS + 1) as usize,
+        |row| format!(r#"{{"id":"obs-{row}","trace_id":"trace-1","type":"SPAN"}}"#),
+    );
+    write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
+
+    kat_rs_datasource::materialize_langfuse_legacy_dataset(
+        &observations_path,
+        &traces_path,
+        &dataset_path,
+    )
+    .await
+    .expect("dataset is materialized");
+
+    let parquet_path = dataset_path
+        .join("tables")
+        .join("langfuse.langfuse_observations.parquet");
+    let file = File::open(parquet_path).expect("observations parquet is opened");
+    let reader = SerializedFileReader::new(file).expect("observations parquet metadata is read");
+    let metadata = reader.metadata();
+
+    assert_eq!(metadata.num_row_groups(), 2);
+    assert!(
+        metadata.row_group(0).num_rows() <= EXPECTED_MAX_DATASET_ROW_GROUP_ROWS,
+        "first row group exceeds bounded row count"
+    );
+    assert!(
+        metadata.row_group(1).num_rows() <= EXPECTED_MAX_DATASET_ROW_GROUP_ROWS,
+        "second row group exceeds bounded row count"
+    );
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct TestProfilerPluginData {
     #[prost(string, tag = "1")]
@@ -800,4 +842,19 @@ fn derived_thread_batch() -> RecordBatch {
         ],
     )
     .expect("derived batch is built")
+}
+
+fn write_jsonl_gz_generated(
+    path: &Path,
+    row_count: usize,
+    mut line_for_row: impl FnMut(usize) -> String,
+) {
+    let file = File::create(path).expect("gzip fixture file is created");
+    let mut encoder = GzEncoder::new(file, Compression::default());
+
+    for row in 0..row_count {
+        writeln!(encoder, "{}", line_for_row(row)).expect("jsonl line is written");
+    }
+
+    encoder.finish().expect("gzip stream is finished");
 }

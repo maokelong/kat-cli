@@ -42,6 +42,14 @@ impl ArrowSink {
 
         Ok(ArrowTableSet::new(tables))
     }
+
+    pub(crate) fn flush(&mut self) -> Result<ArrowTableSet> {
+        let mut tables = vec![self.profiler_table.flush_table()?];
+        tables.extend(self.event_tables.flush_tables()?);
+        tables.extend(self.native_hook_tables.flush_tables()?);
+
+        Ok(ArrowTableSet::new(tables))
+    }
 }
 
 impl TraceRecordSink for ArrowSink {

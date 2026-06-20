@@ -10,11 +10,14 @@ use datafusion::{
 use futures::StreamExt;
 
 use crate::{
-    arrow_table::ArrowTableSet,
-    dataset::DatasetWriter,
+    arrow_table::ArrowTable,
+    dataset::{DatasetTableWriter, DatasetWriter},
     formats::{hitrace, langfuse},
+    record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
+
+const HITRACE_DATASET_FLUSH_RECORDS: usize = 64 * 1024;
 
 pub async fn materialize_hitrace_dataset(
     path: impl AsRef<Path>,
@@ -23,9 +26,11 @@ pub async fn materialize_hitrace_dataset(
     let path = path.as_ref();
     let dataset_path = dataset_path.as_ref();
 
-    let mut writer = DatasetWriter::create(dataset_path)?;
-    let dataset = decode_hitrace(path)?;
-    write_hitrace_tables(&mut writer, dataset)?;
+    let writer = DatasetWriter::create(dataset_path)?;
+    let mut sink = HitraceDatasetSink::new(writer)?;
+    hitrace::decode_file(path, &mut sink)
+        .with_context(|| format!("failed to decode hitrace file: {}", path.display()))?;
+    let writer = sink.finish()?;
     writer.finish().await
 }
 
@@ -50,24 +55,6 @@ pub async fn materialize_langfuse_legacy_dataset(
     writer.finish().await
 }
 
-fn decode_hitrace(path: &Path) -> Result<ArrowTableSet> {
-    let mut sink = ArrowSink::new()?;
-    hitrace::decode_file(path, &mut sink)?;
-    sink.finish()
-}
-
-fn write_hitrace_tables(writer: &mut DatasetWriter, dataset: ArrowTableSet) -> Result<()> {
-    for table in dataset.tables {
-        writer.write_batches(
-            table.name,
-            &format!("hitrace.{}.parquet", table.name),
-            &table.batches,
-        )?;
-    }
-
-    Ok(())
-}
-
 async fn write_langfuse_tables(
     writer: &mut DatasetWriter,
     observations_path: &Path,
@@ -78,6 +65,113 @@ async fn write_langfuse_tables(
     }
 
     Ok(())
+}
+
+struct HitraceDatasetSink {
+    arrow_sink: ArrowSink,
+    dataset_writer: DatasetWriter,
+    table_writers: Vec<OpenHitraceTableWriter>,
+    records_since_flush: usize,
+}
+
+struct OpenHitraceTableWriter {
+    name: &'static str,
+    writer: DatasetTableWriter,
+}
+
+impl HitraceDatasetSink {
+    fn new(dataset_writer: DatasetWriter) -> Result<Self> {
+        Ok(Self {
+            arrow_sink: ArrowSink::new()?,
+            dataset_writer,
+            table_writers: Vec::new(),
+            records_since_flush: 0,
+        })
+    }
+
+    fn finish(mut self) -> Result<DatasetWriter> {
+        self.flush_tables(true)?;
+
+        for table in self.table_writers {
+            self.dataset_writer.add_table(table.writer.finish()?);
+        }
+
+        Ok(self.dataset_writer)
+    }
+
+    fn flush_tables(&mut self, include_empty_tables: bool) -> Result<()> {
+        let tables = self.arrow_sink.flush()?;
+
+        for table in tables.tables {
+            let row_count = table_row_count(&table);
+            if row_count == 0 {
+                let already_open = self
+                    .table_writers
+                    .iter()
+                    .any(|open_table| open_table.name == table.name);
+                if already_open || !include_empty_tables {
+                    continue;
+                }
+            }
+
+            let writer = self.table_writer_for(&table)?;
+            for batch in &table.batches {
+                writer.write(batch)?;
+            }
+        }
+
+        self.records_since_flush = 0;
+        Ok(())
+    }
+
+    fn table_writer_for(&mut self, table: &ArrowTable) -> Result<&mut DatasetTableWriter> {
+        if let Some(index) = self
+            .table_writers
+            .iter()
+            .position(|open_table| open_table.name == table.name)
+        {
+            return Ok(&mut self.table_writers[index].writer);
+        }
+
+        let first_batch = table
+            .batches
+            .first()
+            .with_context(|| format!("hitrace table {} has no record batches", table.name))?;
+        let parquet_file_name = format!("hitrace.{}.parquet", table.name);
+        let writer = self.dataset_writer.start_table(
+            table.name,
+            &parquet_file_name,
+            first_batch.schema(),
+        )?;
+        self.table_writers.push(OpenHitraceTableWriter {
+            name: table.name,
+            writer,
+        });
+        let index = self.table_writers.len() - 1;
+
+        Ok(&mut self.table_writers[index].writer)
+    }
+}
+
+impl TraceRecordSink for HitraceDatasetSink {
+    fn push(&mut self, record: TraceRecord) -> Result<()> {
+        self.arrow_sink.push(record)?;
+        self.records_since_flush += 1;
+
+        if self.records_since_flush >= HITRACE_DATASET_FLUSH_RECORDS {
+            self.flush_tables(false)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn table_row_count(table: &ArrowTable) -> usize {
+    table
+        .batches
+        .iter()
+        .map(RecordBatch::num_rows)
+        .sum::<usize>()
 }
 
 async fn write_langfuse_table(
