@@ -43,6 +43,10 @@ impl NativeHookEventTableBuilder {
         Ok(())
     }
 
+    pub(crate) fn flush_table(&mut self) -> Result<ArrowTable> {
+        self.builder.flush_table()
+    }
+
     pub(crate) fn into_table(self) -> Result<ArrowTable> {
         self.builder.into_table()
     }

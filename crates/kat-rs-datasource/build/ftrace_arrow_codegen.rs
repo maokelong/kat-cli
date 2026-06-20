@@ -115,6 +115,20 @@ fn render_aggregate_table_builders(output: &mut String, families: &[EventFamily<
     }
     output.push_str("        Ok(tables)\n");
     output.push_str("    }\n");
+    output.push('\n');
+    output.push_str("    #[allow(dead_code)]\n");
+    output.push_str("    pub(crate) fn flush_tables(&mut self) -> Result<Vec<ArrowTable>> {\n");
+    output.push_str("        let mut tables = Vec::new();\n");
+    for family in families {
+        writeln!(
+            output,
+            "        tables.extend(self.{}.flush_tables()?);",
+            family.spec.field_name
+        )
+        .expect("write to string");
+    }
+    output.push_str("        Ok(tables)\n");
+    output.push_str("    }\n");
     output.push_str("}\n\n");
 }
 
@@ -172,6 +186,20 @@ fn render_event_family_table_builders(output: &mut String, family: &EventFamily<
         writeln!(
             output,
             "            self.{}.into_table()?,",
+            message.table_name
+        )
+        .expect("write to string");
+    }
+    output.push_str("        ])\n");
+    output.push_str("    }\n");
+    output.push('\n');
+    output.push_str("    #[allow(dead_code)]\n");
+    output.push_str("    pub(crate) fn flush_tables(&mut self) -> Result<Vec<ArrowTable>> {\n");
+    output.push_str("        Ok(vec![\n");
+    for message in &family.messages {
+        writeln!(
+            output,
+            "            self.{}.flush_table()?,",
             message.table_name
         )
         .expect("write to string");

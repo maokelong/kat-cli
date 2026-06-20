@@ -99,6 +99,21 @@ fn render_native_hook_table_builders(events: &[NativeHookEventSpec]) -> String {
     }
     output.push_str("        ])\n");
     output.push_str("    }\n");
+    output.push('\n');
+    output.push_str("    #[allow(dead_code)]\n");
+    output.push_str("    pub(crate) fn flush_tables(&mut self) -> Result<Vec<ArrowTable>> {\n");
+    output.push_str("        Ok(vec![\n");
+    output.push_str("            self.config.flush_table()?,\n");
+    for event in events {
+        writeln!(
+            output,
+            "            self.{}.flush_table()?,",
+            camel_to_snake(&event.record_variant)
+        )
+        .expect("write to string");
+    }
+    output.push_str("        ])\n");
+    output.push_str("    }\n");
     output.push_str("}\n");
 
     output
