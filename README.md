@@ -151,6 +151,22 @@ curl -sS -X POST http://127.0.0.1:3030/v1/datasets \
 
 `.htrace` 使用同一个 endpoint，把 `input` 换成 `{ "source": "HITRACE", "file": "/absolute/path/to/app.htrace" }`。
 
+直接查询已有 dataset：
+
+```bash
+curl -sS -X POST http://127.0.0.1:3030/v1/datasets/queries \
+  -H 'content-type: application/json' \
+  -d '{
+    "dataset": {
+      "name": "my-dataset",
+      "directory": "/absolute/path/to/datasets"
+    },
+    "sql": "select count(*) as count from langfuse_traces"
+  }'
+```
+
+dataset query 不创建 datasource id，不修改或删除 dataset；每次请求按 `dataset` 定位 catalog/Parquet 并执行 SQL。
+
 使用响应中的 datasource id 查询：
 
 ```bash
@@ -162,20 +178,18 @@ curl -sS -X POST \
   }'
 ```
 
-响应包含 rows、row count、datasource id 和查询耗时：
+查询响应先给出 meta 和 row count，再返回 rows：
 
 ```json
 {
-  "data": {
-    "rows": [
-      { "count": 42 }
-    ],
-    "rowCount": 1
-  },
   "meta": {
-    "datasourceId": "DATASOURCE_ID",
-    "elapsedMs": 12
-  }
+    "elapsedMs": 12,
+    "datasourceId": "DATASOURCE_ID"
+  },
+  "rowCount": 1,
+  "data": [
+    { "count": 42 }
+  ]
 }
 ```
 
@@ -184,6 +198,7 @@ curl -sS -X POST \
 ```text
 GET    /openapi.json
 POST   /v1/datasets
+POST   /v1/datasets/queries
 GET    /v1/datasources?limit=100&offset=0
 GET    /v1/datasources/{datasourceId}
 DELETE /v1/datasources/{datasourceId}
@@ -348,7 +363,7 @@ server 创建 Langfuse legacy datasource 时会完整读取、解压并物化两
 
 本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。第一版 catalog 只保存 SQL 逻辑表名到 Parquet 相对路径的映射；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
 
-server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize；把已有 dataset 打开为 server datasource 查询仍是后续工作。
+server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize，也可以直接给定 dataset 执行 SQL；直接 dataset query 不会把 dataset 注册成 server datasource。
 
 SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JSON。应通过 `WHERE`、投影、聚合和 `LIMIT` 控制结果规模。
 

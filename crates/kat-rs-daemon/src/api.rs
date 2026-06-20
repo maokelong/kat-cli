@@ -8,12 +8,6 @@ pub struct DataEnvelope<T> {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct DataEnvelopeWithMeta<T, M> {
-    pub data: T,
-    pub meta: M,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
 pub struct PaginatedEnvelope<T> {
     pub data: Vec<T>,
     pub pagination: Pagination,
@@ -89,20 +83,6 @@ pub struct QueryRequest {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct QueryResponse {
-    pub rows: Vec<Value>,
-    pub row_count: usize,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct QueryMeta {
-    pub datasource_id: String,
-    pub elapsed_ms: u128,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
 pub struct ShutdownResponse {
     pub state: &'static str,
 }
@@ -114,7 +94,7 @@ pub struct CreateDatasetRequest {
     pub input: DatasetSourceInput,
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatasetLocation {
     pub name: String,
@@ -147,4 +127,43 @@ pub struct DatasetDto {
     pub name: String,
     pub directory: String,
     pub path: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatasetQueryRequest {
+    pub dataset: DatasetLocation,
+    pub sql: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryResponse<M> {
+    pub meta: M,
+    pub row_count: usize,
+    pub data: Vec<Value>,
+}
+
+impl<M> QueryResponse<M> {
+    pub fn new(meta: M, data: Vec<Value>) -> Self {
+        Self {
+            row_count: data.len(),
+            meta,
+            data,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasourceQueryMeta {
+    pub elapsed_ms: u128,
+    pub datasource_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetQueryMeta {
+    pub elapsed_ms: u128,
+    pub dataset: DatasetDto,
 }

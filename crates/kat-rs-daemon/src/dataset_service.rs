@@ -6,13 +6,17 @@ use std::{
 };
 
 use kat_rs_datasource::{
-    DatasetLocator, DatasetStore, materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
+    DatasetLocator, DatasetStore, TraceDatasource, materialize_hitrace_dataset,
+    materialize_langfuse_legacy_dataset,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 
 use crate::{
-    api::{CreateDatasetRequest, DatasetDto, DatasetLocation, DatasetSourceInput, InputRole},
+    api::{
+        CreateDatasetRequest, DatasetDto, DatasetLocation, DatasetQueryRequest, DatasetSourceInput,
+        InputRole,
+    },
     error::ApiError,
     identity::resolve_input,
 };
@@ -31,13 +35,7 @@ impl DatasetService {
     }
 
     pub async fn create(&self, request: CreateDatasetRequest) -> Result<DatasetDto, ApiError> {
-        let dataset_store = dataset_store(&request.dataset)?;
-        let dataset_name = request.dataset.name.clone();
-        let resolution = dataset_store
-            .resolve(&DatasetLocator::Name(dataset_name.clone()))
-            .map_err(|error| ApiError::validation(format!("{error:#}")))?;
-        let dataset_path = resolution.path;
-        let dataset_directory = dataset_directory(&dataset_path)?;
+        let resolved = resolve_dataset(&request.dataset)?;
         let load = dataset_load(request.input)?;
         let _permit = self
             .materialize_limiter
@@ -45,14 +43,27 @@ impl DatasetService {
             .await
             .map_err(|_| ApiError::internal("dataset materialize limiter closed"))?;
 
-        ensure_dataset_target_absent(&dataset_path)?;
-        materialize_dataset(load, &dataset_path).await?;
+        ensure_dataset_target_absent(&resolved.path)?;
+        materialize_dataset(load, &resolved.path).await?;
 
-        Ok(DatasetDto {
-            name: dataset_name,
-            directory: dataset_directory.to_string_lossy().into_owned(),
-            path: dataset_path.to_string_lossy().into_owned(),
-        })
+        Ok(resolved.dataset)
+    }
+
+    pub async fn query(
+        &self,
+        request: DatasetQueryRequest,
+    ) -> Result<(DatasetDto, Vec<Value>), ApiError> {
+        let resolved = resolve_dataset(&request.dataset)?;
+        ensure_dataset_exists(&resolved.path)?;
+        let datasource = TraceDatasource::from_dataset(&resolved.path)
+            .await
+            .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+        let rows = datasource
+            .query_json(&request.sql)
+            .await
+            .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
+
+        Ok((resolved.dataset, rows_as_array(rows)?))
     }
 }
 
@@ -70,6 +81,30 @@ enum DatasetLoad {
         observations_path: PathBuf,
         traces_path: PathBuf,
     },
+}
+
+struct ResolvedDataset {
+    dataset: DatasetDto,
+    path: PathBuf,
+}
+
+fn resolve_dataset(dataset: &DatasetLocation) -> Result<ResolvedDataset, ApiError> {
+    let dataset_store = dataset_store(dataset)?;
+    let dataset_name = dataset.name.clone();
+    let resolution = dataset_store
+        .resolve(&DatasetLocator::Name(dataset_name.clone()))
+        .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+    let dataset_path = resolution.path;
+    let dataset_directory = dataset_directory(&dataset_path)?;
+
+    Ok(ResolvedDataset {
+        dataset: DatasetDto {
+            name: dataset_name,
+            directory: dataset_directory.to_string_lossy().into_owned(),
+            path: dataset_path.to_string_lossy().into_owned(),
+        },
+        path: dataset_path,
+    })
 }
 
 fn dataset_store(dataset: &DatasetLocation) -> Result<DatasetStore, ApiError> {
@@ -143,6 +178,23 @@ fn ensure_dataset_target_absent(dataset_path: &Path) -> Result<(), ApiError> {
     }
 }
 
+fn ensure_dataset_exists(dataset_path: &Path) -> Result<(), ApiError> {
+    match fs::symlink_metadata(dataset_path) {
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(ApiError::validation(format!(
+            "dataset path is not a directory: {}",
+            dataset_path.display()
+        ))),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            Err(ApiError::dataset_not_found(dataset_path))
+        }
+        Err(error) => Err(ApiError::validation(format!(
+            "failed to inspect dataset target {}: {error}",
+            dataset_path.display()
+        ))),
+    }
+}
+
 fn map_materialize_error(error: anyhow::Error, dataset_path: &Path) -> ApiError {
     let message = format!("{error:#}");
     if message.contains("dataset target already exists") {
@@ -157,4 +209,13 @@ fn dataset_exists(dataset_path: &Path) -> ApiError {
         "dataset already exists",
         Some(json!({ "path": dataset_path.to_string_lossy() })),
     )
+}
+
+fn rows_as_array(rows: Value) -> Result<Vec<Value>, ApiError> {
+    match rows {
+        Value::Array(rows) => Ok(rows),
+        _ => Err(ApiError::internal(
+            "dataset query returned a non-array JSON value",
+        )),
+    }
 }

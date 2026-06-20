@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use axum::{
     Json, Router,
     extract::{State, rejection::JsonRejection},
@@ -7,13 +9,18 @@ use axum::{
 };
 
 use crate::{
-    api::{CreateDatasetRequest, DataEnvelope, DatasetResponse},
+    api::{
+        CreateDatasetRequest, DataEnvelope, DatasetQueryMeta, DatasetQueryRequest, DatasetResponse,
+        QueryResponse,
+    },
     error::{ApiError, ErrorEnvelope},
     state::AppState,
 };
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/v1/datasets", post(create_dataset))
+    Router::new()
+        .route("/v1/datasets", post(create_dataset))
+        .route("/v1/datasets/queries", post(query_dataset))
 }
 
 #[utoipa::path(
@@ -43,4 +50,32 @@ pub(crate) async fn create_dataset(
         }),
     )
         .into_response())
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/queries",
+    request_body = DatasetQueryRequest,
+    responses(
+        (status = 200, description = "Dataset query result", body = QueryResponse<DatasetQueryMeta>),
+        (status = 400, description = "Request body is malformed", body = ErrorEnvelope),
+        (status = 404, description = "Dataset not found", body = ErrorEnvelope),
+        (status = 422, description = "Dataset validation or query failed", body = ErrorEnvelope),
+        (status = 500, description = "Internal server error", body = ErrorEnvelope)
+    )
+)]
+pub(crate) async fn query_dataset(
+    State(state): State<AppState>,
+    request: Result<Json<DatasetQueryRequest>, JsonRejection>,
+) -> Result<Json<QueryResponse<DatasetQueryMeta>>, ApiError> {
+    let Json(request) =
+        request.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+    let started_at = Instant::now();
+    let (dataset, rows) = state.dataset_service.query(request).await?;
+    let meta = DatasetQueryMeta {
+        elapsed_ms: started_at.elapsed().as_millis(),
+        dataset,
+    };
+
+    Ok(Json(QueryResponse::new(meta, rows)))
 }
