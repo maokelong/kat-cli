@@ -70,26 +70,6 @@ impl DatasetWriter {
         })
     }
 
-    pub(crate) fn write_batches(
-        &mut self,
-        logical_name: &str,
-        parquet_file_name: &str,
-        batches: &[RecordBatch],
-    ) -> Result<()> {
-        let Some(first_batch) = batches.first() else {
-            bail!("dataset table {logical_name} has no record batches");
-        };
-        let mut table_writer =
-            self.start_table(logical_name, parquet_file_name, first_batch.schema())?;
-
-        for batch in batches {
-            table_writer.write(batch)?;
-        }
-
-        self.add_table(table_writer.finish()?);
-        Ok(())
-    }
-
     pub(crate) fn start_table(
         &self,
         logical_name: &str,

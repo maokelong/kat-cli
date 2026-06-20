@@ -36,6 +36,14 @@ impl<T> MessageTableBuilder<T> {
         Ok(())
     }
 
+    pub(crate) fn flush_table(&mut self) -> Result<ArrowTable> {
+        let batch = self
+            .builder
+            .to_record_batch()
+            .with_context(|| format!("failed to flush {} table to Arrow", self.name))?;
+        Ok(ArrowTable::new(self.name, vec![batch]))
+    }
+
     pub(crate) fn into_table(self) -> Result<ArrowTable> {
         into_table(self.name, self.builder)
     }
@@ -87,6 +95,14 @@ impl<Meta> EventTableBuilder<Meta> {
     {
         self.builder.push(EventTableRow::new(meta, message))?;
         Ok(())
+    }
+
+    pub(crate) fn flush_table(&mut self) -> Result<ArrowTable> {
+        let batch = self
+            .builder
+            .to_record_batch()
+            .with_context(|| format!("failed to flush {} table to Arrow", self.name))?;
+        Ok(ArrowTable::new(self.name, vec![batch]))
     }
 
     pub(crate) fn into_table(self) -> Result<ArrowTable> {
