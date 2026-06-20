@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
-use crate::service::DatasourceService;
+use crate::{dataset_service::DatasetService, service::DatasourceService};
 
 #[derive(Clone)]
 pub struct AppState {
+    pub dataset_service: Arc<DatasetService>,
     pub datasource_service: Arc<DatasourceService>,
     pub shutdown: Arc<Notify>,
 }
@@ -13,6 +14,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(max_concurrent_loads: usize) -> Self {
         Self {
+            dataset_service: Arc::new(DatasetService::new(max_concurrent_loads)),
             datasource_service: Arc::new(DatasourceService::new(max_concurrent_loads)),
             shutdown: Arc::new(Notify::new()),
         }

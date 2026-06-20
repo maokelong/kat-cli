@@ -30,8 +30,8 @@ trace / log files
 
 | Source | 输入 | 当前查询面 | 加载方式 |
 | --- | --- | --- | --- |
-| `hitrace` | OpenHarmony `.htrace` profiler container | `profiler_plugin_data` raw table、ftrace sched direct tables、native hook direct/raw tables | REST datasource 直接解码为 Arrow `MemTable`；dataset 内核可写入本地 Parquet 后从 catalog 注册查询 |
-| `langfuse` | 一份 legacy `observations.jsonl.gz` 和一份 `traces.jsonl.gz` | `langfuse_observations`、`langfuse_traces` 两张原始表 | REST datasource 读取 gzip JSONL 后物化为 `MemTable`；dataset 内核可写入本地 Parquet 后从 catalog 注册查询 |
+| `hitrace` | OpenHarmony `.htrace` profiler container | `profiler_plugin_data` raw table、ftrace sched direct tables、native hook direct/raw tables | REST datasource 直接解码为 Arrow `MemTable`；REST dataset materialize 可写入本地 Parquet 后从 catalog 注册查询 |
+| `langfuse` | 一份 legacy `observations.jsonl.gz` 和一份 `traces.jsonl.gz` | `langfuse_observations`、`langfuse_traces` 两张原始表 | REST datasource 读取 gzip JSONL 后物化为 `MemTable`；REST dataset materialize 可写入本地 Parquet 后从 catalog 注册查询 |
 
 所有 SQL 由 DataFusion 执行。业务功能通过本机 REST API 暴露；CLI 不承载 datasource 或 SQL 查询参数。
 
@@ -129,6 +129,28 @@ Langfuse legacy 第一版要求显式提供单个 observations 文件和单个 t
 
 服务端会 canonicalize 文件路径并读取文件 metadata，以 source、路径、大小和修改时间计算 datasource identity。相同且未变化的输入再次创建时会复用同一个 datasource；首次创建返回 `201 Created`，复用时返回 `200 OK`。
 
+把 Langfuse legacy 输入物化为本地 dataset：
+
+```bash
+curl -sS -X POST http://127.0.0.1:3030/v1/datasets \
+  -H 'content-type: application/json' \
+  -d '{
+    "dataset": {
+      "name": "my-dataset",
+      "directory": "/absolute/path/to/datasets"
+    },
+    "input": {
+      "source": "LANGFUSE_LEGACY",
+      "observationsFile": "/absolute/path/to/observations.jsonl.gz",
+      "tracesFile": "/absolute/path/to/traces.jsonl.gz"
+    }
+  }'
+```
+
+`dataset.directory` 可省略，省略时使用平台默认 dataset 根目录；传入时必须是绝对路径，最终目录为 `<directory>/<name>`。同步请求会等待 materialize 完成，成功返回 `201 Created` 和 `data.dataset.name`、`data.dataset.directory`、`data.dataset.path`。目标 dataset 已存在时返回 `409 CONFLICT`；当前不支持替换、删除、list 或 inspect dataset。删除 server datasource 只释放进程内查询句柄，不删除已经写出的 dataset。
+
+`.htrace` 使用同一个 endpoint，把 `input` 换成 `{ "source": "HITRACE", "file": "/absolute/path/to/app.htrace" }`。
+
 使用响应中的 datasource id 查询：
 
 ```bash
@@ -161,6 +183,7 @@ curl -sS -X POST \
 
 ```text
 GET    /openapi.json
+POST   /v1/datasets
 GET    /v1/datasources?limit=100&offset=0
 GET    /v1/datasources/{datasourceId}
 DELETE /v1/datasources/{datasourceId}
@@ -325,7 +348,7 @@ server 创建 Langfuse legacy datasource 时会完整读取、解压并物化两
 
 本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。第一版 catalog 只保存 SQL 逻辑表名到 Parquet 相对路径的映射；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
 
-server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 接入本地 dataset 是后续工作。
+server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize；把已有 dataset 打开为 server datasource 查询仍是后续工作。
 
 SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JSON。应通过 `WHERE`、投影、聚合和 `LIMIT` 控制结果规模。
 
@@ -338,7 +361,7 @@ SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JS
 - Langfuse 的 `input`、`output` 等敏感内容不会自动脱敏。不要向不可信 SQL、终端记录或 HTTP 客户端暴露生产数据。
 - 本地 dataset 第一版只支持创建新的完整 dataset；目标路径已存在时失败，替换和删除留给后续 dataset 生命周期接口。
 - 本地 dataset catalog 只接受当前最小表映射字段；不写 dataset manifest，旧 metadata 字段会被拒绝，跨版本数据应重新 materialize。
-- server datasource 当前仍以内存 `MemTable` 为主。server 没有 dataset 集成、磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
+- server datasource 当前仍以内存 `MemTable` 为主。server 没有把已有 dataset 打开为 datasource 的接口，也没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
 - server 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。
 - `query_json` 仍会 collect 查询结果后生成 JSON；SQL 结果没有流式 HTTP 输出或服务端分页，大结果集会增加内存占用。
 - 项目尚未提供稳定的 public library API 或 crates.io 发布承诺。

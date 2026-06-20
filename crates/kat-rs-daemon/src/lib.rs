@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod dataset_service;
 pub mod error;
 pub mod identity;
 pub mod openapi;
