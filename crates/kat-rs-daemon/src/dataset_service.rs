@@ -6,22 +6,23 @@ use std::{
 };
 
 use kat_rs_datasource::{
-    DatasetLocator, DatasetStore, TraceDatasource, materialize_hitrace_dataset,
-    materialize_langfuse_legacy_dataset,
+    DatasetLocator, DatasetStore, TraceDatasource, inspect_dataset_tables,
+    materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
 };
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 
 use crate::{
     api::{
-        CreateDatasetRequest, DatasetDto, DatasetLocation, DatasetQueryRequest, DatasetSourceInput,
-        InputRole,
+        CreateDatasetRequest, DatasetDto, DatasetInspectResponse, DatasetLocation,
+        DatasetQueryRequest, DatasetSourceInput, DatasetTableDto, InputRole,
     },
     error::ApiError,
     identity::resolve_input,
 };
 
 const DEFAULT_MAX_CONCURRENT_MATERIALIZATIONS: usize = 2;
+const MAX_LIST_LIMIT: usize = 500;
 
 pub struct DatasetService {
     materialize_limiter: Arc<Semaphore>,
@@ -47,6 +48,63 @@ impl DatasetService {
         materialize_dataset(load, &resolved.path).await?;
 
         Ok(resolved.dataset)
+    }
+
+    pub fn list(
+        &self,
+        directory: Option<String>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<DatasetList, ApiError> {
+        let limit = limit.clamp(1, MAX_LIST_LIMIT);
+        let dataset_store = dataset_store_from_directory(directory.as_deref())?;
+        let datasets_dir = dataset_store.datasets_dir().to_path_buf();
+        let mut datasets = list_dataset_dirs(&datasets_dir)?;
+        datasets.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let total_items = datasets.len();
+        let data = datasets.into_iter().skip(offset).take(limit).collect();
+
+        Ok(DatasetList {
+            data,
+            limit,
+            offset,
+            total_items,
+        })
+    }
+
+    pub fn inspect(&self, dataset: DatasetLocation) -> Result<DatasetInspectResponse, ApiError> {
+        let resolved = resolve_dataset(&dataset)?;
+        ensure_dataset_exists(&resolved.path)?;
+        let tables = inspect_dataset_tables(&resolved.path)
+            .map_err(|error| ApiError::validation(format!("{error:#}")))?
+            .into_iter()
+            .map(|table| DatasetTableDto {
+                name: table.name,
+                path: table.path,
+                size_bytes: table.size_bytes,
+            })
+            .collect();
+
+        Ok(DatasetInspectResponse {
+            dataset: resolved.dataset,
+            tables,
+        })
+    }
+
+    pub fn delete(&self, dataset: DatasetLocation) -> Result<(), ApiError> {
+        let resolved = resolve_dataset(&dataset)?;
+        ensure_dataset_exists(&resolved.path)?;
+        fs::remove_dir_all(&resolved.path).map_err(|error| {
+            if error.kind() == ErrorKind::NotFound {
+                ApiError::dataset_not_found(&resolved.path)
+            } else {
+                ApiError::validation(format!(
+                    "failed to delete dataset {}: {error}",
+                    resolved.path.display()
+                ))
+            }
+        })
     }
 
     pub async fn query(
@@ -88,6 +146,13 @@ struct ResolvedDataset {
     path: PathBuf,
 }
 
+pub struct DatasetList {
+    pub data: Vec<DatasetDto>,
+    pub limit: usize,
+    pub offset: usize,
+    pub total_items: usize,
+}
+
 fn resolve_dataset(dataset: &DatasetLocation) -> Result<ResolvedDataset, ApiError> {
     let dataset_store = dataset_store(dataset)?;
     let dataset_name = dataset.name.clone();
@@ -108,7 +173,11 @@ fn resolve_dataset(dataset: &DatasetLocation) -> Result<ResolvedDataset, ApiErro
 }
 
 fn dataset_store(dataset: &DatasetLocation) -> Result<DatasetStore, ApiError> {
-    if let Some(directory) = &dataset.directory {
+    dataset_store_from_directory(dataset.directory.as_deref())
+}
+
+fn dataset_store_from_directory(directory: Option<&str>) -> Result<DatasetStore, ApiError> {
+    if let Some(directory) = directory {
         let directory = PathBuf::from(directory);
         if !directory.is_absolute() {
             return Err(ApiError::validation(format!(
@@ -121,6 +190,49 @@ fn dataset_store(dataset: &DatasetLocation) -> Result<DatasetStore, ApiError> {
     }
 
     DatasetStore::default_from_env().map_err(|error| ApiError::validation(format!("{error:#}")))
+}
+
+fn list_dataset_dirs(datasets_dir: &Path) -> Result<Vec<DatasetDto>, ApiError> {
+    let entries = match fs::read_dir(datasets_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(ApiError::validation(format!(
+                "failed to list dataset directory {}: {error}",
+                datasets_dir.display()
+            )));
+        }
+    };
+    let mut datasets = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ApiError::validation(format!(
+                "failed to read dataset directory entry in {}: {error}",
+                datasets_dir.display()
+            ))
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            ApiError::validation(format!(
+                "failed to inspect dataset directory entry {}: {error}",
+                entry.path().display()
+            ))
+        })?;
+        if !file_type.is_dir() {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let dataset = DatasetLocation {
+            name,
+            directory: Some(datasets_dir.to_string_lossy().into_owned()),
+        };
+        let resolved = resolve_dataset(&dataset)?;
+        datasets.push(resolved.dataset);
+    }
+
+    Ok(datasets)
 }
 
 fn dataset_directory(dataset_path: &Path) -> Result<PathBuf, ApiError> {

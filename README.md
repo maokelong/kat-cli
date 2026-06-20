@@ -147,9 +147,46 @@ curl -sS -X POST http://127.0.0.1:3030/v1/datasets \
   }'
 ```
 
-`dataset.directory` 可省略，省略时使用平台默认 dataset 根目录；传入时必须是绝对路径，最终目录为 `<directory>/<name>`。同步请求会等待 materialize 完成，成功返回 `201 Created` 和 `data.dataset.name`、`data.dataset.directory`、`data.dataset.path`。目标 dataset 已存在时返回 `409 CONFLICT`；当前不支持替换、删除、list 或 inspect dataset。删除 server datasource 只释放进程内查询句柄，不删除已经写出的 dataset。
+`dataset.directory` 可省略，省略时使用平台默认 dataset 根目录；传入时必须是绝对路径，最终目录为 `<directory>/<name>`。同步请求会等待 materialize 完成，成功返回 `201 Created` 和 `data.dataset.name`、`data.dataset.directory`、`data.dataset.path`。目标 dataset 已存在时返回 `409 CONFLICT`；替换 dataset 时先删除再重新创建。删除 server datasource 只释放进程内查询句柄，不删除已经写出的 dataset。
 
 `.htrace` 使用同一个 endpoint，把 `input` 换成 `{ "source": "HITRACE", "file": "/absolute/path/to/app.htrace" }`。
+
+列出和查看本地 dataset：
+
+```bash
+curl -sS 'http://127.0.0.1:3030/v1/datasets?directory=/absolute/path/to/datasets&limit=100&offset=0'
+
+curl -sS 'http://127.0.0.1:3030/v1/datasets/my-dataset?directory=/absolute/path/to/datasets'
+```
+
+Inspect 只返回 dataset 位置和 catalog 中的轻量表信息，例如：
+
+```json
+{
+  "data": {
+    "dataset": {
+      "name": "my-dataset",
+      "directory": "/absolute/path/to/datasets",
+      "path": "/absolute/path/to/datasets/my-dataset"
+    },
+    "tables": [
+      {
+        "name": "langfuse_traces",
+        "path": "tables/langfuse.langfuse_traces.parquet",
+        "sizeBytes": 12345
+      }
+    ]
+  }
+}
+```
+
+删除本地 dataset：
+
+```bash
+curl -sS -X DELETE 'http://127.0.0.1:3030/v1/datasets/my-dataset?directory=/absolute/path/to/datasets'
+```
+
+删除成功返回 `204 No Content`。删除只作用于通过 `directory + dataset name` 解析出的 dataset 目录；没有 `PUT`、`PATCH` 或 replace API。
 
 直接查询已有 dataset：
 
@@ -197,7 +234,10 @@ curl -sS -X POST \
 
 ```text
 GET    /openapi.json
+GET    /v1/datasets?directory=/absolute/path&limit=100&offset=0
 POST   /v1/datasets
+GET    /v1/datasets/{datasetName}?directory=/absolute/path
+DELETE /v1/datasets/{datasetName}?directory=/absolute/path
 POST   /v1/datasets/queries
 GET    /v1/datasources?limit=100&offset=0
 GET    /v1/datasources/{datasourceId}
@@ -363,7 +403,7 @@ server 创建 Langfuse legacy datasource 时会完整读取、解压并物化两
 
 本地 dataset 查询从 catalog 注册 Parquet 文件，不要求源文件在 materialize 后继续存在。第一版 catalog 只保存 SQL 逻辑表名到 Parquet 相对路径的映射；打开已有 dataset 时只做基础结构、路径和 Parquet metadata 校验。`.htrace` dataset materialize 当前可能仍会先构建内存表再写 Parquet；Langfuse dataset materialize 会把 RecordBatch batches 写入 Parquet。
 
-server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize，也可以直接给定 dataset 执行 SQL；直接 dataset query 不会把 dataset 注册成 server datasource。
+server datasource 目前仍是内存态 registry，将物化后的 datasource 保留在内存中，直到显式删除 datasource 或关闭 server。同一 identity 的并发创建会协调为一次实际加载。server 可以通过 REST 触发本地 dataset materialize、列出/查看/删除本地 dataset，也可以直接给定 dataset 执行 SQL；直接 dataset query 不会把 dataset 注册成 server datasource。
 
 SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JSON。应通过 `WHERE`、投影、聚合和 `LIMIT` 控制结果规模。
 
@@ -374,7 +414,7 @@ SQL 查询目前会 collect 全部 DataFusion batches，再一次性转换成 JS
 - Langfuse 只支持 legacy observations/traces 单文件输入；不支持 API、S3/COS、目录扫描、glob、`observations_v2`、scores 或派生分析表。
 - Langfuse dataset materialize 中，DataFusion 推断出的顶层空对象列会以 JSON 字符串保存，例如 `{}`；server 直接创建 Langfuse datasource 时仍保持 DataFusion JSON reader 的原始推断行为。
 - Langfuse 的 `input`、`output` 等敏感内容不会自动脱敏。不要向不可信 SQL、终端记录或 HTTP 客户端暴露生产数据。
-- 本地 dataset 第一版只支持创建新的完整 dataset；目标路径已存在时失败，替换和删除留给后续 dataset 生命周期接口。
+- 本地 dataset 第一版只支持创建新的完整 dataset；目标路径已存在时失败，替换语义由删除后重新创建表达。
 - 本地 dataset catalog 只接受当前最小表映射字段；不写 dataset manifest，旧 metadata 字段会被拒绝，跨版本数据应重新 materialize。
 - server datasource 当前仍以内存 `MemTable` 为主。server 没有把已有 dataset 打开为 datasource 的接口，也没有磁盘 columnar cache、spill、LRU、idle timeout 或内存水位控制，大型压缩数据可能产生显著内存放大。
 - server 仅适用于本机单用户场景，没有鉴权、TLS、远程访问或多租户隔离，也不会自动拉起。

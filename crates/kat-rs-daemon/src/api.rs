@@ -129,6 +129,21 @@ pub struct DatasetDto {
     pub path: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetInspectResponse {
+    pub dataset: DatasetDto,
+    pub tables: Vec<DatasetTableDto>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetTableDto {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatasetQueryRequest {

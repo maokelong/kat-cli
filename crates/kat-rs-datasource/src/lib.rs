@@ -15,7 +15,9 @@ mod query;
 mod record;
 mod sinks;
 
-pub use dataset::{DatasetLocator, DatasetResolution, DatasetStore};
+pub use dataset::{
+    DatasetLocator, DatasetResolution, DatasetStore, DatasetTableInfo, inspect_dataset_tables,
+};
 pub use materializer::{materialize_hitrace_dataset, materialize_langfuse_legacy_dataset};
 pub use query::TraceDatasource;
 

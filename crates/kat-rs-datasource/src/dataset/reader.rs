@@ -32,6 +32,37 @@ pub(crate) async fn register_dataset_tables(
     Ok(())
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DatasetTableInfo {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+pub fn inspect_dataset_tables(dataset_path: &Path) -> Result<Vec<DatasetTableInfo>> {
+    let tables = validated_dataset_tables(dataset_path)?;
+
+    tables
+        .into_iter()
+        .map(|table| {
+            let size_bytes = fs::metadata(&table.path)
+                .with_context(|| {
+                    format!(
+                        "failed to inspect dataset table file: {}",
+                        table.path.display()
+                    )
+                })?
+                .len();
+
+            Ok(DatasetTableInfo {
+                name: table.name,
+                path: table.relative_path,
+                size_bytes,
+            })
+        })
+        .collect()
+}
+
 fn validated_dataset_tables(dataset_path: &Path) -> Result<Vec<ValidatedDatasetTable>> {
     let catalog = read_catalog(dataset_path)?;
     validate_catalog(&catalog, dataset_path)
@@ -47,6 +78,7 @@ fn read_catalog(dataset_path: &Path) -> Result<DatasetCatalog> {
 
 struct ValidatedDatasetTable {
     name: String,
+    relative_path: String,
     path: PathBuf,
 }
 
@@ -70,6 +102,7 @@ fn validate_catalog(
         let path = validate_table_path(table, dataset_path, &dataset_root)?;
         tables.push(ValidatedDatasetTable {
             name: table.name.clone(),
+            relative_path: table.path.clone(),
             path,
         });
     }
