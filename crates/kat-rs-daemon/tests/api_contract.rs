@@ -94,6 +94,7 @@ async fn openapi_endpoint_returns_current_api_paths() {
     assert_eq!(value["info"]["title"], "kat-rs local API");
     assert!(value["paths"]["/v1/health"]["get"].is_object());
     assert!(value["paths"]["/v1/datasets"]["post"].is_object());
+    assert!(value["paths"]["/v1/datasets/queries"]["post"].is_object());
     assert!(value["paths"]["/v1/datasources"]["get"].is_object());
     assert!(value["paths"]["/v1/datasources"]["post"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["get"].is_object());
@@ -105,14 +106,18 @@ async fn openapi_endpoint_returns_current_api_paths() {
     for schema in [
         "CreateDatasetRequest",
         "CreateDatasourceRequest",
+        "DatasetQueryMeta",
+        "DatasetQueryRequest",
         "DatasetDto",
         "DatasetLocation",
         "DatasetResponse",
         "DatasetSourceInput",
         "DatasourceDto",
+        "DatasourceQueryMeta",
         "ErrorEnvelope",
         "QueryRequest",
-        "QueryResponse",
+        "QueryResponse_DatasetQueryMeta",
+        "QueryResponse_DatasourceQueryMeta",
     ] {
         assert!(schemas[schema].is_object(), "missing schema {schema}");
     }
@@ -123,6 +128,11 @@ async fn openapi_endpoint_returns_current_api_paths() {
         "#/components/schemas/CreateDatasetRequest"
     );
     assert_eq!(
+        value["paths"]["/v1/datasets/queries"]["post"]["requestBody"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DatasetQueryRequest"
+    );
+    assert_eq!(
         value["paths"]["/v1/datasources"]["post"]["requestBody"]["content"]["application/json"]["schema"]
             ["$ref"],
         "#/components/schemas/CreateDatasourceRequest"
@@ -131,6 +141,11 @@ async fn openapi_endpoint_returns_current_api_paths() {
         value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"]["requestBody"]["content"]
             ["application/json"]["schema"]["$ref"],
         "#/components/schemas/QueryRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["$ref"],
+        "#/components/schemas/QueryResponse_DatasourceQueryMeta"
     );
     assert_eq!(
         value["paths"]["/v1/datasources/{datasourceId}"]["get"]["responses"]["404"]["content"]["application/json"]
@@ -347,6 +362,124 @@ async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sour
 }
 
 #[tokio::test]
+async fn dataset_query_reads_materialized_dataset_without_sources() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "queryable-dataset";
+    let dataset_path = datasets_root.join(dataset_name);
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    fs::remove_file(&fixture.observations_path).expect("observations source is removed");
+    fs::remove_file(&fixture.traces_path).expect("traces source is removed");
+
+    let query = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "sql": "select count(*) as trace_count from langfuse_traces"
+        })),
+    )
+    .await;
+
+    assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
+    assert_eq!(query.body["meta"]["dataset"]["name"], dataset_name);
+    assert_eq!(
+        query.body["meta"]["dataset"]["directory"],
+        datasets_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        query.body["meta"]["dataset"]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+    assert!(
+        query.body["meta"]["elapsedMs"].is_number(),
+        "{:?}",
+        query.body
+    );
+    assert_eq!(query.body["rowCount"], 1);
+    assert_eq!(query.body["data"], json!([{ "trace_count": 1 }]));
+    assert!(query.body["data"]["rows"].is_null(), "{:?}", query.body);
+}
+
+#[tokio::test]
+async fn dataset_query_returns_not_found_for_missing_dataset() {
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": "missing-dataset",
+                "directory": datasets_dir.path().to_string_lossy(),
+            },
+            "sql": "select 1"
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "DATASET_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn dataset_query_rejects_relative_directory_with_validation_error() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": "relative-dir",
+                "directory": "relative/datasets",
+            },
+            "sql": "select 1"
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test]
 async fn langfuse_datasource_create_reuses_identity_and_can_be_deleted() {
     let fixture = LangfuseFixture::new();
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
@@ -415,7 +548,7 @@ async fn langfuse_datasource_create_reuses_identity_and_can_be_deleted() {
 }
 
 #[tokio::test]
-async fn query_endpoint_returns_envelope_rows_and_meta() {
+async fn query_endpoint_returns_meta_row_count_and_data() {
     let fixture = LangfuseFixture::new();
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
 
@@ -446,14 +579,15 @@ async fn query_endpoint_returns_envelope_rows_and_meta() {
     .await;
 
     assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
-    assert_eq!(query.body["data"]["rowCount"], 1);
-    assert_eq!(query.body["data"]["rows"][0]["trace_count"], 1);
     assert_eq!(query.body["meta"]["datasourceId"], datasource_id);
     assert!(
         query.body["meta"]["elapsedMs"].is_number(),
         "{:?}",
         query.body
     );
+    assert_eq!(query.body["rowCount"], 1);
+    assert_eq!(query.body["data"], json!([{ "trace_count": 1 }]));
+    assert!(query.body["data"]["rows"].is_null(), "{:?}", query.body);
 }
 
 #[tokio::test]

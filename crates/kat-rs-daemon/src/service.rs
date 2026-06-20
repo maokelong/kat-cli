@@ -6,10 +6,7 @@ use time::OffsetDateTime;
 use tokio::sync::Semaphore;
 
 use crate::{
-    api::{
-        CreateDatasourceRequest, DatasourceDto, DatasourceSource, InputRole, QueryRequest,
-        QueryResponse,
-    },
+    api::{CreateDatasourceRequest, DatasourceDto, DatasourceSource, InputRole, QueryRequest},
     error::ApiError,
     identity::{DatasourceIdentityKey, InputIdentity, ResolvedInput, resolve_input},
     registry::{DatasourceEntry, DatasourceRegistry},
@@ -109,7 +106,7 @@ impl DatasourceService {
         &self,
         datasource_id: &str,
         request: QueryRequest,
-    ) -> Result<QueryResponse, ApiError> {
+    ) -> Result<Vec<Value>, ApiError> {
         let entry = self.entry(datasource_id).await?;
         touch(&entry).await;
         let rows = entry
@@ -117,10 +114,7 @@ impl DatasourceService {
             .query_json(&request.sql)
             .await
             .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
-        let rows = rows_as_array(rows)?;
-        let row_count = rows.len();
-
-        Ok(QueryResponse { rows, row_count })
+        rows_as_array(rows)
     }
 
     async fn entry(

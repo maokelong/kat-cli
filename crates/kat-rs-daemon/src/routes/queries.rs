@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::{
-    api::{DataEnvelopeWithMeta, QueryMeta, QueryRequest, QueryResponse},
+    api::{DatasourceQueryMeta, QueryRequest, QueryResponse},
     error::{ApiError, ErrorEnvelope},
     state::AppState,
 };
@@ -24,7 +24,7 @@ pub fn routes() -> Router<AppState> {
         ("datasourceId" = String, Path, description = "Datasource id")
     ),
     responses(
-        (status = 200, description = "Query result", body = DataEnvelopeWithMeta<QueryResponse, QueryMeta>),
+        (status = 200, description = "Query result", body = QueryResponse<DatasourceQueryMeta>),
         (status = 400, description = "Request body is malformed", body = ErrorEnvelope),
         (status = 404, description = "Datasource not found", body = ErrorEnvelope),
         (status = 422, description = "Query failed", body = ErrorEnvelope)
@@ -34,18 +34,18 @@ pub(crate) async fn query(
     State(state): State<AppState>,
     Path(datasource_id): Path<String>,
     request: Result<Json<QueryRequest>, JsonRejection>,
-) -> Result<Json<DataEnvelopeWithMeta<QueryResponse, QueryMeta>>, ApiError> {
+) -> Result<Json<QueryResponse<DatasourceQueryMeta>>, ApiError> {
     let Json(request) =
         request.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let started_at = Instant::now();
-    let data = state
+    let rows = state
         .datasource_service
         .query(&datasource_id, request)
         .await?;
-    let meta = QueryMeta {
-        datasource_id,
+    let meta = DatasourceQueryMeta {
         elapsed_ms: started_at.elapsed().as_millis(),
+        datasource_id,
     };
 
-    Ok(Json(DataEnvelopeWithMeta { data, meta }))
+    Ok(Json(QueryResponse::new(meta, rows)))
 }

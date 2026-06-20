@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 pub enum ErrorCode {
     BadRequest,
     Conflict,
+    DatasetNotFound,
     DatasourceNotFound,
     Internal,
     QueryFailed,
@@ -44,6 +45,17 @@ impl ApiError {
             code: ErrorCode::DatasourceNotFound,
             message: "datasource not found".to_owned(),
             details: Some(json!({ "datasourceId": datasource_id })),
+        }
+    }
+
+    pub fn dataset_not_found(path: impl AsRef<std::path::Path>) -> Self {
+        let path = path.as_ref().to_string_lossy().into_owned();
+
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: ErrorCode::DatasetNotFound,
+            message: "dataset not found".to_owned(),
+            details: Some(json!({ "path": path })),
         }
     }
 
