@@ -3,8 +3,10 @@ use utoipa::OpenApi;
 
 use crate::{
     api::{
-        CreateDatasourceRequest, DatasourceDto, DatasourceSource, HealthResponse, InputFileDto,
-        InputRole, Pagination, QueryMeta, QueryRequest, QueryResponse, ShutdownResponse,
+        CreateDatasetRequest, CreateDatasourceRequest, DatasetDto, DatasetLocation,
+        DatasetResponse, DatasetSourceInput, DatasourceDto, DatasourceSource, HealthResponse,
+        InputFileDto, InputRole, Pagination, QueryMeta, QueryRequest, QueryResponse,
+        ShutdownResponse,
     },
     error::{ErrorBody, ErrorCode, ErrorEnvelope},
 };
@@ -13,6 +15,7 @@ use crate::{
 #[openapi(
     paths(
         crate::routes::health::health,
+        crate::routes::datasets::create_dataset,
         crate::routes::datasources::create_datasource,
         crate::routes::datasources::list_datasources,
         crate::routes::datasources::get_datasource,
@@ -22,6 +25,11 @@ use crate::{
     ),
     components(schemas(
         CreateDatasourceRequest,
+        CreateDatasetRequest,
+        DatasetDto,
+        DatasetLocation,
+        DatasetResponse,
+        DatasetSourceInput,
         DatasourceDto,
         DatasourceSource,
         ErrorBody,

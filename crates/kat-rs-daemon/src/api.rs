@@ -106,3 +106,45 @@ pub struct QueryMeta {
 pub struct ShutdownResponse {
     pub state: &'static str,
 }
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateDatasetRequest {
+    pub dataset: DatasetLocation,
+    pub input: DatasetSourceInput,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatasetLocation {
+    pub name: String,
+    pub directory: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(tag = "source", deny_unknown_fields)]
+pub enum DatasetSourceInput {
+    #[serde(rename = "HITRACE")]
+    Hitrace { file: String },
+    #[serde(rename = "LANGFUSE_LEGACY")]
+    LangfuseLegacy {
+        #[serde(rename = "observationsFile")]
+        observations_file: String,
+        #[serde(rename = "tracesFile")]
+        traces_file: String,
+    },
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetResponse {
+    pub dataset: DatasetDto,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetDto {
+    pub name: String,
+    pub directory: String,
+    pub path: String,
+}

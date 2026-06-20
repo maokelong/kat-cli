@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    fs::{self, File},
     io::Write,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -93,6 +93,7 @@ async fn openapi_endpoint_returns_current_api_paths() {
     assert_eq!(value["openapi"], "3.1.0");
     assert_eq!(value["info"]["title"], "kat-rs local API");
     assert!(value["paths"]["/v1/health"]["get"].is_object());
+    assert!(value["paths"]["/v1/datasets"]["post"].is_object());
     assert!(value["paths"]["/v1/datasources"]["get"].is_object());
     assert!(value["paths"]["/v1/datasources"]["post"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["get"].is_object());
@@ -102,7 +103,12 @@ async fn openapi_endpoint_returns_current_api_paths() {
 
     let schemas = &value["components"]["schemas"];
     for schema in [
+        "CreateDatasetRequest",
         "CreateDatasourceRequest",
+        "DatasetDto",
+        "DatasetLocation",
+        "DatasetResponse",
+        "DatasetSourceInput",
         "DatasourceDto",
         "ErrorEnvelope",
         "QueryRequest",
@@ -111,6 +117,11 @@ async fn openapi_endpoint_returns_current_api_paths() {
         assert!(schemas[schema].is_object(), "missing schema {schema}");
     }
 
+    assert_eq!(
+        value["paths"]["/v1/datasets"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/CreateDatasetRequest"
+    );
     assert_eq!(
         value["paths"]["/v1/datasources"]["post"]["requestBody"]["content"]["application/json"]["schema"]
             ["$ref"],
@@ -126,6 +137,213 @@ async fn openapi_endpoint_returns_current_api_paths() {
             ["schema"]["$ref"],
         "#/components/schemas/ErrorEnvelope"
     );
+}
+
+#[tokio::test]
+async fn dataset_create_returns_conflict_when_target_exists() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "existing-dataset";
+
+    fs::create_dir_all(datasets_root.join(dataset_name)).expect("existing dataset dir is created");
+
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    assert_eq!(response.body["error"]["code"], "CONFLICT");
+}
+
+#[tokio::test]
+async fn dataset_create_rejects_relative_directory_with_validation_error() {
+    let fixture = LangfuseFixture::new();
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": "relative-dir",
+                "directory": "relative/datasets",
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test]
+async fn dataset_create_rejects_missing_required_fields_with_bad_request_envelope() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    for body in [
+        json!({
+            "dataset": {
+                "directory": datasets_dir.path().to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        }),
+        json!({
+            "dataset": {
+                "name": "missing-input",
+                "directory": datasets_dir.path().to_string_lossy(),
+            }
+        }),
+    ] {
+        let response = request_json(app.clone(), "POST", "/v1/datasets", Some(body)).await;
+
+        assert_bad_request_envelope(response);
+    }
+}
+
+#[tokio::test]
+async fn dataset_create_rejects_missing_source_file_with_validation_error() {
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let missing_file = datasets_dir.path().join("missing.htrace");
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": "missing-source",
+                "directory": datasets_dir.path().to_string_lossy(),
+            },
+            "input": {
+                "source": "HITRACE",
+                "file": missing_file.to_string_lossy(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test]
+async fn dataset_create_rejects_unknown_fields_with_bad_request_envelope() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": "with-extra-field",
+                "directory": datasets_dir.path().to_string_lossy(),
+                "path": datasets_dir.path().join("with-extra-field").to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+
+    assert_bad_request_envelope(response);
+}
+
+#[tokio::test]
+async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sources() {
+    let fixture = LangfuseFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "langfuse-fixture";
+    let dataset_path = datasets_root.join(dataset_name);
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app,
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "LANGFUSE_LEGACY",
+                "observationsFile": fixture.observations_path(),
+                "tracesFile": fixture.traces_path(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+    assert_eq!(create.body["data"]["dataset"]["name"], dataset_name);
+    assert_eq!(
+        create.body["data"]["dataset"]["directory"],
+        datasets_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        create.body["data"]["dataset"]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+    assert!(
+        dataset_path.join("catalog.json").exists(),
+        "dataset catalog should exist"
+    );
+
+    fs::remove_file(&fixture.observations_path).expect("observations source is removed");
+    fs::remove_file(&fixture.traces_path).expect("traces source is removed");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens after source files are removed");
+    let rows = datasource
+        .query_json("select count(*) as trace_count from langfuse_traces")
+        .await
+        .expect("dataset query succeeds");
+
+    assert_eq!(rows, json!([{ "trace_count": 1 }]));
 }
 
 #[tokio::test]

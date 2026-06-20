@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     BadRequest,
+    Conflict,
     DatasourceNotFound,
     Internal,
     QueryFailed,
@@ -61,6 +62,15 @@ impl ApiError {
             code: ErrorCode::QueryFailed,
             message: message.into(),
             details: None,
+        }
+    }
+
+    pub fn conflict(message: impl Into<String>, details: Option<Value>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: ErrorCode::Conflict,
+            message: message.into(),
+            details,
         }
     }
 
