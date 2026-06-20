@@ -246,11 +246,13 @@ async fn dataset_lifecycle_lists_inspects_and_deletes_dataset() {
         inspect.body["data"]["tables"],
         json!([
             {
+                "kind": "source",
                 "name": "langfuse_observations",
                 "path": "tables/langfuse.langfuse_observations.parquet",
                 "sizeBytes": inspect.body["data"]["tables"][0]["sizeBytes"].clone()
             },
             {
+                "kind": "source",
                 "name": "langfuse_traces",
                 "path": "tables/langfuse.langfuse_traces.parquet",
                 "sizeBytes": inspect.body["data"]["tables"][1]["sizeBytes"].clone()

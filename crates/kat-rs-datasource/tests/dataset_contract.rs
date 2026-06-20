@@ -1,3 +1,5 @@
+use arrow_array::{Int32Array, RecordBatch, StringArray};
+use arrow_schema::{DataType, Field, Schema};
 use flate2::{Compression, write::GzEncoder};
 use kat_rs_datasource::{DatasetLocator, DatasetStore};
 use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -9,6 +11,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
 };
 use tempfile::tempdir;
 
@@ -275,7 +278,7 @@ async fn hitrace_dataset_queries_after_source_file_is_removed() {
 }
 
 #[tokio::test]
-async fn materialized_catalog_records_minimal_table_mapping() {
+async fn materialized_catalog_records_source_table_kind() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
@@ -310,6 +313,9 @@ async fn materialized_catalog_records_minimal_table_mapping() {
         .expect("sched_switch table exists");
 
     assert_eq!(sched_switch["path"], "tables/hitrace.sched_switch.parquet");
+    assert_eq!(sched_switch["kind"], "source");
+    assert!(sched_switch["producer"].is_null(), "{sched_switch:?}");
+    assert!(catalog["version"].is_null(), "{catalog:?}");
     assert_eq!(
         sched_switch
             .as_object()
@@ -317,7 +323,122 @@ async fn materialized_catalog_records_minimal_table_mapping() {
             .keys()
             .cloned()
             .collect::<Vec<_>>(),
-        vec!["name".to_string(), "path".to_string()]
+        vec!["kind".to_string(), "name".to_string(), "path".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn dataset_reader_rejects_source_table_with_producer() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    fs::write(
+        dataset_path.join("catalog.json"),
+        r#"{
+  "tables": [
+    {
+      "name": "sched_switch",
+      "path": "tables/hitrace.sched_switch.parquet",
+      "kind": "source",
+      "producer": {
+        "packRef": "openharmony-core-test",
+        "transformId": "thread_state_segments"
+      }
+    }
+  ]
+}"#,
+    )
+    .expect("catalog is overwritten");
+
+    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+        Ok(_) => panic!("source table with producer should be rejected"),
+        Err(error) => error,
+    };
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("source dataset table sched_switch must not declare producer"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
+async fn dataset_reader_rejects_derived_table_without_producer() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    fs::write(
+        dataset_path.join("catalog.json"),
+        r#"{
+  "tables": [
+    {
+      "name": "derived_sched_switch",
+      "path": "tables/hitrace.sched_switch.parquet",
+      "kind": "derived"
+    }
+  ]
+}"#,
+    )
+    .expect("catalog is overwritten");
+
+    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+        Ok(_) => panic!("derived table without producer should be rejected"),
+        Err(error) => error,
+    };
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("derived dataset table derived_sched_switch must declare producer"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
+async fn dataset_reader_rejects_unknown_table_kind() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    fs::write(
+        dataset_path.join("catalog.json"),
+        r#"{
+  "tables": [
+    {
+      "name": "sched_switch",
+      "path": "tables/hitrace.sched_switch.parquet",
+      "kind": "temporary"
+    }
+  ]
+}"#,
+    )
+    .expect("catalog is overwritten");
+
+    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+        Ok(_) => panic!("unknown table kind should be rejected"),
+        Err(error) => error,
+    };
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("unknown variant") && message.contains("temporary"),
+        "unexpected error: {message}"
     );
 }
 
@@ -393,6 +514,153 @@ async fn langfuse_dataset_writes_empty_object_columns_as_json_strings() {
         .expect("dataset query works");
 
     assert_eq!(rows, json!([{ "id": "obs-1", "tool_definitions": "{}" }]));
+}
+
+#[tokio::test]
+async fn derived_table_writer_adds_queryable_catalog_entry() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    let batch = derived_thread_batch();
+
+    kat_rs_datasource::write_derived_dataset_table(
+        &dataset_path,
+        "derived_sched_threads",
+        "openharmony-core-test",
+        "thread_state_segments",
+        &[batch],
+    )
+    .await
+    .expect("derived table is written");
+
+    let catalog: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dataset_path.join("catalog.json")).expect("catalog is read"),
+    )
+    .expect("catalog json parses");
+    let derived = catalog["tables"]
+        .as_array()
+        .expect("catalog tables is an array")
+        .iter()
+        .find(|table| table["name"] == "derived_sched_threads")
+        .expect("derived table exists");
+
+    assert_eq!(derived["kind"], "derived");
+    assert_eq!(
+        derived["path"],
+        "derived/openharmony-core-test/thread_state_segments.derived_sched_threads.parquet"
+    );
+    assert_eq!(derived["producer"]["packRef"], "openharmony-core-test");
+    assert_eq!(derived["producer"]["transformId"], "thread_state_segments");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json("select prev_pid, label from derived_sched_threads")
+        .await
+        .expect("derived table query works");
+
+    assert_eq!(rows, json!([{ "prev_pid": 42, "label": "render-thread" }]));
+}
+
+#[tokio::test]
+async fn derived_table_writer_rejects_duplicate_table_name() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    let batch = derived_thread_batch();
+    kat_rs_datasource::write_derived_dataset_table(
+        &dataset_path,
+        "derived_sched_threads",
+        "openharmony-core-test",
+        "thread_state_segments",
+        std::slice::from_ref(&batch),
+    )
+    .await
+    .expect("derived table is written");
+
+    let error = kat_rs_datasource::write_derived_dataset_table(
+        &dataset_path,
+        "derived_sched_threads",
+        "openharmony-core-test",
+        "thread_state_segments",
+        &[batch],
+    )
+    .await
+    .expect_err("duplicate derived table name is rejected");
+
+    assert!(
+        error.to_string().contains("dataset table already exists"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[tokio::test]
+async fn derived_table_writer_rejects_path_unsafe_ids() {
+    let dir = tempdir().expect("tempdir");
+    let trace_path = dir.path().join("sched-switch.hitrace");
+    fs::write(&trace_path, encoded_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    for (logical_name, pack_ref, transform_id, expected) in [
+        (
+            "derived_sched_threads",
+            "../pack",
+            "thread_state_segments",
+            "packRef must be a single path component",
+        ),
+        (
+            "derived_sched_threads",
+            "openharmony-core-test",
+            "thread/state",
+            "transformId must be a single path component",
+        ),
+        (
+            "../derived_sched_threads",
+            "openharmony-core-test",
+            "thread_state_segments",
+            "derived table name must be a single path component",
+        ),
+        (
+            "",
+            "openharmony-core-test",
+            "thread_state_segments",
+            "derived table name must not be empty",
+        ),
+    ] {
+        let batch = derived_thread_batch();
+        let error = kat_rs_datasource::write_derived_dataset_table(
+            &dataset_path,
+            logical_name,
+            pack_ref,
+            transform_id,
+            &[batch],
+        )
+        .await
+        .expect_err("path unsafe derived identifiers are rejected");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(expected),
+            "unexpected error for {logical_name:?}, {pack_ref:?}, {transform_id:?}: {message}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -559,6 +827,21 @@ fn write_jsonl_gz(path: &Path, lines: &[&str]) {
     }
 
     encoder.finish().expect("gzip stream is finished");
+}
+
+fn derived_thread_batch() -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("prev_pid", DataType::Int32, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int32Array::from(vec![42])),
+            Arc::new(StringArray::from(vec!["render-thread"])),
+        ],
+    )
+    .expect("derived batch is built")
 }
 
 fn write_jsonl_gz_generated(

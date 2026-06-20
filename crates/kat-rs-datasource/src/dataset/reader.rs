@@ -9,7 +9,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use parquet::file::reader::SerializedFileReader;
 use url::Url;
 
-use super::catalog::{DatasetCatalog, DatasetTable};
+use super::catalog::{DatasetCatalog, DatasetTable, DatasetTableKind};
 
 pub(crate) async fn register_dataset_tables(
     ctx: &SessionContext,
@@ -36,6 +36,7 @@ pub(crate) async fn register_dataset_tables(
 pub struct DatasetTableInfo {
     pub name: String,
     pub path: String,
+    pub kind: &'static str,
     pub size_bytes: u64,
 }
 
@@ -57,6 +58,7 @@ pub fn inspect_dataset_tables(dataset_path: &Path) -> Result<Vec<DatasetTableInf
             Ok(DatasetTableInfo {
                 name: table.name,
                 path: table.relative_path,
+                kind: table.kind,
                 size_bytes,
             })
         })
@@ -79,6 +81,7 @@ fn read_catalog(dataset_path: &Path) -> Result<DatasetCatalog> {
 struct ValidatedDatasetTable {
     name: String,
     relative_path: String,
+    kind: &'static str,
     path: PathBuf,
 }
 
@@ -99,15 +102,49 @@ fn validate_catalog(
         if !names.insert(table.name.as_str()) {
             bail!("duplicate dataset table name: {}", table.name);
         }
+        validate_table_kind(table)?;
         let path = validate_table_path(table, dataset_path, &dataset_root)?;
         tables.push(ValidatedDatasetTable {
             name: table.name.clone(),
             relative_path: table.path.clone(),
+            kind: table.kind.as_str(),
             path,
         });
     }
 
     Ok(tables)
+}
+
+fn validate_table_kind(table: &DatasetTable) -> Result<()> {
+    match table.kind {
+        DatasetTableKind::Source => {
+            if table.producer.is_some() {
+                bail!(
+                    "source dataset table {} must not declare producer",
+                    table.name
+                );
+            }
+        }
+        DatasetTableKind::Derived => {
+            let Some(producer) = &table.producer else {
+                bail!("derived dataset table {} must declare producer", table.name);
+            };
+            if producer.pack_ref.is_empty() {
+                bail!(
+                    "derived dataset table {} producer packRef must not be empty",
+                    table.name
+                );
+            }
+            if producer.transform_id.is_empty() {
+                bail!(
+                    "derived dataset table {} producer transformId must not be empty",
+                    table.name
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_table_path(

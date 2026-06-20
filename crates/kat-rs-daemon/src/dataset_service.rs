@@ -80,6 +80,7 @@ impl DatasetService {
             .map_err(|error| ApiError::validation(format!("{error:#}")))?
             .into_iter()
             .map(|table| DatasetTableDto {
+                kind: table.kind.to_string(),
                 name: table.name,
                 path: table.path,
                 size_bytes: table.size_bytes,
