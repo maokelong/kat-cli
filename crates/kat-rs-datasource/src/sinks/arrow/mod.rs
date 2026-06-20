@@ -7,7 +7,7 @@ mod table;
 use anyhow::Result;
 
 use crate::{
-    catalog::{TableCategory, TraceDataset},
+    arrow_table::ArrowTableSet,
     ftrace_event_table_builders::FtraceTableSet,
     native_hook_table_builders::NativeHookTableSet,
     proto::ProfilerPluginData,
@@ -35,12 +35,12 @@ impl ArrowSink {
         })
     }
 
-    pub(crate) fn finish(self) -> Result<TraceDataset> {
-        let mut tables = vec![self.profiler_table.into_table(TableCategory::Raw)?];
+    pub(crate) fn finish(self) -> Result<ArrowTableSet> {
+        let mut tables = vec![self.profiler_table.into_table()?];
         tables.extend(self.event_tables.into_tables()?);
         tables.extend(self.native_hook_tables.into_tables()?);
 
-        Ok(TraceDataset::new(tables))
+        Ok(ArrowTableSet::new(tables))
     }
 }
 

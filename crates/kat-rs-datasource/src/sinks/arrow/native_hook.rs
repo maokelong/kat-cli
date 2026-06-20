@@ -1,10 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    catalog::{TableCategory, TraceTable},
-    domains::native_hook::NativeHookEvent,
-};
+use crate::{arrow_table::ArrowTable, domains::native_hook::NativeHookEvent};
 
 use super::table::EventTableBuilder;
 
@@ -46,7 +43,7 @@ impl NativeHookEventTableBuilder {
         Ok(())
     }
 
-    pub(crate) fn into_table(self, category: TableCategory) -> Result<TraceTable> {
-        self.builder.into_table(category)
+    pub(crate) fn into_table(self) -> Result<ArrowTable> {
+        self.builder.into_table()
     }
 }
