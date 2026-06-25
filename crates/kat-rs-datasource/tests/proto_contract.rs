@@ -84,14 +84,24 @@ mod ftrace_event_table_builders {
 
 #[test]
 fn trace_record_stream_models_pre_sink_records() {
+    let clock_id =
+        proto::kat::hitrace::profiler_plugin_data::ClockId::from_str_name("CLOCKID_BOOTTIME")
+            .expect("upstream clock id enum exists");
     let plugin = proto::ProfilerPluginData {
         name: "ftrace-plugin".to_string(),
+        clock_id: clock_id as i32,
         ..Default::default()
     };
 
     match record::TraceRecord::ProfilerPluginData(plugin) {
         record::TraceRecord::ProfilerPluginData(record) => {
             assert_eq!(record.name, "ftrace-plugin");
+            assert_eq!(
+                proto::kat::hitrace::profiler_plugin_data::ClockId::try_from(record.clock_id)
+                    .expect("clock id decodes")
+                    .as_str_name(),
+                "CLOCKID_BOOTTIME"
+            );
         }
         record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
@@ -192,6 +202,7 @@ fn generated_proto_includes_upstream_sched_messages() {
         pid: 42,
         caller: 0xfeed_beef,
         io_wait: 1,
+        caller_str: "finish_task_switch".to_string(),
     };
 
     let decoded =
@@ -201,6 +212,7 @@ fn generated_proto_includes_upstream_sched_messages() {
     assert_eq!(decoded.pid, 42);
     assert_eq!(decoded.caller, 0xfeed_beef);
     assert_eq!(decoded.io_wait, 1);
+    assert_eq!(decoded.caller_str, "finish_task_switch");
 }
 
 #[test]
@@ -222,6 +234,13 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
             pid: 42,
             caller: 0xfeed_beef,
             io_wait: 1,
+            caller_str: "finish_task_switch".to_string(),
+        }),
+        common_fields: Some(proto::kat::hitrace::ftrace_event::CommonFileds {
+            r#type: 123,
+            flags: 1,
+            preempt_count: 2,
+            pid: 42,
         }),
         ..Default::default()
     };
@@ -232,6 +251,9 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
     assert_eq!(decoded.timestamp, 10);
     assert!(decoded.sched_switch_format.is_some());
     assert!(decoded.sched_blocked_reason_format.is_some());
+    let common_fields = decoded.common_fields.expect("common fields decode");
+    assert_eq!(common_fields.r#type, 123);
+    assert_eq!(common_fields.pid, 42);
 }
 
 #[test]
@@ -246,6 +268,9 @@ fn generated_proto_includes_native_hook_config_and_events() {
         sample_interval: 10,
         expand_pids: vec![42, 77],
         filter_napi_name: "napi".to_string(),
+        dump_nmd: true,
+        target_so_name: "libark_jsruntime.so".to_string(),
+        restrace_tag: vec!["fd".to_string(), "vm".to_string()],
         ..Default::default()
     };
     let decoded =
@@ -257,6 +282,9 @@ fn generated_proto_includes_native_hook_config_and_events() {
     assert_eq!(decoded.file_name, "native-hook.bin");
     assert_eq!(decoded.statistics_interval, 5);
     assert_eq!(decoded.expand_pids, vec![42, 77]);
+    assert!(decoded.dump_nmd);
+    assert_eq!(decoded.target_so_name, "libark_jsruntime.so");
+    assert_eq!(decoded.restrace_tag, vec!["fd", "vm"]);
 
     let batch =
         proto::kat::native_hook::BatchNativeHookData {
@@ -457,8 +485,10 @@ fn ftrace_event_table_builder_combines_meta_and_message_fields() {
 #[test]
 fn ftrace_payload_messages_live_under_ftrace_data_proto() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hitrace = fs::read_to_string(format!("{manifest_dir}/proto/hitrace.proto"))
-        .expect("hitrace proto source can be read");
+    let profiler_plugin_data = fs::read_to_string(format!(
+        "{manifest_dir}/proto/profiler/profiler_plugin_data.proto"
+    ))
+    .expect("profiler plugin data proto source can be read");
     let ftrace_event = fs::read_to_string(format!(
         "{manifest_dir}/proto/ftrace_data/ftrace_event.proto"
     ))
@@ -468,12 +498,17 @@ fn ftrace_payload_messages_live_under_ftrace_data_proto() {
     ))
     .expect("trace plugin result proto source can be read");
 
-    assert!(hitrace.contains("message ProfilerPluginData"));
-    assert!(!hitrace.contains("message TracePluginResult"));
-    assert!(!hitrace.contains("message FtraceEvent"));
+    assert!(profiler_plugin_data.contains("message ProfilerPluginData"));
+    assert!(profiler_plugin_data.contains("enum ClockId"));
+    assert!(profiler_plugin_data.contains("services/common_types.proto::ProfilerPluginData"));
+    assert!(!profiler_plugin_data.contains("message TracePluginResult"));
+    assert!(!profiler_plugin_data.contains("message FtraceEvent"));
     assert!(ftrace_event.contains("message FtraceEvent"));
+    assert!(ftrace_event.contains("message CommonFileds"));
     assert!(ftrace_event.contains("import \"ftrace_data/sched.proto\";"));
     assert!(trace_result.contains("message TracePluginResult"));
+    assert!(trace_result.contains("repeated FtraceCpuStatsMsg ftrace_cpu_stats = 1;"));
+    assert!(trace_result.contains("repeated ClockDetailMsg clocks_detail = 6;"));
     assert!(trace_result.contains("import \"ftrace_data/ftrace_event.proto\";"));
 }
 

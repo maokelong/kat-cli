@@ -36,4 +36,7 @@ message NativeHookConfig {
     int32 js_stack_report = 27;
     uint32 max_js_stack_depth = 28;
     string filter_napi_name = 29;
+    bool dump_nmd = 30;
+    string target_so_name = 31;
+    repeated string restrace_tag = 32;
 }

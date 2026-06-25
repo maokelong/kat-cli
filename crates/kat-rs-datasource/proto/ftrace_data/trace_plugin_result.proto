@@ -7,7 +7,61 @@ option optimize_for = LITE_RUNTIME;
 import "ftrace_data/ftrace_event.proto";
 
 message TracePluginResult {
+  repeated FtraceCpuStatsMsg ftrace_cpu_stats = 1;
   repeated FtraceCpuDetailMsg ftrace_cpu_detail = 2;
+  repeated SymbolsDetailMsg symbols_detail = 5;
+  repeated ClockDetailMsg clocks_detail = 6;
+  string version = 7;
+}
+
+message ClockDetailMsg {
+  enum ClockId {
+    UNKNOW = 0;
+    BOOTTIME = 1;
+    REALTIME = 2;
+    REALTIME_COARSE = 3;
+    MONOTONIC = 4;
+    MONOTONIC_COARSE = 5;
+    MONOTONIC_RAW = 6;
+  }
+
+  ClockId id = 1;
+
+  message TimeSpec {
+    uint32 tv_sec = 1;
+    uint32 tv_nsec = 2;
+  }
+
+  TimeSpec time = 2;
+  TimeSpec resolution = 3;
+}
+
+message SymbolsDetailMsg {
+  uint64 symbol_addr = 1;
+  string symbol_name = 2;
+}
+
+message FtraceCpuStatsMsg {
+  enum Status {
+    TRACE_START = 0;
+    TRACE_END = 1;
+  }
+
+  Status status = 1;
+  repeated PerCpuStatsMsg per_cpu_stats = 2;
+  string trace_clock = 3;
+}
+
+message PerCpuStatsMsg {
+  uint64 cpu = 1;
+  uint64 entries = 2;
+  uint64 overrun = 3;
+  uint64 commit_overrun = 4;
+  uint64 bytes = 5;
+  double oldest_event_ts = 6;
+  double now_ts = 7;
+  uint64 dropped_events = 8;
+  uint64 read_events = 9;
 }
 
 message FtraceCpuDetailMsg {

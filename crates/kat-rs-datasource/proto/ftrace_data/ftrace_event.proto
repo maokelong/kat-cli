@@ -10,6 +10,16 @@ message FtraceEvent {
   uint64 timestamp = 1;
   int32 tgid = 2;
   string comm = 3;
+
+  message CommonFileds {
+    uint32 type = 1;
+    uint32 flags = 2;
+    uint32 preempt_count = 3;
+    int32 pid = 4;
+  }
+
+  CommonFileds common_fields = 50;
+
   SchedKthreadStopFormat sched_kthread_stop_format = 2400;
   SchedKthreadStopRetFormat sched_kthread_stop_ret_format = 2401;
   SchedMigrateTaskFormat sched_migrate_task_format = 2402;

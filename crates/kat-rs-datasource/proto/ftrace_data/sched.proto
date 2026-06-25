@@ -13,6 +13,7 @@ message SchedBlockedReasonFormat {
   int32 pid = 1;
   uint64 caller = 2;
   uint32 io_wait = 3;
+  string caller_str = 4;
 }
 
 // /sys/kernel/debug/tracing/events/sched/sched_kthread_stop/format

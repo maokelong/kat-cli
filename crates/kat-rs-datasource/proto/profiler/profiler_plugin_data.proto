@@ -1,0 +1,35 @@
+// Adapted from OpenHarmony developtools_profiler services/common_types.proto::ProfilerPluginData.
+// This models the profiler plugin data envelope stored in .htrace profiler sections.
+
+syntax = "proto3";
+
+package kat.hitrace;
+
+option optimize_for = LITE_RUNTIME;
+
+message ProfilerPluginData {
+  string name = 1;
+  uint32 status = 2;
+  bytes data = 3;
+
+  enum ClockId {
+    CLOCKID_REALTIME = 0;
+    CLOCKID_MONOTONIC = 1;
+    CLOCKID_PROCESS_CPUTIME_ID = 2;
+    CLOCKID_THREAD_CPUTIME_ID = 3;
+    CLOCKID_MONOTONIC_RAW = 4;
+    CLOCKID_REALTIME_COARSE = 5;
+    CLOCKID_MONOTONIC_COARSE = 6;
+    CLOCKID_BOOTTIME = 7;
+    CLOCKID_REALTIME_ALARM = 8;
+    CLOCKID_BOOTTIME_ALARM = 9;
+    CLOCKID_SGI_CYCLE = 10;
+    CLOCKID_TAI = 11;
+  }
+
+  ClockId clock_id = 4;
+  uint64 tv_sec = 5;
+  uint64 tv_nsec = 6;
+  string version = 7;
+  uint32 sample_interval = 8;
+}

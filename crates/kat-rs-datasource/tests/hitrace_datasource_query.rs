@@ -228,7 +228,7 @@ async fn query_extracts_direct_sched_event_tables() {
 
     let rows = datasource
         .query_json(
-            "select event_timestamp, event_cpu, event_comm, pid, caller, io_wait \
+            "select event_timestamp, event_cpu, event_comm, pid, caller, io_wait, caller_str \
              from sched_blocked_reason",
         )
         .await
@@ -242,6 +242,7 @@ async fn query_extracts_direct_sched_event_tables() {
             "pid": 42,
             "caller": 3735928559u64,
             "io_wait": 1,
+            "caller_str": "finish_task_switch",
         }])
     );
 
@@ -304,7 +305,7 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
 
     let config_rows = datasource
         .query_json(
-            "select pid, process_name, statistics_interval, sample_interval \
+            "select pid, process_name, statistics_interval, sample_interval, dump_nmd, target_so_name \
              from native_hook_config",
         )
         .await
@@ -316,8 +317,16 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
             "process_name": "render",
             "statistics_interval": 5,
             "sample_interval": 10,
+            "dump_nmd": true,
+            "target_so_name": "libark_jsruntime.so",
         }])
     );
+
+    let config_tag_rows = datasource
+        .query_json("select restrace_tag from native_hook_config")
+        .await
+        .expect("native_hook_config repeated string field is queryable");
+    assert_eq!(config_tag_rows, json!([{ "restrace_tag": ["fd", "vm"] }]));
 
     let alloc_rows = datasource
         .query_json(
@@ -565,6 +574,12 @@ struct TestNativeHookConfig {
     expand_pids: Vec<i32>,
     #[prost(string, tag = "29")]
     filter_napi_name: String,
+    #[prost(bool, tag = "30")]
+    dump_nmd: bool,
+    #[prost(string, tag = "31")]
+    target_so_name: String,
+    #[prost(string, repeated, tag = "32")]
+    restrace_tag: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -728,6 +743,8 @@ struct TestSchedBlockedReasonFormat {
     caller: u64,
     #[prost(uint32, tag = "3")]
     io_wait: u32,
+    #[prost(string, tag = "4")]
+    caller_str: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -863,6 +880,7 @@ fn ftrace_plugin_with_sched_events() -> TestProfilerPluginData {
                         pid: 42,
                         caller: 0xdead_beef,
                         io_wait: 1,
+                        caller_str: "finish_task_switch".to_string(),
                     }),
                 },
                 TestFtraceEvent {
@@ -980,6 +998,9 @@ fn native_hook_config_plugin() -> TestProfilerPluginData {
             sample_interval: 10,
             expand_pids: vec![42, 77],
             filter_napi_name: "napi".to_string(),
+            dump_nmd: true,
+            target_so_name: "libark_jsruntime.so".to_string(),
+            restrace_tag: vec!["fd".to_string(), "vm".to_string()],
         }
         .encode_to_vec(),
         clock_id: 2,
