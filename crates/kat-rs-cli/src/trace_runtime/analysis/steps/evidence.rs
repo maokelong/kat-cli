@@ -41,13 +41,6 @@ pub fn render_seed_evidence(
         bail!("cannot render seed evidence from non-object row in table `{table}`");
     };
 
-    for key in ROOT_KEYS {
-        if let Some(value) = first_row.get(*key) {
-            state.set_path(&format!("root.{key}"), value.clone())?;
-        }
-    }
-    state.set_path("frontier.nodes", json!([state.value()["root"].clone()]))?;
-
     let mut facts = Map::new();
     for key in FACT_KEYS {
         if let Some(value) = first_row.get(*key) {
@@ -57,6 +50,29 @@ pub fn render_seed_evidence(
     if facts.is_empty() {
         bail!("cannot render seed evidence from table `{table}` without facts");
     }
+
+    let mut staged_root = match state.value().get("root") {
+        Some(root) if root.is_object() => root.clone(),
+        Some(_) => bail!("cannot render seed evidence into non-object root state"),
+        None => json!({}),
+    };
+    let staged_root_object = staged_root
+        .as_object_mut()
+        .expect("staged root was initialized as an object");
+    for key in ROOT_KEYS {
+        if let Some(value) = first_row.get(*key) {
+            staged_root_object.insert((*key).to_owned(), value.clone());
+        }
+    }
+
+    if let Some(frontier) = state.value().get("frontier") {
+        if !frontier.is_object() {
+            bail!("cannot render seed evidence into non-object frontier state");
+        }
+    }
+
+    state.set_path("root", staged_root.clone())?;
+    state.set_path("frontier.nodes", json!([staged_root]))?;
 
     Ok(json!({
         "evidenceId": format!("ev.{step_id}.{table}"),
