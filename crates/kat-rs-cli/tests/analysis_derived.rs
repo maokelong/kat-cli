@@ -3,12 +3,18 @@ use kat_rs_cli::trace_runtime::{
     analysis::derived::DerivedRunner,
     pack::{
         LoadedPack, PackManifest, load_pack,
-        spec::{InputTables, TransformOutputSpec, TransformSafetySpec, TransformSpec},
+        spec::{
+            AnalysisStepSpec, InputTables, TransformOutputSpec, TransformSafetySpec, TransformSpec,
+        },
     },
 };
 use rusqlite::Connection;
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+};
 use tempfile::{TempDir, tempdir};
 
 #[test]
@@ -351,7 +357,7 @@ fn openharmony_pack_declares_critical_path_derived_tables() {
         .transforms
         .iter()
         .map(|transform| transform.output.table.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     for table in [
         "first_draw_window",
@@ -386,6 +392,57 @@ fn openharmony_pack_declares_critical_path_derived_tables() {
             .derived
             .contains(&"callstack_self_time".to_string())
     );
+}
+
+#[test]
+fn openharmony_critical_path_edge_providers_reference_declared_columns() {
+    let pack = load_pack(workspace_root().join("packs/openharmony-core")).expect("pack");
+    let analysis = pack
+        .analyses
+        .iter()
+        .find(|analysis| analysis.id == "openharmony.critical_path")
+        .expect("critical path analysis");
+
+    let graph_walk = analysis
+        .steps
+        .iter()
+        .find_map(|step| match step {
+            AnalysisStepSpec::TemporalGraphWalk(step) => Some(step),
+            _ => None,
+        })
+        .expect("graph walk step");
+
+    for provider in &graph_walk.edge_providers {
+        let columns = sql_transform_output_columns(&pack, &provider.table);
+        for field in provider.when.keys() {
+            assert!(
+                columns.contains(field),
+                "provider `{}` table `{}` is missing when field `{}`; columns: {:?}",
+                provider.id,
+                provider.table,
+                field,
+                columns
+            );
+        }
+
+        for field in [
+            provider.emit.target.itid.as_deref(),
+            provider.emit.target.start_ts.as_deref(),
+            provider.emit.target.end_ts.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(
+                columns.contains(field),
+                "provider `{}` table `{}` is missing target field `{}`; columns: {:?}",
+                provider.id,
+                provider.table,
+                field,
+                columns
+            );
+        }
+    }
 }
 
 fn workspace_root() -> std::path::PathBuf {
@@ -434,6 +491,35 @@ impl SqlFixture {
     fn adapter(&self) -> SQLiteDatasetAdapter {
         SQLiteDatasetAdapter::open(&self.raw_db, &self.scratch_db).expect("adapter")
     }
+}
+
+fn sql_transform_output_columns(pack: &LoadedPack, table: &str) -> BTreeSet<String> {
+    let transform = pack
+        .transforms
+        .iter()
+        .find(|transform| transform.output.table == table)
+        .unwrap_or_else(|| panic!("missing transform for table {table}"));
+    let sql_path = transform
+        .sql
+        .as_ref()
+        .unwrap_or_else(|| panic!("transform `{}` has no SQL", transform.id));
+    let sql = fs::read_to_string(pack.root.join(sql_path)).expect("read transform sql");
+    sql_select_aliases(&sql)
+}
+
+fn sql_select_aliases(sql: &str) -> BTreeSet<String> {
+    sql.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim().trim_end_matches(',').trim_end_matches(';');
+            let lower = trimmed.to_ascii_lowercase();
+            let index = lower.rfind(" as ")?;
+            let alias = trimmed[index + 4..].trim();
+            alias
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                .then(|| alias.to_string())
+        })
+        .collect()
 }
 
 fn synthetic_pack(root: PathBuf, transforms: Vec<TransformSpec>) -> LoadedPack {
