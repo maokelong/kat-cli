@@ -1,5 +1,3 @@
-mod support;
-
 use kat_rs_cli::trace_runtime::adapter::{sqlite::SQLiteDatasetAdapter, DatasetAdapter};
 use rusqlite::Connection;
 use tempfile::tempdir;
