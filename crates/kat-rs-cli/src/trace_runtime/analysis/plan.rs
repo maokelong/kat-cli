@@ -30,21 +30,19 @@ pub enum AnalysisStepSpec {
     ReportRender(ReportRenderStepSpec),
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceRenderStepSpec {
     pub id: String,
-    #[serde(default)]
     pub from: String,
     #[serde(default)]
     pub writes: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphWalkStepSpec {
     pub id: String,
-    #[serde(default)]
     pub root: GraphWalkRootSpec,
     #[serde(default)]
     pub limits: GraphWalkLimitsSpec,
@@ -52,10 +50,9 @@ pub struct GraphWalkStepSpec {
     pub edge_providers: Vec<EdgeProviderSpec>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphWalkRootSpec {
-    #[serde(default)]
     pub from_state: String,
 }
 
@@ -111,8 +108,14 @@ pub struct EdgeEmitSpec {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeTargetSpec {
-    #[serde(default)]
+    #[serde(default, alias = "same_node")]
     pub same_node: bool,
+    #[serde(default)]
+    pub itid: Option<String>,
+    #[serde(default, alias = "start_ts")]
+    pub start_ts: Option<String>,
+    #[serde(default, alias = "end_ts")]
+    pub end_ts: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

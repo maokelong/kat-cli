@@ -78,3 +78,99 @@ steps:
 
     assert!(matches!(spec.steps[2], AnalysisStepSpec::ReportRender(_)));
 }
+
+#[test]
+fn graph_walk_provider_target_parses_field_references() {
+    let yaml = r#"
+id: openharmony.critical_path
+steps:
+  - id: walk_dependencies
+    kind: temporal.graph_walk
+    root:
+      fromState: root
+    edgeProviders:
+      - id: wakeup
+        table: sched_wakeup
+        emit:
+          edgeType: wakeup
+          target:
+            itid: waker_itid
+            start_ts: wake_ts
+            end_ts: wake_ts
+"#;
+
+    let spec: AnalysisSpec = serde_yaml::from_str(yaml).expect("target field references");
+
+    let AnalysisStepSpec::TemporalGraphWalk(step) = &spec.steps[0] else {
+        panic!("expected temporal.graph_walk");
+    };
+    let target = &step.edge_providers[0].emit.target;
+    assert_eq!(target.itid.as_deref(), Some("waker_itid"));
+    assert_eq!(target.start_ts.as_deref(), Some("wake_ts"));
+    assert_eq!(target.end_ts.as_deref(), Some("wake_ts"));
+    assert_eq!(step.limits.max_depth, 3);
+    assert_eq!(step.limits.max_edges_per_node, 3);
+}
+
+#[test]
+fn graph_walk_provider_target_accepts_camel_case_timestamp_aliases() {
+    let yaml = r#"
+id: openharmony.critical_path
+steps:
+  - id: walk_dependencies
+    kind: temporal.graph_walk
+    root:
+      fromState: root
+    edgeProviders:
+      - id: downstream
+        table: slices
+        emit:
+          edgeType: downstream
+          target:
+            itid: target_itid
+            startTs: start_ts
+            endTs: end_ts
+"#;
+
+    let spec: AnalysisSpec = serde_yaml::from_str(yaml).expect("camelCase target aliases");
+
+    let AnalysisStepSpec::TemporalGraphWalk(step) = &spec.steps[0] else {
+        panic!("expected temporal.graph_walk");
+    };
+    let target = &step.edge_providers[0].emit.target;
+    assert_eq!(target.itid.as_deref(), Some("target_itid"));
+    assert_eq!(target.start_ts.as_deref(), Some("start_ts"));
+    assert_eq!(target.end_ts.as_deref(), Some("end_ts"));
+}
+
+#[test]
+fn execution_critical_fields_are_required() {
+    for yaml in [
+        r#"
+id: missing.evidence_from
+steps:
+  - id: seed_root
+    kind: evidence.render
+"#,
+        r#"
+id: missing.graph_root
+steps:
+  - id: walk_dependencies
+    kind: temporal.graph_walk
+"#,
+        r#"
+id: missing.graph_root_from_state
+steps:
+  - id: walk_dependencies
+    kind: temporal.graph_walk
+    root: {}
+"#,
+    ] {
+        let error = serde_yaml::from_str::<AnalysisSpec>(yaml)
+            .expect_err("missing execution-critical field should fail");
+        assert!(
+            error.to_string().contains("missing field"),
+            "unexpected error: {error}"
+        );
+    }
+}

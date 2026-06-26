@@ -5,7 +5,10 @@ requires:
 steps:
   - id: seed_root
     kind: evidence.render
+    from: thread_state_segments
   - id: walk_dependencies
     kind: temporal.graph_walk
+    root:
+      fromState: root
   - id: render_report
     kind: report.render
