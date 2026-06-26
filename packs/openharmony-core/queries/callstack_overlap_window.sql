@@ -1,5 +1,16 @@
-WITH window AS (
+WITH RECURSIVE window AS (
   SELECT callstack_id, root_callstack_id, itid, start_ts, end_ts FROM first_draw_window LIMIT 1
+),
+callstack_tree AS (
+  SELECT c.id
+  FROM callstack c
+  JOIN window ON c.id = window.root_callstack_id
+
+  UNION ALL
+
+  SELECT child.id
+  FROM callstack child
+  JOIN callstack_tree parent ON child.parent_id = parent.id
 )
 SELECT
   c.id AS callstack_id,
@@ -18,6 +29,7 @@ SELECT
   END AS overlap_dur_ns
 FROM callstack c
 JOIN window ON c.callid = window.itid
+JOIN callstack_tree tree ON tree.id = c.id
 WHERE c.ts < window.end_ts
   AND c.ts + COALESCE(c.dur, 0) > window.start_ts
 ORDER BY overlap_dur_ns DESC, c.id ASC;

@@ -50,15 +50,12 @@ pub fn run_graph_walk_on_rows(
                 "edgeType": provider.emit.edge_type,
                 "provider": provider.id,
             }));
+            let facts = selected_edge_facts(provider, row, table_rows);
             evidence.push(json!({
                 "evidenceId": format!("ev.{}.{}", step.id, provider.id),
                 "status": "ok",
-                "facts": {
-                    "selectedEdgeType": provider.emit.edge_type,
-                    "provider": provider.id,
-                    "matchedTable": provider.table,
-                },
-                "tableRefs": [provider.table],
+                "facts": facts,
+                "tableRefs": evidence_table_refs(provider),
                 "limitations": [],
             }));
         }
@@ -88,6 +85,90 @@ pub fn run_graph_walk_on_rows(
     append_state_values(state, "decisions", decisions)?;
 
     Ok(evidence)
+}
+
+fn selected_edge_facts(
+    provider: &EdgeProviderSpec,
+    row: &Value,
+    table_rows: &[(&str, Vec<Value>)],
+) -> Value {
+    let mut facts = Map::new();
+    facts.insert(
+        "selectedEdgeType".to_string(),
+        Value::String(provider.emit.edge_type.clone()),
+    );
+    facts.insert("provider".to_string(), Value::String(provider.id.clone()));
+    facts.insert(
+        "matchedTable".to_string(),
+        Value::String(provider.table.clone()),
+    );
+    summarize_thread_state_profile(&mut facts, row);
+
+    for table in &provider.emit.evidence {
+        match table.as_str() {
+            "thread_state_profile" => {
+                if let Some(rows) = rows_for_table(table_rows, table) {
+                    if let Some(first_row) = rows.first() {
+                        summarize_thread_state_profile(&mut facts, first_row);
+                    }
+                }
+            }
+            "callstack_self_time" => {
+                if let Some(rows) = rows_for_table(table_rows, table) {
+                    summarize_callstack_self_time(&mut facts, rows);
+                }
+            }
+            "io_sample_overlap" => {
+                if let Some(rows) = rows_for_table(table_rows, table) {
+                    facts.insert("overlapRows".to_string(), json!(rows.len()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Value::Object(facts)
+}
+
+fn evidence_table_refs(provider: &EdgeProviderSpec) -> Vec<String> {
+    if provider.emit.evidence.is_empty() {
+        vec![provider.table.clone()]
+    } else {
+        provider.emit.evidence.clone()
+    }
+}
+
+fn rows_for_table<'a>(table_rows: &'a [(&str, Vec<Value>)], table: &str) -> Option<&'a [Value]> {
+    table_rows
+        .iter()
+        .find(|(name, _)| *name == table)
+        .map(|(_, rows)| rows.as_slice())
+}
+
+fn summarize_thread_state_profile(facts: &mut Map<String, Value>, row: &Value) {
+    if let Some(value) = row.get("dominant_state") {
+        facts.insert("dominantState".to_string(), value.clone());
+    }
+    if let Some(value) = row.get("dominant_percent") {
+        facts.insert("dominantPercent".to_string(), value.clone());
+    }
+}
+
+fn summarize_callstack_self_time(facts: &mut Map<String, Value>, rows: &[Value]) {
+    let Some(top_span) = rows
+        .iter()
+        .find(|row| row.get("exclusive_rank").and_then(Value::as_i64) == Some(1))
+        .or_else(|| rows.first())
+    else {
+        return;
+    };
+
+    if let Some(value) = top_span.get("name") {
+        facts.insert("topSpanName".to_string(), value.clone());
+    }
+    if let Some(duration_ns) = top_span.get("exclusive_dur_ns").and_then(Value::as_f64) {
+        facts.insert("topSpanDurMs".to_string(), json!(duration_ns / 1_000_000.0));
+    }
 }
 
 fn provider_matches_row(provider: &EdgeProviderSpec, row: &Value) -> bool {

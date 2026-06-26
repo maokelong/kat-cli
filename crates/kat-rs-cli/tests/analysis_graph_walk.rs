@@ -70,6 +70,79 @@ edgeProviders:
 }
 
 #[test]
+fn graph_walk_summarizes_declared_evidence_tables() {
+    let yaml = r#"
+id: walk_dependencies
+kind: temporal.graph_walk
+root:
+  fromState: root
+limits:
+  maxDepth: 1
+  maxEdgesPerNode: 1
+edgeProviders:
+  - id: self_execution
+    table: thread_state_profile
+    when:
+      dominant_state:
+        eq: Running
+      dominant_percent:
+        gte: 70
+    emit:
+      edgeType: self_execution
+      score: dominant_percent
+      target:
+        sameNode: true
+      evidence:
+        - thread_state_profile
+        - callstack_self_time
+"#;
+    let AnalysisStepSpec::TemporalGraphWalk(step) = serde_yaml::from_str(yaml).expect("step")
+    else {
+        panic!("expected graph walk step");
+    };
+    let mut state = AnalysisState::default();
+
+    let evidence = run_graph_walk_on_rows(
+        &step,
+        &mut state,
+        &[
+            (
+                "thread_state_profile",
+                vec![json!({
+                    "itid": 405,
+                    "dominant_state": "Running",
+                    "dominant_percent": 95.5
+                })],
+            ),
+            (
+                "callstack_self_time",
+                vec![
+                    json!({
+                        "name": "CreateImagePixelMap resource:///1140850711.png",
+                        "exclusive_dur_ns": 16840000,
+                        "exclusive_rank": 1
+                    }),
+                    json!({
+                        "name": "Other work",
+                        "exclusive_dur_ns": 4200000,
+                        "exclusive_rank": 2
+                    }),
+                ],
+            ),
+        ],
+    )
+    .expect("graph walk");
+
+    assert_eq!(evidence[0]["facts"]["dominantState"], "Running");
+    assert_eq!(evidence[0]["facts"]["dominantPercent"], 95.5);
+    assert_eq!(
+        evidence[0]["facts"]["topSpanName"],
+        "CreateImagePixelMap resource:///1140850711.png"
+    );
+    assert_eq!(evidence[0]["facts"]["topSpanDurMs"], 16.84);
+}
+
+#[test]
 fn graph_walk_uses_yaml_configured_generic_score_field() {
     let yaml = r#"
 id: walk_dependencies

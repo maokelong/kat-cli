@@ -52,6 +52,7 @@ pub fn run_marker_extract_bracket_fields_transform(
     let start_key = required_field(transform, "start_ts")?;
     let end_key = required_field(transform, "end_ts")?;
     let vsync_key = required_field(transform, "vsync_id")?;
+    let thread_name_column = thread_name_column(adapter)?;
 
     let process_filter = process_name
         .as_ref()
@@ -66,7 +67,7 @@ pub fn run_marker_extract_bracket_fields_transform(
                  t.tid AS tid,
                  p.ipid AS ipid,
                  p.name AS process_name,
-                 t.thread_name AS thread_name,
+                 {thread_name_column} AS thread_name,
                  extract_bracket_int(c.name, {vsync_key}) AS vsync_id,
                  extract_bracket_int(c.name, {start_key}) AS start_ts,
                  extract_bracket_int(c.name, {end_key}) AS end_ts,
@@ -98,6 +99,7 @@ pub fn run_marker_extract_bracket_fields_transform(
          LIMIT 1",
         contains = sql_literal(&contains),
         process_filter = process_filter,
+        thread_name_column = thread_name_column,
         start_key = sql_literal(start_key),
         end_key = sql_literal(end_key),
         vsync_key = sql_literal(vsync_key),
@@ -105,6 +107,17 @@ pub fn run_marker_extract_bracket_fields_transform(
 
     adapter.create_derived_table_as(&transform.output.table, &sql)?;
     Ok(())
+}
+
+fn thread_name_column(adapter: &mut dyn DatasetAdapter) -> Result<&'static str> {
+    let columns = adapter.query_json("PRAGMA table_info(thread)")?;
+    if columns.iter().any(|column| column["name"] == "thread_name") {
+        return Ok("t.thread_name");
+    }
+    if columns.iter().any(|column| column["name"] == "name") {
+        return Ok("t.name");
+    }
+    bail!("marker transform requires thread.name or thread.thread_name");
 }
 
 fn require_declared_inputs(transform: &TransformSpec) -> Result<()> {

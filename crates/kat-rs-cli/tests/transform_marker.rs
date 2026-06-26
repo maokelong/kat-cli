@@ -44,6 +44,25 @@ fn marker_transform_extracts_first_draw_window_from_callstack_name() {
 }
 
 #[test]
+fn marker_transform_accepts_thread_name_column_from_real_schema() {
+    let (_dir, raw_db, scratch_db) = marker_fixture_with_thread_column("name");
+    let transform = marker_transform();
+    let params = default_params();
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+
+    run_marker_extract_bracket_fields_transform(&mut adapter, &transform, &params, &json!({}))
+        .expect("marker transform");
+
+    let rows = adapter
+        .query_json("SELECT itid, thread_name FROM first_draw_window")
+        .expect("query first draw");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["itid"], 405);
+    assert_eq!(rows[0]["thread_name"], ".tencent.wechat");
+}
+
+#[test]
 fn marker_transform_rejects_missing_declared_inputs_without_output() {
     let (_dir, raw_db, scratch_db) = marker_fixture();
     let mut transform = marker_transform();
@@ -261,13 +280,32 @@ fn marker_transform_escapes_marker_and_process_name_literals() {
 }
 
 fn marker_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
-    marker_fixture_with_values(
+    marker_fixture_with_thread_column_and_values(
+        "thread_name",
         ".tencent.wechat",
         "H:UIVsyncTask[timestamp:246302563097][vsyncID:3269][layoutMeasureDurationStartTimestamp:246307034375][layoutMeasureDurationEndTimestamp:246329389063][firstDrawFrame:1]|M0539",
     )
 }
 
 fn marker_fixture_with_values(
+    process_name: &str,
+    marker_name: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    marker_fixture_with_thread_column_and_values("thread_name", process_name, marker_name)
+}
+
+fn marker_fixture_with_thread_column(
+    thread_name_column: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    marker_fixture_with_thread_column_and_values(
+        thread_name_column,
+        ".tencent.wechat",
+        "H:UIVsyncTask[timestamp:246302563097][vsyncID:3269][layoutMeasureDurationStartTimestamp:246307034375][layoutMeasureDurationEndTimestamp:246329389063][firstDrawFrame:1]|M0539",
+    )
+}
+
+fn marker_fixture_with_thread_column_and_values(
+    thread_name_column: &str,
     process_name: &str,
     marker_name: &str,
 ) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
@@ -281,7 +319,9 @@ fn marker_fixture_with_values(
     )
     .expect("process");
     conn.execute(
-        "CREATE TABLE thread (itid INTEGER, tid INTEGER, ipid INTEGER, thread_name TEXT, is_main_thread INTEGER)",
+        &format!(
+            "CREATE TABLE thread (itid INTEGER, tid INTEGER, ipid INTEGER, {thread_name_column} TEXT, is_main_thread INTEGER)"
+        ),
         [],
     )
     .expect("thread");

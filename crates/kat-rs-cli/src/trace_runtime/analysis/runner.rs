@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -54,15 +55,18 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
             }
             AnalysisStepSpec::TemporalGraphWalk(step) => {
                 let mut table_rows = Vec::new();
+                let mut tables = BTreeSet::new();
                 for provider in &step.edge_providers {
-                    derived.ensure_table(
-                        &mut adapter,
-                        &provider.table,
-                        &config.params,
-                        state.value(),
-                    )?;
-                    let rows = adapter.query_json(&format!("SELECT * FROM {}", provider.table))?;
-                    table_rows.push((provider.table.as_str(), rows));
+                    tables.insert(provider.table.as_str());
+                    for table in &provider.emit.evidence {
+                        tables.insert(table.as_str());
+                    }
+                }
+
+                for table in tables {
+                    derived.ensure_table(&mut adapter, table, &config.params, state.value())?;
+                    let rows = adapter.query_json(&format!("SELECT * FROM {table}"))?;
+                    table_rows.push((table, rows));
                 }
 
                 for item in run_graph_walk_on_rows(step, &mut state, &table_rows)? {

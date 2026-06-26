@@ -539,6 +539,67 @@ fn derived_runner_noops_for_existing_raw_table_without_producer() {
 }
 
 #[test]
+fn openharmony_callstack_self_time_ignores_overlapping_non_root_subtree_spans() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("raw.db");
+    let scratch_db = dir.path().join("scratch.db");
+    let conn = Connection::open(&raw_db).expect("raw");
+    conn.execute_batch(
+        "
+        CREATE TABLE process (ipid INTEGER, pid INTEGER, name TEXT);
+        CREATE TABLE thread (
+            itid INTEGER,
+            tid INTEGER,
+            ipid INTEGER,
+            thread_name TEXT,
+            is_main_thread INTEGER
+        );
+        CREATE TABLE callstack (
+            id INTEGER,
+            callid INTEGER,
+            parent_id INTEGER,
+            name TEXT,
+            ts INTEGER,
+            dur INTEGER
+        );
+
+        INSERT INTO process VALUES (89, 15040, '.tencent.wechat');
+        INSERT INTO thread VALUES (405, 15040, 89, '.tencent.wechat', 1);
+        INSERT INTO callstack VALUES
+            (20000, 405, 405, 'H:APP_COMPONENT_LOAD', 50, 1000),
+            (30493, 405, NULL, 'H:UIVsyncTask[timestamp:90][vsyncID:3269]|M0539', 90, 120),
+            (30754, 405, 30493, 'H:UIVsyncTask[timestamp:90][vsyncID:3269][layoutMeasureDurationStartTimestamp:100][layoutMeasureDurationEndTimestamp:200][firstDrawFrame:1]|M0539', 100, 100),
+            (30544, 405, 30754, 'CreateImagePixelMap resource:///1140850711.png', 120, 70);
+        ",
+    )
+    .expect("fixture");
+    drop(conn);
+
+    let pack = load_pack(workspace_root().join("packs/openharmony-core")).expect("pack");
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+    runner
+        .ensure_table(
+            &mut adapter,
+            "callstack_self_time",
+            &json!({
+                "target_process": ".tencent.wechat",
+                "marker": "firstDrawFrame:1"
+            }),
+            &json!({}),
+        )
+        .expect("callstack self time");
+
+    let rows = adapter
+        .query_json("SELECT name FROM callstack_self_time ORDER BY exclusive_rank LIMIT 1")
+        .expect("self time rows");
+    assert_eq!(
+        rows[0]["name"],
+        "CreateImagePixelMap resource:///1140850711.png"
+    );
+}
+
+#[test]
 fn openharmony_pack_declares_critical_path_derived_tables() {
     let pack = load_pack(workspace_root().join("packs/openharmony-core")).expect("pack");
     let output_tables = pack
