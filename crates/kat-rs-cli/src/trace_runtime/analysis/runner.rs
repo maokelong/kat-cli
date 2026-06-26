@@ -57,16 +57,21 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
                 let mut table_rows = Vec::new();
                 let mut tables = BTreeSet::new();
                 for provider in &step.edge_providers {
-                    tables.insert(provider.table.as_str());
+                    tables.insert(provider.table.clone());
                     for table in &provider.emit.evidence {
-                        tables.insert(table.as_str());
+                        tables.insert(table.clone());
+                    }
+                    for fact in provider.emit.facts.values() {
+                        if let Some(table) = &fact.table {
+                            tables.insert(table.clone());
+                        }
                     }
                 }
 
-                for table in tables {
+                for table in &tables {
                     derived.ensure_table(&mut adapter, table, &config.params, state.value())?;
                     let rows = adapter.query_json(&format!("SELECT * FROM {table}"))?;
-                    table_rows.push((table, rows));
+                    table_rows.push((table.as_str(), rows));
                 }
 
                 for item in run_graph_walk_on_rows(step, &mut state, &table_rows)? {

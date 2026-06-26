@@ -3,7 +3,7 @@ use serde_json::{Map, Value, json};
 
 use crate::trace_runtime::{
     analysis::context::AnalysisState,
-    pack::spec::{ConditionOp, EdgeProviderSpec, EdgeTargetSpec, GraphWalkStepSpec},
+    pack::spec::{ConditionOp, EdgeFactSpec, EdgeProviderSpec, EdgeTargetSpec, GraphWalkStepSpec},
 };
 
 const NO_EDGE_REASON: &str = "No graph edge provider matched current rows";
@@ -102,28 +102,10 @@ fn selected_edge_facts(
         "matchedTable".to_string(),
         Value::String(provider.table.clone()),
     );
-    summarize_thread_state_profile(&mut facts, row);
 
-    for table in &provider.emit.evidence {
-        match table.as_str() {
-            "thread_state_profile" => {
-                if let Some(rows) = rows_for_table(table_rows, table) {
-                    if let Some(first_row) = rows.first() {
-                        summarize_thread_state_profile(&mut facts, first_row);
-                    }
-                }
-            }
-            "callstack_self_time" => {
-                if let Some(rows) = rows_for_table(table_rows, table) {
-                    summarize_callstack_self_time(&mut facts, rows);
-                }
-            }
-            "io_sample_overlap" => {
-                if let Some(rows) = rows_for_table(table_rows, table) {
-                    facts.insert("overlapRows".to_string(), json!(rows.len()));
-                }
-            }
-            _ => {}
+    for (fact_key, fact) in &provider.emit.facts {
+        if let Some(value) = configured_fact_value(provider, row, table_rows, fact) {
+            facts.insert(fact_key.clone(), value);
         }
     }
 
@@ -145,29 +127,59 @@ fn rows_for_table<'a>(table_rows: &'a [(&str, Vec<Value>)], table: &str) -> Opti
         .map(|(_, rows)| rows.as_slice())
 }
 
-fn summarize_thread_state_profile(facts: &mut Map<String, Value>, row: &Value) {
-    if let Some(value) = row.get("dominant_state") {
-        facts.insert("dominantState".to_string(), value.clone());
-    }
-    if let Some(value) = row.get("dominant_percent") {
-        facts.insert("dominantPercent".to_string(), value.clone());
-    }
-}
-
-fn summarize_callstack_self_time(facts: &mut Map<String, Value>, rows: &[Value]) {
-    let Some(top_span) = rows
-        .iter()
-        .find(|row| row.get("exclusive_rank").and_then(Value::as_i64) == Some(1))
-        .or_else(|| rows.first())
-    else {
-        return;
+fn configured_fact_value(
+    provider: &EdgeProviderSpec,
+    provider_row: &Value,
+    table_rows: &[(&str, Vec<Value>)],
+    fact: &EdgeFactSpec,
+) -> Option<Value> {
+    let table = fact.table.as_deref().unwrap_or(&provider.table);
+    let rows = if table == provider.table {
+        rows_for_table(table_rows, table).unwrap_or_else(|| std::slice::from_ref(provider_row))
+    } else {
+        rows_for_table(table_rows, table)?
     };
 
-    if let Some(value) = top_span.get("name") {
-        facts.insert("topSpanName".to_string(), value.clone());
+    if fact.count {
+        return Some(json!(rows.len()));
     }
-    if let Some(duration_ns) = top_span.get("exclusive_dur_ns").and_then(Value::as_f64) {
-        facts.insert("topSpanDurMs".to_string(), json!(duration_ns / 1_000_000.0));
+
+    let field = fact.field.as_deref()?;
+    let row = select_fact_row(rows, fact)?;
+    let value = row.get(field)?.clone();
+    Some(apply_scale(value, fact.scale))
+}
+
+fn select_fact_row<'a>(rows: &'a [Value], fact: &EdgeFactSpec) -> Option<&'a Value> {
+    if rows.is_empty() {
+        return None;
+    }
+
+    if fact.row.where_.is_empty() {
+        return rows.first();
+    }
+
+    rows.iter()
+        .find(|row| {
+            fact.row
+                .where_
+                .iter()
+                .all(|(field, condition)| condition_matches(row.get(field), condition))
+        })
+        .or_else(|| {
+            (fact.row.fallback.as_deref() == Some("first"))
+                .then(|| rows.first())
+                .flatten()
+        })
+}
+
+fn apply_scale(value: Value, scale: Option<f64>) -> Value {
+    let Some(scale) = scale else {
+        return value;
+    };
+    match value.as_f64() {
+        Some(number) => json!(number * scale),
+        None => value,
     }
 }
 

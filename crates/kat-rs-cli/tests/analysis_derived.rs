@@ -691,7 +691,48 @@ fn openharmony_critical_path_edge_providers_reference_declared_columns() {
                 columns
             );
         }
+
+        for (fact_key, fact) in &provider.emit.facts {
+            let table = fact.table.as_deref().unwrap_or(&provider.table);
+            let columns = sql_transform_output_columns(&pack, table);
+            if let Some(field) = &fact.field {
+                assert!(
+                    columns.contains(field),
+                    "provider `{}` fact `{}` table `{}` is missing field `{}`; columns: {:?}",
+                    provider.id,
+                    fact_key,
+                    table,
+                    field,
+                    columns
+                );
+            }
+            for field in fact.row.where_.keys() {
+                assert!(
+                    columns.contains(field),
+                    "provider `{}` fact `{}` table `{}` is missing row selector field `{}`; columns: {:?}",
+                    provider.id,
+                    fact_key,
+                    table,
+                    field,
+                    columns
+                );
+            }
+        }
     }
+
+    let self_execution = graph_walk
+        .edge_providers
+        .iter()
+        .find(|provider| provider.id == "self_execution")
+        .expect("self execution provider");
+    assert!(
+        self_execution.emit.facts.contains_key("dominantState"),
+        "self_execution should configure report-visible thread state facts"
+    );
+    assert!(
+        self_execution.emit.facts.contains_key("topSpanName"),
+        "self_execution should configure report-visible callstack facts"
+    );
 }
 
 fn workspace_root() -> std::path::PathBuf {
@@ -761,8 +802,16 @@ fn sql_select_aliases(sql: &str) -> BTreeSet<String> {
         .filter_map(|line| {
             let trimmed = line.trim().trim_end_matches(',').trim_end_matches(';');
             let lower = trimmed.to_ascii_lowercase();
-            let index = lower.rfind(" as ")?;
-            let alias = trimmed[index + 4..].trim();
+            let alias = if let Some(index) = lower.rfind(" as ") {
+                trimmed[index + 4..].trim()
+            } else if trimmed
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
+            {
+                trimmed.rsplit('.').next().expect("selected column")
+            } else {
+                return None;
+            };
             alias
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')

@@ -43,6 +43,30 @@ steps:
           evidence:
             - thread_state_profile
             - callstack_self_time
+          facts:
+            dominantState:
+              table: thread_state_profile
+              field: dominant_state
+            dominantPercent:
+              table: thread_state_profile
+              field: dominant_percent
+            topSpanName:
+              table: callstack_self_time
+              field: name
+              row:
+                where:
+                  exclusive_rank:
+                    eq: 1
+                fallback: first
+            topSpanDurMs:
+              table: callstack_self_time
+              field: exclusive_dur_ns
+              scale: 0.000001
+              row:
+                where:
+                  exclusive_rank:
+                    eq: 1
+                fallback: first
       - id: sleeping_wakeup
         table: wakeup_edges
         when:

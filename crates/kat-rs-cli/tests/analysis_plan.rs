@@ -39,6 +39,18 @@ steps:
             sameNode: true
           evidence:
             - thread_state_profile
+          facts:
+            dominantState:
+              field: dominant_state
+            topSpanDurMs:
+              table: callstack_self_time
+              field: exclusive_dur_ns
+              scale: 0.000001
+              row:
+                where:
+                  exclusive_rank:
+                    eq: 1
+                fallback: first
   - id: render_report
     kind: report.render
 "#;
@@ -72,6 +84,20 @@ steps:
                 ConditionOp::Gte(70.0)
             );
             assert!(step.edge_providers[0].emit.target.same_node);
+            assert_eq!(
+                step.edge_providers[0].emit.facts["dominantState"]
+                    .field
+                    .as_deref(),
+                Some("dominant_state")
+            );
+            assert_eq!(
+                step.edge_providers[0].emit.facts["topSpanDurMs"].scale,
+                Some(0.000001)
+            );
+            assert_eq!(
+                step.edge_providers[0].emit.facts["topSpanDurMs"].row.where_["exclusive_rank"],
+                ConditionOp::Eq(1.into())
+            );
         }
         other => panic!("expected temporal.graph_walk, got {other:?}"),
     }

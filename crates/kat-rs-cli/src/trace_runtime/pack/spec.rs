@@ -5,8 +5,8 @@ use serde_json::Value;
 
 pub use crate::trace_runtime::analysis::plan::{
     AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, ConditionOp, EdgeEmitSpec,
-    EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec, GraphWalkLimitsSpec,
-    GraphWalkRootSpec, GraphWalkStepSpec, ReportRenderStepSpec,
+    EdgeFactRowSpec, EdgeFactSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,
+    GraphWalkLimitsSpec, GraphWalkRootSpec, GraphWalkStepSpec, ReportRenderStepSpec,
 };
 
 #[derive(Clone, Debug, Deserialize)]

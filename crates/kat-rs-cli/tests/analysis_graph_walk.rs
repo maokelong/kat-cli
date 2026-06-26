@@ -70,7 +70,7 @@ edgeProviders:
 }
 
 #[test]
-fn graph_walk_summarizes_declared_evidence_tables() {
+fn graph_walk_emits_yaml_configured_facts_from_generic_tables() {
     let yaml = r#"
 id: walk_dependencies
 kind: temporal.graph_walk
@@ -80,21 +80,33 @@ limits:
   maxDepth: 1
   maxEdgesPerNode: 1
 edgeProviders:
-  - id: self_execution
-    table: thread_state_profile
+  - id: chosen_path
+    table: candidate_edges
     when:
-      dominant_state:
-        eq: Running
-      dominant_percent:
-        gte: 70
+      ready:
+        eq: true
     emit:
-      edgeType: self_execution
-      score: dominant_percent
+      edgeType: chosen
       target:
         sameNode: true
       evidence:
-        - thread_state_profile
-        - callstack_self_time
+        - candidate_edges
+        - detail_rows
+      facts:
+        copiedLabel:
+          field: label
+        matchedDurationMs:
+          table: detail_rows
+          field: raw_duration_ns
+          scale: 0.000001
+          row:
+            where:
+              rank:
+                eq: 1
+            fallback: first
+        detailCount:
+          table: detail_rows
+          count: true
 "#;
     let AnalysisStepSpec::TemporalGraphWalk(step) = serde_yaml::from_str(yaml).expect("step")
     else {
@@ -107,25 +119,24 @@ edgeProviders:
         &mut state,
         &[
             (
-                "thread_state_profile",
+                "candidate_edges",
                 vec![json!({
-                    "itid": 405,
-                    "dominant_state": "Running",
-                    "dominant_percent": 95.5
+                    "ready": true,
+                    "label": "provider-row"
                 })],
             ),
             (
-                "callstack_self_time",
+                "detail_rows",
                 vec![
                     json!({
-                        "name": "CreateImagePixelMap resource:///1140850711.png",
-                        "exclusive_dur_ns": 16840000,
-                        "exclusive_rank": 1
+                        "name": "winner",
+                        "raw_duration_ns": 4200000,
+                        "rank": 2
                     }),
                     json!({
-                        "name": "Other work",
-                        "exclusive_dur_ns": 4200000,
-                        "exclusive_rank": 2
+                        "name": "selected detail",
+                        "raw_duration_ns": 16840000,
+                        "rank": 1
                     }),
                 ],
             ),
@@ -133,13 +144,12 @@ edgeProviders:
     )
     .expect("graph walk");
 
-    assert_eq!(evidence[0]["facts"]["dominantState"], "Running");
-    assert_eq!(evidence[0]["facts"]["dominantPercent"], 95.5);
-    assert_eq!(
-        evidence[0]["facts"]["topSpanName"],
-        "CreateImagePixelMap resource:///1140850711.png"
-    );
-    assert_eq!(evidence[0]["facts"]["topSpanDurMs"], 16.84);
+    assert_eq!(evidence[0]["facts"]["selectedEdgeType"], "chosen");
+    assert_eq!(evidence[0]["facts"]["provider"], "chosen_path");
+    assert_eq!(evidence[0]["facts"]["matchedTable"], "candidate_edges");
+    assert_eq!(evidence[0]["facts"]["copiedLabel"], "provider-row");
+    assert_eq!(evidence[0]["facts"]["matchedDurationMs"], 16.84);
+    assert_eq!(evidence[0]["facts"]["detailCount"], 2);
 }
 
 #[test]

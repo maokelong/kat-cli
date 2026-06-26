@@ -105,6 +105,32 @@ pub struct EdgeEmitSpec {
     pub target: EdgeTargetSpec,
     #[serde(default)]
     pub evidence: Vec<String>,
+    #[serde(default)]
+    pub facts: BTreeMap<String, EdgeFactSpec>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EdgeFactSpec {
+    #[serde(default)]
+    pub table: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
+    #[serde(default)]
+    pub count: bool,
+    #[serde(default)]
+    pub row: EdgeFactRowSpec,
+    #[serde(default)]
+    pub scale: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EdgeFactRowSpec {
+    #[serde(default, rename = "where")]
+    pub where_: BTreeMap<String, ConditionOp>,
+    #[serde(default)]
+    pub fallback: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

@@ -347,6 +347,7 @@ fn state_filtered_provider_pack(root: PathBuf) -> LoadedPack {
                                 ..EdgeTargetSpec::default()
                             },
                             evidence: vec!["state_filtered_window".to_string()],
+                            facts: Default::default(),
                         },
                     }],
                 }),
