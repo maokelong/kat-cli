@@ -27,6 +27,7 @@ pub fn run_rules_classify_transform(
     if transform.kind != "rules.classify" {
         bail!("transform `{}` is not rules.classify", transform.id);
     }
+    super::reject_marker_only_config(transform, "rules.classify")?;
 
     let input_tables = transform.inputs.table_names();
     let [source_table] = input_tables.as_slice() else {

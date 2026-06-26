@@ -144,6 +144,48 @@ fn marker_transform_rejects_missing_required_fields_without_output() {
 }
 
 #[test]
+fn marker_transform_rejects_empty_marker_without_output() {
+    let (_dir, raw_db, scratch_db) = marker_fixture();
+    let transform = marker_transform();
+    let params = json!({
+        "marker": "  ",
+        "target_process": ".tencent.wechat"
+    });
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+
+    let error =
+        run_marker_extract_bracket_fields_transform(&mut adapter, &transform, &params, &json!({}))
+            .expect_err("empty marker is rejected");
+
+    assert!(
+        error.to_string().contains("source.contains"),
+        "error: {error:#}"
+    );
+    assert_no_output_table(&mut adapter, &transform);
+}
+
+#[test]
+fn marker_transform_rejects_empty_required_field_key_without_output() {
+    let (_dir, raw_db, scratch_db) = marker_fixture();
+    let mut transform = marker_transform();
+    transform
+        .fields
+        .insert("start_ts".to_string(), " ".to_string());
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+
+    let error = run_marker_extract_bracket_fields_transform(
+        &mut adapter,
+        &transform,
+        &default_params(),
+        &json!({}),
+    )
+    .expect_err("empty field key is rejected");
+
+    assert!(error.to_string().contains("start_ts"), "error: {error:#}");
+    assert_no_output_table(&mut adapter, &transform);
+}
+
+#[test]
 fn marker_transform_rejects_missing_safety_tables_without_output() {
     let (_dir, raw_db, scratch_db) = marker_fixture();
     let mut transform = marker_transform();

@@ -24,6 +24,7 @@ pub fn run_sql_view_transform(
     if spec.kind != "sql.view" {
         bail!("transform `{}` is not sql.view", spec.id);
     }
+    super::reject_marker_only_config(spec, "sql.view")?;
     for table in spec.inputs.table_names() {
         if !adapter.table_exists(table)? {
             bail!(

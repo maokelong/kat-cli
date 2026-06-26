@@ -2,8 +2,10 @@
 mod support;
 
 use kat_rs_cli::trace_runtime::{
-    adapter::sqlite::SQLiteDatasetAdapter,
-    pack::spec::{InputTables, TransformOutputSpec, TransformSafetySpec, TransformSpec},
+    adapter::{DatasetAdapter, sqlite::SQLiteDatasetAdapter},
+    pack::spec::{
+        InputTables, MarkerSourceSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec,
+    },
     transform::rules::run_rules_classify_transform,
 };
 use rusqlite::Connection;
@@ -78,6 +80,50 @@ fn rules_classify_transform_rejects_empty_allowed_tables() {
     assert!(
         error.to_string().contains("safety.allowedTables"),
         "error: {error:#}"
+    );
+}
+
+#[test]
+fn rules_classify_transform_rejects_marker_only_config_without_output() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("raw.db");
+    let scratch_db = dir.path().join("scratch.db");
+    let conn = Connection::open(&raw_db).expect("raw db");
+    conn.execute("CREATE TABLE thread (itid INTEGER, thread_name TEXT)", [])
+        .expect("thread table");
+    drop(conn);
+
+    let pack = support::rules_pack(vec![(
+        "alpha",
+        json!({
+            "field": "thread_name",
+            "contains": "alpha"
+        }),
+    )]);
+    let mut transform = test_transform(
+        InputTables::List(vec!["thread".to_string()]),
+        TransformSafetySpec {
+            allowed_tables: vec!["thread".to_string()],
+        },
+    );
+    transform.source = Some(MarkerSourceSpec {
+        table: "callstack".to_string(),
+        column: "name".to_string(),
+        contains: "firstDrawFrame:1".to_string(),
+    });
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+
+    let error = run_rules_classify_transform(&mut adapter, &pack, &transform)
+        .expect_err("marker-only config is rejected");
+
+    assert!(
+        error.to_string().contains("marker-only"),
+        "error: {error:#}"
+    );
+    assert!(
+        !adapter
+            .table_exists(&transform.output.table)
+            .expect("output table check")
     );
 }
 

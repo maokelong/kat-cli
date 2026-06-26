@@ -42,6 +42,12 @@ pub fn run_marker_extract_bracket_fields_transform(
     require_callstack_name_source(source, &transform.id)?;
 
     let contains = resolve_string_template(&source.contains, params, state)?;
+    if contains.trim().is_empty() {
+        bail!(
+            "marker transform `{}` source.contains must not resolve to empty",
+            transform.id
+        );
+    }
     let process_name = resolve_process_name_filter(transform, params, state)?;
     let start_key = required_field(transform, "start_ts")?;
     let end_key = required_field(transform, "end_ts")?;
@@ -167,7 +173,7 @@ fn require_callstack_name_source(source: &MarkerSourceSpec, transform_id: &str) 
 }
 
 fn required_field<'a>(transform: &'a TransformSpec, output_field: &str) -> Result<&'a str> {
-    transform
+    let key = transform
         .fields
         .get(output_field)
         .map(String::as_str)
@@ -176,7 +182,15 @@ fn required_field<'a>(transform: &'a TransformSpec, output_field: &str) -> Resul
                 "marker transform `{}` requires field `{output_field}`",
                 transform.id
             )
-        })
+        })?;
+    let key = key.trim();
+    if key.is_empty() {
+        bail!(
+            "marker transform `{}` field `{output_field}` must not be empty",
+            transform.id
+        );
+    }
+    Ok(key)
 }
 
 fn resolve_process_name_filter(

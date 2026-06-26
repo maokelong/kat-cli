@@ -4,7 +4,9 @@ mod support;
 use std::fs;
 
 use kat_rs_cli::trace_runtime::{
-    adapter::sqlite::SQLiteDatasetAdapter, transform::sql::run_sql_view_transform,
+    adapter::{DatasetAdapter, sqlite::SQLiteDatasetAdapter},
+    pack::spec::MarkerSourceSpec,
+    transform::sql::run_sql_view_transform,
 };
 use rusqlite::Connection;
 use tempfile::tempdir;
@@ -228,5 +230,47 @@ fn sql_view_transform_rejects_qualified_table_matching_cte_alias() {
     assert!(
         error.to_string().contains("outside safety.allowedTables"),
         "error: {error:#}"
+    );
+}
+
+#[test]
+fn sql_view_transform_rejects_marker_only_config_without_output() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("raw.db");
+    let scratch_db = dir.path().join("scratch.db");
+    let conn = Connection::open(&raw_db).expect("raw db");
+    conn.execute("CREATE TABLE thread_state (itid INTEGER)", [])
+        .expect("thread_state");
+    drop(conn);
+    fs::write(
+        dir.path().join("segments.sql"),
+        "SELECT itid FROM thread_state",
+    )
+    .expect("sql file");
+
+    let mut adapter = SQLiteDatasetAdapter::open(&raw_db, &scratch_db).expect("adapter");
+    let mut spec = support::sql_transform(
+        "segments",
+        "segments.sql",
+        "marker_config_output",
+        vec!["thread_state"],
+        vec!["thread_state"],
+    );
+    spec.source = Some(MarkerSourceSpec {
+        table: "callstack".to_string(),
+        column: "name".to_string(),
+        contains: "firstDrawFrame:1".to_string(),
+    });
+
+    let error = run_sql_view_transform(&mut adapter, dir.path(), &spec, &serde_json::json!({}))
+        .expect_err("marker-only config is rejected");
+    assert!(
+        error.to_string().contains("marker-only"),
+        "error: {error:#}"
+    );
+    assert!(
+        !adapter
+            .table_exists(&spec.output.table)
+            .expect("output table check")
     );
 }

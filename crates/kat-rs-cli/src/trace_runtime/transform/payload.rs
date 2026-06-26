@@ -34,6 +34,7 @@ pub fn run_payload_extract_fields_transform(
     if transform.kind != "payload.extract_fields" {
         bail!("transform `{}` is not payload.extract_fields", transform.id);
     }
+    super::reject_marker_only_config(transform, "payload.extract_fields")?;
     for table in transform.inputs.table_names() {
         if !adapter.table_exists(table)? {
             bail!(
