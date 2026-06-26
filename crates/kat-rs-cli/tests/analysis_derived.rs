@@ -174,6 +174,82 @@ fn derived_runner_reused_with_second_adapter_reports_output_collision() {
 }
 
 #[test]
+fn derived_runner_same_adapter_same_params_noops() {
+    let fixture = SqlFixture::new();
+    fixture.create_raw_table("raw_input", "value INTEGER", "10");
+    fixture.write_sql(
+        "derived.sql",
+        "SELECT value + ${delta} AS value FROM raw_input",
+    );
+    let pack = synthetic_pack(
+        fixture.pack_root(),
+        vec![sql_transform(
+            "make_derived",
+            "raw_input",
+            "derived_table",
+            "derived.sql",
+        )],
+    );
+    let mut adapter = fixture.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+    let params = json!({ "delta": 5 });
+
+    runner
+        .ensure_table(&mut adapter, "derived_table", &params, &json!({}))
+        .expect("first materialization");
+    runner
+        .ensure_table(&mut adapter, "derived_table", &params, &json!({}))
+        .expect("same params no-op");
+
+    let rows = adapter
+        .query_json("SELECT value FROM derived_table")
+        .expect("rows");
+    assert_eq!(rows[0]["value"], 15);
+}
+
+#[test]
+fn derived_runner_same_adapter_different_params_errors() {
+    let fixture = SqlFixture::new();
+    fixture.create_raw_table("raw_input", "value INTEGER", "10");
+    fixture.write_sql(
+        "derived.sql",
+        "SELECT value + ${delta} AS value FROM raw_input",
+    );
+    let pack = synthetic_pack(
+        fixture.pack_root(),
+        vec![sql_transform(
+            "make_derived",
+            "raw_input",
+            "derived_table",
+            "derived.sql",
+        )],
+    );
+    let mut adapter = fixture.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+
+    runner
+        .ensure_table(
+            &mut adapter,
+            "derived_table",
+            &json!({ "delta": 5 }),
+            &json!({}),
+        )
+        .expect("first materialization");
+    let error = runner
+        .ensure_table(
+            &mut adapter,
+            "derived_table",
+            &json!({ "delta": 6 }),
+            &json!({}),
+        )
+        .expect_err("different params should fail");
+
+    let message = error.to_string();
+    assert!(message.contains("derived table `derived_table` was already materialized"));
+    assert!(message.contains("different params/state"));
+}
+
+#[test]
 fn derived_runner_reports_existing_table_collision_for_transform_output() {
     let fixture = SqlFixture::new();
     fixture.create_raw_table("raw_input", "value INTEGER", "10");

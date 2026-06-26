@@ -13,7 +13,13 @@ use crate::trace_runtime::{
 pub struct DerivedRunner<'a> {
     pack: &'a LoadedPack,
     by_output_table: BTreeMap<String, &'a TransformSpec>,
-    materialized: BTreeSet<(usize, String)>,
+    materialized: BTreeMap<(usize, String), MaterializationFingerprint>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct MaterializationFingerprint {
+    params: Value,
+    state: Value,
 }
 
 impl<'a> DerivedRunner<'a> {
@@ -34,7 +40,7 @@ impl<'a> DerivedRunner<'a> {
         Ok(Self {
             pack,
             by_output_table,
-            materialized: BTreeSet::new(),
+            materialized: BTreeMap::new(),
         })
     }
 
@@ -60,10 +66,17 @@ impl<'a> DerivedRunner<'a> {
         visiting: &mut BTreeSet<String>,
     ) -> Result<()> {
         if adapter.table_exists(table)? {
-            if self.materialized.contains(&(adapter_id, table.to_string()))
-                || !self.by_output_table.contains_key(table)
-            {
+            if !self.by_output_table.contains_key(table) {
                 return Ok(());
+            }
+            if let Some(existing) = self.materialized.get(&(adapter_id, table.to_string())) {
+                let requested = MaterializationFingerprint::new(params, state);
+                if existing == &requested {
+                    return Ok(());
+                }
+                bail!(
+                    "derived table `{table}` was already materialized with different params/state"
+                );
             }
             let transform = self
                 .by_output_table
@@ -96,9 +109,21 @@ impl<'a> DerivedRunner<'a> {
 
         run_transform(adapter, self.pack, transform, params, state)
             .with_context(|| format!("failed to run transform `{}`", transform.id))?;
-        self.materialized.insert((adapter_id, table.to_string()));
+        self.materialized.insert(
+            (adapter_id, table.to_string()),
+            MaterializationFingerprint::new(params, state),
+        );
         visiting.remove(table);
         Ok(())
+    }
+}
+
+impl MaterializationFingerprint {
+    fn new(params: &Value, state: &Value) -> Self {
+        Self {
+            params: params.clone(),
+            state: state.clone(),
+        }
     }
 }
 
