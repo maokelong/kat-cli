@@ -1,5 +1,5 @@
 use kat_rs_cli::trace_runtime::analysis::{
-    context::AnalysisState, steps::evidence::render_seed_evidence,
+    context::AnalysisState, report::render_report, steps::evidence::render_seed_evidence,
 };
 use serde_json::json;
 
@@ -67,4 +67,63 @@ fn evidence_render_rejects_empty_facts_without_mutating_state() {
 
     assert!(error.to_string().contains("thread_only_window"));
     assert_eq!(state.value(), default_state.value());
+}
+
+#[test]
+fn report_renderer_separates_facts_inferences_and_uncertainty() {
+    let state = json!({
+        "root": {
+            "process_name": ".tencent.wechat",
+            "itid": 405,
+            "vsync_id": 3269,
+            "start_ts": 246307034375i64,
+            "end_ts": 246329389063i64
+        },
+        "decisions": [
+            {
+                "status": "selected",
+                "edgeType": "self_execution",
+                "provider": "self_execution"
+            }
+        ]
+    });
+    let evidence = vec![
+        json!({
+            "evidenceId": "ev.thread_state_profile",
+            "status": "ok",
+            "facts": {
+                "dominantState": "Running",
+                "dominantPercent": 95.0
+            },
+            "tableRefs": ["thread_state_profile"],
+            "limitations": []
+        }),
+        json!({
+            "evidenceId": "ev.callstack_self_time",
+            "status": "ok",
+            "facts": {
+                "topSpanName": "CreateImagePixelMap resource:///1140850711.png",
+                "topSpanDurMs": 16.84
+            },
+            "tableRefs": ["callstack_self_time"],
+            "limitations": []
+        }),
+        json!({
+            "evidenceId": "ev.io_sample_overlap",
+            "status": "partial",
+            "facts": { "overlapRows": 0 },
+            "tableRefs": ["io_sample_overlap"],
+            "limitations": ["No matching IO samples"]
+        }),
+    ];
+
+    let report = render_report(&state, &evidence).expect("report");
+
+    assert!(report.contains("# Facts"));
+    assert!(report.contains("# Inferences"));
+    assert!(report.contains("# Uncertainty"));
+    assert!(report.contains(".tencent.wechat"));
+    assert!(report.contains("Running"));
+    assert!(report.contains("CreateImagePixelMap resource:///1140850711.png"));
+    assert!(report.contains("No matching IO samples"));
 }
