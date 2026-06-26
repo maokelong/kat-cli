@@ -25,6 +25,37 @@ fn removed_business_and_daemon_commands_are_rejected() {
     }
 }
 
+#[test]
+fn analyze_command_parses_experimental_runtime_args() {
+    let cli = Cli::try_parse_from([
+        "kat-rs",
+        "analyze",
+        "--db",
+        "test/test.db",
+        "--pack",
+        "packs/openharmony-core",
+        "--analysis",
+        "openharmony.critical_path",
+        "--target-process",
+        ".tencent.wechat",
+        "--marker",
+        "firstDrawFrame:1",
+        "--run-id",
+        "wechat-first-draw",
+    ])
+    .expect("analyze args parse");
+
+    match cli.command {
+        kat_rs_cli::commands::Command::Analyze(args) => {
+            assert_eq!(args.analysis, "openharmony.critical_path");
+            assert_eq!(args.target_process, ".tencent.wechat");
+            assert_eq!(args.marker, "firstDrawFrame:1");
+            assert_eq!(args.run_id, "wechat-first-draw");
+        }
+        other => panic!("expected analyze command, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn serve_rejects_non_loopback_host_before_serving() {
     let cli = Cli::try_parse_from(["kat-rs", "serve", "--host", "0.0.0.0", "--port", "3030"])
