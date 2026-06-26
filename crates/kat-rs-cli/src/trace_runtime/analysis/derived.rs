@@ -74,7 +74,7 @@ impl<'a> DerivedRunner<'a> {
                 .get(table)
                 .expect("output table index was checked");
             if let Some(existing) = self.materialized.get(&(adapter_id, table.to_string())) {
-                let requested = MaterializationFingerprint::new(transform, params, state);
+                let requested = self.materialization_fingerprint(table, params, state)?;
                 if existing == &requested {
                     return Ok(());
                 }
@@ -109,21 +109,57 @@ impl<'a> DerivedRunner<'a> {
 
         run_transform(adapter, self.pack, transform, params, state)
             .with_context(|| format!("failed to run transform `{}`", transform.id))?;
-        self.materialized.insert(
-            (adapter_id, table.to_string()),
-            MaterializationFingerprint::new(transform, params, state),
-        );
+        let fingerprint = self.materialization_fingerprint(table, params, state)?;
+        self.materialized
+            .insert((adapter_id, table.to_string()), fingerprint);
         visiting.remove(table);
         Ok(())
     }
-}
 
-impl MaterializationFingerprint {
-    fn new(transform: &TransformSpec, params: &Value, state: &Value) -> Self {
-        Self {
+    fn materialization_fingerprint(
+        &self,
+        table: &str,
+        params: &Value,
+        state: &Value,
+    ) -> Result<MaterializationFingerprint> {
+        Ok(MaterializationFingerprint {
             params: params.clone(),
-            state: transform_uses_state(transform).then(|| state.clone()),
+            state: self
+                .table_uses_state_transitively(table)?
+                .then(|| state.clone()),
+        })
+    }
+
+    fn table_uses_state_transitively(&self, table: &str) -> Result<bool> {
+        let mut visiting = BTreeSet::new();
+        self.table_uses_state_transitively_inner(table, &mut visiting)
+    }
+
+    fn table_uses_state_transitively_inner(
+        &self,
+        table: &str,
+        visiting: &mut BTreeSet<String>,
+    ) -> Result<bool> {
+        let Some(transform) = self.by_output_table.get(table).copied() else {
+            return Ok(false);
+        };
+
+        if !visiting.insert(table.to_string()) {
+            bail!("cycle while checking derived table state sensitivity for `{table}`");
         }
+
+        let uses_state = transform_uses_state(transform)
+            || transform
+                .inputs
+                .table_names()
+                .into_iter()
+                .map(|input| self.table_uses_state_transitively_inner(input, visiting))
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .any(|uses_state| uses_state);
+
+        visiting.remove(table);
+        Ok(uses_state)
     }
 }
 

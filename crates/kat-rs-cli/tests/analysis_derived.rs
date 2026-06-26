@@ -366,6 +366,84 @@ fn derived_runner_rejects_state_changes_for_state_dependent_transform() {
 }
 
 #[test]
+fn derived_runner_rejects_state_changes_for_transitively_state_dependent_transform() {
+    let fixture = SqlFixture::new();
+    fixture.write_sql(
+        "parent.sql",
+        "SELECT callstack_id, itid, process_name FROM state_child",
+    );
+    let conn = Connection::open(&fixture.raw_db).expect("raw");
+    conn.execute_batch(
+        "
+        CREATE TABLE process (ipid INTEGER, pid INTEGER, name TEXT);
+        CREATE TABLE thread (
+            itid INTEGER,
+            tid INTEGER,
+            ipid INTEGER,
+            thread_name TEXT,
+            is_main_thread INTEGER
+        );
+        CREATE TABLE callstack (
+            id INTEGER,
+            callid INTEGER,
+            parent_id INTEGER,
+            name TEXT,
+            ts INTEGER,
+            dur INTEGER
+        );
+
+        INSERT INTO process VALUES (7, 1001, '.first');
+        INSERT INTO thread VALUES (405, 1001, 7, 'main', 1);
+        INSERT INTO callstack VALUES (
+            30754,
+            405,
+            NULL,
+            'firstDrawFrame:1 [vsyncID:3269] [layoutMeasureDurationStartTimestamp:1000] [layoutMeasureDurationEndTimestamp:3000]',
+            900,
+            2200
+        );
+        ",
+    )
+    .expect("raw fixture");
+    drop(conn);
+    let pack = synthetic_pack(
+        fixture.pack_root(),
+        vec![
+            state_filtered_marker_transform("state_child", "state_child"),
+            sql_transform(
+                "state_parent_from_child",
+                "state_child",
+                "state_parent",
+                "parent.sql",
+            ),
+        ],
+    );
+    let mut adapter = fixture.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+
+    runner
+        .ensure_table(
+            &mut adapter,
+            "state_parent",
+            &json!({ "marker": "firstDrawFrame:1" }),
+            &json!({ "root": { "process_name": ".first" } }),
+        )
+        .expect("first materialization");
+    let error = runner
+        .ensure_table(
+            &mut adapter,
+            "state_parent",
+            &json!({ "marker": "firstDrawFrame:1" }),
+            &json!({ "root": { "process_name": ".second" } }),
+        )
+        .expect_err("transitively state-dependent transform rejects later state changes");
+
+    let message = error.to_string();
+    assert!(message.contains("derived table `state_parent`"));
+    assert!(message.contains("different params/state"));
+}
+
+#[test]
 fn derived_runner_reports_existing_table_collision_for_transform_output() {
     let fixture = SqlFixture::new();
     fixture.create_raw_table("raw_input", "value INTEGER", "10");
