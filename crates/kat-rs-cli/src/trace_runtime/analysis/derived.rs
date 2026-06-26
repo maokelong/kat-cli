@@ -13,7 +13,7 @@ use crate::trace_runtime::{
 pub struct DerivedRunner<'a> {
     pack: &'a LoadedPack,
     by_output_table: BTreeMap<String, &'a TransformSpec>,
-    materialized: BTreeSet<String>,
+    materialized: BTreeSet<(usize, String)>,
 }
 
 impl<'a> DerivedRunner<'a> {
@@ -46,19 +46,23 @@ impl<'a> DerivedRunner<'a> {
         state: &Value,
     ) -> Result<()> {
         let mut visiting = BTreeSet::new();
-        self.ensure_table_inner(adapter, table, params, state, &mut visiting)
+        let adapter_id = adapter_identity(adapter);
+        self.ensure_table_inner(adapter, adapter_id, table, params, state, &mut visiting)
     }
 
     fn ensure_table_inner(
         &mut self,
         adapter: &mut dyn DatasetAdapter,
+        adapter_id: usize,
         table: &str,
         params: &Value,
         state: &Value,
         visiting: &mut BTreeSet<String>,
     ) -> Result<()> {
         if adapter.table_exists(table)? {
-            if self.materialized.contains(table) || !self.by_output_table.contains_key(table) {
+            if self.materialized.contains(&(adapter_id, table.to_string()))
+                || !self.by_output_table.contains_key(table)
+            {
                 return Ok(());
             }
             let transform = self
@@ -81,7 +85,7 @@ impl<'a> DerivedRunner<'a> {
 
         for input in transform.inputs.table_names() {
             if self.by_output_table.contains_key(input) {
-                self.ensure_table_inner(adapter, input, params, state, visiting)?;
+                self.ensure_table_inner(adapter, adapter_id, input, params, state, visiting)?;
             } else if !adapter.table_exists(input)? {
                 bail!(
                     "transform `{}` input table `{input}` does not exist and is not produced by a pack transform",
@@ -92,8 +96,12 @@ impl<'a> DerivedRunner<'a> {
 
         run_transform(adapter, self.pack, transform, params, state)
             .with_context(|| format!("failed to run transform `{}`", transform.id))?;
-        self.materialized.insert(table.to_string());
+        self.materialized.insert((adapter_id, table.to_string()));
         visiting.remove(table);
         Ok(())
     }
+}
+
+fn adapter_identity(adapter: &mut dyn DatasetAdapter) -> usize {
+    adapter as *mut dyn DatasetAdapter as *mut () as usize
 }

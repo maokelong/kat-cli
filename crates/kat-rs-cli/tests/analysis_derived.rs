@@ -140,6 +140,40 @@ fn derived_runner_reused_with_second_adapter_materializes_again() {
 }
 
 #[test]
+fn derived_runner_reused_with_second_adapter_reports_output_collision() {
+    let first = SqlFixture::new();
+    let second = SqlFixture::new();
+    first.create_raw_table("raw_input", "value INTEGER", "10");
+    second.create_raw_table("raw_input", "value INTEGER", "20");
+    second.create_raw_table("derived_table", "value INTEGER", "99");
+    first.write_sql("derived.sql", "SELECT value + 1 AS value FROM raw_input");
+    let pack = synthetic_pack(
+        first.pack_root(),
+        vec![sql_transform(
+            "make_derived",
+            "raw_input",
+            "derived_table",
+            "derived.sql",
+        )],
+    );
+    let mut first_adapter = first.adapter();
+    let mut second_adapter = second.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+
+    runner
+        .ensure_table(&mut first_adapter, "derived_table", &json!({}), &json!({}))
+        .expect("first adapter materialization");
+    let error = runner
+        .ensure_table(&mut second_adapter, "derived_table", &json!({}), &json!({}))
+        .expect_err("second adapter collision");
+
+    let message = error.to_string();
+    assert!(message.contains("derived table `derived_table` already exists"));
+    assert!(message.contains("make_derived"));
+    assert!(message.contains("not materialized by this runner"));
+}
+
+#[test]
 fn derived_runner_reports_existing_table_collision_for_transform_output() {
     let fixture = SqlFixture::new();
     fixture.create_raw_table("raw_input", "value INTEGER", "10");
