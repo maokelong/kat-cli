@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use anyhow::{Result, bail};
 use serde_json::Value;
 
@@ -29,7 +31,9 @@ pub fn run_marker_extract_bracket_fields_transform(
             );
         }
     }
+    require_declared_inputs(transform)?;
     require_allowed_tables(transform)?;
+    reject_unsupported_config(transform)?;
 
     let source = transform
         .source
@@ -79,7 +83,7 @@ pub fn run_marker_extract_bracket_fields_transform(
              start_ts,
              end_ts,
              end_ts - start_ts AS dur_ns,
-             {marker_name} AS marker_name
+             source_name AS marker_name
          FROM extracted
          WHERE vsync_id IS NOT NULL
            AND start_ts IS NOT NULL
@@ -87,7 +91,6 @@ pub fn run_marker_extract_bracket_fields_transform(
          ORDER BY start_ts
          LIMIT 1",
         contains = sql_literal(&contains),
-        marker_name = sql_literal(&contains),
         process_filter = process_filter,
         start_key = sql_literal(start_key),
         end_key = sql_literal(end_key),
@@ -95,6 +98,23 @@ pub fn run_marker_extract_bracket_fields_transform(
     );
 
     adapter.create_derived_table_as(&transform.output.table, &sql)?;
+    Ok(())
+}
+
+fn require_declared_inputs(transform: &TransformSpec) -> Result<()> {
+    let declared = transform
+        .inputs
+        .table_names()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let required = REQUIRED_TABLES.into_iter().collect::<BTreeSet<_>>();
+    if declared != required {
+        bail!(
+            "marker transform `{}` inputs must exactly declare: {}",
+            transform.id,
+            REQUIRED_TABLES.join(", ")
+        );
+    }
     Ok(())
 }
 
@@ -111,6 +131,30 @@ fn require_allowed_tables(transform: &TransformSpec) -> Result<()> {
                 transform.id
             );
         }
+    }
+    Ok(())
+}
+
+fn reject_unsupported_config(transform: &TransformSpec) -> Result<()> {
+    if !transform.joins.is_empty() {
+        bail!(
+            "marker transform `{}` does not support custom joins",
+            transform.id
+        );
+    }
+
+    let unsupported_filters = transform
+        .filters
+        .keys()
+        .filter(|key| key.as_str() != "process_name")
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unsupported_filters.is_empty() {
+        bail!(
+            "marker transform `{}` has unsupported filter keys: {}",
+            transform.id,
+            unsupported_filters.join(", ")
+        );
     }
     Ok(())
 }
