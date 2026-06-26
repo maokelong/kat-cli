@@ -100,6 +100,8 @@ pub enum ConditionOp {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeEmitSpec {
     pub edge_type: String,
+    #[serde(default)]
+    pub score: Option<String>,
     pub target: EdgeTargetSpec,
     #[serde(default)]
     pub evidence: Vec<String>,

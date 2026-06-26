@@ -24,6 +24,7 @@ edgeProviders:
         gte: 70
     emit:
       edgeType: self_execution
+      score: dominant_percent
       target:
         sameNode: true
       evidence:
@@ -64,7 +65,54 @@ edgeProviders:
         state.value()["visitedEdges"][0]["edgeType"],
         "self_execution"
     );
+    assert_eq!(state.value()["visitedEdges"][0]["score"], 95.0);
     assert_eq!(evidence[0]["facts"]["selectedEdgeType"], "self_execution");
+}
+
+#[test]
+fn graph_walk_uses_yaml_configured_generic_score_field() {
+    let yaml = r#"
+id: walk_dependencies
+kind: temporal.graph_walk
+root:
+  fromState: root
+limits:
+  maxDepth: 1
+  maxEdgesPerNode: 1
+edgeProviders:
+  - id: custom_provider
+    table: custom_edges
+    when:
+      edge_ready:
+        eq: true
+    emit:
+      edgeType: custom_edge
+      score: custom_priority
+      target:
+        itid: custom_itid
+"#;
+    let AnalysisStepSpec::TemporalGraphWalk(step) = serde_yaml::from_str(yaml).expect("step")
+    else {
+        panic!("expected graph walk step");
+    };
+    let mut state = AnalysisState::default();
+
+    run_graph_walk_on_rows(
+        &step,
+        &mut state,
+        &[(
+            "custom_edges",
+            vec![json!({
+                "edge_ready": true,
+                "custom_itid": 777,
+                "custom_priority": 0.42
+            })],
+        )],
+    )
+    .expect("graph walk");
+
+    assert_eq!(state.value()["visitedEdges"][0]["edgeType"], "custom_edge");
+    assert_eq!(state.value()["visitedEdges"][0]["score"], 0.42);
 }
 
 #[test]

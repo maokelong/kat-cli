@@ -139,11 +139,18 @@ fn edge_for_row(provider: &EdgeProviderSpec, source: &Value, row: &Value) -> Val
         "source": source,
         "target": target_for_row(&provider.emit.target, source, row),
         "evidenceRefs": provider.emit.evidence,
-        "score": row
-            .get("dominant_percent")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.0),
+        "score": score_for_row(provider, row),
     })
+}
+
+fn score_for_row(provider: &EdgeProviderSpec, row: &Value) -> f64 {
+    provider
+        .emit
+        .score
+        .as_deref()
+        .and_then(|field| row.get(field))
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0)
 }
 
 fn target_for_row(target: &EdgeTargetSpec, source: &Value, row: &Value) -> Value {
