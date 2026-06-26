@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use crate::trace_runtime::analysis::plan::{
@@ -82,7 +82,7 @@ pub struct TransformSafetySpec {
     pub allowed_tables: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisSpec {
     pub id: String,

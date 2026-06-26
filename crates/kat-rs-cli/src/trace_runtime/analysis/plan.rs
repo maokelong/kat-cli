@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisInputSpec {
     #[serde(default)]
@@ -12,14 +12,14 @@ pub struct AnalysisInputSpec {
     pub default: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisRequiresSpec {
     #[serde(default)]
     pub derived: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind")]
 pub enum AnalysisStepSpec {
     #[serde(rename = "evidence.render")]
@@ -30,7 +30,7 @@ pub enum AnalysisStepSpec {
     ReportRender(ReportRenderStepSpec),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceRenderStepSpec {
     pub id: String,
@@ -39,7 +39,7 @@ pub struct EvidenceRenderStepSpec {
     pub writes: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphWalkStepSpec {
     pub id: String,
@@ -50,13 +50,13 @@ pub struct GraphWalkStepSpec {
     pub edge_providers: Vec<EdgeProviderSpec>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphWalkRootSpec {
     pub from_state: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphWalkLimitsSpec {
     #[serde(default = "default_graph_walk_max_depth")]
@@ -74,7 +74,7 @@ impl Default for GraphWalkLimitsSpec {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeProviderSpec {
     pub id: String,
@@ -84,7 +84,7 @@ pub struct EdgeProviderSpec {
     pub emit: EdgeEmitSpec,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConditionOp {
     Eq(Value),
@@ -96,7 +96,7 @@ pub enum ConditionOp {
     Exists(bool),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeEmitSpec {
     pub edge_type: String,
@@ -107,7 +107,7 @@ pub struct EdgeEmitSpec {
     pub evidence: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeTargetSpec {
     #[serde(default, alias = "same_node")]
@@ -120,7 +120,7 @@ pub struct EdgeTargetSpec {
     pub end_ts: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportRenderStepSpec {
     pub id: String,

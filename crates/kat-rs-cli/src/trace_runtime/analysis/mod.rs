@@ -4,4 +4,5 @@ pub mod derived;
 pub mod plan;
 pub mod report;
 pub mod run_store;
+pub mod runner;
 pub mod steps;
