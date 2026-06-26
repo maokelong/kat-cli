@@ -1,14 +1,75 @@
 id: openharmony.critical_path
+inputs:
+  target_process:
+    required: true
+  marker:
+    default: firstDrawFrame:1
 requires:
   derived:
-    - thread_state_segments
+    - first_draw_window
+    - thread_state_profile
+    - callstack_overlap_window
+    - callstack_self_time
+    - frame_slice_link
+    - render_service_context
+    - io_sample_overlap
+    - wakeup_edges
 steps:
   - id: seed_root
     kind: evidence.render
-    from: thread_state_segments
+    from: first_draw_window
+    writes:
+      state.root: first_row
   - id: walk_dependencies
     kind: temporal.graph_walk
     root:
       fromState: root
+    limits:
+      maxDepth: 3
+      maxEdgesPerNode: 3
+    edgeProviders:
+      - id: self_execution
+        table: thread_state_profile
+        when:
+          dominant_state:
+            eq: Running
+          dominant_percent:
+            gte: 70
+        emit:
+          edgeType: self_execution
+          target:
+            sameNode: true
+          evidence:
+            - thread_state_profile
+            - callstack_self_time
+      - id: sleeping_wakeup
+        table: wakeup_edges
+        when:
+          dominant_state:
+            eq: S
+          dominant_percent:
+            gte: 50
+        emit:
+          edgeType: wakeup
+          target:
+            itid: waker_itid
+            start_ts: wake_ts
+            end_ts: wake_ts
+          evidence:
+            - wakeup_edges
+      - id: downstream_frame
+        table: frame_slice_link
+        when:
+          downstream_dur_ms:
+            gte: 1.0
+        emit:
+          edgeType: frame_downstream
+          target:
+            itid: render_service_itid
+            start_ts: render_start_ts
+            end_ts: render_end_ts
+          evidence:
+            - frame_slice_link
+            - render_service_context
   - id: render_report
     kind: report.render

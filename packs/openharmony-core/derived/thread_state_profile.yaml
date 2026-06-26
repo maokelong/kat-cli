@@ -1,0 +1,9 @@
+id: thread_state_profile
+kind: sql.view
+inputs: [thread_state, first_draw_window]
+sql: queries/thread_state_profile.sql
+output:
+  table: thread_state_profile
+  schema: thread.state_profile.v1
+safety:
+  allowedTables: [thread_state, first_draw_window]

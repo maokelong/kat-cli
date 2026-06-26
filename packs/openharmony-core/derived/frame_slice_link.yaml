@@ -1,0 +1,9 @@
+id: frame_slice_link
+kind: sql.view
+inputs: [frame_slice, first_draw_window]
+sql: queries/frame_slice_link.sql
+output:
+  table: frame_slice_link
+  schema: frame.slice_link.v1
+safety:
+  allowedTables: [frame_slice, first_draw_window]

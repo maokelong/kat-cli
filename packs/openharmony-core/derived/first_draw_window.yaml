@@ -1,8 +1,21 @@
 id: first_draw_window
-kind: payload.extract_fields
-inputs: [callstack]
+kind: marker.extract_bracket_fields
+inputs:
+  - callstack
+  - thread
+  - process
+source:
+  table: callstack
+  column: name
+  contains: "${params.marker}"
+fields:
+  start_ts: layoutMeasureDurationStartTimestamp
+  end_ts: layoutMeasureDurationEndTimestamp
+  vsync_id: vsyncID
+filters:
+  process_name: "${params.target_process}"
 output:
   table: first_draw_window
   schema: marker.first_draw_window.v1
 safety:
-  allowedTables: [callstack]
+  allowedTables: [callstack, thread, process]

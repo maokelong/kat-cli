@@ -344,6 +344,50 @@ fn derived_runner_noops_for_existing_raw_table_without_producer() {
     assert_eq!(rows[0]["value"], 7);
 }
 
+#[test]
+fn openharmony_pack_declares_critical_path_derived_tables() {
+    let pack = load_pack(workspace_root().join("packs/openharmony-core")).expect("pack");
+    let output_tables = pack
+        .transforms
+        .iter()
+        .map(|transform| transform.output.table.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for table in [
+        "first_draw_window",
+        "thread_state_profile",
+        "callstack_overlap_window",
+        "callstack_self_time",
+        "frame_slice_link",
+        "render_service_context",
+        "io_sample_overlap",
+        "wakeup_edges",
+    ] {
+        assert!(
+            output_tables.contains(table),
+            "missing derived table {table}"
+        );
+    }
+
+    let analysis = pack
+        .analyses
+        .iter()
+        .find(|analysis| analysis.id == "openharmony.critical_path")
+        .expect("critical path analysis");
+    assert!(
+        analysis
+            .requires
+            .derived
+            .contains(&"first_draw_window".to_string())
+    );
+    assert!(
+        analysis
+            .requires
+            .derived
+            .contains(&"callstack_self_time".to_string())
+    );
+}
+
 fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

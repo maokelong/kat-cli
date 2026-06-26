@@ -1,0 +1,9 @@
+id: callstack_self_time
+kind: sql.view
+inputs: [callstack_overlap_window]
+sql: queries/callstack_self_time.sql
+output:
+  table: callstack_self_time
+  schema: callstack.self_time.v1
+safety:
+  allowedTables: [callstack_overlap_window]

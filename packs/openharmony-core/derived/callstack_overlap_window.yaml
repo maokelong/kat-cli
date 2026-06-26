@@ -1,0 +1,9 @@
+id: callstack_overlap_window
+kind: sql.view
+inputs: [callstack, first_draw_window]
+sql: queries/callstack_overlap_window.sql
+output:
+  table: callstack_overlap_window
+  schema: callstack.overlap_window.v1
+safety:
+  allowedTables: [callstack, first_draw_window]

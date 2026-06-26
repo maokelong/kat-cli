@@ -1,0 +1,9 @@
+id: wakeup_edges
+kind: sql.view
+inputs: [instant, thread, first_draw_window]
+sql: queries/wakeup_edges.sql
+output:
+  table: wakeup_edges
+  schema: temporal.wakeup_edges.v1
+safety:
+  allowedTables: [instant, thread, first_draw_window]

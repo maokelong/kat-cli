@@ -1,0 +1,9 @@
+id: io_sample_overlap
+kind: sql.view
+inputs: [first_draw_window, file_system_sample, bio_latency_sample, diskio, syscall]
+sql: queries/io_sample_overlap.sql
+output:
+  table: io_sample_overlap
+  schema: io.sample_overlap.v1
+safety:
+  allowedTables: [first_draw_window, file_system_sample, bio_latency_sample, diskio, syscall]

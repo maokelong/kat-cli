@@ -4,6 +4,22 @@ derived:
   - derived/thread_state_segments.yaml
   - derived/thread_identity.yaml
   - derived/first_draw_window.yaml
+  - derived/thread_state_profile.yaml
+  - derived/callstack_overlap_window.yaml
+  - derived/callstack_self_time.yaml
+  - derived/frame_slice_link.yaml
+  - derived/render_service_context.yaml
+  - derived/io_sample_overlap.yaml
+  - derived/wakeup_edges.yaml
+queries:
+  - queries/thread_state_segments.sql
+  - queries/thread_state_profile.sql
+  - queries/callstack_overlap_window.sql
+  - queries/callstack_self_time.sql
+  - queries/frame_slice_link.sql
+  - queries/render_service_context.sql
+  - queries/io_sample_overlap.sql
+  - queries/wakeup_edges.sql
 rules:
   - rules/thread_identity.yaml
   - rules/marker_extractors.yaml
