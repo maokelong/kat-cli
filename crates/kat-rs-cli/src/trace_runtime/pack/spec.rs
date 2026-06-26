@@ -3,6 +3,12 @@ use std::{collections::BTreeMap, path::PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
+pub use crate::trace_runtime::analysis::plan::{
+    AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, ConditionOp, EdgeEmitSpec,
+    EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec, GraphWalkLimitsSpec,
+    GraphWalkRootSpec, GraphWalkStepSpec, ReportRenderStepSpec,
+};
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TransformSpec {
@@ -65,9 +71,11 @@ pub struct TransformSafetySpec {
 pub struct AnalysisSpec {
     pub id: String,
     #[serde(default)]
-    pub requires: BTreeMap<String, Value>,
+    pub inputs: BTreeMap<String, AnalysisInputSpec>,
     #[serde(default)]
-    pub steps: Vec<Value>,
+    pub requires: AnalysisRequiresSpec,
+    #[serde(default)]
+    pub steps: Vec<AnalysisStepSpec>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
