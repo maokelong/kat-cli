@@ -90,6 +90,10 @@ fn test_transform(inputs: InputTables, safety: TransformSafetySpec) -> Transform
         params: Default::default(),
         bind: Default::default(),
         where_: Default::default(),
+        source: None,
+        fields: Default::default(),
+        joins: Default::default(),
+        filters: Default::default(),
         output: TransformOutputSpec {
             table: "thread_identity".to_string(),
             schema: "thread.identity.v1".to_string(),

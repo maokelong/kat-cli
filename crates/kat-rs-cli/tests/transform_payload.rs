@@ -265,6 +265,10 @@ fn test_transform(inputs: InputTables, safety: TransformSafetySpec) -> Transform
         params: Default::default(),
         bind: Default::default(),
         where_: Default::default(),
+        source: None,
+        fields: Default::default(),
+        joins: Default::default(),
+        filters: Default::default(),
         output: TransformOutputSpec {
             table: "derived_windows".to_string(),
             schema: "window.fields.v1".to_string(),

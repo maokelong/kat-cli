@@ -24,11 +24,27 @@ pub struct TransformSpec {
     pub bind: BTreeMap<String, String>,
     #[serde(default, rename = "where")]
     pub where_: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub source: Option<MarkerSourceSpec>,
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+    #[serde(default)]
+    pub joins: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    pub filters: BTreeMap<String, Value>,
     pub output: TransformOutputSpec,
     #[serde(default)]
     pub materialize: Option<String>,
     #[serde(default)]
     pub safety: TransformSafetySpec,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarkerSourceSpec {
+    pub table: String,
+    pub column: String,
+    pub contains: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

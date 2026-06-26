@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use rusqlite::{Connection, Row, types::ValueRef};
+use rusqlite::{Connection, Row, functions::FunctionFlags, types::ValueRef};
 use serde_json::{Map, Value, json};
 
 use super::DatasetAdapter;
@@ -13,6 +13,16 @@ pub struct SQLiteDatasetAdapter {
 impl SQLiteDatasetAdapter {
     pub fn open(raw_db: impl AsRef<Path>, scratch_db: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(scratch_db)?;
+        conn.create_scalar_function(
+            "extract_bracket_int",
+            2,
+            FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let text: String = ctx.get(0)?;
+                let key: String = ctx.get(1)?;
+                Ok(extract_bracket_int(&text, &key))
+            },
+        )?;
         let raw_db = raw_db.as_ref().to_string_lossy().replace('\'', "''");
         conn.execute(&format!("ATTACH DATABASE '{raw_db}' AS raw"), [])?;
         let mut adapter = Self { conn };
@@ -110,6 +120,13 @@ fn quote_identifier(identifier: &str) -> Result<String> {
         bail!("unsafe sqlite identifier: {identifier}");
     }
     Ok(format!("\"{identifier}\""))
+}
+
+fn extract_bracket_int(text: &str, key: &str) -> Option<i64> {
+    let needle = format!("[{key}:");
+    let start = text.find(&needle)? + needle.len();
+    let end = text[start..].find(']')? + start;
+    text[start..end].parse().ok()
 }
 
 fn row_to_json(row: &Row<'_>, column_names: &[String]) -> rusqlite::Result<Value> {

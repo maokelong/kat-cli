@@ -74,6 +74,10 @@ pub fn sql_transform(
         params: Default::default(),
         bind: Default::default(),
         where_: Default::default(),
+        source: None,
+        fields: Default::default(),
+        joins: Default::default(),
+        filters: Default::default(),
         output: TransformOutputSpec {
             table: output_table.to_string(),
             schema: format!("{id}.v1"),
@@ -95,6 +99,10 @@ pub fn payload_transform(inputs: Vec<&str>, allowed: Vec<&str>) -> TransformSpec
         params: Default::default(),
         bind: Default::default(),
         where_: Default::default(),
+        source: None,
+        fields: Default::default(),
+        joins: Default::default(),
+        filters: Default::default(),
         output: TransformOutputSpec {
             table: unique_table("derived_windows"),
             schema: "window.fields.v1".to_string(),
@@ -116,6 +124,10 @@ pub fn rules_transform(inputs: Vec<&str>, allowed: Vec<&str>) -> TransformSpec {
         params: Default::default(),
         bind: Default::default(),
         where_: Default::default(),
+        source: None,
+        fields: Default::default(),
+        joins: Default::default(),
+        filters: Default::default(),
         output: TransformOutputSpec {
             table: unique_table("thread_identity"),
             schema: "thread.identity.v1".to_string(),
