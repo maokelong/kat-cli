@@ -67,11 +67,7 @@ async fn analyze_command_creates_scratch_parent_before_running_analysis() {
     let raw_db = dir.path().join("missing.db");
     let run_root = dir.path().join("missing-runs");
     let scratch_db = run_root.join("missing-db.scratch.db");
-    let pack = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("packs")
-        .join("openharmony-core");
+    let pack = openharmony_pack_path();
     let cli = Cli::try_parse_from([
         OsString::from("kat-rs"),
         OsString::from("analyze"),
@@ -104,6 +100,51 @@ async fn analyze_command_creates_scratch_parent_before_running_analysis() {
         String::from_utf8_lossy(&err).contains("input table `callstack` does not exist"),
         "stderr: {}",
         String::from_utf8_lossy(&err)
+    );
+}
+
+#[tokio::test]
+async fn analyze_command_rejects_invalid_run_id_before_scratch_setup() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("missing.db");
+    let run_root = dir.path().join("runs");
+    let escaped_scratch_db = dir.path().join("escape.scratch.db");
+    let cli = Cli::try_parse_from([
+        OsString::from("kat-rs"),
+        OsString::from("analyze"),
+        OsString::from("--db"),
+        raw_db.into_os_string(),
+        OsString::from("--pack"),
+        openharmony_pack_path().into_os_string(),
+        OsString::from("--analysis"),
+        OsString::from("openharmony.critical_path"),
+        OsString::from("--target-process"),
+        OsString::from(".tencent.wechat"),
+        OsString::from("--run-id"),
+        OsString::from("..\\escape"),
+        OsString::from("--run-root"),
+        run_root.clone().into_os_string(),
+    ])
+    .expect("analyze args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = run(cli, &mut out, &mut err).await;
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        String::from_utf8_lossy(&err).contains("invalid analysis run id"),
+        "stderr: {}",
+        String::from_utf8_lossy(&err)
+    );
+    assert!(
+        !run_root.exists(),
+        "invalid run id should not create the run root"
+    );
+    assert!(
+        !escaped_scratch_db.exists(),
+        "invalid run id should not create scratch db outside run root"
     );
 }
 
@@ -173,4 +214,12 @@ async fn version_command_prints_package_version() {
         format!("{}\n", env!("CARGO_PKG_VERSION"))
     );
     assert!(err.is_empty());
+}
+
+fn openharmony_pack_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("packs")
+        .join("openharmony-core")
 }

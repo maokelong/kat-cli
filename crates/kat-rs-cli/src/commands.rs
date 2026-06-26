@@ -145,6 +145,8 @@ fn run_stop(args: ServerEndpointArgs) -> Result<(), CommandError> {
 }
 
 fn run_analyze(args: AnalyzeArgs, out: &mut dyn Write) -> Result<(), CommandError> {
+    crate::trace_runtime::analysis::run_store::validate_run_id(&args.run_id)
+        .map_err(CommandError::from_runtime)?;
     let pack =
         crate::trace_runtime::pack::load_pack(&args.pack).map_err(CommandError::from_runtime)?;
     let scratch_db = args

@@ -82,7 +82,7 @@ impl AnalysisRunStore {
     }
 }
 
-fn validate_run_id(run_id: &str) -> Result<()> {
+pub(crate) fn validate_run_id(run_id: &str) -> Result<()> {
     if run_id.is_empty()
         || run_id.contains('/')
         || run_id.contains('\\')
