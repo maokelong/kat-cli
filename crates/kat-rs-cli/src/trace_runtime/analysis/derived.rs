@@ -57,8 +57,18 @@ impl<'a> DerivedRunner<'a> {
         state: &Value,
         visiting: &mut BTreeSet<String>,
     ) -> Result<()> {
-        if self.materialized.contains(table) || adapter.table_exists(table)? {
-            return Ok(());
+        if adapter.table_exists(table)? {
+            if self.materialized.contains(table) || !self.by_output_table.contains_key(table) {
+                return Ok(());
+            }
+            let transform = self
+                .by_output_table
+                .get(table)
+                .expect("output table index was checked");
+            bail!(
+                "derived table `{table}` already exists for transform `{}` but was not materialized by this runner",
+                transform.id
+            );
         }
 
         let Some(transform) = self.by_output_table.get(table).copied() else {
@@ -70,12 +80,9 @@ impl<'a> DerivedRunner<'a> {
         }
 
         for input in transform.inputs.table_names() {
-            if adapter.table_exists(input)? {
-                continue;
-            }
             if self.by_output_table.contains_key(input) {
                 self.ensure_table_inner(adapter, input, params, state, visiting)?;
-            } else {
+            } else if !adapter.table_exists(input)? {
                 bail!(
                     "transform `{}` input table `{input}` does not exist and is not produced by a pack transform",
                     transform.id

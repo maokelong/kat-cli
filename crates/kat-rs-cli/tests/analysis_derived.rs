@@ -107,6 +107,67 @@ fn derived_runner_materializes_dependency_chain() {
 }
 
 #[test]
+fn derived_runner_reused_with_second_adapter_materializes_again() {
+    let first = SqlFixture::new();
+    let second = SqlFixture::new();
+    first.create_raw_table("raw_input", "value INTEGER", "10");
+    second.create_raw_table("raw_input", "value INTEGER", "20");
+    first.write_sql("derived.sql", "SELECT value + 1 AS value FROM raw_input");
+    let pack = synthetic_pack(
+        first.pack_root(),
+        vec![sql_transform(
+            "make_derived",
+            "raw_input",
+            "derived_table",
+            "derived.sql",
+        )],
+    );
+    let mut first_adapter = first.adapter();
+    let mut second_adapter = second.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+
+    runner
+        .ensure_table(&mut first_adapter, "derived_table", &json!({}), &json!({}))
+        .expect("first adapter materialization");
+    runner
+        .ensure_table(&mut second_adapter, "derived_table", &json!({}), &json!({}))
+        .expect("second adapter materialization");
+
+    let rows = second_adapter
+        .query_json("SELECT value FROM derived_table")
+        .expect("second rows");
+    assert_eq!(rows[0]["value"], 21);
+}
+
+#[test]
+fn derived_runner_reports_existing_table_collision_for_transform_output() {
+    let fixture = SqlFixture::new();
+    fixture.create_raw_table("raw_input", "value INTEGER", "10");
+    fixture.create_raw_table("derived_table", "value INTEGER", "99");
+    fixture.write_sql("derived.sql", "SELECT value + 1 AS value FROM raw_input");
+    let pack = synthetic_pack(
+        fixture.pack_root(),
+        vec![sql_transform(
+            "make_derived",
+            "raw_input",
+            "derived_table",
+            "derived.sql",
+        )],
+    );
+    let mut adapter = fixture.adapter();
+    let mut runner = DerivedRunner::new(&pack).expect("runner");
+
+    let error = runner
+        .ensure_table(&mut adapter, "derived_table", &json!({}), &json!({}))
+        .expect_err("existing transform output should collide");
+
+    let message = error.to_string();
+    assert!(message.contains("derived table `derived_table` already exists"));
+    assert!(message.contains("make_derived"));
+    assert!(message.contains("not materialized by this runner"));
+}
+
+#[test]
 fn derived_runner_reports_dependency_cycles() {
     let fixture = SqlFixture::new();
     fixture.write_sql("a.sql", "SELECT value FROM table_b");
