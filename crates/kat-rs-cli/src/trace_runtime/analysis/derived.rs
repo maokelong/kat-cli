@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use crate::trace_runtime::{
@@ -9,6 +9,7 @@ use crate::trace_runtime::{
     transform::run_transform,
 };
 
+#[derive(Debug)]
 pub struct DerivedRunner<'a> {
     pack: &'a LoadedPack,
     by_output_table: BTreeMap<String, &'a TransformSpec>,
@@ -16,17 +17,25 @@ pub struct DerivedRunner<'a> {
 }
 
 impl<'a> DerivedRunner<'a> {
-    pub fn new(pack: &'a LoadedPack) -> Self {
-        let by_output_table = pack
-            .transforms
-            .iter()
-            .map(|transform| (transform.output.table.clone(), transform))
-            .collect();
-        Self {
+    pub fn new(pack: &'a LoadedPack) -> Result<Self> {
+        let mut by_output_table = BTreeMap::new();
+        for transform in &pack.transforms {
+            if let Some(existing) =
+                by_output_table.insert(transform.output.table.clone(), transform)
+            {
+                bail!(
+                    "duplicate transform output table `{}` produced by `{}` and `{}`",
+                    transform.output.table,
+                    existing.id,
+                    transform.id
+                );
+            }
+        }
+        Ok(Self {
             pack,
             by_output_table,
             materialized: BTreeSet::new(),
-        }
+        })
     }
 
     pub fn ensure_table(
@@ -74,7 +83,8 @@ impl<'a> DerivedRunner<'a> {
             }
         }
 
-        run_transform(adapter, self.pack, transform, params, state)?;
+        run_transform(adapter, self.pack, transform, params, state)
+            .with_context(|| format!("failed to run transform `{}`", transform.id))?;
         self.materialized.insert(table.to_string());
         visiting.remove(table);
         Ok(())
