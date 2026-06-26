@@ -175,7 +175,7 @@ fn pack_loads_against_local_test_db() {
     assert!(
         pack.transforms
             .iter()
-            .any(|transform| transform.kind == "marker.extract_bracket_fields")
+            .any(|transform| transform.kind == "payload.extract_fields")
     );
     assert!(
         pack.transforms
