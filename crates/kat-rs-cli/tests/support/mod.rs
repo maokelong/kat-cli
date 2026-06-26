@@ -1,11 +1,14 @@
-use std::{path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use kat_rs_cli::trace_runtime::pack::{
-    LoadedPack, PackManifest,
     spec::{InputTables, RuleSetSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec},
+    LoadedPack, PackManifest,
 };
 use rusqlite::Connection;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 static NEXT_TABLE_SUFFIX: AtomicUsize = AtomicUsize::new(0);
 
@@ -56,7 +59,13 @@ pub fn rules_pack(rules: Vec<(&str, Value)>) -> LoadedPack {
     }])
 }
 
-pub fn sql_transform(id: &str, sql: &str, output_table: &str, inputs: Vec<&str>, allowed: Vec<&str>) -> TransformSpec {
+pub fn sql_transform(
+    id: &str,
+    sql: &str,
+    output_table: &str,
+    inputs: Vec<&str>,
+    allowed: Vec<&str>,
+) -> TransformSpec {
     TransformSpec {
         id: id.to_string(),
         kind: "sql.view".to_string(),
