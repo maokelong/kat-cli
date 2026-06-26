@@ -19,7 +19,7 @@ pub struct DerivedRunner<'a> {
 #[derive(Clone, Debug, PartialEq)]
 struct MaterializationFingerprint {
     params: Value,
-    state: Value,
+    state: Option<Value>,
 }
 
 impl<'a> DerivedRunner<'a> {
@@ -69,8 +69,12 @@ impl<'a> DerivedRunner<'a> {
             if !self.by_output_table.contains_key(table) {
                 return Ok(());
             }
+            let transform = self
+                .by_output_table
+                .get(table)
+                .expect("output table index was checked");
             if let Some(existing) = self.materialized.get(&(adapter_id, table.to_string())) {
-                let requested = MaterializationFingerprint::new(params, state);
+                let requested = MaterializationFingerprint::new(transform, params, state);
                 if existing == &requested {
                     return Ok(());
                 }
@@ -78,10 +82,6 @@ impl<'a> DerivedRunner<'a> {
                     "derived table `{table}` was already materialized with different params/state"
                 );
             }
-            let transform = self
-                .by_output_table
-                .get(table)
-                .expect("output table index was checked");
             bail!(
                 "derived table `{table}` already exists for transform `{}` but was not materialized by this runner",
                 transform.id
@@ -111,7 +111,7 @@ impl<'a> DerivedRunner<'a> {
             .with_context(|| format!("failed to run transform `{}`", transform.id))?;
         self.materialized.insert(
             (adapter_id, table.to_string()),
-            MaterializationFingerprint::new(params, state),
+            MaterializationFingerprint::new(transform, params, state),
         );
         visiting.remove(table);
         Ok(())
@@ -119,12 +119,64 @@ impl<'a> DerivedRunner<'a> {
 }
 
 impl MaterializationFingerprint {
-    fn new(params: &Value, state: &Value) -> Self {
+    fn new(transform: &TransformSpec, params: &Value, state: &Value) -> Self {
         Self {
             params: params.clone(),
-            state: state.clone(),
+            state: transform_uses_state(transform).then(|| state.clone()),
         }
     }
+}
+
+fn transform_uses_state(transform: &TransformSpec) -> bool {
+    string_uses_state(&transform.kind)
+        || transform
+            .params
+            .values()
+            .any(|value| string_uses_state(value))
+        || transform
+            .bind
+            .values()
+            .any(|value| string_uses_state(value))
+        || transform
+            .where_
+            .values()
+            .any(|value| value_uses_state(value))
+        || transform.source.as_ref().is_some_and(|source| {
+            string_uses_state(&source.table)
+                || string_uses_state(&source.column)
+                || string_uses_state(&source.contains)
+        })
+        || transform
+            .fields
+            .values()
+            .any(|value| string_uses_state(value))
+        || transform.joins.iter().any(|(key, values)| {
+            string_uses_state(key)
+                || values
+                    .iter()
+                    .any(|(key, value)| string_uses_state(key) || string_uses_state(value))
+        })
+        || transform
+            .filters
+            .values()
+            .any(|value| value_uses_state(value))
+        || transform
+            .materialize
+            .as_ref()
+            .is_some_and(|value| string_uses_state(value))
+}
+
+fn value_uses_state(value: &Value) -> bool {
+    match value {
+        Value::String(value) => string_uses_state(value),
+        Value::Array(values) => values.iter().any(value_uses_state),
+        Value::Object(values) => values.values().any(value_uses_state),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+fn string_uses_state(value: &str) -> bool {
+    value.contains("${state")
 }
 
 fn adapter_identity(adapter: &mut dyn DatasetAdapter) -> usize {

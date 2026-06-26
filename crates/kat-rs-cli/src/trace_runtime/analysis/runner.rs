@@ -39,9 +39,6 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
     let store = AnalysisRunStore::create(&config.run_root, &config.run_id)?;
     let mut derived = DerivedRunner::new(&config.pack)?;
     let mut state = AnalysisState::default();
-    // Derived materialization fingerprints include state; keep them stable across
-    // analysis steps that mutate state after seed evidence is rendered.
-    let materialization_state = state.value().clone();
     let mut evidence = Vec::new();
 
     store.write_plan(&serde_json::to_value(analysis)?)?;
@@ -49,12 +46,7 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
     for step in &analysis.steps {
         match step {
             AnalysisStepSpec::EvidenceRender(step) => {
-                derived.ensure_table(
-                    &mut adapter,
-                    &step.from,
-                    &config.params,
-                    &materialization_state,
-                )?;
+                derived.ensure_table(&mut adapter, &step.from, &config.params, state.value())?;
                 let rows = adapter.query_json(&format!("SELECT * FROM {}", step.from))?;
                 let item = render_seed_evidence(&step.id, &step.from, &rows, &mut state)?;
                 store.append_evidence(&item)?;
@@ -67,7 +59,7 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
                         &mut adapter,
                         &provider.table,
                         &config.params,
-                        &materialization_state,
+                        state.value(),
                     )?;
                     let rows = adapter.query_json(&format!("SELECT * FROM {}", provider.table))?;
                     table_rows.push((provider.table.as_str(), rows));
