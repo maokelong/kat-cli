@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
+#[derive(Clone, Debug)]
 pub struct AnalysisState {
     value: Value,
 }

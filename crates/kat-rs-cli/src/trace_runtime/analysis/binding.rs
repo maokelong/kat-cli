@@ -24,10 +24,13 @@ pub fn resolve_template(template: &str, params: &Value, state: &Value) -> Result
 }
 
 fn exact_placeholder(template: &str) -> Option<&str> {
-    template
-        .strip_prefix("${")
-        .and_then(|inner| inner.strip_suffix('}'))
-        .map(str::trim)
+    let inner = template.strip_prefix("${")?;
+    let end = inner.find('}')?;
+    if end == inner.len() - 1 {
+        Some(inner[..end].trim())
+    } else {
+        None
+    }
 }
 
 fn lookup_placeholder<'a>(path: &str, params: &'a Value, state: &'a Value) -> Result<&'a Value> {
@@ -41,6 +44,16 @@ fn lookup_placeholder<'a>(path: &str, params: &'a Value, state: &'a Value) -> Re
         "state" => state,
         _ => bail!("unsupported binding root {root:?}"),
     };
+
+    let Some(first_part) = parts.next() else {
+        bail!("binding path must include a field after {root:?}");
+    };
+    if first_part.is_empty() {
+        bail!("empty binding path segment in {path:?}");
+    }
+    value = value
+        .get(first_part)
+        .ok_or_else(|| anyhow::anyhow!("missing binding path {path:?}"))?;
 
     for part in parts {
         if part.is_empty() {
