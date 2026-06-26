@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::{ffi::OsString, path::PathBuf, time::Duration};
 
 use clap::{CommandFactory, Parser};
 use kat_rs_cli::commands::{Cli, run};
+use tempfile::tempdir;
 
 #[test]
 fn top_level_help_lists_runtime_commands_without_query_or_daemon() {
@@ -47,13 +48,63 @@ fn analyze_command_parses_experimental_runtime_args() {
 
     match cli.command {
         kat_rs_cli::commands::Command::Analyze(args) => {
+            assert_eq!(args.db, PathBuf::from("test/test.db"));
+            assert_eq!(args.pack, PathBuf::from("packs/openharmony-core"));
             assert_eq!(args.analysis, "openharmony.critical_path");
             assert_eq!(args.target_process, ".tencent.wechat");
             assert_eq!(args.marker, "firstDrawFrame:1");
             assert_eq!(args.run_id, "wechat-first-draw");
+            assert_eq!(args.run_root, PathBuf::from(".kat/runs"));
+            assert!(args.scratch_db.is_none());
         }
         other => panic!("expected analyze command, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn analyze_command_creates_scratch_parent_before_running_analysis() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("missing.db");
+    let run_root = dir.path().join("missing-runs");
+    let scratch_db = run_root.join("missing-db.scratch.db");
+    let pack = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("packs")
+        .join("openharmony-core");
+    let cli = Cli::try_parse_from([
+        OsString::from("kat-rs"),
+        OsString::from("analyze"),
+        OsString::from("--db"),
+        raw_db.clone().into_os_string(),
+        OsString::from("--pack"),
+        pack.into_os_string(),
+        OsString::from("--analysis"),
+        OsString::from("openharmony.critical_path"),
+        OsString::from("--target-process"),
+        OsString::from(".tencent.wechat"),
+        OsString::from("--run-id"),
+        OsString::from("missing-db"),
+        OsString::from("--run-root"),
+        run_root.clone().into_os_string(),
+    ])
+    .expect("analyze args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = run(cli, &mut out, &mut err).await;
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        scratch_db.parent().expect("scratch parent").exists(),
+        "scratch parent should be created before analysis opens databases"
+    );
+    assert!(
+        String::from_utf8_lossy(&err).contains("input table `callstack` does not exist"),
+        "stderr: {}",
+        String::from_utf8_lossy(&err)
+    );
 }
 
 #[tokio::test]

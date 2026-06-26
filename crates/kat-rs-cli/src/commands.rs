@@ -150,6 +150,17 @@ fn run_analyze(args: AnalyzeArgs, out: &mut dyn Write) -> Result<(), CommandErro
     let scratch_db = args
         .scratch_db
         .unwrap_or_else(|| args.run_root.join(format!("{}.scratch.db", args.run_id)));
+    if let Some(parent) = scratch_db
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CommandError::from_runtime(anyhow!(
+                "failed to create scratch db directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
     let run_dir = crate::trace_runtime::analysis::runner::run_analysis(
         crate::trace_runtime::analysis::runner::AnalysisRunConfig {
             raw_db: args.db,
