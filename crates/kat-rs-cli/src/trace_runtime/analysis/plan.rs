@@ -80,6 +80,8 @@ pub struct EdgeProviderSpec {
     pub id: String,
     pub table: String,
     #[serde(default)]
+    pub source: BTreeMap<String, String>,
+    #[serde(default)]
     pub when: BTreeMap<String, ConditionOp>,
     pub emit: EdgeEmitSpec,
 }

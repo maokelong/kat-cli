@@ -199,6 +199,108 @@ edgeProviders:
 }
 
 #[test]
+fn graph_walk_uses_source_mapping_to_walk_two_hops() {
+    let yaml = r#"
+id: walk_links
+kind: temporal.graph_walk
+root:
+  fromState: root
+limits:
+  maxDepth: 2
+  maxEdgesPerNode: 1
+edgeProviders:
+  - id: link_provider
+    table: edges
+    source:
+      itid: from_itid
+    emit:
+      edgeType: link
+      target:
+        itid: to_itid
+"#;
+    let AnalysisStepSpec::TemporalGraphWalk(step) = serde_yaml::from_str(yaml).expect("step")
+    else {
+        panic!("expected graph walk step");
+    };
+    let mut state = AnalysisState::default();
+    state.set_path("root.itid", json!(1)).expect("root itid");
+
+    run_graph_walk_on_rows(
+        &step,
+        &mut state,
+        &[(
+            "edges",
+            vec![
+                json!({
+                    "from_itid": 1,
+                    "to_itid": 2
+                }),
+                json!({
+                    "from_itid": 2,
+                    "to_itid": 3
+                }),
+            ],
+        )],
+    )
+    .expect("graph walk");
+
+    assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 2);
+    assert_eq!(state.value()["visitedEdges"][0]["source"]["itid"], 1);
+    assert_eq!(state.value()["visitedEdges"][0]["target"]["itid"], 2);
+    assert_eq!(state.value()["visitedEdges"][1]["source"]["itid"], 2);
+    assert_eq!(state.value()["visitedEdges"][1]["target"]["itid"], 3);
+    assert_eq!(state.value()["frontier"]["nodes"], json!([{ "itid": 3 }]));
+}
+
+#[test]
+fn graph_walk_skips_duplicate_same_node_edges_across_depths() {
+    let yaml = r#"
+id: walk_links
+kind: temporal.graph_walk
+root:
+  fromState: root
+limits:
+  maxDepth: 3
+  maxEdgesPerNode: 2
+edgeProviders:
+  - id: self_provider
+    table: edges
+    source:
+      itid: from_itid
+    emit:
+      edgeType: self_link
+      target:
+        sameNode: true
+"#;
+    let AnalysisStepSpec::TemporalGraphWalk(step) = serde_yaml::from_str(yaml).expect("step")
+    else {
+        panic!("expected graph walk step");
+    };
+    let mut state = AnalysisState::default();
+    state.set_path("root.itid", json!(1)).expect("root itid");
+
+    run_graph_walk_on_rows(
+        &step,
+        &mut state,
+        &[(
+            "edges",
+            vec![
+                json!({
+                    "from_itid": 1
+                }),
+                json!({
+                    "from_itid": 1
+                }),
+            ],
+        )],
+    )
+    .expect("graph walk");
+
+    assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 1);
+    assert_eq!(state.value()["frontier"]["nodes"], json!([]));
+}
+
+#[test]
 fn graph_walk_records_uncertainty_when_no_provider_matches() {
     let yaml = r#"
 id: walk_dependencies

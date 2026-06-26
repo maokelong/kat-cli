@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
@@ -18,47 +20,71 @@ pub fn run_graph_walk_on_rows(
         .get(&step.root.from_state)
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let mut frontier = vec![source];
+    let mut visited_edge_keys = visited_edge_keys_from_state(state)?;
     let mut selected_edges = Vec::new();
     let mut decisions = Vec::new();
     let mut evidence = Vec::new();
 
-    for provider in &step.edge_providers {
-        if selected_edges.len() >= step.limits.max_edges_per_node {
+    for _depth in 0..step.limits.max_depth {
+        if frontier.is_empty() {
             break;
         }
 
-        let Some((_, rows)) = table_rows
-            .iter()
-            .find(|(table, _)| *table == provider.table.as_str())
-        else {
-            continue;
-        };
+        let mut next_frontier = Vec::new();
+        for source in &frontier {
+            let mut selected_for_node = 0usize;
 
-        for row in rows {
-            if selected_edges.len() >= step.limits.max_edges_per_node {
-                break;
+            for provider in &step.edge_providers {
+                if selected_for_node >= step.limits.max_edges_per_node {
+                    break;
+                }
+
+                let Some((_, rows)) = table_rows
+                    .iter()
+                    .find(|(table, _)| *table == provider.table.as_str())
+                else {
+                    continue;
+                };
+
+                for row in rows {
+                    if selected_for_node >= step.limits.max_edges_per_node {
+                        break;
+                    }
+
+                    if !provider_matches_source(provider, source, row)
+                        || !provider_matches_row(provider, row)
+                    {
+                        continue;
+                    }
+
+                    let edge = edge_for_row(provider, source, row);
+                    if !visited_edge_keys.insert(visited_edge_key_for_edge(&edge)?) {
+                        continue;
+                    }
+
+                    next_frontier.push(edge["target"].clone());
+                    selected_edges.push(edge);
+                    selected_for_node += 1;
+                    decisions.push(json!({
+                        "step": step.id,
+                        "status": "selected",
+                        "edgeType": provider.emit.edge_type,
+                        "provider": provider.id,
+                    }));
+                    let facts = selected_edge_facts(provider, row, table_rows);
+                    evidence.push(json!({
+                        "evidenceId": format!("ev.{}.{}", step.id, provider.id),
+                        "status": "ok",
+                        "facts": facts,
+                        "tableRefs": evidence_table_refs(provider),
+                        "limitations": [],
+                    }));
+                }
             }
-
-            if !provider_matches_row(provider, row) {
-                continue;
-            }
-
-            selected_edges.push(edge_for_row(provider, &source, row));
-            decisions.push(json!({
-                "step": step.id,
-                "status": "selected",
-                "edgeType": provider.emit.edge_type,
-                "provider": provider.id,
-            }));
-            let facts = selected_edge_facts(provider, row, table_rows);
-            evidence.push(json!({
-                "evidenceId": format!("ev.{}.{}", step.id, provider.id),
-                "status": "ok",
-                "facts": facts,
-                "tableRefs": evidence_table_refs(provider),
-                "limitations": [],
-            }));
         }
+
+        frontier = next_frontier;
     }
 
     if selected_edges.is_empty() {
@@ -81,10 +107,29 @@ pub fn run_graph_walk_on_rows(
         })]);
     }
 
+    state.set_path("frontier.nodes", Value::Array(frontier))?;
     append_state_values(state, "visitedEdges", selected_edges)?;
     append_state_values(state, "decisions", decisions)?;
 
     Ok(evidence)
+}
+
+fn visited_edge_keys_from_state(state: &AnalysisState) -> Result<BTreeSet<String>> {
+    let mut keys = BTreeSet::new();
+    let Some(edges) = state.value().get("visitedEdges") else {
+        return Ok(keys);
+    };
+    let Value::Array(edges) = edges else {
+        bail!("cannot read graph walk visited edges from non-array `visitedEdges`");
+    };
+
+    for edge in edges {
+        if let Ok(key) = visited_edge_key_for_edge(edge) {
+            keys.insert(key);
+        }
+    }
+
+    Ok(keys)
 }
 
 fn selected_edge_facts(
@@ -190,6 +235,19 @@ fn provider_matches_row(provider: &EdgeProviderSpec, row: &Value) -> bool {
         .all(|(field, condition)| condition_matches(row.get(field), condition))
 }
 
+fn provider_matches_source(provider: &EdgeProviderSpec, source: &Value, row: &Value) -> bool {
+    provider.source.iter().all(|(source_field, row_field)| {
+        let Some(source_value) = source.get(source_field) else {
+            return false;
+        };
+        let Some(row_value) = row.get(row_field) else {
+            return false;
+        };
+
+        values_equal(source_value, row_value)
+    })
+}
+
 fn condition_matches(value: Option<&Value>, condition: &ConditionOp) -> bool {
     match condition {
         ConditionOp::Eq(expected) => value
@@ -234,6 +292,23 @@ fn edge_for_row(provider: &EdgeProviderSpec, source: &Value, row: &Value) -> Val
         "evidenceRefs": provider.emit.evidence,
         "score": score_for_row(provider, row),
     })
+}
+
+fn visited_edge_key_for_edge(edge: &Value) -> Result<String> {
+    let provider = edge
+        .get("provider")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let edge_type = edge
+        .get("edgeType")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let source = edge.get("source").unwrap_or(&Value::Null);
+    let target = edge.get("target").unwrap_or(&Value::Null);
+
+    Ok(serde_json::to_string(&(
+        provider, edge_type, source, target,
+    ))?)
 }
 
 fn score_for_row(provider: &EdgeProviderSpec, row: &Value) -> f64 {

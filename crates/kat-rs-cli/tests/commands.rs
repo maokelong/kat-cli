@@ -97,7 +97,7 @@ async fn analyze_command_creates_scratch_parent_before_running_analysis() {
         "scratch parent should be created before analysis opens databases"
     );
     assert!(
-        String::from_utf8_lossy(&err).contains("input table `callstack` does not exist"),
+        String::from_utf8_lossy(&err).contains("raw db does not exist"),
         "stderr: {}",
         String::from_utf8_lossy(&err)
     );

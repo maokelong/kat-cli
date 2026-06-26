@@ -30,6 +30,8 @@ steps:
     edgeProviders:
       - id: self_execution
         table: thread_state_profile
+        source:
+          itid: itid
         when:
           dominant_state:
             eq: Running
@@ -69,6 +71,8 @@ steps:
                 fallback: first
       - id: sleeping_wakeup
         table: wakeup_edges
+        source:
+          itid: target_itid
         when:
           dominant_state:
             eq: S
@@ -85,6 +89,8 @@ steps:
             - wakeup_edges
       - id: downstream_frame
         table: frame_slice_link
+        source:
+          itid: app_itid
         when:
           downstream_dur_ms:
             gte: 1.0

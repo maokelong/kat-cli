@@ -26,3 +26,23 @@ fn sqlite_adapter_filters_internal_raw_sqlite_tables() {
         "{tables:?}"
     );
 }
+
+#[test]
+fn sqlite_adapter_rejects_missing_raw_db_without_creating_it() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("missing.db");
+    let scratch_db = dir.path().join("scratch.db");
+
+    let error = match SQLiteDatasetAdapter::open(&raw_db, &scratch_db) {
+        Ok(_) => panic!("missing raw db should be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("raw db does not exist: {}", raw_db.display())),
+        "error: {error}"
+    );
+    assert!(!raw_db.exists(), "adapter must not create missing raw db");
+}

@@ -12,6 +12,11 @@ pub struct SQLiteDatasetAdapter {
 
 impl SQLiteDatasetAdapter {
     pub fn open(raw_db: impl AsRef<Path>, scratch_db: impl AsRef<Path>) -> Result<Self> {
+        let raw_db = raw_db.as_ref();
+        if !raw_db.is_file() {
+            bail!("raw db does not exist: {}", raw_db.display());
+        }
+
         let conn = Connection::open(scratch_db)?;
         conn.create_scalar_function(
             "extract_bracket_int",
@@ -23,7 +28,7 @@ impl SQLiteDatasetAdapter {
                 Ok(extract_bracket_int(&text, &key))
             },
         )?;
-        let raw_db = raw_db.as_ref().to_string_lossy().replace('\'', "''");
+        let raw_db = raw_db.to_string_lossy().replace('\'', "''");
         conn.execute(&format!("ATTACH DATABASE '{raw_db}' AS raw"), [])?;
         let mut adapter = Self { conn };
         adapter.install_raw_table_views()?;

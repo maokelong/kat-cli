@@ -338,6 +338,7 @@ fn state_filtered_provider_pack(root: PathBuf) -> LoadedPack {
                     edge_providers: vec![EdgeProviderSpec {
                         id: "state_provider".to_string(),
                         table: "state_filtered_window".to_string(),
+                        source: BTreeMap::new(),
                         when: BTreeMap::from([("itid".to_string(), ConditionOp::Exists(true))]),
                         emit: EdgeEmitSpec {
                             edge_type: "state_filtered".to_string(),
