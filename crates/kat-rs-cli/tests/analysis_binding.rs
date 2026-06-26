@@ -80,8 +80,35 @@ fn analysis_state_sets_nested_paths_without_losing_existing_fields() {
 }
 
 #[test]
+fn analysis_state_default_shape_is_stable() {
+    let state = AnalysisState::default();
+
+    assert_eq!(
+        state.value(),
+        &json!({
+            "root": {},
+            "frontier": { "nodes": [] },
+            "visitedEdges": [],
+            "decisions": [],
+            "coverage": { "explainedIntervals": [] },
+            "derived": {},
+            "evidenceRefs": []
+        })
+    );
+}
+
+#[test]
 fn analysis_state_rejects_traversal_through_non_objects() {
     let mut state = AnalysisState::default();
 
     assert!(state.set_path("frontier.nodes.x", json!(1)).is_err());
+}
+
+#[test]
+fn analysis_state_failed_path_validation_does_not_mutate_state() {
+    let mut state = AnalysisState::default();
+    let before = state.value().clone();
+
+    assert!(state.set_path("derived.tmp.", json!(1)).is_err());
+    assert_eq!(state.value(), &before);
 }

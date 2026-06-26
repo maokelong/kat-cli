@@ -32,25 +32,25 @@ impl AnalysisState {
             bail!("analysis state path cannot be empty");
         }
 
-        let mut current = &mut self.value;
-        let mut parts = path.split('.').peekable();
-        while let Some(part) = parts.next() {
-            if part.is_empty() {
-                bail!("analysis state path contains an empty segment: {path:?}");
-            }
+        let parts = path.split('.').collect::<Vec<_>>();
+        if parts.iter().any(|part| part.is_empty()) {
+            bail!("analysis state path contains an empty segment: {path:?}");
+        }
 
-            if parts.peek().is_none() {
+        let mut current = &mut self.value;
+        for (index, part) in parts.iter().enumerate() {
+            if index == parts.len() - 1 {
                 let Some(object) = current.as_object_mut() else {
                     bail!("cannot set analysis state path through non-object at {part:?}");
                 };
-                object.insert(part.to_owned(), value);
+                object.insert((*part).to_owned(), value);
                 return Ok(());
             }
 
             let Some(object) = current.as_object_mut() else {
                 bail!("cannot traverse analysis state path through non-object at {part:?}");
             };
-            current = object.entry(part).or_insert_with(|| json!({}));
+            current = object.entry(*part).or_insert_with(|| json!({}));
             if !current.is_object() {
                 bail!("cannot traverse analysis state path through non-object at {part:?}");
             }
