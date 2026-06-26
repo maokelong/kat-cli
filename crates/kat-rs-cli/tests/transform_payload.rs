@@ -176,6 +176,11 @@ fn payload_transform_rejects_missing_allowed_tables() {
         error.to_string().contains("safety.allowedTables"),
         "error: {error:#}"
     );
+    assert!(
+        !adapter
+            .table_exists(&transform.output.table)
+            .expect("output table check")
+    );
 }
 
 #[test]
@@ -203,6 +208,11 @@ fn payload_transform_rejects_empty_allowed_tables() {
     assert!(
         error.to_string().contains("safety.allowedTables"),
         "error: {error:#}"
+    );
+    assert!(
+        !adapter
+            .table_exists(&transform.output.table)
+            .expect("output table check")
     );
 }
 
