@@ -12,7 +12,8 @@ SELECT
   profile.dominant_state AS dominant_state,
   profile.dominant_percent AS dominant_percent
 FROM instant
-LEFT JOIN thread ON instant.ref = thread.itid
+LEFT JOIN thread ON instant.wakeup_from = thread.itid
 JOIN window ON instant.ts BETWEEN window.start_ts AND window.end_ts
 CROSS JOIN profile
-WHERE instant.name LIKE '%sched_wakeup%';
+WHERE instant.ref = window.itid
+  AND instant.name LIKE '%sched_wakeup%';

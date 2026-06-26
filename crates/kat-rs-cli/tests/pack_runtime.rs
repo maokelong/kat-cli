@@ -90,6 +90,13 @@ fn pack_sql_transform_and_run_state_work_on_sqlite_fixture() {
         "expected pack rules to classify at least one fixture row"
     );
 
+    let wakeup_rows = adapter
+        .query_json("SELECT target_itid, waker_itid FROM wakeup_edges ORDER BY wake_ts")
+        .expect("query wakeup edges");
+    assert_eq!(wakeup_rows.len(), 1);
+    assert_eq!(wakeup_rows[0]["target_itid"], 7);
+    assert_eq!(wakeup_rows[0]["waker_itid"], 8);
+
     let run_store =
         AnalysisRunStore::create(dir.path().join("runs"), "run-fixture").expect("run store");
     run_store
@@ -254,12 +261,17 @@ fn create_fixture_db(path: &Path, pack: &kat_rs_cli::trace_runtime::pack::Loaded
         .expect("io sample row");
     }
     conn.execute(
-        "CREATE TABLE instant (ts INTEGER, ref INTEGER, name TEXT)",
+        "CREATE TABLE instant (ts INTEGER, ref INTEGER, wakeup_from INTEGER, name TEXT)",
         [],
     )
     .expect("instant");
-    conn.execute("INSERT INTO instant VALUES (130, 8, 'sched_wakeup')", [])
-        .expect("instant rows");
+    conn.execute(
+        "INSERT INTO instant VALUES
+            (130, 7, 8, 'sched_wakeup'),
+            (140, 8, 9, 'sched_wakeup')",
+        [],
+    )
+    .expect("instant rows");
 }
 
 fn first_rule_include(pack: &kat_rs_cli::trace_runtime::pack::LoadedPack) -> String {

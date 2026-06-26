@@ -1,5 +1,7 @@
 id: io_sample_overlap
 kind: sql.view
+# These inputs are intentionally required in Task 5; optional/partial IO evidence
+# handling belongs to later runtime/schema work.
 inputs: [first_draw_window, file_system_sample, bio_latency_sample, diskio, syscall]
 sql: queries/io_sample_overlap.sql
 output:
