@@ -102,14 +102,18 @@ impl PredicateSpec {
                 )
             }
             Self::TemporalOverlaps(spec) => {
-                let Some((left_start, left_end)) = resolve_window(&spec.left, ctx)? else {
+                let left = resolve_window(&spec.left, ctx)?;
+                let right = resolve_window(&spec.right, ctx)?;
+                if let Some((left_start, left_end)) = &left {
+                    ensure_valid_window("temporal.overlaps left window", left_start, left_end)?;
+                }
+                if let Some((right_start, right_end)) = &right {
+                    ensure_valid_window("temporal.overlaps right window", right_start, right_end)?;
+                }
+                let (Some((left_start, left_end)), Some((right_start, right_end))) = (left, right)
+                else {
                     return Ok(false);
                 };
-                ensure_valid_window("temporal.overlaps left window", &left_start, &left_end)?;
-                let Some((right_start, right_end)) = resolve_window(&spec.right, ctx)? else {
-                    return Ok(false);
-                };
-                ensure_valid_window("temporal.overlaps right window", &right_start, &right_end)?;
 
                 Ok(compare_numbers(&left_start, &right_end)
                     .is_some_and(|ordering| ordering.is_lt())

@@ -660,7 +660,8 @@ fn graph_predicate_validates_temporal_overlap_windows_before_later_missing_value
         "right_start": 40,
         "right_end": 30,
         "valid_start": 10,
-        "valid_end": 20
+        "valid_end": 20,
+        "label": "not-a-timestamp"
     });
     let row = json!({});
     let facts = json!({});
@@ -686,6 +687,56 @@ temporal.overlaps:
         .to_string();
     assert!(right_error.contains("temporal.overlaps"), "{right_error}");
     assert!(right_error.contains("right"), "{right_error}");
+
+    let missing_left_invalid_right: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: row.missing_start
+    end: row.missing_end
+  right:
+    start: source.right_start
+    end: source.right_end
+"#,
+    )
+    .expect("missing left invalid right predicate");
+    let missing_left_right_error = missing_left_invalid_right
+        .matches(&ctx)
+        .expect_err("invalid right window should not be masked by missing left")
+        .to_string();
+    assert!(
+        missing_left_right_error.contains("temporal.overlaps"),
+        "{missing_left_right_error}"
+    );
+    assert!(
+        missing_left_right_error.contains("right"),
+        "{missing_left_right_error}"
+    );
+
+    let non_numeric_left_invalid_right: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.label
+    end: source.valid_end
+  right:
+    start: source.right_start
+    end: source.right_end
+"#,
+    )
+    .expect("non-numeric left invalid right predicate");
+    let non_numeric_left_right_error = non_numeric_left_invalid_right
+        .matches(&ctx)
+        .expect_err("invalid right window should not be masked by non-numeric left")
+        .to_string();
+    assert!(
+        non_numeric_left_right_error.contains("temporal.overlaps"),
+        "{non_numeric_left_right_error}"
+    );
+    assert!(
+        non_numeric_left_right_error.contains("right"),
+        "{non_numeric_left_right_error}"
+    );
 
     let invalid_left_missing_right: PredicateSpec = serde_yaml::from_str(
         r#"
