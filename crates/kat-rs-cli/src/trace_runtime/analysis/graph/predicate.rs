@@ -286,7 +286,16 @@ fn compare_integer_to_float(integer: i128, float: f64) -> Option<Ordering> {
         return Some(integer.cmp(&float_integer));
     }
 
-    if !float.is_finite() || float.fract() == 0.0 {
+    if !float.is_finite() {
+        return None;
+    }
+    if float >= i128::MAX as f64 {
+        return Some(Ordering::Less);
+    }
+    if float < i128::MIN as f64 {
+        return Some(Ordering::Greater);
+    }
+    if float.fract() == 0.0 {
         return None;
     }
 

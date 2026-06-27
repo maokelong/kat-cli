@@ -738,6 +738,48 @@ temporal.pointWithin:
 }
 
 #[test]
+fn graph_predicate_compares_huge_floats_against_integers_safely() {
+    let source = json!({
+        "start_ts": 1e40,
+        "end_ts": 1
+    });
+    let row = json!({
+        "huge_float": 1e40,
+        "negative_huge_float": -1e40,
+        "one": 1
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let gt: PredicateSpec = serde_yaml::from_str("gt: [row.huge_float, row.one]").expect("gt");
+    let lt: PredicateSpec = serde_yaml::from_str("lt: [row.one, row.huge_float]").expect("lt");
+    let negative_lt: PredicateSpec =
+        serde_yaml::from_str("lt: [row.negative_huge_float, row.one]").expect("negative lt");
+
+    assert!(gt.matches(&ctx).expect("gt"));
+    assert!(lt.matches(&ctx).expect("lt"));
+    assert!(negative_lt.matches(&ctx).expect("negative lt"));
+
+    let invalid_window: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.one
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+    )
+    .expect("invalid window predicate");
+    let error = invalid_window
+        .matches(&ctx)
+        .expect_err("huge float invalid window")
+        .to_string();
+    assert!(error.contains("temporal.pointWithin window"), "{error}");
+}
+
+#[test]
 fn graph_predicate_preserves_large_integer_temporal_point_within_precision() {
     let predicate: PredicateSpec = serde_yaml::from_str(
         r#"
