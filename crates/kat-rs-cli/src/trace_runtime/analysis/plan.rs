@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::trace_runtime::analysis::graph::spec::GenericGraphWalkStepSpec;
 
@@ -28,8 +27,6 @@ pub enum AnalysisStepSpec {
     EvidenceRender(EvidenceRenderStepSpec),
     #[serde(rename = "graph.walk")]
     GraphWalk(GenericGraphWalkStepSpec),
-    #[serde(rename = "temporal.graph_walk")]
-    TemporalGraphWalk(GraphWalkStepSpec),
     #[serde(rename = "report.render")]
     ReportRender(ReportRenderStepSpec),
 }
@@ -44,124 +41,7 @@ pub struct EvidenceRenderStepSpec {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GraphWalkStepSpec {
-    pub id: String,
-    pub root: GraphWalkRootSpec,
-    #[serde(default)]
-    pub limits: GraphWalkLimitsSpec,
-    #[serde(default)]
-    pub edge_providers: Vec<EdgeProviderSpec>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GraphWalkRootSpec {
-    pub from_state: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GraphWalkLimitsSpec {
-    #[serde(default = "default_graph_walk_max_depth")]
-    pub max_depth: usize,
-    #[serde(default = "default_graph_walk_max_edges_per_node")]
-    pub max_edges_per_node: usize,
-}
-
-impl Default for GraphWalkLimitsSpec {
-    fn default() -> Self {
-        Self {
-            max_depth: default_graph_walk_max_depth(),
-            max_edges_per_node: default_graph_walk_max_edges_per_node(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EdgeProviderSpec {
-    pub id: String,
-    pub table: String,
-    #[serde(default)]
-    pub source: BTreeMap<String, String>,
-    #[serde(default)]
-    pub when: BTreeMap<String, ConditionOp>,
-    pub emit: EdgeEmitSpec,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ConditionOp {
-    Eq(Value),
-    Neq(Value),
-    Gte(f64),
-    Gt(f64),
-    Lte(f64),
-    Lt(f64),
-    Exists(bool),
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EdgeEmitSpec {
-    pub edge_type: String,
-    #[serde(default)]
-    pub score: Option<String>,
-    pub target: EdgeTargetSpec,
-    #[serde(default)]
-    pub evidence: Vec<String>,
-    #[serde(default)]
-    pub facts: BTreeMap<String, EdgeFactSpec>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EdgeFactSpec {
-    #[serde(default)]
-    pub table: Option<String>,
-    #[serde(default)]
-    pub field: Option<String>,
-    #[serde(default)]
-    pub count: bool,
-    #[serde(default)]
-    pub row: EdgeFactRowSpec,
-    #[serde(default)]
-    pub scale: Option<f64>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EdgeFactRowSpec {
-    #[serde(default, rename = "where")]
-    pub where_: BTreeMap<String, ConditionOp>,
-    #[serde(default)]
-    pub fallback: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EdgeTargetSpec {
-    #[serde(default, alias = "same_node")]
-    pub same_node: bool,
-    #[serde(default)]
-    pub itid: Option<String>,
-    #[serde(default, alias = "start_ts")]
-    pub start_ts: Option<String>,
-    #[serde(default, alias = "end_ts")]
-    pub end_ts: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportRenderStepSpec {
     pub id: String,
-}
-
-const fn default_graph_walk_max_depth() -> usize {
-    3
-}
-
-const fn default_graph_walk_max_edges_per_node() -> usize {
-    3
 }

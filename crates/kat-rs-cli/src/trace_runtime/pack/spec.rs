@@ -10,9 +10,8 @@ pub use crate::trace_runtime::analysis::graph::spec::{
 };
 pub use crate::trace_runtime::analysis::graph::{binding::BindingExpr, predicate::PredicateSpec};
 pub use crate::trace_runtime::analysis::plan::{
-    AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, ConditionOp, EdgeEmitSpec,
-    EdgeFactRowSpec, EdgeFactSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,
-    GraphWalkLimitsSpec, GraphWalkRootSpec, GraphWalkStepSpec, ReportRenderStepSpec,
+    AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, EvidenceRenderStepSpec,
+    ReportRenderStepSpec,
 };
 
 #[derive(Clone, Debug, Deserialize)]
