@@ -602,6 +602,59 @@ fn graph_predicate_preserves_large_integer_ordering_precision() {
 }
 
 #[test]
+fn graph_predicate_compares_mixed_large_integer_and_float_safely() {
+    let source = json!({
+        "start_float": 9007199254740992.0,
+        "start_after_point": 9007199254740994_u64,
+        "end_int": 9007199254740994_u64,
+        "end_float": 9007199254740995.0
+    });
+    let row = json!({
+        "big_int": 9007199254740993_u64,
+        "big_float": 9007199254740992.0
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let eq: PredicateSpec = serde_yaml::from_str("eq: [row.big_int, row.big_float]").expect("eq");
+    let neq: PredicateSpec =
+        serde_yaml::from_str("neq: [row.big_int, row.big_float]").expect("neq");
+    let gt: PredicateSpec = serde_yaml::from_str("gt: [row.big_int, row.big_float]").expect("gt");
+    let lt: PredicateSpec = serde_yaml::from_str("lt: [row.big_float, row.big_int]").expect("lt");
+
+    assert!(!eq.matches(&ctx).expect("eq"));
+    assert!(neq.matches(&ctx).expect("neq"));
+    assert!(gt.matches(&ctx).expect("gt"));
+    assert!(lt.matches(&ctx).expect("lt"));
+
+    let within: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.big_int
+  window:
+    start: source.start_float
+    end: source.end_int
+"#,
+    )
+    .expect("within predicate");
+    assert!(within.matches(&ctx).expect("within"));
+
+    let outside: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.big_int
+  window:
+    start: source.start_after_point
+    end: source.end_float
+"#,
+    )
+    .expect("outside predicate");
+    assert!(!outside.matches(&ctx).expect("outside"));
+}
+
+#[test]
 fn graph_predicate_preserves_large_integer_temporal_point_within_precision() {
     let predicate: PredicateSpec = serde_yaml::from_str(
         r#"
