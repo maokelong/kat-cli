@@ -1,5 +1,8 @@
-use kat_rs_cli::trace_runtime::analysis::graph::binding::{BindingExpr, EvalContext};
-use serde_json::json;
+use kat_rs_cli::trace_runtime::analysis::graph::{
+    binding::{BindingExpr, EvalContext},
+    predicate::PredicateSpec,
+};
+use serde_json::{Value, json};
 
 #[test]
 fn graph_binding_resolves_literal_path_and_template_values() {
@@ -294,5 +297,209 @@ fn graph_binding_rejects_malformed_templates() {
                 .is_err(),
             "expected malformed template to fail: {template}"
         );
+    }
+}
+
+#[test]
+fn graph_predicate_evaluates_boolean_and_temporal_conditions() {
+    let yaml = r#"
+all:
+  - eq: [source.itid, row.target_itid]
+  - gte: [row.dominant_percent, 50]
+  - exists: row.wake_ts
+  - temporal.pointWithin:
+      point: row.wake_ts
+      window:
+        start: source.start_ts
+        end: source.end_ts
+"#;
+    let predicate: PredicateSpec = serde_yaml::from_str(yaml).expect("predicate");
+    let source = json!({
+        "itid": 405,
+        "start_ts": 100,
+        "end_ts": 200
+    });
+    let row = json!({
+        "target_itid": 405,
+        "dominant_percent": 75.0,
+        "wake_ts": 150
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    assert!(predicate.matches(&ctx).expect("predicate"));
+}
+
+#[test]
+fn graph_predicate_treats_missing_match_fields_as_false() {
+    let predicate: PredicateSpec = serde_yaml::from_str("eq: [row.missing, 1]").expect("predicate");
+    let source = json!({});
+    let row = json!({});
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    assert!(!predicate.matches(&ctx).expect("predicate"));
+}
+
+#[test]
+fn graph_predicate_evaluates_any_not_and_comparison_operators() {
+    let source = json!({});
+    let row = json!({
+        "state": "Sleeping",
+        "wait_ms": 42.0,
+        "rank": 3,
+        "cap": 42
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let predicate: PredicateSpec = serde_yaml::from_str(
+        r#"
+all:
+  - any:
+      - eq: [row.missing, ready]
+      - neq: [row.state, Running]
+  - not:
+      eq: [row.state, Running]
+  - gt: [row.wait_ms, 41]
+  - lt: [row.rank, 4]
+  - lte: [row.cap, 42.0]
+"#,
+    )
+    .expect("predicate");
+
+    assert!(predicate.matches(&ctx).expect("predicate"));
+
+    let empty_any: PredicateSpec = serde_yaml::from_str("any: []").expect("empty any");
+    assert!(!empty_any.matches(&ctx).expect("empty any"));
+
+    let empty_all: PredicateSpec = serde_yaml::from_str("all: []").expect("empty all");
+    assert!(empty_all.matches(&ctx).expect("empty all"));
+}
+
+#[test]
+fn graph_predicate_exists_is_false_for_null() {
+    let predicate: PredicateSpec = serde_yaml::from_str("exists: row.value").expect("predicate");
+    let source = json!({});
+    let row = json!({ "value": null });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    assert!(!predicate.matches(&ctx).expect("predicate"));
+}
+
+#[test]
+fn graph_predicate_evaluates_temporal_overlaps_boundaries() {
+    let source = json!({
+        "start_ts": 10,
+        "end_ts": 20,
+        "touching_start": 20,
+        "touching_end": 30
+    });
+    let row = json!({
+        "start_ts": 15,
+        "end_ts": 25
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let overlapping: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.start_ts
+    end: source.end_ts
+  right:
+    start: row.start_ts
+    end: row.end_ts
+"#,
+    )
+    .expect("overlapping predicate");
+    assert!(overlapping.matches(&ctx).expect("overlap"));
+
+    let touching: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.start_ts
+    end: source.end_ts
+  right:
+    start: source.touching_start
+    end: source.touching_end
+"#,
+    )
+    .expect("touching predicate");
+    assert!(!touching.matches(&ctx).expect("touching"));
+}
+
+#[test]
+fn graph_predicate_rejects_invalid_temporal_windows() {
+    let predicate: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.wake_ts
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+    )
+    .expect("predicate");
+    let source = json!({
+        "start_ts": 200,
+        "end_ts": 100
+    });
+    let row = json!({ "wake_ts": 150 });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    assert!(
+        predicate
+            .matches(&ctx)
+            .expect_err("invalid window")
+            .to_string()
+            .contains("end")
+    );
+}
+
+#[test]
+fn graph_predicate_rejects_ambiguous_predicate_objects() {
+    let error = serde_yaml::from_str::<PredicateSpec>(
+        r#"
+eq: [row.value, 1]
+exists: row.value
+"#,
+    )
+    .expect_err("ambiguous predicate should fail");
+
+    assert!(error.to_string().contains("predicate"));
+}
+
+fn eval_ctx<'a>(
+    source: &'a Value,
+    row: &'a Value,
+    facts: &'a Value,
+    state: &'a Value,
+    params: &'a Value,
+    node: Option<&'a Value>,
+) -> EvalContext<'a> {
+    EvalContext {
+        source,
+        row,
+        facts,
+        state,
+        params,
+        node,
     }
 }
