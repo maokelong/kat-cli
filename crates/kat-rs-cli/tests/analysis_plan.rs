@@ -268,7 +268,6 @@ steps:
 #[test]
 fn generic_graph_walk_plan_parses_defaults_and_value_specs() {
     use kat_rs_cli::trace_runtime::pack::spec::{AnalysisStepSpec, BindingExpr, GraphValueSpec};
-    use serde_json::json;
 
     let yaml = r#"
 id: generic.problem_analysis
@@ -319,30 +318,33 @@ steps:
     assert_eq!(step.limits.max_edges_per_node, 3);
 
     let provider = &step.providers[0];
-    assert_eq!(provider.expand.node.same_as.as_ref().unwrap().0, "source");
+    assert_eq!(
+        provider.expand.node.same_as.as_ref().unwrap(),
+        &BindingExpr::Path("source".to_string())
+    );
     assert_eq!(
         provider.expand.node.fields["itid"],
-        GraphValueSpec::Value(BindingExpr(json!("row.waker_itid")))
+        GraphValueSpec::Value(BindingExpr::Path("row.waker_itid".to_string()))
     );
     let GraphValueSpec::Scaled { value, scale } = &provider.expand.node.fields["waitMs"] else {
         panic!("expected scaled node field");
     };
-    assert_eq!(value.0, "row.wait_ns");
+    assert_eq!(value, &BindingExpr::Path("row.wait_ns".to_string()));
     assert_eq!(*scale, 0.000001);
 
     assert_eq!(provider.select.order_by.len(), 1);
     assert_eq!(
         provider.select.order_by[0].expr,
-        BindingExpr(json!("row.wait_ns"))
+        BindingExpr::Path("row.wait_ns".to_string())
     );
     assert!(provider.select.order_by[0].desc);
     assert_eq!(
         provider.select.dedupe_by[0],
-        BindingExpr(json!("node.itid"))
+        BindingExpr::Path("node.itid".to_string())
     );
     assert_eq!(
         provider.select.dedupe_by[1],
-        BindingExpr(json!("node.start_ts"))
+        BindingExpr::Path("node.start_ts".to_string())
     );
     assert_eq!(
         provider.output.evidence.tables,
@@ -352,7 +354,7 @@ steps:
     let GraphValueSpec::Scaled { value, scale } = &provider.output.annotations["waitMs"] else {
         panic!("expected scaled annotation");
     };
-    assert_eq!(value.0, "row.wait_ns");
+    assert_eq!(value, &BindingExpr::Path("row.wait_ns".to_string()));
     assert_eq!(*scale, 0.000001);
 }
 
@@ -364,13 +366,13 @@ fn graph_value_spec_only_treats_exact_value_scale_object_as_scaled() {
     let value_only: GraphValueSpec = serde_yaml::from_str("value: x").expect("value-only object");
     assert_eq!(
         value_only,
-        GraphValueSpec::Value(BindingExpr(json!({ "value": "x" })))
+        GraphValueSpec::Value(BindingExpr::Literal(json!({ "value": "x" })))
     );
 
     let scale_only: GraphValueSpec = serde_yaml::from_str("scale: 1.0").expect("scale-only object");
     assert_eq!(
         scale_only,
-        GraphValueSpec::Value(BindingExpr(json!({ "scale": 1.0 })))
+        GraphValueSpec::Value(BindingExpr::Literal(json!({ "scale": 1.0 })))
     );
 
     let extra_key: GraphValueSpec =
@@ -378,7 +380,7 @@ fn graph_value_spec_only_treats_exact_value_scale_object_as_scaled() {
             .expect("extra-key object");
     assert_eq!(
         extra_key,
-        GraphValueSpec::Value(BindingExpr(json!({
+        GraphValueSpec::Value(BindingExpr::Literal(json!({
             "value": "row.wait_ns",
             "scale": 1.0,
             "extra": true
@@ -397,7 +399,7 @@ fn graph_value_spec_only_treats_exact_value_scale_object_as_scaled() {
     assert_eq!(
         scaled,
         GraphValueSpec::Scaled {
-            value: BindingExpr(json!("row.wait_ns")),
+            value: BindingExpr::Path("row.wait_ns".to_string()),
             scale: 0.000001
         }
     );

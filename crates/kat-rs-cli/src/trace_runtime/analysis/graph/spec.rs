@@ -144,7 +144,8 @@ impl<'de> Deserialize<'de> for GraphValueSpec {
             });
         }
 
-        Ok(Self::Value(BindingExpr(raw)))
+        let value = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;
+        Ok(Self::Value(value))
     }
 }
 
