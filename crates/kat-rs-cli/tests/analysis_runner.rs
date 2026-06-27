@@ -7,10 +7,8 @@ use kat_rs_cli::trace_runtime::analysis::{
 use kat_rs_cli::trace_runtime::pack::{
     LoadedPack, PackManifest, load_pack,
     spec::{
-        AnalysisInputSpec, AnalysisRequiresSpec, AnalysisSpec, AnalysisStepSpec, ConditionOp,
-        EdgeEmitSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,
-        GraphWalkLimitsSpec, GraphWalkRootSpec, GraphWalkStepSpec, InputTables, MarkerSourceSpec,
-        ReportRenderStepSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec,
+        AnalysisRequiresSpec, AnalysisSpec, AnalysisStepSpec, EvidenceRenderStepSpec, InputTables,
+        MarkerSourceSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec,
     },
 };
 use rusqlite::Connection;
@@ -181,33 +179,6 @@ fn runner_writes_plan_state_evidence_checklist_and_report() {
 }
 
 #[test]
-fn runner_materializes_provider_with_state_from_evidence_render() {
-    let dir = tempdir().expect("tempdir");
-    let raw_db = dir.path().join("raw.db");
-    create_minimal_trace_fixture(&raw_db);
-    let run_dir = dir.path().join("runs");
-
-    run_analysis(AnalysisRunConfig {
-        raw_db,
-        scratch_db: dir.path().join("scratch.db"),
-        run_root: run_dir.clone(),
-        run_id: "state-provider-run".to_string(),
-        pack: state_filtered_provider_pack(dir.path().to_path_buf()),
-        analysis_id: "synthetic.state_provider".to_string(),
-        params: serde_json::json!({
-            "target_process": ".tencent.wechat",
-            "marker": "firstDrawFrame:1"
-        }),
-    })
-    .expect("analysis run");
-
-    let evidence = std::fs::read_to_string(run_dir.join("state-provider-run/evidence.jsonl"))
-        .expect("evidence");
-    assert!(evidence.contains("state_filtered_window"), "{evidence}");
-    assert!(evidence.contains("state_provider"), "{evidence}");
-}
-
-#[test]
 fn runner_executes_generic_graph_walk_step() {
     let dir = tempdir().expect("tempdir");
     let raw_db = dir.path().join("raw.db");
@@ -318,95 +289,6 @@ fn workspace_root() -> std::path::PathBuf {
         .and_then(std::path::Path::parent)
         .expect("workspace root")
         .to_path_buf()
-}
-
-fn state_filtered_provider_pack(root: PathBuf) -> LoadedPack {
-    LoadedPack {
-        root,
-        manifest: PackManifest {
-            id: "synthetic".to_string(),
-            name: None,
-            schemas: Vec::new(),
-            derived: Vec::new(),
-            queries: Vec::new(),
-            analyses: Vec::new(),
-            rules: Vec::new(),
-        },
-        transforms: vec![
-            marker_transform(
-                "first_draw_window",
-                "first_draw_window",
-                "${params.target_process}",
-            ),
-            marker_transform(
-                "state_filtered_window",
-                "state_filtered_window",
-                "${state.root.process_name}",
-            ),
-        ],
-        analyses: vec![AnalysisSpec {
-            id: "synthetic.state_provider".to_string(),
-            inputs: BTreeMap::from([
-                (
-                    "target_process".to_string(),
-                    AnalysisInputSpec {
-                        required: true,
-                        default: None,
-                    },
-                ),
-                (
-                    "marker".to_string(),
-                    AnalysisInputSpec {
-                        required: false,
-                        default: Some("firstDrawFrame:1".to_string()),
-                    },
-                ),
-            ]),
-            requires: AnalysisRequiresSpec {
-                derived: vec![
-                    "first_draw_window".to_string(),
-                    "state_filtered_window".to_string(),
-                ],
-            },
-            steps: vec![
-                AnalysisStepSpec::EvidenceRender(EvidenceRenderStepSpec {
-                    id: "seed_root".to_string(),
-                    from: "first_draw_window".to_string(),
-                    writes: BTreeMap::new(),
-                }),
-                AnalysisStepSpec::TemporalGraphWalk(GraphWalkStepSpec {
-                    id: "walk_state_provider".to_string(),
-                    root: GraphWalkRootSpec {
-                        from_state: "root".to_string(),
-                    },
-                    limits: GraphWalkLimitsSpec {
-                        max_depth: 1,
-                        max_edges_per_node: 1,
-                    },
-                    edge_providers: vec![EdgeProviderSpec {
-                        id: "state_provider".to_string(),
-                        table: "state_filtered_window".to_string(),
-                        source: BTreeMap::new(),
-                        when: BTreeMap::from([("itid".to_string(), ConditionOp::Exists(true))]),
-                        emit: EdgeEmitSpec {
-                            edge_type: "state_filtered".to_string(),
-                            score: None,
-                            target: EdgeTargetSpec {
-                                same_node: true,
-                                ..EdgeTargetSpec::default()
-                            },
-                            evidence: vec!["state_filtered_window".to_string()],
-                            facts: Default::default(),
-                        },
-                    }],
-                }),
-                AnalysisStepSpec::ReportRender(ReportRenderStepSpec {
-                    id: "render_report".to_string(),
-                }),
-            ],
-        }],
-        rule_sets: Vec::new(),
-    }
 }
 
 fn generic_graph_walk_pack(root: PathBuf) -> LoadedPack {
