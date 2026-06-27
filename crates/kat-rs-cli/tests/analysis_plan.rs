@@ -67,6 +67,16 @@ fn critical_path_plan_parses_typed_steps_and_graph_walk_config() {
                 self_execution.output.annotations["dominantState"],
                 GraphValueSpec::Value(BindingExpr::Path("row.dominant_state".to_string()))
             );
+
+            let sleeping_wakeup = step
+                .providers
+                .iter()
+                .find(|provider| provider.id == "sleeping_wakeup")
+                .expect("sleeping_wakeup provider");
+            assert_eq!(
+                sleeping_wakeup.expand.node.fields["start_ts"],
+                GraphValueSpec::Value(BindingExpr::Path("row.wake_ts".to_string()))
+            );
         }
         other => panic!("expected graph.walk, got {other:?}"),
     }

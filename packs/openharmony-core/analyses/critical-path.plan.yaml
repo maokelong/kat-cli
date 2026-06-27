@@ -100,7 +100,7 @@ steps:
           node:
             fields:
               itid: row.waker_itid
-              start_ts: row.waker_start_ts
+              start_ts: row.wake_ts
               end_ts: row.wake_ts
         select:
           limit: 1

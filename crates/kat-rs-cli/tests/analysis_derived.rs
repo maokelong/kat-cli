@@ -782,6 +782,9 @@ fn assert_generic_provider_references_declared_columns(
     for order_by in &provider.select.order_by {
         collect_binding_row_field(&order_by.expr, &mut fields);
     }
+    for field in provider.expand.node.fields.values() {
+        collect_graph_value_row_fields(field, &mut fields);
+    }
     for annotation in provider.output.annotations.values() {
         collect_graph_value_row_fields(annotation, &mut fields);
     }
