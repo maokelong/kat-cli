@@ -569,6 +569,35 @@ temporal.pointWithin:
 }
 
 #[test]
+fn graph_predicate_validates_temporal_point_window_before_point() {
+    let predicate: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.missing
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+    )
+    .expect("predicate");
+    let source = json!({
+        "start_ts": 200,
+        "end_ts": 100
+    });
+    let row = json!({});
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let error = predicate
+        .matches(&ctx)
+        .expect_err("invalid window should not be masked by missing point")
+        .to_string();
+    assert!(error.contains("temporal.pointWithin"), "{error}");
+}
+
+#[test]
 fn graph_predicate_rejects_invalid_temporal_overlap_windows() {
     let source = json!({
         "left_start": 20,
@@ -621,6 +650,61 @@ temporal.overlaps:
         .to_string();
     assert!(right_error.contains("temporal.overlaps"), "{right_error}");
     assert!(right_error.contains("right"), "{right_error}");
+}
+
+#[test]
+fn graph_predicate_validates_temporal_overlap_windows_before_later_missing_values() {
+    let source = json!({
+        "left_start": 20,
+        "left_end": 10,
+        "right_start": 40,
+        "right_end": 30,
+        "valid_start": 10,
+        "valid_end": 20
+    });
+    let row = json!({});
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let invalid_right: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.valid_start
+    end: source.valid_end
+  right:
+    start: source.right_start
+    end: source.right_end
+"#,
+    )
+    .expect("invalid right predicate");
+    let right_error = invalid_right
+        .matches(&ctx)
+        .expect_err("invalid right window")
+        .to_string();
+    assert!(right_error.contains("temporal.overlaps"), "{right_error}");
+    assert!(right_error.contains("right"), "{right_error}");
+
+    let invalid_left_missing_right: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.left_start
+    end: source.left_end
+  right:
+    start: row.missing_start
+    end: row.missing_end
+"#,
+    )
+    .expect("invalid left missing right predicate");
+    let left_error = invalid_left_missing_right
+        .matches(&ctx)
+        .expect_err("invalid left window should not be masked by missing right")
+        .to_string();
+    assert!(left_error.contains("temporal.overlaps"), "{left_error}");
+    assert!(left_error.contains("left"), "{left_error}");
 }
 
 #[test]

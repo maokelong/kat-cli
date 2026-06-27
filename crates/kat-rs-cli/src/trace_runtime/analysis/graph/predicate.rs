@@ -58,9 +58,14 @@ pub struct TemporalWindowSpec {
 impl PredicateSpec {
     pub fn matches(&self, ctx: &EvalContext<'_>) -> Result<bool> {
         match self {
-            Self::All(predicates) => predicates.iter().try_fold(true, |matched, predicate| {
-                Ok(matched && predicate.matches(ctx)?)
-            }),
+            Self::All(predicates) => {
+                for predicate in predicates {
+                    if !predicate.matches(ctx)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
             Self::Any(predicates) => {
                 for predicate in predicates {
                     if predicate.matches(ctx)? {
@@ -83,13 +88,13 @@ impl PredicateSpec {
                 .map(|value| !value.is_null())
                 .unwrap_or(false)),
             Self::TemporalPointWithin(spec) => {
-                let Some(point) = resolve_number(&spec.point, ctx)? else {
-                    return Ok(false);
-                };
                 let Some((start, end)) = resolve_window(&spec.window, ctx)? else {
                     return Ok(false);
                 };
                 ensure_valid_window("temporal.pointWithin window", &start, &end)?;
+                let Some(point) = resolve_number(&spec.point, ctx)? else {
+                    return Ok(false);
+                };
 
                 Ok(
                     compare_numbers(&point, &start).is_some_and(|ordering| !ordering.is_lt())
@@ -100,10 +105,10 @@ impl PredicateSpec {
                 let Some((left_start, left_end)) = resolve_window(&spec.left, ctx)? else {
                     return Ok(false);
                 };
+                ensure_valid_window("temporal.overlaps left window", &left_start, &left_end)?;
                 let Some((right_start, right_end)) = resolve_window(&spec.right, ctx)? else {
                     return Ok(false);
                 };
-                ensure_valid_window("temporal.overlaps left window", &left_start, &left_end)?;
                 ensure_valid_window("temporal.overlaps right window", &right_start, &right_end)?;
 
                 Ok(compare_numbers(&left_start, &right_end)
