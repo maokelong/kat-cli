@@ -4,6 +4,7 @@ pub mod expand;
 pub mod predicate;
 pub mod select;
 pub mod spec;
+pub mod walk;
 
 use serde_json::Value;
 

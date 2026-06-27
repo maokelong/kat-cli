@@ -2,6 +2,9 @@ use kat_rs_cli::trace_runtime::analysis::graph::{
     binding::{BindingExpr, EvalContext},
     predicate::PredicateSpec,
 };
+use kat_rs_cli::trace_runtime::analysis::{
+    context::AnalysisState, graph::walk::run_graph_walk_on_rows_v2,
+};
 use serde_json::{Value, json};
 
 #[test]
@@ -458,6 +461,247 @@ fn graph_expand_candidate_evidence_helpers_emit_expected_json_shape() {
         evidence["tableRefs"],
         json!(["wakeup_edges", "thread_state"])
     );
+}
+
+#[test]
+fn generic_graph_walk_traverses_two_hops_and_records_selected_edges() {
+    let step = generic_walk_step(
+        r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: root
+limits:
+  maxDepth: 4
+  maxNodes: 10
+  maxEdgesPerNode: 2
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      all:
+        - eq: [source.itid, row.target_itid]
+        - temporal.pointWithin:
+            point: row.wake_ts
+            window:
+              start: source.window.startTs
+              end: source.window.endTs
+    expand:
+      node:
+        fields:
+          kind: thread_window
+          itid: row.waker_itid
+          window.startTs: row.waker_start_ts
+          window.endTs: row.wake_ts
+    output:
+      relation: wakeup
+      annotations:
+        wakeTs: row.wake_ts
+"#,
+    );
+    let mut state = AnalysisState::default();
+    state
+        .set_path(
+            "root",
+            json!({
+                "kind": "thread_window",
+                "itid": 1,
+                "window": {
+                    "startTs": 0,
+                    "endTs": 10
+                }
+            }),
+        )
+        .expect("root state");
+    let rows = vec![(
+        "wakeup_edges",
+        vec![
+            json!({
+                "target_itid": 1,
+                "waker_itid": 2,
+                "waker_start_ts": 2,
+                "wake_ts": 5
+            }),
+            json!({
+                "target_itid": 2,
+                "waker_itid": 3,
+                "waker_start_ts": 3,
+                "wake_ts": 4
+            }),
+        ],
+    )];
+
+    let evidence =
+        run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
+
+    assert_eq!(
+        state.value()["graph"]["visited"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        state.value()["frontier"]["nodes"],
+        json!([{
+            "kind": "thread_window",
+            "itid": 3,
+            "window": {
+                "startTs": 3,
+                "endTs": 4
+            }
+        }])
+    );
+    assert_eq!(state.value()["decisions"][0]["relation"], json!("wakeup"));
+    assert_eq!(evidence[0]["facts"]["wakeTs"], json!(5));
+}
+
+#[test]
+fn generic_graph_walk_records_partial_evidence_when_no_candidate_matches() {
+    let step = generic_walk_step(
+        r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: root
+limits:
+  maxDepth: 1
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      eq: [source.itid, row.target_itid]
+    expand:
+      node:
+        fields:
+          itid: row.waker_itid
+    output:
+      relation: wakeup
+"#,
+    );
+    let mut state = AnalysisState::default();
+    state
+        .set_path("root", json!({ "itid": 1 }))
+        .expect("root state");
+    let rows = vec![(
+        "wakeup_edges",
+        vec![json!({
+            "target_itid": 99,
+            "waker_itid": 2
+        })],
+    )];
+
+    let evidence =
+        run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
+
+    assert_eq!(state.value()["decisions"][0]["status"], json!("no_edge"));
+    assert_eq!(evidence[0]["status"], json!("partial"));
+}
+
+#[test]
+fn generic_graph_walk_honors_max_nodes_limit() {
+    let step = generic_walk_step(
+        r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: root
+limits:
+  maxDepth: 4
+  maxNodes: 1
+  maxEdgesPerNode: 4
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      eq: [source.itid, row.target_itid]
+    expand:
+      node:
+        fields:
+          itid: row.waker_itid
+    output:
+      relation: wakeup
+"#,
+    );
+    let mut state = AnalysisState::default();
+    state
+        .set_path("root", json!({ "itid": 1 }))
+        .expect("root state");
+    let rows = vec![(
+        "wakeup_edges",
+        vec![
+            json!({ "target_itid": 1, "waker_itid": 2 }),
+            json!({ "target_itid": 2, "waker_itid": 3 }),
+        ],
+    )];
+
+    run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
+
+    assert_eq!(
+        state.value()["graph"]["visited"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(state.value()["frontier"]["nodes"], json!([{ "itid": 2 }]));
+}
+
+#[test]
+fn generic_graph_walk_skips_edges_already_in_visited_state() {
+    let step = generic_walk_step(
+        r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: root
+limits:
+  maxDepth: 1
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      eq: [source.itid, row.target_itid]
+    expand:
+      node:
+        fields:
+          itid: row.waker_itid
+    output:
+      relation: wakeup
+"#,
+    );
+    let mut state = AnalysisState::default();
+    state
+        .set_path("root", json!({ "itid": 1 }))
+        .expect("root state");
+    state
+        .set_path(
+            "graph.visited",
+            json!([{
+                "provider": "wakeup",
+                "relation": "wakeup",
+                "edgeType": "wakeup",
+                "source": { "itid": 1 },
+                "target": { "itid": 2 },
+                "annotations": {},
+                "evidenceRefs": ["wakeup_edges"]
+            }]),
+        )
+        .expect("existing visited edge");
+    let rows = vec![(
+        "wakeup_edges",
+        vec![json!({
+            "target_itid": 1,
+            "waker_itid": 2
+        })],
+    )];
+
+    run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
+
+    assert_eq!(
+        state.value()["graph"]["visited"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 0);
 }
 
 #[test]
@@ -1283,4 +1527,15 @@ fn graph_candidate(
         annotations: json!({}),
         evidence_tables: vec!["wakeup_edges".to_string()],
     }
+}
+
+fn generic_walk_step(
+    yaml: &str,
+) -> kat_rs_cli::trace_runtime::analysis::graph::spec::GenericGraphWalkStepSpec {
+    let step: kat_rs_cli::trace_runtime::analysis::plan::AnalysisStepSpec =
+        serde_yaml::from_str(yaml).expect("generic graph walk step");
+    let kat_rs_cli::trace_runtime::analysis::plan::AnalysisStepSpec::GraphWalk(step) = step else {
+        panic!("expected graph.walk step");
+    };
+    step
 }
