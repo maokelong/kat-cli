@@ -1,11 +1,12 @@
 use std::{cmp::Ordering, collections::HashSet};
 
 use anyhow::Result;
-use serde_json::{Number, Value};
+use serde_json::Value;
 
 use super::{
     GraphCandidate,
     binding::{BindingExpr, EvalContext},
+    number::compare_numbers,
     spec::GraphSelectSpec,
 };
 
@@ -153,70 +154,4 @@ fn value_rank(value: &Value) -> u8 {
 
 fn stable_value_key(value: &impl serde::Serialize) -> String {
     serde_json::to_string(value).unwrap_or_default()
-}
-
-fn compare_numbers(left: &Number, right: &Number) -> Option<Ordering> {
-    match (number_kind(left)?, number_kind(right)?) {
-        (NumericValue::Integer(left), NumericValue::Integer(right)) => Some(left.cmp(&right)),
-        (NumericValue::Float(left), NumericValue::Float(right)) => left.partial_cmp(&right),
-        (NumericValue::Integer(left), NumericValue::Float(right)) => {
-            compare_integer_to_float(left, right)
-        }
-        (NumericValue::Float(left), NumericValue::Integer(right)) => {
-            compare_integer_to_float(right, left).map(Ordering::reverse)
-        }
-    }
-}
-
-enum NumericValue {
-    Integer(i128),
-    Float(f64),
-}
-
-fn number_kind(number: &Number) -> Option<NumericValue> {
-    number
-        .as_i64()
-        .map(i128::from)
-        .or_else(|| number.as_u64().map(i128::from))
-        .map(NumericValue::Integer)
-        .or_else(|| {
-            number
-                .as_f64()
-                .filter(|value| value.is_finite())
-                .map(NumericValue::Float)
-        })
-}
-
-fn compare_integer_to_float(integer: i128, float: f64) -> Option<Ordering> {
-    if let Some(float_integer) = float_integer_as_i128(float) {
-        return Some(integer.cmp(&float_integer));
-    }
-    if !float.is_finite() {
-        return None;
-    }
-    if float >= i128::MAX as f64 {
-        return Some(Ordering::Less);
-    }
-    if float < i128::MIN as f64 {
-        return Some(Ordering::Greater);
-    }
-
-    let floor = float_integer_as_i128(float.floor())?;
-    let ceil = float_integer_as_i128(float.ceil())?;
-    if integer <= floor {
-        Some(Ordering::Less)
-    } else if integer >= ceil {
-        Some(Ordering::Greater)
-    } else {
-        None
-    }
-}
-
-fn float_integer_as_i128(value: f64) -> Option<i128> {
-    if !value.is_finite() || value.fract() != 0.0 {
-        return None;
-    }
-
-    let parsed = format!("{value:.0}").parse::<i128>().ok()?;
-    ((parsed as f64) == value).then_some(parsed)
 }

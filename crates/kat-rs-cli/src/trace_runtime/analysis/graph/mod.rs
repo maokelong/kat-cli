@@ -1,6 +1,7 @@
 pub mod binding;
 pub mod evidence;
 pub mod expand;
+pub mod number;
 pub mod predicate;
 pub mod select;
 pub mod spec;
