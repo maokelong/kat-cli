@@ -233,7 +233,7 @@ fn numbers_equal(actual: &Number, expected: &Number) -> bool {
             actual == expected
         }
         (Some(NumericValue::Float(actual)), Some(NumericValue::Float(expected))) => {
-            (actual - expected).abs() < f64::EPSILON
+            actual == expected
         }
         (Some(NumericValue::Integer(actual)), Some(NumericValue::Float(expected))) => {
             float_integer_as_i128(expected).is_some_and(|expected| actual == expected)

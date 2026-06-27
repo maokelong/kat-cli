@@ -579,6 +579,25 @@ fn graph_predicate_preserves_large_integer_equality_precision() {
 }
 
 #[test]
+fn graph_predicate_compares_float_equality_exactly() {
+    let source = json!({});
+    let row = json!({
+        "left": 0.0,
+        "right": f64::MIN_POSITIVE
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let eq: PredicateSpec = serde_yaml::from_str("eq: [row.left, row.right]").expect("eq");
+    let neq: PredicateSpec = serde_yaml::from_str("neq: [row.left, row.right]").expect("neq");
+
+    assert!(!eq.matches(&ctx).expect("eq"));
+    assert!(neq.matches(&ctx).expect("neq"));
+}
+
+#[test]
 fn graph_predicate_preserves_large_integer_ordering_precision() {
     let source = json!({});
     let row = json!({
