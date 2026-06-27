@@ -704,12 +704,18 @@ providers:
     );
     assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 0);
     assert!(evidence.is_empty());
+    assert!(
+        !evidence
+            .iter()
+            .any(|item| item["status"] == json!("partial")),
+        "skipped existing edges intentionally produce no partial evidence"
+    );
     assert!(state.value()["decisions"].as_array().unwrap().is_empty());
 }
 
 #[test]
 fn generic_graph_walk_rejects_invalid_root_from_state_paths() {
-    for from_state in ["root..bad", ""] {
+    for from_state in ["root..bad", "", "root.missing"] {
         let step = generic_walk_step(&format!(
             r#"
 id: generic-walk
@@ -740,6 +746,77 @@ providers:
         assert!(error.contains("root"), "{error}");
         assert!(error.contains("fromState"), "{error}");
         assert!(error.contains(from_state), "{error}");
+    }
+}
+
+#[test]
+fn generic_graph_walk_zero_limits_are_noop_without_no_edge_uncertainty() {
+    for (case, limits) in [
+        (
+            "maxDepth",
+            r#"  maxDepth: 0
+  maxNodes: 10
+  maxEdgesPerNode: 2"#,
+        ),
+        (
+            "maxNodes",
+            r#"  maxDepth: 1
+  maxNodes: 0
+  maxEdgesPerNode: 2"#,
+        ),
+        (
+            "maxEdgesPerNode",
+            r#"  maxDepth: 1
+  maxNodes: 10
+  maxEdgesPerNode: 0"#,
+        ),
+    ] {
+        let step = generic_walk_step(&format!(
+            r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: root
+limits:
+{limits}
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      eq: [source.itid, row.target_itid]
+    expand:
+      node:
+        fields:
+          itid: row.waker_itid
+    output:
+      relation: wakeup
+"#,
+        ));
+        let mut state = AnalysisState::default();
+        state
+            .set_path("root", json!({ "itid": 1 }))
+            .expect("root state");
+        let rows = vec![(
+            "wakeup_edges",
+            vec![json!({
+                "target_itid": 1,
+                "waker_itid": 2
+            })],
+        )];
+
+        let evidence = run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect(case);
+
+        assert_eq!(
+            state.value()["frontier"]["nodes"],
+            json!([{ "itid": 1 }]),
+            "{case}"
+        );
+        assert!(evidence.is_empty(), "{case}");
+        assert!(
+            state.value()["decisions"].as_array().unwrap().is_empty(),
+            "{case}"
+        );
     }
 }
 

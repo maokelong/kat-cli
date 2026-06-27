@@ -23,25 +23,26 @@ pub fn run_graph_walk_on_rows_v2(
     params: &Value,
     table_rows: &[(&str, Vec<Value>)],
 ) -> Result<Vec<Value>> {
-    let root = value_at_path(state.value(), &step.root.from_state, "root.fromState")
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "invalid root fromState path {:?}: {error}",
-                step.root.from_state
-            )
-        })?
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let root = root_value_from_state(state, &step.root.from_state)?;
     let mut frontier = match root {
         Value::Array(nodes) => nodes,
         root => vec![root],
     };
+
+    if step.limits.max_depth == 0
+        || step.limits.max_nodes == 0
+        || step.limits.max_edges_per_node == 0
+    {
+        state.set_path("frontier.nodes", Value::Array(frontier))?;
+        return Ok(Vec::new());
+    }
+
     let mut visited_keys = visited_keys_from_state(state)?;
     let mut selected_edges = Vec::new();
     let mut decisions = Vec::new();
     let mut evidence = Vec::new();
     let mut selected_count = 0usize;
-    let mut saw_candidate = false;
+    let mut saw_provider_candidate = false;
 
     for _depth in 0..step.limits.max_depth {
         if frontier.is_empty() || selected_count >= step.limits.max_nodes {
@@ -73,7 +74,7 @@ pub fn run_graph_walk_on_rows_v2(
                     table_rows,
                 )?;
                 if !candidates.is_empty() {
-                    saw_candidate = true;
+                    saw_provider_candidate = true;
                 }
                 let selected =
                     select_candidates(candidates, &provider.select, facts, state.value(), params)?;
@@ -107,7 +108,7 @@ pub fn run_graph_walk_on_rows_v2(
 
     state.set_path("frontier.nodes", Value::Array(frontier))?;
 
-    if selected_edges.is_empty() && saw_candidate {
+    if selected_edges.is_empty() && saw_provider_candidate {
         return Ok(evidence);
     }
 
@@ -197,6 +198,13 @@ fn rows_for_table<'a>(table_rows: &'a [(&str, Vec<Value>)], table: &str) -> &'a 
         .find(|(name, _)| *name == table)
         .map(|(_, rows)| rows.as_slice())
         .unwrap_or(&[])
+}
+
+fn root_value_from_state(state: &AnalysisState, path: &str) -> Result<Value> {
+    value_at_path(state.value(), path, "root.fromState")
+        .map_err(|error| anyhow::anyhow!("invalid root fromState path {path:?}: {error}"))?
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("root fromState path {path:?} was not found"))
 }
 
 fn visited_keys_from_state(state: &AnalysisState) -> Result<BTreeSet<String>> {
