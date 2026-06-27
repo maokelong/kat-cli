@@ -8,6 +8,7 @@ pub use crate::trace_runtime::analysis::graph::spec::{
     GraphExpandSpec, GraphNodeExpandSpec, GraphOrderBySpec, GraphOutputSpec,
     GraphProviderInputSpec, GraphProviderSpec, GraphSelectSpec, GraphValueSpec,
 };
+pub use crate::trace_runtime::analysis::graph::{binding::BindingExpr, predicate::PredicateSpec};
 pub use crate::trace_runtime::analysis::plan::{
     AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, ConditionOp, EdgeEmitSpec,
     EdgeFactRowSpec, EdgeFactSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,

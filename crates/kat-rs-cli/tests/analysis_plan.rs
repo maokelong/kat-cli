@@ -264,3 +264,80 @@ steps:
     assert_eq!(step.providers[0].input.table, "wakeup_edges");
     assert_eq!(step.providers[0].output.relation, "wakeup");
 }
+
+#[test]
+fn generic_graph_walk_plan_parses_defaults_and_value_specs() {
+    use kat_rs_cli::trace_runtime::pack::spec::{AnalysisStepSpec, GraphValueSpec};
+
+    let yaml = r#"
+id: generic.problem_analysis
+steps:
+  - id: walk_dependencies
+    kind: graph.walk
+    root:
+      fromState: root
+    providers:
+      - id: wakeup
+        input:
+          table: wakeup_edges
+        match:
+          all: []
+        expand:
+          node:
+            sameAs: source
+            fields:
+              itid: row.waker_itid
+              waitMs:
+                value: row.wait_ns
+                scale: 0.000001
+        select:
+          orderBy:
+            - expr: row.wait_ns
+              desc: true
+          dedupeBy:
+            - node.itid
+            - node.start_ts
+        output:
+          relation: wakeup
+          evidence:
+            tables: [wakeup_edges, sched_slice]
+          annotations:
+            waitMs:
+              value: row.wait_ns
+              scale: 0.000001
+"#;
+
+    let spec: kat_rs_cli::trace_runtime::pack::spec::AnalysisSpec =
+        serde_yaml::from_str(yaml).expect("generic graph walk defaults and values");
+
+    let AnalysisStepSpec::GraphWalk(step) = &spec.steps[0] else {
+        panic!("expected graph.walk step");
+    };
+    assert_eq!(step.limits.max_depth, 3);
+    assert_eq!(step.limits.max_nodes, 50);
+    assert_eq!(step.limits.max_edges_per_node, 3);
+
+    let provider = &step.providers[0];
+    assert_eq!(provider.expand.node.same_as.as_ref().unwrap().0, "source");
+    assert!(provider.expand.node.fields.contains_key("itid"));
+    let GraphValueSpec::Scaled { value, scale } = &provider.expand.node.fields["waitMs"] else {
+        panic!("expected scaled node field");
+    };
+    assert_eq!(value.0, "row.wait_ns");
+    assert_eq!(*scale, 0.000001);
+
+    assert_eq!(provider.select.order_by.len(), 1);
+    assert_eq!(provider.select.order_by[0].expr.0, "row.wait_ns");
+    assert!(provider.select.order_by[0].desc);
+    assert_eq!(provider.select.dedupe_by.len(), 2);
+    assert_eq!(
+        provider.output.evidence.tables,
+        ["wakeup_edges", "sched_slice"]
+    );
+
+    let GraphValueSpec::Scaled { value, scale } = &provider.output.annotations["waitMs"] else {
+        panic!("expected scaled annotation");
+    };
+    assert_eq!(value.0, "row.wait_ns");
+    assert_eq!(*scale, 0.000001);
+}

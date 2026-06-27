@@ -72,7 +72,9 @@ pub struct GraphExpandSpec {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphNodeExpandSpec {
     #[serde(default)]
-    pub fields: BTreeMap<String, BindingExpr>,
+    pub same_as: Option<BindingExpr>,
+    #[serde(default)]
+    pub fields: BTreeMap<String, GraphValueSpec>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
