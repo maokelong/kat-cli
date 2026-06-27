@@ -126,10 +126,9 @@ impl<'de> Deserialize<'de> for GraphValueSpec {
         D: Deserializer<'de>,
     {
         let raw = Value::deserialize(deserializer)?;
-        if raw
-            .as_object()
-            .is_some_and(|object| object.contains_key("value") || object.contains_key("scale"))
-        {
+        if raw.as_object().is_some_and(|object| {
+            object.len() == 2 && object.contains_key("value") && object.contains_key("scale")
+        }) {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct ScaledGraphValueSpec {

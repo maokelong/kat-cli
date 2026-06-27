@@ -9,6 +9,7 @@ use kat_rs_cli::trace_runtime::pack::{
     spec::{
         AnalysisInputSpec, AnalysisRequiresSpec, AnalysisSpec, AnalysisStepSpec, ConditionOp,
         EdgeEmitSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,
+        GenericGraphRootSpec, GenericGraphWalkLimitsSpec, GenericGraphWalkStepSpec,
         GraphWalkLimitsSpec, GraphWalkRootSpec, GraphWalkStepSpec, InputTables, MarkerSourceSpec,
         ReportRenderStepSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec,
     },
@@ -207,6 +208,35 @@ fn runner_materializes_provider_with_state_from_evidence_render() {
     assert!(evidence.contains("state_provider"), "{evidence}");
 }
 
+#[test]
+fn graph_walk_runner_guard() {
+    let dir = tempdir().expect("tempdir");
+    let raw_db = dir.path().join("raw.db");
+    Connection::open(&raw_db).expect("raw db");
+    let run_root = dir.path().join("runs");
+
+    let error = run_analysis(AnalysisRunConfig {
+        raw_db,
+        scratch_db: dir.path().join("scratch.db"),
+        run_root: run_root.clone(),
+        run_id: "graph-walk-guard".to_string(),
+        pack: generic_graph_walk_pack(dir.path().to_path_buf()),
+        analysis_id: "synthetic.graph_walk_guard".to_string(),
+        params: json!({}),
+    })
+    .expect_err("graph.walk guard should fail");
+    let message = error.to_string();
+    assert!(message.contains("graph.walk step"), "{message}");
+    assert!(message.contains("not executable yet"), "{message}");
+
+    let output = run_root.join("graph-walk-guard");
+    assert!(output.is_dir());
+    assert!(output.join("plan.json").is_file());
+    assert!(!output.join("state.json").exists());
+    assert!(!output.join("report.md").exists());
+    assert!(!output.join("evidence.jsonl").exists());
+}
+
 fn create_minimal_trace_fixture(path: &std::path::Path) {
     let conn = Connection::open(path).expect("raw db");
     conn.execute_batch(
@@ -356,6 +386,36 @@ fn state_filtered_provider_pack(root: PathBuf) -> LoadedPack {
                     id: "render_report".to_string(),
                 }),
             ],
+        }],
+        rule_sets: Vec::new(),
+    }
+}
+
+fn generic_graph_walk_pack(root: PathBuf) -> LoadedPack {
+    LoadedPack {
+        root,
+        manifest: PackManifest {
+            id: "synthetic".to_string(),
+            name: None,
+            schemas: Vec::new(),
+            derived: Vec::new(),
+            queries: Vec::new(),
+            analyses: Vec::new(),
+            rules: Vec::new(),
+        },
+        transforms: Vec::new(),
+        analyses: vec![AnalysisSpec {
+            id: "synthetic.graph_walk_guard".to_string(),
+            inputs: BTreeMap::new(),
+            requires: AnalysisRequiresSpec::default(),
+            steps: vec![AnalysisStepSpec::GraphWalk(GenericGraphWalkStepSpec {
+                id: "walk_dependencies".to_string(),
+                root: GenericGraphRootSpec {
+                    from_state: "root".to_string(),
+                },
+                limits: GenericGraphWalkLimitsSpec::default(),
+                providers: Vec::new(),
+            })],
         }],
         rule_sets: Vec::new(),
     }
