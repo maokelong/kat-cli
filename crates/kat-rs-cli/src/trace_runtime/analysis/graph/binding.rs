@@ -47,8 +47,8 @@ impl<'de> Deserialize<'de> for BindingExpr {
     {
         let value = Value::deserialize(deserializer)?;
         Ok(match value {
-            Value::String(value) if is_supported_root_path(&value) => Self::Path(value),
             Value::String(value) if value.contains("${") => Self::Template(value),
+            Value::String(value) if is_supported_root_path(&value) => Self::Path(value),
             value => Self::Literal(value),
         })
     }

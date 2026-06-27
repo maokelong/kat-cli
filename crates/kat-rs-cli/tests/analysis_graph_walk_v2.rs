@@ -93,6 +93,11 @@ fn graph_binding_deserializes_paths_templates_and_literals() {
         BindingExpr::Template("${row.label}".to_string())
     );
     assert_eq!(
+        serde_yaml::from_str::<BindingExpr>("'row.${field}'")
+            .expect("template with path-like prefix"),
+        BindingExpr::Template("row.${field}".to_string())
+    );
+    assert_eq!(
         serde_yaml::from_str::<BindingExpr>("plain_label").expect("literal string"),
         BindingExpr::Literal(json!("plain_label"))
     );
