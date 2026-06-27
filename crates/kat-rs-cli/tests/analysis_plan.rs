@@ -36,7 +36,10 @@ fn critical_path_plan_parses_typed_steps_and_graph_walk_config() {
             assert_eq!(step.root.from_state, "root");
             assert_eq!(step.limits.max_depth, 3);
             assert_eq!(step.limits.max_nodes, 50);
-            assert_eq!(step.limits.max_edges_per_node, 3);
+            assert_eq!(
+                step.limits.max_edges_per_node, 4,
+                "critical path fanout must allow all four providers so self_top_span cannot crowd out downstream_frame"
+            );
             let provider_ids = step
                 .providers
                 .iter()

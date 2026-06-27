@@ -27,7 +27,7 @@ steps:
     limits:
       maxDepth: 3
       maxNodes: 50
-      maxEdgesPerNode: 3
+      maxEdgesPerNode: 4
     providers:
       - id: self_execution
         input:
