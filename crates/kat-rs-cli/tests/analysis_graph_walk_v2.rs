@@ -171,3 +171,29 @@ fn graph_binding_handles_missing_node_errors_inline_rendering_and_serialization(
         json!({ "literal": true })
     );
 }
+
+#[test]
+fn graph_binding_rejects_malformed_templates() {
+    let source = json!({ "itid": 405 });
+    let row = json!({ "label": "RenderThread" });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = EvalContext {
+        source: &source,
+        row: &row,
+        facts: &facts,
+        state: &state,
+        params: &params,
+        node: None,
+    };
+
+    for template in ["${row.label}}", "${row.label", "${}", "${   }"] {
+        assert!(
+            BindingExpr::Template(template.to_string())
+                .resolve(&ctx)
+                .is_err(),
+            "expected malformed template to fail: {template}"
+        );
+    }
+}

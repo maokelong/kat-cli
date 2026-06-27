@@ -55,8 +55,10 @@ impl<'de> Deserialize<'de> for BindingExpr {
 }
 
 fn resolve_template(template: &str, ctx: &EvalContext<'_>) -> Result<Option<Value>> {
-    if let Some(path) = exact_template_path(template) {
-        return resolve_path(path, ctx);
+    if template.starts_with("${") {
+        if let Some(path) = exact_template_path(template)? {
+            return resolve_path(path, ctx);
+        }
     }
 
     let mut rendered = String::new();
@@ -68,6 +70,7 @@ fn resolve_template(template: &str, ctx: &EvalContext<'_>) -> Result<Option<Valu
             bail!("unterminated binding template placeholder");
         };
         let path = &placeholder[..end];
+        validate_template_path(path)?;
         if let Some(value) = resolve_path(path, ctx)? {
             rendered.push_str(&render_inline_value(&value));
         }
@@ -78,11 +81,36 @@ fn resolve_template(template: &str, ctx: &EvalContext<'_>) -> Result<Option<Valu
     Ok(Some(Value::String(rendered)))
 }
 
-fn exact_template_path(template: &str) -> Option<&str> {
-    template
-        .strip_prefix("${")
-        .and_then(|path| path.strip_suffix('}'))
-        .filter(|path| !path.contains("${"))
+fn exact_template_path(template: &str) -> Result<Option<&str>> {
+    let Some(rest) = template.strip_prefix("${") else {
+        return Ok(None);
+    };
+    let Some(end) = rest.find('}') else {
+        bail!("unterminated binding template placeholder");
+    };
+    let trailing = &rest[end + 1..];
+    if trailing.is_empty() {
+        let path = &rest[..end];
+        validate_template_path(path)?;
+        return Ok(Some(path));
+    }
+    if trailing.starts_with('}') {
+        bail!("unexpected trailing content after exact binding template");
+    }
+
+    let path = &rest[..end];
+    validate_template_path(path)?;
+    Ok(None)
+}
+
+fn validate_template_path(path: &str) -> Result<()> {
+    if path.trim().is_empty() {
+        bail!("empty binding template placeholder");
+    }
+    if path.contains("${") {
+        bail!("nested binding template placeholder");
+    }
+    Ok(())
 }
 
 fn render_inline_value(value: &Value) -> String {
