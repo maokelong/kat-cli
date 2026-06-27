@@ -1,5 +1,8 @@
 pub mod binding;
+pub mod evidence;
+pub mod expand;
 pub mod predicate;
+pub mod select;
 pub mod spec;
 
 use serde_json::Value;

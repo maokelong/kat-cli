@@ -211,6 +211,250 @@ fn graph_binding_value_spec_falls_back_to_explicit_literal() {
 }
 
 #[test]
+fn graph_expand_builds_nested_node_annotations_and_same_as_fallback() {
+    use kat_rs_cli::trace_runtime::analysis::graph::{
+        expand::{expand_node, output_annotations},
+        spec::GraphProviderSpec,
+    };
+
+    let provider_yaml = r#"
+id: wakeup
+input:
+  table: wakeup_edges
+match:
+  exists: row.waker_itid
+expand:
+  node:
+    fields:
+      kind: thread_window
+      itid: row.waker_itid
+      window.startTs: row.waker_start_ts
+      window.endTs: row.wake_ts
+      missing: row.missing
+output:
+  relation: wakeup
+  annotations:
+    wakeTs: row.wake_ts
+    waitMs:
+      value: row.wait_ns
+      scale: 0.000001
+"#;
+    let provider: GraphProviderSpec = serde_yaml::from_str(provider_yaml).expect("provider");
+    let source = json!({ "itid": 405 });
+    let row = json!({
+        "waker_itid": 406,
+        "waker_start_ts": 10,
+        "wake_ts": 20,
+        "wait_ns": 2_500_000
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let node = expand_node(&provider.expand, &ctx).expect("expanded node");
+    assert_eq!(
+        node,
+        json!({
+            "kind": "thread_window",
+            "itid": 406,
+            "window": {
+                "startTs": 10,
+                "endTs": 20
+            }
+        })
+    );
+
+    let annotations = output_annotations(&provider.output, &ctx).expect("annotations");
+    assert_eq!(
+        annotations,
+        json!({
+            "wakeTs": 20,
+            "waitMs": 2.5
+        })
+    );
+
+    let same_as_provider: GraphProviderSpec = serde_yaml::from_str(
+        r#"
+id: direct
+input:
+  table: wakeup_edges
+match:
+  exists: row.waker_itid
+expand:
+  node:
+    sameAs: row.same_node
+    fields:
+      fallback: row.waker_itid
+output:
+  relation: wakeup
+"#,
+    )
+    .expect("sameAs provider");
+    let row_with_same_as = json!({
+        "same_node": {
+            "kind": "thread",
+            "itid": 777
+        },
+        "waker_itid": 406
+    });
+    let ctx_with_same_as = eval_ctx(&source, &row_with_same_as, &facts, &state, &params, None);
+    assert_eq!(
+        expand_node(&same_as_provider.expand, &ctx_with_same_as).expect("sameAs node"),
+        json!({
+            "kind": "thread",
+            "itid": 777
+        })
+    );
+
+    let row_without_same_as = json!({ "waker_itid": 406 });
+    let ctx_without_same_as =
+        eval_ctx(&source, &row_without_same_as, &facts, &state, &params, None);
+    assert_eq!(
+        expand_node(&same_as_provider.expand, &ctx_without_same_as).expect("fallback node"),
+        json!({ "fallback": 406 })
+    );
+}
+
+#[test]
+fn graph_expand_selects_ranked_deduped_limited_candidates_with_missing_sort_values() {
+    use kat_rs_cli::trace_runtime::analysis::graph::{
+        select::select_candidates, spec::GraphSelectSpec,
+    };
+
+    let select: GraphSelectSpec = serde_yaml::from_str(
+        r#"
+limit: 2
+orderBy:
+  - expr: row.wait_ns
+    desc: true
+  - expr: row.label
+dedupeBy:
+  - node.itid
+"#,
+    )
+    .expect("select spec");
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let candidates = vec![
+        graph_candidate(
+            json!({ "rank": 0 }),
+            json!({ "wait_ns": 10, "label": "b" }),
+            json!({ "itid": 1 }),
+        ),
+        graph_candidate(
+            json!({ "rank": 1 }),
+            json!({ "wait_ns": 30, "label": "a" }),
+            json!({ "itid": 1 }),
+        ),
+        graph_candidate(
+            json!({ "rank": 2 }),
+            json!({ "wait_ns": 20, "label": "c" }),
+            json!({ "itid": 2 }),
+        ),
+        graph_candidate(
+            json!({ "rank": 3 }),
+            json!({ "label": "d" }),
+            json!({ "itid": 3 }),
+        ),
+    ];
+
+    let selected =
+        select_candidates(candidates, &select, &facts, &state, &params).expect("selected");
+
+    assert_eq!(selected.len(), 2);
+    assert_eq!(selected[0].row["wait_ns"], json!(30));
+    assert_eq!(selected[0].node["itid"], json!(1));
+    assert_eq!(selected[1].row["wait_ns"], json!(20));
+    assert_eq!(selected[1].node["itid"], json!(2));
+
+    let asc_select: GraphSelectSpec = serde_yaml::from_str(
+        r#"
+orderBy:
+  - expr: row.wait_ns
+"#,
+    )
+    .expect("ascending select");
+    let asc_candidates = vec![
+        graph_candidate(
+            json!({ "rank": 0 }),
+            json!({ "wait_ns": 10 }),
+            json!({ "itid": 1 }),
+        ),
+        graph_candidate(json!({ "rank": 1 }), json!({}), json!({ "itid": 2 })),
+        graph_candidate(
+            json!({ "rank": 2 }),
+            json!({ "wait_ns": 5 }),
+            json!({ "itid": 3 }),
+        ),
+    ];
+    let asc_selected = select_candidates(asc_candidates, &asc_select, &facts, &state, &params)
+        .expect("ascending selected");
+
+    assert_eq!(
+        asc_selected
+            .iter()
+            .map(|candidate| candidate.source["rank"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!(2), json!(0), json!(1)]
+    );
+}
+
+#[test]
+fn graph_expand_candidate_evidence_helpers_emit_expected_json_shape() {
+    use kat_rs_cli::trace_runtime::analysis::graph::{
+        GraphCandidate,
+        evidence::{candidate_decision, candidate_edge, candidate_evidence},
+    };
+
+    let candidate = GraphCandidate {
+        provider_id: "wakeup".to_string(),
+        input_table: "wakeup_edges".to_string(),
+        relation: "wakeup".to_string(),
+        source: json!({ "itid": 405 }),
+        row: json!({ "wake_ts": 20 }),
+        node: json!({ "itid": 406 }),
+        annotations: json!({
+            "wakeTs": 20,
+            "waitMs": 2.5
+        }),
+        evidence_tables: vec!["wakeup_edges".to_string(), "thread_state".to_string()],
+    };
+
+    let edge = candidate_edge(&candidate);
+    assert_eq!(edge["provider"], json!("wakeup"));
+    assert_eq!(edge["relation"], json!("wakeup"));
+    assert_eq!(edge["edgeType"], json!("wakeup"));
+    assert_eq!(edge["source"], json!({ "itid": 405 }));
+    assert_eq!(edge["target"], json!({ "itid": 406 }));
+    assert_eq!(edge["annotations"]["waitMs"], json!(2.5));
+    assert_eq!(
+        edge["evidenceRefs"],
+        json!(["wakeup_edges", "thread_state"])
+    );
+
+    let decision = candidate_decision("step-1", &candidate);
+    assert_eq!(decision["step"], json!("step-1"));
+    assert_eq!(decision["status"], json!("selected"));
+    assert_eq!(decision["provider"], json!("wakeup"));
+    assert_eq!(decision["relation"], json!("wakeup"));
+    assert_eq!(decision["edgeType"], json!("wakeup"));
+
+    let evidence = candidate_evidence("step-1", 3, &candidate).expect("evidence");
+    assert_eq!(evidence["evidenceId"], json!("step-1:3"));
+    assert_eq!(evidence["facts"]["provider"], json!("wakeup"));
+    assert_eq!(evidence["facts"]["relation"], json!("wakeup"));
+    assert_eq!(evidence["facts"]["selectedEdgeType"], json!("wakeup"));
+    assert_eq!(evidence["facts"]["matchedTable"], json!("wakeup_edges"));
+    assert_eq!(evidence["facts"]["annotations"]["wakeTs"], json!(20));
+    assert_eq!(
+        evidence["tableRefs"],
+        json!(["wakeup_edges", "thread_state"])
+    );
+}
+
+#[test]
 fn graph_binding_handles_missing_node_errors_inline_rendering_and_serialization() {
     let source = json!({ "itid": 405 });
     let row = json!({
@@ -1015,5 +1259,22 @@ fn eval_ctx<'a>(
         state,
         params,
         node,
+    }
+}
+
+fn graph_candidate(
+    source: Value,
+    row: Value,
+    node: Value,
+) -> kat_rs_cli::trace_runtime::analysis::graph::GraphCandidate {
+    kat_rs_cli::trace_runtime::analysis::graph::GraphCandidate {
+        provider_id: "wakeup".to_string(),
+        input_table: "wakeup_edges".to_string(),
+        relation: "wakeup".to_string(),
+        source,
+        row,
+        node,
+        annotations: json!({}),
+        evidence_tables: vec!["wakeup_edges".to_string()],
     }
 }
