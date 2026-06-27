@@ -102,6 +102,27 @@ fn graph_binding_deserializes_paths_templates_and_literals() {
         BindingExpr::Literal(json!("plain_label"))
     );
     assert_eq!(
+        serde_yaml::from_str::<BindingExpr>("literal: row.label")
+            .expect("explicit path-looking literal"),
+        BindingExpr::Literal(json!("row.label"))
+    );
+    assert_eq!(
+        serde_yaml::from_str::<BindingExpr>("literal: '${x}'")
+            .expect("explicit template-looking literal"),
+        BindingExpr::Literal(json!("${x}"))
+    );
+    assert_eq!(
+        serde_yaml::from_str::<BindingExpr>("literal:\n  value: x")
+            .expect("explicit object literal"),
+        BindingExpr::Literal(json!({ "value": "x" }))
+    );
+    assert!(
+        serde_yaml::from_str::<BindingExpr>("literal: row.label\nextra: true")
+            .expect_err("explicit literal cannot have extra keys")
+            .to_string()
+            .contains("literal")
+    );
+    assert_eq!(
         serde_yaml::from_str::<BindingExpr>("42").expect("literal number"),
         BindingExpr::Literal(json!(42))
     );

@@ -40,6 +40,9 @@ impl Serialize for BindingExpr {
     }
 }
 
+// Serialization emits the shorthand/canonical shape. The explicit
+// `{ literal: ... }` form is for authors to disambiguate literal strings in
+// specs, not a guaranteed round-trip output shape.
 impl<'de> Deserialize<'de> for BindingExpr {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -47,6 +50,17 @@ impl<'de> Deserialize<'de> for BindingExpr {
     {
         let value = Value::deserialize(deserializer)?;
         Ok(match value {
+            Value::Object(mut object) if object.contains_key("literal") => {
+                if object.len() != 1 {
+                    return Err(serde::de::Error::custom(
+                        "explicit graph binding literal must contain only the 'literal' key",
+                    ));
+                }
+                let literal = object.remove("literal").ok_or_else(|| {
+                    serde::de::Error::custom("explicit graph binding literal missing value")
+                })?;
+                Self::Literal(literal)
+            }
             Value::String(value) if value.contains("${") => Self::Template(value),
             Value::String(value) if is_supported_root_path(&value) => Self::Path(value),
             value => Self::Literal(value),
@@ -67,10 +81,10 @@ fn resolve_template(template: &str, ctx: &EvalContext<'_>) -> Result<Option<Valu
         rendered.push_str(&rest[..start]);
         let placeholder = &rest[start + 2..];
         let Some(end) = placeholder.find('}') else {
-            bail!("unterminated binding template placeholder");
+            bail!("unterminated binding template placeholder in '{template}'");
         };
         let path = &placeholder[..end];
-        validate_template_path(path)?;
+        validate_template_path(path, template)?;
         if let Some(value) = resolve_path(path, ctx)? {
             rendered.push_str(&render_inline_value(&value));
         }
@@ -86,29 +100,29 @@ fn exact_template_path(template: &str) -> Result<Option<&str>> {
         return Ok(None);
     };
     let Some(end) = rest.find('}') else {
-        bail!("unterminated binding template placeholder");
+        bail!("unterminated binding template placeholder in '{template}'");
     };
     let trailing = &rest[end + 1..];
     if trailing.is_empty() {
         let path = &rest[..end];
-        validate_template_path(path)?;
+        validate_template_path(path, template)?;
         return Ok(Some(path));
     }
     if trailing.starts_with('}') {
-        bail!("unexpected trailing content after exact binding template");
+        bail!("unexpected trailing content after exact binding template '{template}'");
     }
 
     let path = &rest[..end];
-    validate_template_path(path)?;
+    validate_template_path(path, template)?;
     Ok(None)
 }
 
-fn validate_template_path(path: &str) -> Result<()> {
+fn validate_template_path(path: &str, template: &str) -> Result<()> {
     if path.trim().is_empty() {
-        bail!("empty binding template placeholder");
+        bail!("empty binding template placeholder in '{template}'");
     }
     if path.contains("${") {
-        bail!("nested binding template placeholder");
+        bail!("nested binding template placeholder '{path}' in '{template}'");
     }
     Ok(())
 }
