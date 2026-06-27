@@ -695,13 +695,52 @@ providers:
         })],
     )];
 
-    run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
+    let evidence =
+        run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &rows).expect("graph walk");
 
     assert_eq!(
         state.value()["graph"]["visited"].as_array().unwrap().len(),
         1
     );
     assert_eq!(state.value()["visitedEdges"].as_array().unwrap().len(), 0);
+    assert!(evidence.is_empty());
+    assert!(state.value()["decisions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn generic_graph_walk_rejects_invalid_root_from_state_paths() {
+    for from_state in ["root..bad", ""] {
+        let step = generic_walk_step(&format!(
+            r#"
+id: generic-walk
+kind: graph.walk
+root:
+  fromState: "{from_state}"
+limits:
+  maxDepth: 1
+providers:
+  - id: wakeup
+    input:
+      table: wakeup_edges
+    match:
+      eq: [source.itid, row.target_itid]
+    expand:
+      node:
+        fields:
+          itid: row.waker_itid
+    output:
+      relation: wakeup
+"#,
+        ));
+        let mut state = AnalysisState::default();
+        let error = run_graph_walk_on_rows_v2(&step, &mut state, &json!({}), &[])
+            .expect_err("invalid root path should fail")
+            .to_string();
+
+        assert!(error.contains("root"), "{error}");
+        assert!(error.contains("fromState"), "{error}");
+        assert!(error.contains(from_state), "{error}");
+    }
 }
 
 #[test]

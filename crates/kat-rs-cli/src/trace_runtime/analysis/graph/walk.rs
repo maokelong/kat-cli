@@ -23,7 +23,13 @@ pub fn run_graph_walk_on_rows_v2(
     params: &Value,
     table_rows: &[(&str, Vec<Value>)],
 ) -> Result<Vec<Value>> {
-    let root = value_at_path(state.value(), &step.root.from_state)
+    let root = value_at_path(state.value(), &step.root.from_state, "root.fromState")
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "invalid root fromState path {:?}: {error}",
+                step.root.from_state
+            )
+        })?
         .cloned()
         .unwrap_or_else(|| json!({}));
     let mut frontier = match root {
@@ -35,6 +41,7 @@ pub fn run_graph_walk_on_rows_v2(
     let mut decisions = Vec::new();
     let mut evidence = Vec::new();
     let mut selected_count = 0usize;
+    let mut saw_candidate = false;
 
     for _depth in 0..step.limits.max_depth {
         if frontier.is_empty() || selected_count >= step.limits.max_nodes {
@@ -65,6 +72,9 @@ pub fn run_graph_walk_on_rows_v2(
                     params,
                     table_rows,
                 )?;
+                if !candidates.is_empty() {
+                    saw_candidate = true;
+                }
                 let selected =
                     select_candidates(candidates, &provider.select, facts, state.value(), params)?;
 
@@ -96,6 +106,10 @@ pub fn run_graph_walk_on_rows_v2(
     }
 
     state.set_path("frontier.nodes", Value::Array(frontier))?;
+
+    if selected_edges.is_empty() && saw_candidate {
+        return Ok(evidence);
+    }
 
     if selected_edges.is_empty() {
         append_state_values(
@@ -188,7 +202,7 @@ fn rows_for_table<'a>(table_rows: &'a [(&str, Vec<Value>)], table: &str) -> &'a 
 fn visited_keys_from_state(state: &AnalysisState) -> Result<BTreeSet<String>> {
     let mut keys = BTreeSet::new();
     for path in ["graph.visited", "visitedEdges"] {
-        let Some(edges) = value_at_path(state.value(), path) else {
+        let Some(edges) = value_at_path(state.value(), path, path)? else {
             continue;
         };
         let Value::Array(edges) = edges else {
@@ -231,19 +245,26 @@ fn visited_key_for_edge(edge: &Value) -> Result<String> {
     ))?)
 }
 
-fn value_at_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+fn value_at_path<'a>(value: &'a Value, path: &str, context: &str) -> Result<Option<&'a Value>> {
+    if path.is_empty() {
+        bail!("empty analysis state path for {context}");
+    }
+
     let mut current = value;
     for segment in path.split('.') {
         if segment.is_empty() {
-            return None;
+            bail!("empty analysis state path segment in {context} path {path:?}");
         }
-        current = current.get(segment)?;
+        let Some(next) = current.get(segment) else {
+            return Ok(None);
+        };
+        current = next;
     }
-    Some(current)
+    Ok(Some(current))
 }
 
 fn append_state_values(state: &mut AnalysisState, path: &str, values: Vec<Value>) -> Result<()> {
-    let mut array = match value_at_path(state.value(), path)
+    let mut array = match value_at_path(state.value(), path, path)?
         .cloned()
         .unwrap_or_else(|| json!([]))
     {
