@@ -200,3 +200,67 @@ steps:
         );
     }
 }
+
+#[test]
+fn generic_graph_walk_plan_parses_provider_pipeline() {
+    use kat_rs_cli::trace_runtime::pack::spec::AnalysisStepSpec;
+
+    let yaml = r#"
+id: generic.problem_analysis
+steps:
+  - id: walk_dependencies
+    kind: graph.walk
+    root:
+      fromState: root
+    limits:
+      maxDepth: 2
+      maxNodes: 10
+      maxEdgesPerNode: 3
+    providers:
+      - id: wakeup
+        input:
+          table: wakeup_edges
+        match:
+          all:
+            - eq: [source.itid, row.target_itid]
+            - temporal.pointWithin:
+                point: row.wake_ts
+                window:
+                  start: source.start_ts
+                  end: source.end_ts
+        expand:
+          node:
+            fields:
+              itid: row.waker_itid
+              start_ts: row.wake_ts
+              end_ts: row.wake_ts
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.wait_ns
+              desc: true
+          dedupeBy:
+            - node.itid
+        output:
+          relation: wakeup
+          evidence:
+            tables: [wakeup_edges]
+          annotations:
+            wakeTs: row.wake_ts
+"#;
+
+    let spec: kat_rs_cli::trace_runtime::pack::spec::AnalysisSpec =
+        serde_yaml::from_str(yaml).expect("generic graph walk plan");
+
+    let AnalysisStepSpec::GraphWalk(step) = &spec.steps[0] else {
+        panic!("expected graph.walk step");
+    };
+    assert_eq!(step.id, "walk_dependencies");
+    assert_eq!(step.root.from_state, "root");
+    assert_eq!(step.limits.max_depth, 2);
+    assert_eq!(step.limits.max_nodes, 10);
+    assert_eq!(step.limits.max_edges_per_node, 3);
+    assert_eq!(step.providers[0].id, "wakeup");
+    assert_eq!(step.providers[0].input.table, "wakeup_edges");
+    assert_eq!(step.providers[0].output.relation, "wakeup");
+}

@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::trace_runtime::analysis::graph::spec::GenericGraphWalkStepSpec;
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisInputSpec {
@@ -24,6 +26,8 @@ pub struct AnalysisRequiresSpec {
 pub enum AnalysisStepSpec {
     #[serde(rename = "evidence.render")]
     EvidenceRender(EvidenceRenderStepSpec),
+    #[serde(rename = "graph.walk")]
+    GraphWalk(GenericGraphWalkStepSpec),
     #[serde(rename = "temporal.graph_walk")]
     TemporalGraphWalk(GraphWalkStepSpec),
     #[serde(rename = "report.render")]

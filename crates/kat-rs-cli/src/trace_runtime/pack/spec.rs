@@ -3,6 +3,11 @@ use std::{collections::BTreeMap, path::PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use crate::trace_runtime::analysis::graph::spec::{
+    GenericGraphRootSpec, GenericGraphWalkLimitsSpec, GenericGraphWalkStepSpec, GraphEvidenceSpec,
+    GraphExpandSpec, GraphNodeExpandSpec, GraphOrderBySpec, GraphOutputSpec,
+    GraphProviderInputSpec, GraphProviderSpec, GraphSelectSpec, GraphValueSpec,
+};
 pub use crate::trace_runtime::analysis::plan::{
     AnalysisInputSpec, AnalysisRequiresSpec, AnalysisStepSpec, ConditionOp, EdgeEmitSpec,
     EdgeFactRowSpec, EdgeFactSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,

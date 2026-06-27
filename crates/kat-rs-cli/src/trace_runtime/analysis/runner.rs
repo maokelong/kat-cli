@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use crate::trace_runtime::{
@@ -78,6 +78,9 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
                     store.append_evidence(&item)?;
                     evidence.push(item);
                 }
+            }
+            AnalysisStepSpec::GraphWalk(step) => {
+                bail!("graph.walk step `{}` is not executable yet", step.id);
             }
             AnalysisStepSpec::ReportRender(_) => {
                 let report = run_report_render(state.value(), &evidence)?;
