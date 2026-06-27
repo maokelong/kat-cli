@@ -384,6 +384,32 @@ all:
 }
 
 #[test]
+fn graph_predicate_numeric_comparisons_treat_missing_and_non_numeric_as_false() {
+    let source = json!({});
+    let row = json!({
+        "label": "Sleeping",
+        "rank": 3
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    for yaml in [
+        "gt: [row.missing, 1]",
+        "gte: [row.label, 1]",
+        "lt: [row.missing, 1]",
+        "lte: [row.label, 1]",
+    ] {
+        let predicate: PredicateSpec = serde_yaml::from_str(yaml).expect("predicate");
+        assert!(
+            !predicate.matches(&ctx).expect("predicate"),
+            "expected predicate to be false: {yaml}"
+        );
+    }
+}
+
+#[test]
 fn graph_predicate_exists_is_false_for_null() {
     let predicate: PredicateSpec = serde_yaml::from_str("exists: row.value").expect("predicate");
     let source = json!({});
@@ -440,6 +466,66 @@ temporal.overlaps:
     )
     .expect("touching predicate");
     assert!(!touching.matches(&ctx).expect("touching"));
+}
+
+#[test]
+fn graph_predicate_temporal_conditions_treat_missing_and_non_numeric_as_false() {
+    let source = json!({
+        "start_ts": 10,
+        "end_ts": 20,
+        "label": "not-a-timestamp"
+    });
+    let row = json!({
+        "point": 15,
+        "start_ts": 12,
+        "end_ts": 18,
+        "label": "also-not-a-timestamp"
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    for yaml in [
+        r#"
+temporal.pointWithin:
+  point: row.missing
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+        r#"
+temporal.pointWithin:
+  point: row.label
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+        r#"
+temporal.overlaps:
+  left:
+    start: source.missing
+    end: source.end_ts
+  right:
+    start: row.start_ts
+    end: row.end_ts
+"#,
+        r#"
+temporal.overlaps:
+  left:
+    start: source.start_ts
+    end: source.end_ts
+  right:
+    start: row.start_ts
+    end: row.label
+"#,
+    ] {
+        let predicate: PredicateSpec = serde_yaml::from_str(yaml).expect("predicate");
+        assert!(
+            !predicate.matches(&ctx).expect("predicate"),
+            "expected temporal predicate to be false: {yaml}"
+        );
+    }
 }
 
 #[test]
