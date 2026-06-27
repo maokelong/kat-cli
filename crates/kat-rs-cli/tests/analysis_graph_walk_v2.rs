@@ -148,6 +148,14 @@ fn graph_binding_round_trips_serialized_shapes() {
         BindingExpr::Literal(json!("plain"))
     );
     assert_eq!(
+        round_trip(BindingExpr::Literal(json!("row.label"))),
+        BindingExpr::Literal(json!("row.label"))
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!("${x}"))),
+        BindingExpr::Literal(json!("${x}"))
+    );
+    assert_eq!(
         round_trip(BindingExpr::Literal(json!(42))),
         BindingExpr::Literal(json!(42))
     );
@@ -169,6 +177,21 @@ fn graph_binding_round_trips_serialized_shapes() {
             "label": "x"
         }))
     );
+}
+
+#[test]
+fn graph_binding_value_spec_round_trips_literal_scaled_shape() {
+    use kat_rs_cli::trace_runtime::pack::spec::GraphValueSpec;
+
+    let value = GraphValueSpec::Value(BindingExpr::Literal(json!({
+        "value": "x",
+        "scale": 1.0
+    })));
+    let serialized = serde_json::to_value(&value).expect("serialize graph value");
+    let round_tripped: GraphValueSpec =
+        serde_json::from_value(serialized).expect("deserialize graph value");
+
+    assert_eq!(round_tripped, value);
 }
 
 #[test]

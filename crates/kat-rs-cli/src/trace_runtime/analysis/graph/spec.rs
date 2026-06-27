@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
+use serde_json::{Map, Value};
 
 use super::{binding::BindingExpr, predicate::PredicateSpec};
 
@@ -113,11 +113,34 @@ pub struct GraphEvidenceSpec {
     pub tables: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum GraphValueSpec {
     Scaled { value: BindingExpr, scale: f64 },
     Value(BindingExpr),
+}
+
+impl Serialize for GraphValueSpec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Scaled { value, scale } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("value", value)?;
+                map.serialize_entry("scale", scale)?;
+                map.end()
+            }
+            Self::Value(BindingExpr::Literal(Value::Object(object)))
+                if is_exact_scaled_value_shape(object) =>
+            {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("literal", object)?;
+                map.end()
+            }
+            Self::Value(value) => value.serialize(serializer),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for GraphValueSpec {
@@ -126,9 +149,7 @@ impl<'de> Deserialize<'de> for GraphValueSpec {
         D: Deserializer<'de>,
     {
         let raw = Value::deserialize(deserializer)?;
-        if raw.as_object().is_some_and(|object| {
-            object.len() == 2 && object.contains_key("value") && object.contains_key("scale")
-        }) {
+        if raw.as_object().is_some_and(is_exact_scaled_value_shape) {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct ScaledGraphValueSpec {
@@ -147,6 +168,10 @@ impl<'de> Deserialize<'de> for GraphValueSpec {
         let value = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;
         Ok(Self::Value(value))
     }
+}
+
+fn is_exact_scaled_value_shape(object: &Map<String, Value>) -> bool {
+    object.len() == 2 && object.contains_key("value") && object.contains_key("scale")
 }
 
 const fn default_max_depth() -> usize {

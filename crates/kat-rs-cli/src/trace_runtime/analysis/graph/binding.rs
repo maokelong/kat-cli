@@ -34,6 +34,13 @@ impl Serialize for BindingExpr {
         S: Serializer,
     {
         match self {
+            Self::Literal(Value::String(text))
+                if text.contains("${") || is_supported_root_path(text) =>
+            {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("literal", text)?;
+                map.end()
+            }
             Self::Literal(Value::Object(object)) if object.contains_key("literal") => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("literal", object)?;
@@ -45,10 +52,10 @@ impl Serialize for BindingExpr {
     }
 }
 
-// Serialization emits the shorthand/canonical shape, except literal objects
-// containing the reserved `literal` key are escaped to preserve round trips.
-// The explicit `{ literal: ... }` form is mainly an authoring form for
-// ambiguous literal strings in specs.
+// Serialization emits the shorthand/canonical shape, except ambiguous literal
+// strings and literal objects containing the reserved `literal` key are escaped
+// to preserve round trips. The explicit `{ literal: ... }` form is mainly an
+// authoring form for ambiguous literal strings in specs.
 impl<'de> Deserialize<'de> for BindingExpr {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
