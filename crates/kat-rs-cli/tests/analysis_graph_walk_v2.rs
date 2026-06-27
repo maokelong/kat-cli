@@ -129,6 +129,62 @@ fn graph_binding_deserializes_paths_templates_and_literals() {
 }
 
 #[test]
+fn graph_binding_round_trips_serialized_shapes() {
+    fn round_trip(expr: BindingExpr) -> BindingExpr {
+        let value = serde_json::to_value(&expr).expect("serialize binding expr");
+        serde_json::from_value(value).expect("deserialize binding expr")
+    }
+
+    assert_eq!(
+        round_trip(BindingExpr::Path("row.label".to_string())),
+        BindingExpr::Path("row.label".to_string())
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Template("${row.label}".to_string())),
+        BindingExpr::Template("${row.label}".to_string())
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!("plain"))),
+        BindingExpr::Literal(json!("plain"))
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!(42))),
+        BindingExpr::Literal(json!(42))
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!({ "value": "x" }))),
+        BindingExpr::Literal(json!({ "value": "x" }))
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!({ "literal": true }))),
+        BindingExpr::Literal(json!({ "literal": true }))
+    );
+    assert_eq!(
+        round_trip(BindingExpr::Literal(json!({
+            "literal": true,
+            "label": "x"
+        }))),
+        BindingExpr::Literal(json!({
+            "literal": true,
+            "label": "x"
+        }))
+    );
+}
+
+#[test]
+fn graph_binding_value_spec_falls_back_to_explicit_literal() {
+    use kat_rs_cli::trace_runtime::pack::spec::GraphValueSpec;
+
+    let value: GraphValueSpec =
+        serde_yaml::from_str("literal:\n  value: x").expect("graph value explicit literal");
+
+    assert_eq!(
+        value,
+        GraphValueSpec::Value(BindingExpr::Literal(json!({ "value": "x" })))
+    );
+}
+
+#[test]
 fn graph_binding_handles_missing_node_errors_inline_rendering_and_serialization() {
     let source = json!({ "itid": 405 });
     let row = json!({
@@ -187,9 +243,8 @@ fn graph_binding_handles_missing_node_errors_inline_rendering_and_serialization(
         json!("${row.label}")
     );
     assert_eq!(
-        serde_json::to_value(BindingExpr::Literal(json!({ "literal": true })))
-            .expect("literal json"),
-        json!({ "literal": true })
+        serde_json::to_value(BindingExpr::Literal(json!({ "plain": true }))).expect("literal json"),
+        json!({ "plain": true })
     );
 }
 

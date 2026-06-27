@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,15 +34,21 @@ impl Serialize for BindingExpr {
         S: Serializer,
     {
         match self {
+            Self::Literal(Value::Object(object)) if object.contains_key("literal") => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("literal", object)?;
+                map.end()
+            }
             Self::Literal(value) => value.serialize(serializer),
             Self::Path(path) | Self::Template(path) => path.serialize(serializer),
         }
     }
 }
 
-// Serialization emits the shorthand/canonical shape. The explicit
-// `{ literal: ... }` form is for authors to disambiguate literal strings in
-// specs, not a guaranteed round-trip output shape.
+// Serialization emits the shorthand/canonical shape, except literal objects
+// containing the reserved `literal` key are escaped to preserve round trips.
+// The explicit `{ literal: ... }` form is mainly an authoring form for
+// ambiguous literal strings in specs.
 impl<'de> Deserialize<'de> for BindingExpr {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
