@@ -447,7 +447,13 @@ fn graph_expand_candidate_evidence_helpers_emit_expected_json_shape() {
     assert_eq!(evidence["facts"]["relation"], json!("wakeup"));
     assert_eq!(evidence["facts"]["selectedEdgeType"], json!("wakeup"));
     assert_eq!(evidence["facts"]["matchedTable"], json!("wakeup_edges"));
-    assert_eq!(evidence["facts"]["annotations"]["wakeTs"], json!(20));
+    assert_eq!(evidence["facts"]["wakeTs"], json!(20));
+    assert!(
+        !evidence["facts"]
+            .as_object()
+            .expect("facts object")
+            .contains_key("annotations")
+    );
     assert_eq!(
         evidence["tableRefs"],
         json!(["wakeup_edges", "thread_state"])

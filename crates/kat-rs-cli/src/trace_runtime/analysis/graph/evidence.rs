@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::GraphCandidate;
 
@@ -30,16 +30,33 @@ pub fn candidate_evidence(
     index: usize,
     candidate: &GraphCandidate,
 ) -> Result<Value> {
+    let mut facts = Map::new();
+    facts.insert(
+        "provider".to_string(),
+        Value::String(candidate.provider_id.clone()),
+    );
+    facts.insert(
+        "relation".to_string(),
+        Value::String(candidate.relation.clone()),
+    );
+    facts.insert(
+        "selectedEdgeType".to_string(),
+        Value::String(candidate.relation.clone()),
+    );
+    facts.insert(
+        "matchedTable".to_string(),
+        Value::String(candidate.input_table.clone()),
+    );
+    if let Some(annotations) = candidate.annotations.as_object() {
+        for (key, value) in annotations {
+            facts.insert(key.clone(), value.clone());
+        }
+    }
+
     Ok(json!({
         "evidenceId": format!("{step_id}:{index}"),
         "status": "ok",
-        "facts": {
-            "provider": candidate.provider_id,
-            "relation": candidate.relation,
-            "selectedEdgeType": candidate.relation,
-            "matchedTable": candidate.input_table,
-            "annotations": candidate.annotations,
-        },
+        "facts": facts,
         "tableRefs": candidate.evidence_tables,
         "limitations": [],
     }))
