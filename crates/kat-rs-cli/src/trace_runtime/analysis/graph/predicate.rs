@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use anyhow::{Result, bail};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::{Number, Value};
 
 use super::binding::{BindingExpr, EvalContext};
 
@@ -72,10 +74,10 @@ impl PredicateSpec {
             Self::Neq(values) => {
                 compare_resolved(values, ctx, |left, right| !values_equal(left, right))
             }
-            Self::Gt(values) => compare_numeric(values, ctx, |left, right| left > right),
-            Self::Gte(values) => compare_numeric(values, ctx, |left, right| left >= right),
-            Self::Lt(values) => compare_numeric(values, ctx, |left, right| left < right),
-            Self::Lte(values) => compare_numeric(values, ctx, |left, right| left <= right),
+            Self::Gt(values) => compare_numeric(values, ctx, |ordering| ordering.is_gt()),
+            Self::Gte(values) => compare_numeric(values, ctx, |ordering| !ordering.is_lt()),
+            Self::Lt(values) => compare_numeric(values, ctx, |ordering| ordering.is_lt()),
+            Self::Lte(values) => compare_numeric(values, ctx, |ordering| !ordering.is_gt()),
             Self::Exists(expr) => Ok(expr
                 .resolve(ctx)?
                 .map(|value| !value.is_null())
@@ -87,9 +89,12 @@ impl PredicateSpec {
                 let Some((start, end)) = resolve_window(&spec.window, ctx)? else {
                     return Ok(false);
                 };
-                ensure_valid_window(start, end)?;
+                ensure_valid_window("temporal.pointWithin window", &start, &end)?;
 
-                Ok(point >= start && point <= end)
+                Ok(
+                    compare_numbers(&point, &start).is_some_and(|ordering| !ordering.is_lt())
+                        && compare_numbers(&point, &end).is_some_and(|ordering| !ordering.is_gt()),
+                )
             }
             Self::TemporalOverlaps(spec) => {
                 let Some((left_start, left_end)) = resolve_window(&spec.left, ctx)? else {
@@ -98,10 +103,13 @@ impl PredicateSpec {
                 let Some((right_start, right_end)) = resolve_window(&spec.right, ctx)? else {
                     return Ok(false);
                 };
-                ensure_valid_window(left_start, left_end)?;
-                ensure_valid_window(right_start, right_end)?;
+                ensure_valid_window("temporal.overlaps left window", &left_start, &left_end)?;
+                ensure_valid_window("temporal.overlaps right window", &right_start, &right_end)?;
 
-                Ok(left_start < right_end && right_start < left_end)
+                Ok(compare_numbers(&left_start, &right_end)
+                    .is_some_and(|ordering| ordering.is_lt())
+                    && compare_numbers(&right_start, &left_end)
+                        .is_some_and(|ordering| ordering.is_lt()))
             }
         }
     }
@@ -171,7 +179,7 @@ fn compare_resolved(
 fn compare_numeric(
     values: &[BindingExpr; 2],
     ctx: &EvalContext<'_>,
-    compare: impl FnOnce(f64, f64) -> bool,
+    compare: impl FnOnce(Ordering) -> bool,
 ) -> Result<bool> {
     let Some(left) = resolve_number(&values[0], ctx)? else {
         return Ok(false);
@@ -180,17 +188,20 @@ fn compare_numeric(
         return Ok(false);
     };
 
-    Ok(compare(left, right))
+    Ok(compare_numbers(&left, &right).map(compare).unwrap_or(false))
 }
 
-fn resolve_number(expr: &BindingExpr, ctx: &EvalContext<'_>) -> Result<Option<f64>> {
-    Ok(expr.resolve(ctx)?.and_then(|value| value.as_f64()))
+fn resolve_number(expr: &BindingExpr, ctx: &EvalContext<'_>) -> Result<Option<Number>> {
+    Ok(expr.resolve(ctx)?.and_then(|value| match value {
+        Value::Number(number) => Some(number),
+        _ => None,
+    }))
 }
 
 fn resolve_window(
     window: &TemporalWindowSpec,
     ctx: &EvalContext<'_>,
-) -> Result<Option<(f64, f64)>> {
+) -> Result<Option<(Number, Number)>> {
     let Some(start) = resolve_number(&window.start, ctx)? else {
         return Ok(None);
     };
@@ -201,17 +212,41 @@ fn resolve_window(
     Ok(Some((start, end)))
 }
 
-fn ensure_valid_window(start: f64, end: f64) -> Result<()> {
-    if end < start {
-        bail!("temporal predicate window end must be greater than or equal to start");
+fn ensure_valid_window(context: &str, start: &Number, end: &Number) -> Result<()> {
+    if compare_numbers(end, start).is_some_and(|ordering| ordering.is_lt()) {
+        bail!("{context} end must be greater than or equal to start");
     }
 
     Ok(())
 }
 
 fn values_equal(actual: &Value, expected: &Value) -> bool {
-    match (actual.as_f64(), expected.as_f64()) {
-        (Some(actual), Some(expected)) => (actual - expected).abs() < f64::EPSILON,
+    match (actual, expected) {
+        (Value::Number(actual), Value::Number(expected)) => numbers_equal(actual, expected),
         _ => actual == expected,
     }
+}
+
+fn numbers_equal(actual: &Number, expected: &Number) -> bool {
+    match (number_as_i128(actual), number_as_i128(expected)) {
+        (Some(actual), Some(expected)) => actual == expected,
+        _ => match (actual.as_f64(), expected.as_f64()) {
+            (Some(actual), Some(expected)) => (actual - expected).abs() < f64::EPSILON,
+            _ => false,
+        },
+    }
+}
+
+fn compare_numbers(left: &Number, right: &Number) -> Option<Ordering> {
+    match (number_as_i128(left), number_as_i128(right)) {
+        (Some(left), Some(right)) => Some(left.cmp(&right)),
+        _ => left.as_f64()?.partial_cmp(&right.as_f64()?),
+    }
+}
+
+fn number_as_i128(number: &Number) -> Option<i128> {
+    number
+        .as_i64()
+        .map(i128::from)
+        .or_else(|| number.as_u64().map(i128::from))
 }

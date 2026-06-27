@@ -469,8 +469,123 @@ temporal.pointWithin:
             .matches(&ctx)
             .expect_err("invalid window")
             .to_string()
-            .contains("end")
+            .contains("temporal.pointWithin window")
     );
+}
+
+#[test]
+fn graph_predicate_preserves_large_integer_equality_precision() {
+    let source = json!({});
+    let row = json!({
+        "left": 9007199254740992_u64,
+        "right": 9007199254740993_u64
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let eq: PredicateSpec = serde_yaml::from_str("eq: [row.left, row.right]").expect("eq");
+    let neq: PredicateSpec = serde_yaml::from_str("neq: [row.left, row.right]").expect("neq");
+
+    assert!(!eq.matches(&ctx).expect("eq"));
+    assert!(neq.matches(&ctx).expect("neq"));
+}
+
+#[test]
+fn graph_predicate_preserves_large_integer_ordering_precision() {
+    let source = json!({});
+    let row = json!({
+        "low": 9007199254740992_u64,
+        "high": 9007199254740993_u64
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let gt: PredicateSpec = serde_yaml::from_str("gt: [row.high, row.low]").expect("gt");
+    let lte_false: PredicateSpec =
+        serde_yaml::from_str("lte: [row.high, row.low]").expect("lte false");
+    let lte_true: PredicateSpec =
+        serde_yaml::from_str("lte: [row.low, row.high]").expect("lte true");
+
+    assert!(gt.matches(&ctx).expect("gt"));
+    assert!(!lte_false.matches(&ctx).expect("lte false"));
+    assert!(lte_true.matches(&ctx).expect("lte true"));
+}
+
+#[test]
+fn graph_predicate_preserves_large_integer_temporal_point_within_precision() {
+    let predicate: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.pointWithin:
+  point: row.point
+  window:
+    start: source.start_ts
+    end: source.end_ts
+"#,
+    )
+    .expect("predicate");
+    let source = json!({
+        "start_ts": 9007199254740992_u64,
+        "end_ts": 9007199254740994_u64
+    });
+    let row = json!({
+        "point": 9007199254740993_u64
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    assert!(predicate.matches(&ctx).expect("predicate"));
+}
+
+#[test]
+fn graph_predicate_preserves_large_integer_temporal_overlap_precision() {
+    let source = json!({
+        "start_ts": 9007199254740992_u64,
+        "end_ts": 9007199254740994_u64,
+        "touching_start": 9007199254740994_u64,
+        "touching_end": 9007199254740995_u64
+    });
+    let row = json!({
+        "start_ts": 9007199254740993_u64,
+        "end_ts": 9007199254740995_u64
+    });
+    let facts = json!({});
+    let state = json!({});
+    let params = json!({});
+    let ctx = eval_ctx(&source, &row, &facts, &state, &params, None);
+
+    let overlapping: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.start_ts
+    end: source.end_ts
+  right:
+    start: row.start_ts
+    end: row.end_ts
+"#,
+    )
+    .expect("overlapping predicate");
+    assert!(overlapping.matches(&ctx).expect("overlap"));
+
+    let touching: PredicateSpec = serde_yaml::from_str(
+        r#"
+temporal.overlaps:
+  left:
+    start: source.start_ts
+    end: source.end_ts
+  right:
+    start: source.touching_start
+    end: source.touching_end
+"#,
+    )
+    .expect("touching predicate");
+    assert!(!touching.matches(&ctx).expect("touching"));
 }
 
 #[test]
