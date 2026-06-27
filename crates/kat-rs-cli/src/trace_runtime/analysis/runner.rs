@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::trace_runtime::{
@@ -9,6 +9,7 @@ use crate::trace_runtime::{
     analysis::{
         context::AnalysisState,
         derived::DerivedRunner,
+        graph::walk::run_graph_walk_on_rows_v2,
         run_store::AnalysisRunStore,
         steps::{
             evidence::render_seed_evidence, graph_walk::run_graph_walk_on_rows,
@@ -80,7 +81,27 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
                 }
             }
             AnalysisStepSpec::GraphWalk(step) => {
-                bail!("graph.walk step `{}` is not executable yet", step.id);
+                let mut table_rows = Vec::new();
+                let mut tables = BTreeSet::new();
+                for provider in &step.providers {
+                    tables.insert(provider.input.table.clone());
+                    for table in &provider.output.evidence.tables {
+                        tables.insert(table.clone());
+                    }
+                }
+
+                for table in &tables {
+                    derived.ensure_table(&mut adapter, table, &config.params, state.value())?;
+                    let rows = adapter.query_json(&format!("SELECT * FROM {table}"))?;
+                    table_rows.push((table.as_str(), rows));
+                }
+
+                for item in
+                    run_graph_walk_on_rows_v2(step, &mut state, &config.params, &table_rows)?
+                {
+                    store.append_evidence(&item)?;
+                    evidence.push(item);
+                }
             }
             AnalysisStepSpec::ReportRender(_) => {
                 let report = run_report_render(state.value(), &evidence)?;

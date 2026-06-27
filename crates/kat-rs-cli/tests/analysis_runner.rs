@@ -9,7 +9,6 @@ use kat_rs_cli::trace_runtime::pack::{
     spec::{
         AnalysisInputSpec, AnalysisRequiresSpec, AnalysisSpec, AnalysisStepSpec, ConditionOp,
         EdgeEmitSpec, EdgeProviderSpec, EdgeTargetSpec, EvidenceRenderStepSpec,
-        GenericGraphRootSpec, GenericGraphWalkLimitsSpec, GenericGraphWalkStepSpec,
         GraphWalkLimitsSpec, GraphWalkRootSpec, GraphWalkStepSpec, InputTables, MarkerSourceSpec,
         ReportRenderStepSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec,
     },
@@ -209,32 +208,51 @@ fn runner_materializes_provider_with_state_from_evidence_render() {
 }
 
 #[test]
-fn graph_walk_runner_guard() {
+fn runner_executes_generic_graph_walk_step() {
     let dir = tempdir().expect("tempdir");
     let raw_db = dir.path().join("raw.db");
-    Connection::open(&raw_db).expect("raw db");
+    create_minimal_trace_fixture(&raw_db);
     let run_root = dir.path().join("runs");
 
-    let error = run_analysis(AnalysisRunConfig {
+    run_analysis(AnalysisRunConfig {
         raw_db,
         scratch_db: dir.path().join("scratch.db"),
         run_root: run_root.clone(),
-        run_id: "graph-walk-guard".to_string(),
+        run_id: "generic-graph-walk".to_string(),
         pack: generic_graph_walk_pack(dir.path().to_path_buf()),
-        analysis_id: "synthetic.graph_walk_guard".to_string(),
-        params: json!({}),
+        analysis_id: "synthetic.generic_graph_walk".to_string(),
+        params: json!({
+            "target_process": ".tencent.wechat",
+            "marker": "firstDrawFrame:1"
+        }),
     })
-    .expect_err("graph.walk guard should fail");
-    let message = error.to_string();
-    assert!(message.contains("graph.walk step"), "{message}");
-    assert!(message.contains("not executable yet"), "{message}");
+    .expect("analysis run");
 
-    let output = run_root.join("graph-walk-guard");
-    assert!(output.is_dir());
-    assert!(output.join("plan.json").is_file());
-    assert!(!output.join("state.json").exists());
-    assert!(!output.join("report.md").exists());
-    assert!(!output.join("evidence.jsonl").exists());
+    let output = run_root.join("generic-graph-walk");
+    let evidence = std::fs::read_to_string(output.join("evidence.jsonl")).expect("evidence");
+    assert!(evidence.contains("state_provider"), "{evidence}");
+    assert!(evidence.contains("state_filtered"), "{evidence}");
+    assert!(evidence.contains("processName"), "{evidence}");
+    assert!(evidence.contains(".tencent.wechat"), "{evidence}");
+
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(output.join("state.json")).expect("state"))
+            .expect("state json");
+    assert_eq!(
+        state["graph"]["visited"][0]["provider"],
+        json!("state_provider")
+    );
+    assert_eq!(
+        state["graph"]["visited"][0]["relation"],
+        json!("state_filtered")
+    );
+    assert_eq!(
+        state["visitedEdges"]
+            .as_array()
+            .expect("visited edges")
+            .len(),
+        1
+    );
 }
 
 fn create_minimal_trace_fixture(path: &std::path::Path) {
@@ -403,19 +421,71 @@ fn generic_graph_walk_pack(root: PathBuf) -> LoadedPack {
             analyses: Vec::new(),
             rules: Vec::new(),
         },
-        transforms: Vec::new(),
+        transforms: vec![
+            marker_transform(
+                "first_draw_window",
+                "first_draw_window",
+                "${params.target_process}",
+            ),
+            marker_transform(
+                "state_filtered_window",
+                "state_filtered_window",
+                "${state.root.process_name}",
+            ),
+        ],
         analyses: vec![AnalysisSpec {
-            id: "synthetic.graph_walk_guard".to_string(),
+            id: "synthetic.generic_graph_walk".to_string(),
             inputs: BTreeMap::new(),
-            requires: AnalysisRequiresSpec::default(),
-            steps: vec![AnalysisStepSpec::GraphWalk(GenericGraphWalkStepSpec {
-                id: "walk_dependencies".to_string(),
-                root: GenericGraphRootSpec {
-                    from_state: "root".to_string(),
-                },
-                limits: GenericGraphWalkLimitsSpec::default(),
-                providers: Vec::new(),
-            })],
+            requires: AnalysisRequiresSpec {
+                derived: vec![
+                    "first_draw_window".to_string(),
+                    "state_filtered_window".to_string(),
+                ],
+            },
+            steps: vec![
+                AnalysisStepSpec::EvidenceRender(EvidenceRenderStepSpec {
+                    id: "seed_root".to_string(),
+                    from: "first_draw_window".to_string(),
+                    writes: BTreeMap::new(),
+                }),
+                serde_yaml::from_str(
+                    r#"
+id: walk_dependencies
+kind: graph.walk
+root:
+  fromState: root
+limits:
+  maxDepth: 1
+  maxNodes: 5
+  maxEdgesPerNode: 2
+providers:
+  - id: state_provider
+    input:
+      table: state_filtered_window
+    match:
+      all:
+        - exists: row.itid
+        - eq: [source.itid, row.itid]
+    expand:
+      node:
+        fields:
+          kind:
+            literal: thread_window
+          itid: row.itid
+          processName: row.process_name
+          startTs: row.start_ts
+          endTs: row.end_ts
+    output:
+      relation: state_filtered
+      evidence:
+        tables:
+          - state_filtered_window
+      annotations:
+        processName: row.process_name
+"#,
+                )
+                .expect("graph walk step"),
+            ],
         }],
         rule_sets: Vec::new(),
     }
