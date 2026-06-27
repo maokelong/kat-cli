@@ -4,8 +4,9 @@ use kat_rs_cli::trace_runtime::{
     pack::{
         LoadedPack, PackManifest, load_pack,
         spec::{
-            AnalysisStepSpec, InputTables, MarkerSourceSpec, TransformOutputSpec,
-            TransformSafetySpec, TransformSpec,
+            AnalysisStepSpec, BindingExpr, GraphProviderSpec, GraphValueSpec, InputTables,
+            MarkerSourceSpec, PredicateSpec, TransformOutputSpec, TransformSafetySpec,
+            TransformSpec,
         },
     },
 };
@@ -652,87 +653,202 @@ fn openharmony_critical_path_edge_providers_reference_declared_columns() {
         .find(|analysis| analysis.id == "openharmony.critical_path")
         .expect("critical path analysis");
 
+    let temporal_graph_walk = analysis.steps.iter().find_map(|step| match step {
+        AnalysisStepSpec::TemporalGraphWalk(step) => Some(step),
+        _ => None,
+    });
+
+    if let Some(graph_walk) = temporal_graph_walk {
+        for provider in &graph_walk.edge_providers {
+            let columns = sql_transform_output_columns(&pack, &provider.table);
+            for field in provider.when.keys() {
+                assert!(
+                    columns.contains(field),
+                    "provider `{}` table `{}` is missing when field `{}`; columns: {:?}",
+                    provider.id,
+                    provider.table,
+                    field,
+                    columns
+                );
+            }
+
+            for field in [
+                provider.emit.target.itid.as_deref(),
+                provider.emit.target.start_ts.as_deref(),
+                provider.emit.target.end_ts.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                assert!(
+                    columns.contains(field),
+                    "provider `{}` table `{}` is missing target field `{}`; columns: {:?}",
+                    provider.id,
+                    provider.table,
+                    field,
+                    columns
+                );
+            }
+
+            for (fact_key, fact) in &provider.emit.facts {
+                let table = fact.table.as_deref().unwrap_or(&provider.table);
+                let columns = sql_transform_output_columns(&pack, table);
+                if let Some(field) = &fact.field {
+                    assert!(
+                        columns.contains(field),
+                        "provider `{}` fact `{}` table `{}` is missing field `{}`; columns: {:?}",
+                        provider.id,
+                        fact_key,
+                        table,
+                        field,
+                        columns
+                    );
+                }
+                for field in fact.row.where_.keys() {
+                    assert!(
+                        columns.contains(field),
+                        "provider `{}` fact `{}` table `{}` is missing row selector field `{}`; columns: {:?}",
+                        provider.id,
+                        fact_key,
+                        table,
+                        field,
+                        columns
+                    );
+                }
+            }
+        }
+
+        let self_execution = graph_walk
+            .edge_providers
+            .iter()
+            .find(|provider| provider.id == "self_execution")
+            .expect("self execution provider");
+        assert!(
+            self_execution.emit.facts.contains_key("dominantState"),
+            "self_execution should configure report-visible thread state facts"
+        );
+        assert!(
+            self_execution.emit.facts.contains_key("topSpanName"),
+            "self_execution should configure report-visible callstack facts"
+        );
+        return;
+    }
+
     let graph_walk = analysis
         .steps
         .iter()
         .find_map(|step| match step {
-            AnalysisStepSpec::TemporalGraphWalk(step) => Some(step),
+            AnalysisStepSpec::GraphWalk(step) => Some(step),
             _ => None,
         })
         .expect("graph walk step");
 
-    for provider in &graph_walk.edge_providers {
-        let columns = sql_transform_output_columns(&pack, &provider.table);
-        for field in provider.when.keys() {
-            assert!(
-                columns.contains(field),
-                "provider `{}` table `{}` is missing when field `{}`; columns: {:?}",
-                provider.id,
-                provider.table,
-                field,
-                columns
-            );
-        }
-
-        for field in [
-            provider.emit.target.itid.as_deref(),
-            provider.emit.target.start_ts.as_deref(),
-            provider.emit.target.end_ts.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            assert!(
-                columns.contains(field),
-                "provider `{}` table `{}` is missing target field `{}`; columns: {:?}",
-                provider.id,
-                provider.table,
-                field,
-                columns
-            );
-        }
-
-        for (fact_key, fact) in &provider.emit.facts {
-            let table = fact.table.as_deref().unwrap_or(&provider.table);
-            let columns = sql_transform_output_columns(&pack, table);
-            if let Some(field) = &fact.field {
-                assert!(
-                    columns.contains(field),
-                    "provider `{}` fact `{}` table `{}` is missing field `{}`; columns: {:?}",
-                    provider.id,
-                    fact_key,
-                    table,
-                    field,
-                    columns
-                );
-            }
-            for field in fact.row.where_.keys() {
-                assert!(
-                    columns.contains(field),
-                    "provider `{}` fact `{}` table `{}` is missing row selector field `{}`; columns: {:?}",
-                    provider.id,
-                    fact_key,
-                    table,
-                    field,
-                    columns
-                );
-            }
-        }
+    for provider in &graph_walk.providers {
+        assert_generic_provider_references_declared_columns(&pack, provider);
     }
 
-    let self_execution = graph_walk
-        .edge_providers
-        .iter()
-        .find(|provider| provider.id == "self_execution")
-        .expect("self execution provider");
     assert!(
-        self_execution.emit.facts.contains_key("dominantState"),
-        "self_execution should configure report-visible thread state facts"
+        graph_walk
+            .providers
+            .iter()
+            .any(|provider| provider.id == "self_execution"
+                && provider.output.annotations.contains_key("dominantState")
+                && provider.output.annotations.contains_key("dominantPercent")),
+        "self_execution should configure report-visible thread state annotations"
     );
     assert!(
-        self_execution.emit.facts.contains_key("topSpanName"),
-        "self_execution should configure report-visible callstack facts"
+        graph_walk
+            .providers
+            .iter()
+            .any(|provider| provider.id == "self_top_span"
+                && provider.output.annotations.contains_key("topSpanName")
+                && provider.output.annotations.contains_key("topSpanDurMs")),
+        "self_top_span should configure report-visible callstack annotations"
     );
+}
+
+fn assert_generic_provider_references_declared_columns(
+    pack: &LoadedPack,
+    provider: &GraphProviderSpec,
+) {
+    let columns = sql_transform_output_columns(pack, &provider.input.table);
+
+    for table in &provider.output.evidence.tables {
+        let _ = sql_transform_output_columns(pack, table);
+    }
+
+    let mut fields = BTreeSet::new();
+    collect_predicate_row_fields(&provider.match_, &mut fields);
+    for order_by in &provider.select.order_by {
+        collect_binding_row_field(&order_by.expr, &mut fields);
+    }
+    for annotation in provider.output.annotations.values() {
+        collect_graph_value_row_fields(annotation, &mut fields);
+    }
+
+    for field in fields {
+        assert!(
+            columns.contains(&field),
+            "provider `{}` table `{}` is missing referenced row field `{}`; columns: {:?}",
+            provider.id,
+            provider.input.table,
+            field,
+            columns
+        );
+    }
+}
+
+fn collect_predicate_row_fields(predicate: &PredicateSpec, fields: &mut BTreeSet<String>) {
+    match predicate {
+        PredicateSpec::All(predicates) | PredicateSpec::Any(predicates) => {
+            for predicate in predicates {
+                collect_predicate_row_fields(predicate, fields);
+            }
+        }
+        PredicateSpec::Not(predicate) => collect_predicate_row_fields(predicate, fields),
+        PredicateSpec::Eq(values)
+        | PredicateSpec::Neq(values)
+        | PredicateSpec::Gt(values)
+        | PredicateSpec::Gte(values)
+        | PredicateSpec::Lt(values)
+        | PredicateSpec::Lte(values) => {
+            for value in values {
+                collect_binding_row_field(value, fields);
+            }
+        }
+        PredicateSpec::Exists(value) => collect_binding_row_field(value, fields),
+        PredicateSpec::TemporalPointWithin(spec) => {
+            collect_binding_row_field(&spec.point, fields);
+            collect_binding_row_field(&spec.window.start, fields);
+            collect_binding_row_field(&spec.window.end, fields);
+        }
+        PredicateSpec::TemporalOverlaps(spec) => {
+            collect_binding_row_field(&spec.left.start, fields);
+            collect_binding_row_field(&spec.left.end, fields);
+            collect_binding_row_field(&spec.right.start, fields);
+            collect_binding_row_field(&spec.right.end, fields);
+        }
+    }
+}
+
+fn collect_graph_value_row_fields(value: &GraphValueSpec, fields: &mut BTreeSet<String>) {
+    match value {
+        GraphValueSpec::Scaled { value, .. } | GraphValueSpec::Value(value) => {
+            collect_binding_row_field(value, fields);
+        }
+    }
+}
+
+fn collect_binding_row_field(value: &BindingExpr, fields: &mut BTreeSet<String>) {
+    let BindingExpr::Path(path) = value else {
+        return;
+    };
+    let Some(field) = path.strip_prefix("row.") else {
+        return;
+    };
+    if !field.contains('.') {
+        fields.insert(field.to_string());
+    }
 }
 
 fn workspace_root() -> std::path::PathBuf {

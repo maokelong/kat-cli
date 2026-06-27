@@ -1,61 +1,14 @@
-use kat_rs_cli::trace_runtime::pack::spec::{AnalysisSpec, AnalysisStepSpec, ConditionOp};
+use kat_rs_cli::trace_runtime::pack::spec::{
+    AnalysisSpec, AnalysisStepSpec, BindingExpr, GraphValueSpec,
+};
 
 #[test]
 fn critical_path_plan_parses_typed_steps_and_graph_walk_config() {
-    let yaml = r#"
-id: openharmony.critical_path
-inputs:
-  target_process:
-    required: true
-  marker:
-    default: firstDrawFrame:1
-requires:
-  derived:
-    - first_draw_window
-steps:
-  - id: seed_root
-    kind: evidence.render
-    from: first_draw_window
-    writes:
-      state.root: first_row
-  - id: walk_dependencies
-    kind: temporal.graph_walk
-    root:
-      fromState: root
-    limits:
-      maxDepth: 3
-      maxEdgesPerNode: 2
-    edgeProviders:
-      - id: self_execution
-        table: thread_state_profile
-        when:
-          dominant_state:
-            eq: Running
-          dominant_percent:
-            gte: 70
-        emit:
-          edgeType: self_execution
-          target:
-            sameNode: true
-          evidence:
-            - thread_state_profile
-          facts:
-            dominantState:
-              field: dominant_state
-            topSpanDurMs:
-              table: callstack_self_time
-              field: exclusive_dur_ns
-              scale: 0.000001
-              row:
-                where:
-                  exclusive_rank:
-                    eq: 1
-                fallback: first
-  - id: render_report
-    kind: report.render
-"#;
-
-    let spec: AnalysisSpec = serde_yaml::from_str(yaml).expect("typed analysis plan");
+    let yaml = std::fs::read_to_string(
+        workspace_root().join("packs/openharmony-core/analyses/critical-path.plan.yaml"),
+    )
+    .expect("critical path plan");
+    let spec: AnalysisSpec = serde_yaml::from_str(&yaml).expect("typed analysis plan");
 
     assert_eq!(spec.id, "openharmony.critical_path");
     assert!(spec.inputs["target_process"].required);
@@ -63,7 +16,11 @@ steps:
         spec.inputs["marker"].default.as_deref(),
         Some("firstDrawFrame:1")
     );
-    assert_eq!(spec.requires.derived, vec!["first_draw_window"]);
+    assert!(
+        spec.requires
+            .derived
+            .contains(&"first_draw_window".to_string())
+    );
 
     match &spec.steps[0] {
         AnalysisStepSpec::EvidenceRender(step) => {
@@ -75,34 +32,54 @@ steps:
     }
 
     match &spec.steps[1] {
-        AnalysisStepSpec::TemporalGraphWalk(step) => {
+        AnalysisStepSpec::GraphWalk(step) => {
             assert_eq!(step.root.from_state, "root");
             assert_eq!(step.limits.max_depth, 3);
-            assert_eq!(step.edge_providers[0].id, "self_execution");
+            assert_eq!(step.limits.max_nodes, 50);
+            assert_eq!(step.limits.max_edges_per_node, 3);
+            let provider_ids = step
+                .providers
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>();
             assert_eq!(
-                step.edge_providers[0].when["dominant_percent"],
-                ConditionOp::Gte(70.0)
+                provider_ids,
+                vec![
+                    "self_execution",
+                    "self_top_span",
+                    "sleeping_wakeup",
+                    "downstream_frame"
+                ]
             );
-            assert!(step.edge_providers[0].emit.target.same_node);
+
+            let self_execution = step
+                .providers
+                .iter()
+                .find(|provider| provider.id == "self_execution")
+                .expect("self_execution provider");
+            assert_eq!(self_execution.input.table, "thread_state_profile");
+            assert_eq!(self_execution.output.relation, "self_execution");
             assert_eq!(
-                step.edge_providers[0].emit.facts["dominantState"]
-                    .field
-                    .as_deref(),
-                Some("dominant_state")
+                self_execution.output.evidence.tables,
+                ["thread_state_profile"]
             );
             assert_eq!(
-                step.edge_providers[0].emit.facts["topSpanDurMs"].scale,
-                Some(0.000001)
-            );
-            assert_eq!(
-                step.edge_providers[0].emit.facts["topSpanDurMs"].row.where_["exclusive_rank"],
-                ConditionOp::Eq(1.into())
+                self_execution.output.annotations["dominantState"],
+                GraphValueSpec::Value(BindingExpr::Path("row.dominant_state".to_string()))
             );
         }
-        other => panic!("expected temporal.graph_walk, got {other:?}"),
+        other => panic!("expected graph.walk, got {other:?}"),
     }
 
     assert!(matches!(spec.steps[2], AnalysisStepSpec::ReportRender(_)));
+}
+
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root")
+        .to_path_buf()
 }
 
 #[test]

@@ -21,87 +21,129 @@ steps:
     writes:
       state.root: first_row
   - id: walk_dependencies
-    kind: temporal.graph_walk
+    kind: graph.walk
     root:
       fromState: root
     limits:
       maxDepth: 3
+      maxNodes: 50
       maxEdgesPerNode: 3
-    edgeProviders:
+    providers:
       - id: self_execution
-        table: thread_state_profile
-        source:
-          itid: itid
-        when:
-          dominant_state:
-            eq: Running
-          dominant_percent:
-            gte: 70
-        emit:
-          edgeType: self_execution
-          score: dominant_percent
-          target:
-            sameNode: true
+        input:
+          table: thread_state_profile
+        match:
+          all:
+            - eq: [source.itid, row.itid]
+            - eq: [row.dominant_state, Running]
+            - gte: [row.dominant_percent, 70]
+            - temporal.overlaps:
+                left:
+                  start: source.start_ts
+                  end: source.end_ts
+                right:
+                  start: row.start_ts
+                  end: row.end_ts
+        expand:
+          node:
+            sameAs: source
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.dominant_percent
+              desc: true
+        output:
+          relation: self_execution
           evidence:
-            - thread_state_profile
-            - callstack_self_time
-          facts:
-            dominantState:
-              table: thread_state_profile
-              field: dominant_state
-            dominantPercent:
-              table: thread_state_profile
-              field: dominant_percent
-            topSpanName:
-              table: callstack_self_time
-              field: name
-              row:
-                where:
-                  exclusive_rank:
-                    eq: 1
-                fallback: first
+            tables: [thread_state_profile]
+          annotations:
+            dominantState: row.dominant_state
+            dominantPercent: row.dominant_percent
+      - id: self_top_span
+        input:
+          table: callstack_self_time
+        match:
+          all:
+            - eq: [source.itid, row.itid]
+            - eq: [row.exclusive_rank, 1]
+        expand:
+          node:
+            sameAs: source
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.exclusive_dur_ns
+              desc: true
+        output:
+          relation: self_work
+          evidence:
+            tables: [callstack_self_time]
+          annotations:
+            topSpanName: row.name
             topSpanDurMs:
-              table: callstack_self_time
-              field: exclusive_dur_ns
+              value: row.exclusive_dur_ns
               scale: 0.000001
-              row:
-                where:
-                  exclusive_rank:
-                    eq: 1
-                fallback: first
       - id: sleeping_wakeup
-        table: wakeup_edges
-        source:
-          itid: target_itid
-        when:
-          dominant_state:
-            eq: S
-          dominant_percent:
-            gte: 50
-        emit:
-          edgeType: wakeup
-          score: dominant_percent
-          target:
-            itid: waker_itid
-            start_ts: wake_ts
-            end_ts: wake_ts
+        input:
+          table: wakeup_edges
+        match:
+          all:
+            - eq: [source.itid, row.target_itid]
+            - eq: [row.dominant_state, S]
+            - gte: [row.dominant_percent, 50]
+            - temporal.pointWithin:
+                point: row.wake_ts
+                window:
+                  start: source.start_ts
+                  end: source.end_ts
+        expand:
+          node:
+            fields:
+              itid: row.waker_itid
+              start_ts: row.waker_start_ts
+              end_ts: row.wake_ts
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.dominant_percent
+              desc: true
+        output:
+          relation: wakeup
           evidence:
-            - wakeup_edges
+            tables: [wakeup_edges]
+          annotations:
+            wakeTs: row.wake_ts
+            wakeupName: row.wakeup_name
       - id: downstream_frame
-        table: frame_slice_link
-        source:
-          itid: app_itid
-        when:
-          downstream_dur_ms:
-            gte: 1.0
-        emit:
-          edgeType: frame_downstream
-          target:
-            itid: render_service_itid
-            start_ts: render_start_ts
-            end_ts: render_end_ts
+        input:
+          table: frame_slice_link
+        match:
+          all:
+            - eq: [source.itid, row.app_itid]
+            - gte: [row.downstream_dur_ms, 1.0]
+            - temporal.overlaps:
+                left:
+                  start: source.start_ts
+                  end: source.end_ts
+                right:
+                  start: row.app_start_ts
+                  end: row.app_end_ts
+        expand:
+          node:
+            fields:
+              itid: row.render_service_itid
+              start_ts: row.render_start_ts
+              end_ts: row.render_end_ts
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.downstream_dur_ms
+              desc: true
+        output:
+          relation: frame_downstream
           evidence:
-            - frame_slice_link
-            - render_service_context
+            tables: [frame_slice_link, render_service_context]
+          annotations:
+            downstreamDurMs: row.downstream_dur_ms
   - id: render_report
     kind: report.render
