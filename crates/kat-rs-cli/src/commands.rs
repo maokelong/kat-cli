@@ -1,6 +1,7 @@
 use std::{
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -21,6 +22,7 @@ pub struct Cli {
 pub enum Command {
     Serve(ServerEndpointArgs),
     Stop(ServerEndpointArgs),
+    Analyze(AnalyzeArgs),
     Openapi,
     Version,
 }
@@ -31,6 +33,26 @@ pub struct ServerEndpointArgs {
     pub host: IpAddr,
     #[arg(long, default_value_t = 3030)]
     pub port: u16,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct AnalyzeArgs {
+    #[arg(long)]
+    pub db: PathBuf,
+    #[arg(long)]
+    pub pack: PathBuf,
+    #[arg(long)]
+    pub analysis: String,
+    #[arg(long = "target-process")]
+    pub target_process: String,
+    #[arg(long, default_value = "firstDrawFrame:1")]
+    pub marker: String,
+    #[arg(long = "run-id")]
+    pub run_id: String,
+    #[arg(long, default_value = ".kat/runs")]
+    pub run_root: PathBuf,
+    #[arg(long)]
+    pub scratch_db: Option<PathBuf>,
 }
 
 pub async fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -48,6 +70,7 @@ async fn run_inner(cli: Cli, out: &mut dyn Write) -> Result<(), CommandError> {
     match cli.command {
         Command::Serve(args) => run_serve(args).await,
         Command::Stop(args) => run_stop(args),
+        Command::Analyze(args) => run_analyze(args, out),
         Command::Openapi => run_openapi(out),
         Command::Version => run_version(out),
     }
@@ -119,6 +142,43 @@ fn run_stop(args: ServerEndpointArgs) -> Result<(), CommandError> {
             "server stop failed: expected HTTP 202, got {status_line}"
         )))
     }
+}
+
+fn run_analyze(args: AnalyzeArgs, out: &mut dyn Write) -> Result<(), CommandError> {
+    crate::trace_runtime::analysis::run_store::validate_run_id(&args.run_id)
+        .map_err(CommandError::from_runtime)?;
+    let pack =
+        crate::trace_runtime::pack::load_pack(&args.pack).map_err(CommandError::from_runtime)?;
+    let scratch_db = args
+        .scratch_db
+        .unwrap_or_else(|| args.run_root.join(format!("{}.scratch.db", args.run_id)));
+    if let Some(parent) = scratch_db
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CommandError::from_runtime(anyhow!(
+                "failed to create scratch db directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    let run_dir = crate::trace_runtime::analysis::runner::run_analysis(
+        crate::trace_runtime::analysis::runner::AnalysisRunConfig {
+            raw_db: args.db,
+            scratch_db,
+            run_root: args.run_root,
+            run_id: args.run_id,
+            pack,
+            analysis_id: args.analysis,
+            params: serde_json::json!({
+                "target_process": args.target_process,
+                "marker": args.marker
+            }),
+        },
+    )
+    .map_err(CommandError::from_runtime)?;
+    writeln!(out, "{}", run_dir.display()).map_err(CommandError::from_runtime)
 }
 
 fn run_openapi(out: &mut dyn Write) -> Result<(), CommandError> {

@@ -1,0 +1,14 @@
+rules:
+  irq_thread:
+    field: thread_name
+    contains: udk-irq
+  io_thread_candidate:
+    field: thread_name
+    any:
+      - fsverity
+      - cdecrypt
+      - erofs_unzipd
+      - hmfs
+      - wk
+    exclude:
+      - hmfs_txn

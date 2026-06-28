@@ -9,6 +9,7 @@ use crate::trace_runtime::{
 pub mod marker;
 pub mod payload;
 pub mod primitives;
+pub mod derived_runner;
 pub mod rules;
 pub mod sql;
 

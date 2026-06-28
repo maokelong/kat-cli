@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use super::spec::{RuleSetSpec, TransformSpec};
+use super::spec::{AnalysisSpec, RuleSetSpec, TransformSpec};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,6 +22,8 @@ pub struct PackManifest {
     #[serde(default)]
     pub queries: Vec<PathBuf>,
     #[serde(default)]
+    pub analyses: Vec<PathBuf>,
+    #[serde(default)]
     pub rules: Vec<PathBuf>,
 }
 
@@ -30,6 +32,7 @@ pub struct LoadedPack {
     pub root: PathBuf,
     pub manifest: PackManifest,
     pub transforms: Vec<TransformSpec>,
+    pub analyses: Vec<AnalysisSpec>,
     pub rule_sets: Vec<RuleSetSpec>,
 }
 
@@ -50,6 +53,17 @@ pub fn load_pack(root: impl AsRef<Path>) -> Result<LoadedPack> {
     reject_duplicate_transform_ids(&transform_specs)?;
     let transforms = transform_specs.into_iter().map(|(_, spec)| spec).collect();
 
+    let analysis_specs = manifest
+        .analyses
+        .iter()
+        .map(|path| {
+            let spec = read_yaml::<AnalysisSpec>(&required_file(root, path)?)?;
+            Ok((path.clone(), spec))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    reject_duplicate_analysis_ids(&analysis_specs)?;
+    let analyses = analysis_specs.into_iter().map(|(_, spec)| spec).collect();
+
     let rule_sets = manifest
         .rules
         .iter()
@@ -64,6 +78,7 @@ pub fn load_pack(root: impl AsRef<Path>) -> Result<LoadedPack> {
         root: root.to_path_buf(),
         manifest,
         transforms,
+        analyses,
         rule_sets,
     })
 }
@@ -127,3 +142,17 @@ fn reject_duplicate_transform_ids(transforms: &[(PathBuf, TransformSpec)]) -> Re
     Ok(())
 }
 
+fn reject_duplicate_analysis_ids(analyses: &[(PathBuf, AnalysisSpec)]) -> Result<()> {
+    let mut seen = BTreeMap::new();
+    for (path, analysis) in analyses {
+        if let Some(first_path) = seen.insert(analysis.id.as_str(), path.as_path()) {
+            bail!(
+                "duplicate analysis id {}: first declared at {}, duplicate declared at {}",
+                analysis.id,
+                first_path.display(),
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}

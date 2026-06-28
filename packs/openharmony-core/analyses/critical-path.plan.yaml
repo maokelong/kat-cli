@@ -1,0 +1,137 @@
+id: openharmony.critical_path
+inputs:
+  target_process:
+    required: true
+  marker:
+    default: firstDrawFrame:1
+steps:
+  - id: seed_root
+    kind: evidence.render
+    from: first_draw_window
+  - id: walk_dependencies
+    kind: graph.walk
+    root:
+      fromState: root
+    limits:
+      maxDepth: 3
+      maxNodes: 50
+      maxEdgesPerNode: 4
+    providers:
+      - id: self_execution
+        input:
+          table: thread_state_profile
+        match:
+          all:
+            - eq: [source.itid, row.itid]
+            - eq: [row.dominant_state, Running]
+            - gte: [row.dominant_percent, 70]
+            - temporal.overlaps:
+                left:
+                  start: source.start_ts
+                  end: source.end_ts
+                right:
+                  start: row.start_ts
+                  end: row.end_ts
+        expand:
+          node:
+            sameAs: source
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.dominant_percent
+              desc: true
+        output:
+          relation: self_execution
+          evidence:
+            tables: [thread_state_profile]
+          annotations:
+            dominantState: row.dominant_state
+            dominantPercent: row.dominant_percent
+      - id: self_top_span
+        input:
+          table: callstack_self_time
+        match:
+          all:
+            - eq: [source.itid, row.itid]
+            - eq: [row.exclusive_rank, 1]
+        expand:
+          node:
+            sameAs: source
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.exclusive_dur_ns
+              desc: true
+        output:
+          relation: self_work
+          evidence:
+            tables: [callstack_self_time]
+          annotations:
+            topSpanName: row.name
+            topSpanDurMs:
+              value: row.exclusive_dur_ns
+              scale: 0.000001
+      - id: sleeping_wakeup
+        input:
+          table: wakeup_edges
+        match:
+          all:
+            - eq: [source.itid, row.target_itid]
+            - eq: [row.dominant_state, S]
+            - gte: [row.dominant_percent, 50]
+            - temporal.pointWithin:
+                point: row.wake_ts
+                window:
+                  start: source.start_ts
+                  end: source.end_ts
+        expand:
+          node:
+            fields:
+              itid: row.waker_itid
+              start_ts: row.wake_ts
+              end_ts: row.wake_ts
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.dominant_percent
+              desc: true
+        output:
+          relation: wakeup
+          evidence:
+            tables: [wakeup_edges]
+          annotations:
+            wakeTs: row.wake_ts
+            wakeupName: row.wakeup_name
+      - id: downstream_frame
+        input:
+          table: frame_slice_link
+        match:
+          all:
+            - eq: [source.itid, row.app_itid]
+            - gte: [row.downstream_dur_ms, 1.0]
+            - temporal.overlaps:
+                left:
+                  start: source.start_ts
+                  end: source.end_ts
+                right:
+                  start: row.app_start_ts
+                  end: row.app_end_ts
+        expand:
+          node:
+            fields:
+              itid: row.render_service_itid
+              start_ts: row.render_start_ts
+              end_ts: row.render_end_ts
+        select:
+          limit: 1
+          orderBy:
+            - expr: row.downstream_dur_ms
+              desc: true
+        output:
+          relation: frame_downstream
+          evidence:
+            tables: [frame_slice_link, render_service_context]
+          annotations:
+            downstreamDurMs: row.downstream_dur_ms
+  - id: render_report
+    kind: report.render
