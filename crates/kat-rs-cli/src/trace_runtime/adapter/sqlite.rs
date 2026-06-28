@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use anyhow::{bail, Result};
-use rusqlite::{types::ValueRef, Connection, Row};
-use serde_json::{json, Map, Value};
+use anyhow::{Result, bail};
+use rusqlite::{Connection, Row, types::ValueRef};
+use serde_json::{Map, Value, json};
 
 use super::DatasetAdapter;
 

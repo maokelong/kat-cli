@@ -15,7 +15,9 @@ fn run_store_writes_plan_state_evidence_checklist_and_report() {
         .append_evidence(&json!({"evidenceId": "ev.1"}))
         .expect("evidence");
     store.render_checklist().expect("checklist");
-    store.write_report("# Facts\n\n- rows: 2\n").expect("report");
+    store
+        .write_report("# Facts\n\n- rows: 2\n")
+        .expect("report");
 
     assert!(dir.path().join("run-1/plan.json").is_file());
     assert!(dir.path().join("run-1/state.json").is_file());

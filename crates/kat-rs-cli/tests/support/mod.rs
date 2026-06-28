@@ -4,11 +4,11 @@ use std::{
 };
 
 use kat_rs_cli::trace_runtime::pack::{
-    spec::{InputTables, RuleSetSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec},
     LoadedPack, PackManifest,
+    spec::{InputTables, RuleSetSpec, TransformOutputSpec, TransformSafetySpec, TransformSpec},
 };
 use rusqlite::Connection;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 static NEXT_TABLE_SUFFIX: AtomicUsize = AtomicUsize::new(0);
 
