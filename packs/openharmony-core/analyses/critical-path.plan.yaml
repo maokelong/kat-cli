@@ -1,0 +1,11 @@
+id: openharmony.critical_path
+requires:
+  derived:
+    - thread_state_segments
+steps:
+  - id: seed_root
+    kind: evidence.render
+  - id: walk_dependencies
+    kind: temporal.graph_walk
+  - id: render_report
+    kind: report.render

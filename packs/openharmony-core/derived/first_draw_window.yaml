@@ -1,0 +1,8 @@
+id: first_draw_window
+kind: payload.extract_fields
+inputs: [callstack]
+output:
+  table: first_draw_window
+  schema: marker.first_draw_window.v1
+safety:
+  allowedTables: [callstack]

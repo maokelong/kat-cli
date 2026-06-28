@@ -1,0 +1,11 @@
+id: openharmony-core
+name: OpenHarmony Core Trace Pack
+derived:
+  - derived/thread_state_segments.yaml
+  - derived/thread_identity.yaml
+  - derived/first_draw_window.yaml
+rules:
+  - rules/thread_identity.yaml
+  - rules/marker_extractors.yaml
+analyses:
+  - analyses/critical-path.plan.yaml

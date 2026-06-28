@@ -1,0 +1,10 @@
+extractors:
+  first_draw_window:
+    source_table: callstack
+    marker:
+      column: name
+      equals: firstDrawFrame:1
+    payload_column: marker_payload
+    fields:
+      start_ts: layoutMeasureDurationStartTimestamp
+      end_ts: layoutMeasureDurationEndTimestamp

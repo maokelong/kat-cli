@@ -1,0 +1,9 @@
+id: thread_state_segments
+kind: sql.view
+inputs: [thread_state]
+sql: queries/thread_state_segments.sql
+output:
+  table: thread_state_segments
+  schema: thread.state_segments.v1
+safety:
+  allowedTables: [thread_state]
