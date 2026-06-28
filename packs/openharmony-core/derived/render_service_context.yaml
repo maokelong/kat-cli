@@ -1,0 +1,9 @@
+id: render_service_context
+kind: sql.view
+inputs: [callstack, frame_slice_link]
+sql: queries/render_service_context.sql
+output:
+  table: render_service_context
+  schema: render_service.context.v1
+safety:
+  allowedTables: [callstack, frame_slice_link]

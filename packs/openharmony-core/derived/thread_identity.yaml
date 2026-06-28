@@ -1,0 +1,8 @@
+id: thread_identity
+kind: rules.classify
+inputs: [thread]
+output:
+  table: thread_identity
+  schema: thread.identity.v1
+safety:
+  allowedTables: [thread]
