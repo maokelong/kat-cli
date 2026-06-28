@@ -15,7 +15,11 @@ env_logger.workspace = true
 kat-rs-daemon = { path = "../kat-rs-daemon" }
 kat-rs-datasource = { path = "../kat-rs-datasource" }
 log.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
+sqlparser.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
