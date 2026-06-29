@@ -5,24 +5,19 @@ use serde_json::Value;
 
 use crate::trace_runtime::{
     adapter::{DatasetAdapter, sqlite::sql::string_literal},
-    pack::spec::{MarkerSourceSpec, TransformSpec},
+    pack::spec::{MarkerExtractBracketFieldsTransformSpec, MarkerSourceSpec},
     template::resolve_template,
 };
 
 const REQUIRED_TABLES: [&str; 3] = ["callstack", "thread", "process"];
+const SUPPORTED_FILTERS: [&str; 1] = ["process_name"];
 
 pub fn run_marker_extract_bracket_fields_transform(
     adapter: &mut dyn DatasetAdapter,
-    transform: &TransformSpec,
+    transform: &MarkerExtractBracketFieldsTransformSpec,
     params: &Value,
     state: &Value,
 ) -> Result<()> {
-    if transform.kind != "marker.extract_bracket_fields" {
-        bail!(
-            "transform `{}` is not marker.extract_bracket_fields",
-            transform.id
-        );
-    }
     for table in transform.inputs.table_names() {
         if !adapter.table_exists(table)? {
             bail!(
@@ -33,12 +28,9 @@ pub fn run_marker_extract_bracket_fields_transform(
     }
     require_declared_inputs(transform)?;
     require_allowed_tables(transform)?;
-    reject_unsupported_config(transform)?;
+    require_supported_filters(transform)?;
 
-    let source = transform
-        .source
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("marker transform `{}` has no source", transform.id))?;
+    let source = &transform.source;
     require_callstack_name_source(source, &transform.id)?;
 
     let contains = resolve_string_template(&source.contains, params, state)?;
@@ -95,8 +87,7 @@ pub fn run_marker_extract_bracket_fields_transform(
          WHERE vsync_id IS NOT NULL
            AND start_ts IS NOT NULL
            AND end_ts IS NOT NULL
-         ORDER BY start_ts
-         LIMIT 1",
+         ORDER BY start_ts, end_ts, callstack_id, vsync_id",
         contains = string_literal(&contains),
         process_filter = process_filter,
         thread_name_column = thread_name_column,
@@ -110,17 +101,17 @@ pub fn run_marker_extract_bracket_fields_transform(
 }
 
 fn thread_name_column(adapter: &mut dyn DatasetAdapter) -> Result<&'static str> {
-    let columns = adapter.query_json("PRAGMA table_info(thread)")?;
-    if columns.iter().any(|column| column["name"] == "thread_name") {
+    let columns = adapter.table_columns("thread")?;
+    if columns.iter().any(|column| column.name == "thread_name") {
         return Ok("t.thread_name");
     }
-    if columns.iter().any(|column| column["name"] == "name") {
+    if columns.iter().any(|column| column.name == "name") {
         return Ok("t.name");
     }
     bail!("marker transform requires thread.name or thread.thread_name");
 }
 
-fn require_declared_inputs(transform: &TransformSpec) -> Result<()> {
+fn require_declared_inputs(transform: &MarkerExtractBracketFieldsTransformSpec) -> Result<()> {
     let declared = transform
         .inputs
         .table_names()
@@ -137,7 +128,7 @@ fn require_declared_inputs(transform: &TransformSpec) -> Result<()> {
     Ok(())
 }
 
-fn require_allowed_tables(transform: &TransformSpec) -> Result<()> {
+fn require_allowed_tables(transform: &MarkerExtractBracketFieldsTransformSpec) -> Result<()> {
     for required in REQUIRED_TABLES {
         if !transform
             .safety
@@ -154,25 +145,19 @@ fn require_allowed_tables(transform: &TransformSpec) -> Result<()> {
     Ok(())
 }
 
-fn reject_unsupported_config(transform: &TransformSpec) -> Result<()> {
-    if !transform.joins.is_empty() {
-        bail!(
-            "marker transform `{}` does not support custom joins",
-            transform.id
-        );
-    }
-
-    let unsupported_filters = transform
+fn require_supported_filters(transform: &MarkerExtractBracketFieldsTransformSpec) -> Result<()> {
+    let supported = SUPPORTED_FILTERS.into_iter().collect::<BTreeSet<_>>();
+    let unsupported = transform
         .filters
         .keys()
-        .filter(|key| key.as_str() != "process_name")
-        .cloned()
+        .map(String::as_str)
+        .filter(|key| !supported.contains(key))
         .collect::<Vec<_>>();
-    if !unsupported_filters.is_empty() {
+    if !unsupported.is_empty() {
         bail!(
-            "marker transform `{}` has unsupported filter keys: {}",
+            "marker transform `{}` unsupported filter keys: {}",
             transform.id,
-            unsupported_filters.join(", ")
+            unsupported.join(", ")
         );
     }
     Ok(())
@@ -185,7 +170,10 @@ fn require_callstack_name_source(source: &MarkerSourceSpec, transform_id: &str) 
     Ok(())
 }
 
-fn required_field<'a>(transform: &'a TransformSpec, output_field: &str) -> Result<&'a str> {
+fn required_field<'a>(
+    transform: &'a MarkerExtractBracketFieldsTransformSpec,
+    output_field: &str,
+) -> Result<&'a str> {
     let key = transform
         .fields
         .get(output_field)
@@ -207,7 +195,7 @@ fn required_field<'a>(transform: &'a TransformSpec, output_field: &str) -> Resul
 }
 
 fn resolve_process_name_filter(
-    transform: &TransformSpec,
+    transform: &MarkerExtractBracketFieldsTransformSpec,
     params: &Value,
     state: &Value,
 ) -> Result<Option<String>> {

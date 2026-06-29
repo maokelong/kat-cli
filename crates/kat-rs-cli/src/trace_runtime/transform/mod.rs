@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use serde_json::Value;
 
 use crate::trace_runtime::{
@@ -6,10 +6,10 @@ use crate::trace_runtime::{
     pack::{LoadedPack, spec::TransformSpec},
 };
 
+pub mod derived_runner;
 pub mod marker;
 pub mod payload;
 pub mod primitives;
-pub mod derived_runner;
 pub mod rules;
 pub mod sql;
 
@@ -20,32 +20,18 @@ pub fn run_transform(
     params: &Value,
     state: &Value,
 ) -> Result<()> {
-    match transform.kind.as_str() {
-        "sql.view" => sql::run_sql_view_transform(adapter, &pack.root, transform, params),
-        "payload.extract_fields" => {
-            payload::run_payload_extract_fields_transform(adapter, pack, transform)
+    match transform {
+        TransformSpec::SqlView(spec) => {
+            sql::run_sql_view_transform(adapter, &pack.root, spec, params)
         }
-        "rules.classify" => rules::run_rules_classify_transform(adapter, pack, transform),
-        "marker.extract_bracket_fields" => {
-            marker::run_marker_extract_bracket_fields_transform(adapter, transform, params, state)
+        TransformSpec::PayloadExtractFields(spec) => {
+            payload::run_payload_extract_fields_transform(adapter, pack, spec)
         }
-        other => bail!(
-            "unsupported transform kind `{other}` for `{}`",
-            transform.id
-        ),
+        TransformSpec::RulesClassify(spec) => {
+            rules::run_rules_classify_transform(adapter, pack, spec)
+        }
+        TransformSpec::MarkerExtractBracketFields(spec) => {
+            marker::run_marker_extract_bracket_fields_transform(adapter, spec, params, state)
+        }
     }
-}
-
-pub(crate) fn reject_marker_only_config(transform: &TransformSpec, kind: &str) -> Result<()> {
-    if transform.source.is_some()
-        || !transform.fields.is_empty()
-        || !transform.joins.is_empty()
-        || !transform.filters.is_empty()
-    {
-        bail!(
-            "{kind} transform `{}` does not support marker-only config fields",
-            transform.id
-        );
-    }
-    Ok(())
 }

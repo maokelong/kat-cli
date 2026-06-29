@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::trace_runtime::{
     adapter::DatasetAdapter,
-    pack::{LoadedPack, spec::TransformSpec},
+    pack::{LoadedPack, spec::RulesClassifyTransformSpec},
     transform::primitives::rules::{ClassifyRuleSet, run_rules_classify},
 };
 
@@ -22,13 +22,8 @@ struct RuleConfig {
 pub fn run_rules_classify_transform(
     adapter: &mut dyn DatasetAdapter,
     pack: &LoadedPack,
-    transform: &TransformSpec,
+    transform: &RulesClassifyTransformSpec,
 ) -> Result<()> {
-    if transform.kind != "rules.classify" {
-        bail!("transform `{}` is not rules.classify", transform.id);
-    }
-    super::reject_marker_only_config(transform, "rules.classify")?;
-
     let input_tables = transform.inputs.table_names();
     let [source_table] = input_tables.as_slice() else {
         bail!(
