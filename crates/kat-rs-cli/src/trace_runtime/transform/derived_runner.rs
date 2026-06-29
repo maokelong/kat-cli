@@ -14,6 +14,19 @@ pub struct DerivedRunner<'a> {
     pack: &'a LoadedPack,
     by_output_table: BTreeMap<String, &'a TransformSpec>,
     materialized: BTreeMap<(usize, String), MaterializationFingerprint>,
+    metadata: BTreeMap<String, DerivedTableMetadata>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DerivedTableMetadata {
+    pub pack_id: String,
+    pub transform_id: String,
+    pub input_tables: Vec<String>,
+    pub output_table: String,
+    pub output_schema: String,
+    pub semantic: Option<String>,
+    pub materialize: Option<String>,
+    pub backend: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,13 +40,13 @@ impl<'a> DerivedRunner<'a> {
         let mut by_output_table = BTreeMap::new();
         for transform in &pack.transforms {
             if let Some(existing) =
-                by_output_table.insert(transform.output.table.clone(), transform)
+                by_output_table.insert(transform.output().table.clone(), transform)
             {
                 bail!(
                     "duplicate transform output table `{}` produced by `{}` and `{}`",
-                    transform.output.table,
-                    existing.id,
-                    transform.id
+                    transform.output().table,
+                    existing.id(),
+                    transform.id()
                 );
             }
         }
@@ -41,6 +54,7 @@ impl<'a> DerivedRunner<'a> {
             pack,
             by_output_table,
             materialized: BTreeMap::new(),
+            metadata: BTreeMap::new(),
         })
     }
 
@@ -54,6 +68,10 @@ impl<'a> DerivedRunner<'a> {
         let mut visiting = BTreeSet::new();
         let adapter_id = adapter_identity(adapter);
         self.ensure_table_inner(adapter, adapter_id, table, params, state, &mut visiting)
+    }
+
+    pub fn materialized_metadata(&self, table: &str) -> Option<&DerivedTableMetadata> {
+        self.metadata.get(table)
     }
 
     fn ensure_table_inner(
@@ -84,7 +102,7 @@ impl<'a> DerivedRunner<'a> {
             }
             bail!(
                 "derived table `{table}` already exists for transform `{}` but was not materialized by this runner",
-                transform.id
+                transform.id()
             );
         }
 
@@ -96,22 +114,38 @@ impl<'a> DerivedRunner<'a> {
             bail!("cycle while materializing derived table `{table}`");
         }
 
-        for input in transform.inputs.table_names() {
+        for input in transform.inputs().table_names() {
             if self.by_output_table.contains_key(input) {
                 self.ensure_table_inner(adapter, adapter_id, input, params, state, visiting)?;
             } else if !adapter.table_exists(input)? {
                 bail!(
                     "transform `{}` input table `{input}` does not exist and is not produced by a pack transform",
-                    transform.id
+                    transform.id()
                 );
             }
         }
 
         run_transform(adapter, self.pack, transform, params, state)
-            .with_context(|| format!("failed to run transform `{}`", transform.id))?;
+            .with_context(|| format!("failed to run transform `{}`", transform.id()))?;
         let fingerprint = self.materialization_fingerprint(table, params, state)?;
         self.materialized
             .insert((adapter_id, table.to_string()), fingerprint);
+        let metadata = DerivedTableMetadata {
+            pack_id: self.pack.manifest.id.clone(),
+            transform_id: transform.id().to_string(),
+            input_tables: transform
+                .inputs()
+                .table_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            output_table: transform.output().table.clone(),
+            output_schema: transform.output().schema.clone(),
+            semantic: transform.output().semantic.clone(),
+            materialize: transform.materialize().map(str::to_string),
+            backend: "sqlite-prototype".to_string(),
+        };
+        self.metadata.insert(table.to_string(), metadata);
         visiting.remove(table);
         Ok(())
     }
@@ -150,7 +184,7 @@ impl<'a> DerivedRunner<'a> {
 
         let uses_state = transform_uses_state(transform)
             || transform
-                .inputs
+                .inputs()
                 .table_names()
                 .into_iter()
                 .map(|input| self.table_uses_state_transitively_inner(input, visiting))
@@ -164,57 +198,40 @@ impl<'a> DerivedRunner<'a> {
 }
 
 fn transform_uses_state(transform: &TransformSpec) -> bool {
-    string_uses_state(&transform.kind)
-        || transform
-            .params
-            .values()
-            .any(|value| string_uses_state(value))
-        || transform
-            .bind
-            .values()
-            .any(|value| string_uses_state(value))
-        || transform
-            .where_
-            .values()
-            .any(|value| value_uses_state(value))
-        || transform.source.as_ref().is_some_and(|source| {
-            string_uses_state(&source.table)
-                || string_uses_state(&source.column)
-                || string_uses_state(&source.contains)
-        })
-        || transform
-            .fields
-            .values()
-            .any(|value| string_uses_state(value))
-        || transform.joins.iter().any(|(key, values)| {
-            string_uses_state(key)
-                || values
-                    .iter()
-                    .any(|(key, value)| string_uses_state(key) || string_uses_state(value))
-        })
-        || transform
-            .filters
-            .values()
-            .any(|value| value_uses_state(value))
-        || transform
-            .materialize
-            .as_ref()
-            .is_some_and(|value| string_uses_state(value))
-}
-
-fn value_uses_state(value: &Value) -> bool {
-    match value {
-        Value::String(value) => string_uses_state(value),
-        Value::Array(values) => values.iter().any(value_uses_state),
-        Value::Object(values) => values.values().any(value_uses_state),
-        Value::Null | Value::Bool(_) | Value::Number(_) => false,
-    }
-}
-
-fn string_uses_state(value: &str) -> bool {
-    value.contains("${state")
+    transform.uses_state_template()
 }
 
 fn adapter_identity(adapter: &mut dyn DatasetAdapter) -> usize {
     adapter as *mut dyn DatasetAdapter as *mut () as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::trace_runtime::pack::PackManifest;
+
+    use super::*;
+
+    #[test]
+    fn metadata_map_is_keyed_by_table_name() {
+        let pack = LoadedPack {
+            root: PathBuf::new(),
+            manifest: PackManifest {
+                id: "metadata-pack".to_string(),
+                name: None,
+                schemas: Vec::new(),
+                derived: Vec::new(),
+                queries: Vec::new(),
+                analyses: Vec::new(),
+                rules: Vec::new(),
+            },
+            transforms: Vec::new(),
+            analyses: Vec::new(),
+            rule_sets: Vec::new(),
+        };
+        let runner = DerivedRunner::new(&pack).expect("runner is created");
+
+        assert!(runner.metadata.get("missing_table").is_none());
+    }
 }
