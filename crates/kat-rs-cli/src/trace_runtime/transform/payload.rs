@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::trace_runtime::{
     adapter::DatasetAdapter,
-    pack::{LoadedPack, spec::PayloadExtractFieldsTransformSpec},
+    pack::{LoadedPack, spec::TransformSpec},
     transform::primitives::payload::{
         PayloadExtractorSpec, PayloadMarkerFilter, run_payload_extract_fields,
     },
@@ -31,8 +31,12 @@ struct PayloadMarkerConfig {
 pub fn run_payload_extract_fields_transform(
     adapter: &mut dyn DatasetAdapter,
     pack: &LoadedPack,
-    transform: &PayloadExtractFieldsTransformSpec,
+    transform: &TransformSpec,
 ) -> Result<()> {
+    if transform.kind != "payload.extract_fields" {
+        bail!("transform `{}` is not payload.extract_fields", transform.id);
+    }
+    super::reject_marker_only_config(transform, "payload.extract_fields")?;
     for table in transform.inputs.table_names() {
         if !adapter.table_exists(table)? {
             bail!(

@@ -7,15 +7,15 @@ use serde_json::Value;
 use crate::trace_runtime::{
     adapter::sqlite::SQLiteDatasetAdapter,
     analysis::{
-        graph::walk::run_graph_walk_on_rows_v2, report::render_report, run_store::AnalysisRunStore,
-        sqlite_rows::select_table_rows, state::AnalysisState,
+        graph::walk::run_graph_walk_on_rows_v2,
+        report::render_report,
+        run_store::AnalysisRunStore,
+        state::AnalysisState,
         steps::seed_evidence::render_seed_evidence,
     },
     pack::{LoadedPack, spec::AnalysisStepSpec},
     transform::derived_runner::DerivedRunner,
 };
-
-const ANALYSIS_TABLE_ROW_LIMIT: usize = 10_000;
 
 pub struct AnalysisRunConfig {
     pub raw_db: PathBuf,
@@ -47,7 +47,7 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
         match step {
             AnalysisStepSpec::EvidenceRender(step) => {
                 derived.ensure_table(&mut adapter, &step.from, &config.params, state.value())?;
-                let rows = select_table_rows(&mut adapter, &step.from, ANALYSIS_TABLE_ROW_LIMIT)?;
+                let rows = adapter.query_json(&format!("SELECT * FROM {}", step.from))?;
                 let item = render_seed_evidence(&step.id, &step.from, &rows, &mut state)?;
                 store.append_evidence(&item)?;
                 evidence.push(item);
@@ -64,7 +64,7 @@ pub fn run_analysis(config: AnalysisRunConfig) -> Result<PathBuf> {
 
                 for table in &tables {
                     derived.ensure_table(&mut adapter, table, &config.params, state.value())?;
-                    let rows = select_table_rows(&mut adapter, table, ANALYSIS_TABLE_ROW_LIMIT)?;
+                    let rows = adapter.query_json(&format!("SELECT * FROM {table}"))?;
                     table_rows.push((table.as_str(), rows));
                 }
 

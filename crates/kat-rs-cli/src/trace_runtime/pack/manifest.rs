@@ -130,10 +130,10 @@ fn validate_pack_id(id: &str) -> Result<()> {
 fn reject_duplicate_transform_ids(transforms: &[(PathBuf, TransformSpec)]) -> Result<()> {
     let mut seen = BTreeMap::new();
     for (path, transform) in transforms {
-        if let Some(first_path) = seen.insert(transform.id(), path.as_path()) {
+        if let Some(first_path) = seen.insert(transform.id.as_str(), path.as_path()) {
             bail!(
                 "duplicate transform id {}: first declared at {}, duplicate declared at {}",
-                transform.id(),
+                transform.id,
                 first_path.display(),
                 path.display()
             );

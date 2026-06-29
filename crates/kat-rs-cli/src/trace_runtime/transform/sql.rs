@@ -15,15 +15,19 @@ use sqlparser::{
 
 use crate::trace_runtime::{
     adapter::{DatasetAdapter, sqlite::sql::scalar_literal},
-    pack::spec::SqlViewTransformSpec,
+    pack::spec::TransformSpec,
 };
 
 pub fn run_sql_view_transform(
     adapter: &mut dyn DatasetAdapter,
     pack_root: &Path,
-    spec: &SqlViewTransformSpec,
+    spec: &TransformSpec,
     params: &Value,
 ) -> Result<()> {
+    if spec.kind != "sql.view" {
+        bail!("transform `{}` is not sql.view", spec.id);
+    }
+    super::reject_marker_only_config(spec, "sql.view")?;
     for table in spec.inputs.table_names() {
         if !adapter.table_exists(table)? {
             bail!(
@@ -33,7 +37,11 @@ pub fn run_sql_view_transform(
         }
     }
 
-    let sql_path = safe_pack_relative_path(&spec.sql)?;
+    let sql_path = spec
+        .sql
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("sql.view transform `{}` has no sql file", spec.id))?;
+    let sql_path = safe_pack_relative_path(sql_path)?;
     let full_sql_path = pack_root.join(sql_path);
     let raw_sql = fs::read_to_string(&full_sql_path)
         .with_context(|| format!("failed to read {}", full_sql_path.display()))?;

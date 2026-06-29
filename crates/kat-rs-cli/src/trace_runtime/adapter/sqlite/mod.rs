@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use rusqlite::{Connection, Row, functions::FunctionFlags, types::ValueRef};
 use serde_json::{Map, Value, json};
 
-use super::{DatasetAdapter, DatasetColumn};
+use super::DatasetAdapter;
 use sql::{quote_identifier, quote_qualified, string_literal};
 
 pub struct SQLiteDatasetAdapter {
@@ -38,17 +38,8 @@ impl SQLiteDatasetAdapter {
         Ok(adapter)
     }
 
-    pub(crate) fn query_json_rows(&mut self, sql: &str) -> Result<Vec<Value>> {
-        let mut stmt = self.conn.prepare(sql)?;
-        let column_names = stmt
-            .column_names()
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        let rows = stmt
-            .query_map([], |row| row_to_json(row, &column_names))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows)
+    pub fn query_json(&mut self, sql: &str) -> Result<Vec<Value>> {
+        <Self as DatasetAdapter>::query_json(self, sql)
     }
 
     fn install_raw_table_views(&mut self) -> Result<()> {
@@ -96,18 +87,17 @@ impl DatasetAdapter for SQLiteDatasetAdapter {
         Ok(self.table_names()?.iter().any(|name| name == table))
     }
 
-    fn table_columns(&mut self, table: &str) -> Result<Vec<DatasetColumn>> {
-        let table = quote_identifier(table)?;
-        let sql = format!("PRAGMA table_info({table})");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let columns = stmt
-            .query_map([], |row| {
-                Ok(DatasetColumn {
-                    name: row.get::<_, String>(1)?,
-                })
-            })?
+    fn query_json(&mut self, sql: &str) -> Result<Vec<Value>> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let column_names = stmt
+            .column_names()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let rows = stmt
+            .query_map([], |row| row_to_json(row, &column_names))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(columns)
+        Ok(rows)
     }
 
     fn create_derived_table_as(&mut self, table: &str, sql: &str) -> Result<()> {
