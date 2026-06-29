@@ -456,6 +456,136 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
 }
 
 #[tokio::test]
+async fn query_extracts_fixed_result_system_plugin_direct_tables() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("fixed-result.hitrace");
+    fs::write(&trace_path, profiler_section(fixed_result_system_plugins()))
+        .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    let rows = datasource
+        .query_json("select pid, report_process_info from cpu_config")
+        .await
+        .expect("cpu_config query succeeds");
+    assert_eq!(rows, json!([{ "pid": 42, "report_process_info": true }]));
+
+    let rows = datasource
+        .query_json("select process_num, user_load, total_load from cpu_data")
+        .await
+        .expect("cpu_data query succeeds");
+    assert_eq!(
+        rows,
+        json!([{ "process_num": 2, "user_load": 1.5, "total_load": 4.0 }])
+    );
+
+    let rows = datasource
+        .query_json("select report_sysmem_mem_info from memory_config")
+        .await
+        .expect("memory_config query succeeds");
+    assert_eq!(rows, json!([{ "report_sysmem_mem_info": true }]));
+
+    let rows = datasource
+        .query_json("select zram, gpu_used_size from memory_data")
+        .await
+        .expect("memory_data query succeeds");
+    assert_eq!(rows, json!([{ "zram": 64u64, "gpu_used_size": 32u64 }]));
+
+    let rows = datasource
+        .query_json("select report_process_tree, report_cpu from process_config")
+        .await
+        .expect("process_config query succeeds");
+    assert_eq!(
+        rows,
+        json!([{ "report_process_tree": true, "report_cpu": true }])
+    );
+
+    let rows = datasource
+        .query_json("select processesinfo from process_data")
+        .await
+        .expect("process_data nested query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "processesinfo": [{
+                "pid": 42,
+                "name": "render",
+                "ppid": 0,
+                "uid": 0,
+                "cpuinfo": null,
+                "pssinfo": null,
+                "diskinfo": null,
+            }]
+        }])
+    );
+
+    let rows = datasource
+        .query_json("select report_io_stats from diskio_config")
+        .await
+        .expect("diskio_config query succeeds");
+    assert_eq!(rows, json!([{ "report_io_stats": 2 }]));
+
+    let rows = datasource
+        .query_json("select rd_sectors_kb, wr_sectors_kb from diskio_data")
+        .await
+        .expect("diskio_data query succeeds");
+    assert_eq!(rows, json!([{ "rd_sectors_kb": 10, "wr_sectors_kb": 20 }]));
+
+    let rows = datasource
+        .query_json("select single_pid, startup_process_name from network_config")
+        .await
+        .expect("network_config query succeeds");
+    assert_eq!(
+        rows,
+        json!([{ "single_pid": 42, "startup_process_name": "render" }])
+    );
+
+    let rows = datasource
+        .query_json("select networkinfo from network_data")
+        .await
+        .expect("network_data nested query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "networkinfo": [{
+                "pid": 42,
+                "tv_sec": 0u64,
+                "tv_nsec": 0u64,
+                "tx_bytes": 100u64,
+                "rx_bytes": 200u64,
+                "details": [],
+            }]
+        }])
+    );
+
+    let rows = datasource
+        .query_json("select pid, report_gpu_info from gpu_config")
+        .await
+        .expect("gpu_config query succeeds");
+    assert_eq!(rows, json!([{ "pid": 42, "report_gpu_info": true }]));
+
+    let rows = datasource
+        .query_json("select boottime, gpu_utilisation from gpu_data")
+        .await
+        .expect("gpu_data query succeeds");
+    assert_eq!(
+        rows,
+        json!([{ "boottime": 100u64, "gpu_utilisation": 80u64 }])
+    );
+
+    let rows = datasource
+        .query_json(
+            "select count(*) as count from profiler_plugin_data \
+             where name in ('cpu-plugin', 'memory-plugin', 'process-plugin', \
+             'diskio-plugin', 'network-plugin', 'gpu-plugin')",
+        )
+        .await
+        .expect("raw fixed result envelopes remain queryable");
+    assert_eq!(rows, json!([{ "count": 6 }]));
+}
+
+#[tokio::test]
 async fn query_json_converts_scalar_result_types() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("empty.hitrace");
@@ -699,6 +829,116 @@ struct TestTraceFreeEvent {
     thread_name_id: u32,
     #[prost(uint32, tag = "8")]
     stack_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestCpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_process_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestCpuData {
+    #[prost(int64, tag = "3")]
+    process_num: i64,
+    #[prost(double, tag = "4")]
+    user_load: f64,
+    #[prost(double, tag = "5")]
+    sys_load: f64,
+    #[prost(double, tag = "6")]
+    total_load: f64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestMemoryConfig {
+    #[prost(bool, tag = "2")]
+    report_sysmem_mem_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestMemoryData {
+    #[prost(uint64, tag = "4")]
+    zram: u64,
+    #[prost(uint64, tag = "10")]
+    gpu_used_size: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessConfig {
+    #[prost(bool, tag = "1")]
+    report_process_tree: bool,
+    #[prost(bool, tag = "2")]
+    report_cpu: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessData {
+    #[prost(message, repeated, tag = "1")]
+    processesinfo: Vec<TestProcessInfo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessInfo {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestDiskioConfig {
+    #[prost(int32, tag = "2")]
+    report_io_stats: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestDiskioData {
+    #[prost(int64, tag = "4")]
+    rd_sectors_kb: i64,
+    #[prost(int64, tag = "5")]
+    wr_sectors_kb: i64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkConfig {
+    #[prost(int32, tag = "3")]
+    single_pid: i32,
+    #[prost(string, tag = "4")]
+    startup_process_name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkDatas {
+    #[prost(message, repeated, tag = "1")]
+    networkinfo: Vec<TestNetworkData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkData {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(uint64, tag = "4")]
+    tx_bytes: u64,
+    #[prost(uint64, tag = "5")]
+    rx_bytes: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestGpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_gpu_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestGpuData {
+    #[prost(uint64, tag = "1")]
+    boottime: u64,
+    #[prost(uint64, tag = "2")]
+    gpu_utilisation: u64,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -1091,6 +1331,111 @@ fn native_hook_plugin_with_events() -> TestProfilerPluginData {
         tv_nsec: 200,
         version: "1.0".to_string(),
         sample_interval: 10,
+    }
+}
+
+fn fixed_result_system_plugins() -> Vec<TestProfilerPluginData> {
+    vec![
+        fixed_result_plugin(
+            "cpu-plugin_config",
+            TestCpuConfig {
+                pid: 42,
+                report_process_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "cpu-plugin",
+            TestCpuData {
+                process_num: 2,
+                user_load: 1.5,
+                sys_load: 2.5,
+                total_load: 4.0,
+            },
+        ),
+        fixed_result_plugin(
+            "memory-plugin_config",
+            TestMemoryConfig {
+                report_sysmem_mem_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "memory-plugin",
+            TestMemoryData {
+                zram: 64,
+                gpu_used_size: 32,
+            },
+        ),
+        fixed_result_plugin(
+            "process-plugin_config",
+            TestProcessConfig {
+                report_process_tree: true,
+                report_cpu: true,
+            },
+        ),
+        fixed_result_plugin(
+            "process-plugin",
+            TestProcessData {
+                processesinfo: vec![TestProcessInfo {
+                    pid: 42,
+                    name: "render".to_string(),
+                }],
+            },
+        ),
+        fixed_result_plugin(
+            "diskio-plugin_config",
+            TestDiskioConfig { report_io_stats: 2 },
+        ),
+        fixed_result_plugin(
+            "diskio-plugin",
+            TestDiskioData {
+                rd_sectors_kb: 10,
+                wr_sectors_kb: 20,
+            },
+        ),
+        fixed_result_plugin(
+            "network-plugin_config",
+            TestNetworkConfig {
+                single_pid: 42,
+                startup_process_name: "render".to_string(),
+            },
+        ),
+        fixed_result_plugin(
+            "network-plugin",
+            TestNetworkDatas {
+                networkinfo: vec![TestNetworkData {
+                    pid: 42,
+                    tx_bytes: 100,
+                    rx_bytes: 200,
+                }],
+            },
+        ),
+        fixed_result_plugin(
+            "gpu-plugin_config",
+            TestGpuConfig {
+                pid: 42,
+                report_gpu_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "gpu-plugin",
+            TestGpuData {
+                boottime: 100,
+                gpu_utilisation: 80,
+            },
+        ),
+    ]
+}
+
+fn fixed_result_plugin(name: &str, message: impl Message) -> TestProfilerPluginData {
+    TestProfilerPluginData {
+        name: name.to_string(),
+        status: 1,
+        data: message.encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
     }
 }
 

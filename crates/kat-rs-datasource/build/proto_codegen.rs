@@ -73,7 +73,7 @@ pub(crate) fn camel_to_snake(name: &str) -> String {
     snake
 }
 
-fn proto_file<'a>(
+pub(crate) fn proto_file<'a>(
     fds: &'a FileDescriptorSet,
     proto_path: &str,
 ) -> &'a prost_types::FileDescriptorProto {

@@ -29,6 +29,10 @@ mod domains {
     pub(crate) mod native_hook {
         pub(crate) enum NativeHookRecord {}
     }
+
+    pub(crate) mod fixed_result {
+        pub(crate) enum FixedResultRecord {}
+    }
 }
 
 mod record {

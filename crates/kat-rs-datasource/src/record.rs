@@ -3,7 +3,9 @@
 use anyhow::Result;
 
 use crate::{
-    domains::{ftrace::FtraceRecord, native_hook::NativeHookRecord},
+    domains::{
+        fixed_result::FixedResultRecord, ftrace::FtraceRecord, native_hook::NativeHookRecord,
+    },
     proto::ProfilerPluginData,
 };
 
@@ -11,6 +13,7 @@ pub(crate) enum TraceRecord {
     ProfilerPluginData(ProfilerPluginData),
     Ftrace(Box<FtraceRecord>),
     NativeHook(Box<NativeHookRecord>),
+    FixedResult(Box<FixedResultRecord>),
 }
 
 pub(crate) trait TraceRecordSink {

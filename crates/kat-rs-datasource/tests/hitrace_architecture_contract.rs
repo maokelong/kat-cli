@@ -64,6 +64,7 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/formats/hitrace/profiler/payload.rs",
         "src/formats/hitrace/profiler/registry.rs",
         "src/domains/mod.rs",
+        "src/domains/fixed_result/mod.rs",
         "src/domains/ftrace/mod.rs",
         "src/domains/ftrace/event.rs",
         "src/domains/ftrace/packet.rs",
@@ -109,6 +110,7 @@ fn hitrace_file_adapter_does_not_decode_plugins_or_write_arrow() {
 
     for marker in [
         "domains::ftrace",
+        "domains::fixed_result",
         "domains::native_hook",
         "FTRACE_PLUGIN_NAME",
         "nativehook",
@@ -159,9 +161,16 @@ fn profiler_envelope_mechanism_does_not_own_domain_decoders() {
         "domains::ftrace",
         "domains::native_hook",
         "TracePluginResult",
+        "CpuData",
+        "MemoryData",
+        "ProcessData",
+        "DiskioData",
+        "NetworkDatas",
+        "GpuData",
         "BatchNativeHookData",
         "NativeHookConfig",
         "FTRACE_PLUGIN_DECODER",
+        "FIXED_RESULT_PLUGIN_DECODERS",
         "NATIVE_HOOK_PLUGIN_DECODER",
         "HOOK_DAEMON_PLUGIN_DECODER",
         "DecodePluginPayload",
@@ -182,6 +191,7 @@ fn hitrace_pipeline_assembles_profiler_decoder_specs() {
 
     for marker in [
         "FTRACE_PLUGIN_DECODER",
+        "FIXED_RESULT_PLUGIN_DECODERS",
         "NATIVE_HOOK_PLUGIN_DECODER",
         "HOOK_DAEMON_PLUGIN_DECODER",
         "PluginPayloadRegistry::new",
@@ -227,9 +237,18 @@ fn arrow_sink_owns_record_to_table_conversion() {
         "src/domains/native_hook/event.rs",
         "src/domains/native_hook/packet.rs",
     ]);
+    let fixed_result_domain = source("src/domains/fixed_result/mod.rs");
     let generated_native_hook_records =
         fs::read_to_string(format!("{}/native_hook_records.rs", env!("OUT_DIR")))
             .expect("generated native hook records can be read");
+    let generated_fixed_result_records =
+        fs::read_to_string(format!("{}/fixed_result_records.rs", env!("OUT_DIR")))
+            .expect("generated fixed result records can be read");
+    let generated_fixed_result_builders = fs::read_to_string(format!(
+        "{}/fixed_result_table_builders.rs",
+        env!("OUT_DIR")
+    ))
+    .expect("generated fixed result table builders can be read");
     let record = source("src/record.rs");
     let arrow_table = source("src/arrow_table.rs");
 
@@ -245,6 +264,7 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(sink_mod.contains("mod native_hook"));
     assert!(sink_mod.contains("FtraceTableSet"));
     assert!(sink_mod.contains("NativeHookTableSet"));
+    assert!(sink_mod.contains("FixedResultTableSet"));
     assert!(table.contains("pub(crate) struct MessageTableBuilder"));
     assert!(!table.contains("pub(crate) struct TableBuilder"));
     assert!(table.contains("pub(crate) struct EventTableBuilder"));
@@ -275,17 +295,30 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(!native_hook_domain.contains("native_hook_data::Event"));
     assert!(!native_hook_domain.contains("Event::AllocEvent"));
     assert!(!native_hook_domain.contains("Event::MapsInfo"));
+    assert!(fixed_result_domain.contains("fixed_result_records.rs"));
+    assert!(!fixed_result_domain.contains("CpuData"));
+    assert!(!fixed_result_domain.contains("MemoryData"));
     assert!(generated_native_hook_records.contains("pub(crate) enum NativeHookRecord"));
     assert!(generated_native_hook_records.contains("native_hook_data::Event"));
     assert!(generated_native_hook_records.contains("Event::AllocEvent"));
     assert!(generated_native_hook_records.contains("Event::MapsInfo"));
     assert!(generated_native_hook_records.contains("NativeHookRecord::MapsInfo"));
     assert!(generated_native_hook_records.contains("NativeHookRecord::SymbolTable"));
+    assert!(generated_fixed_result_records.contains("pub(crate) enum FixedResultRecord"));
+    assert!(generated_fixed_result_records.contains("CpuData(Box<CpuData>)"));
+    assert!(generated_fixed_result_records.contains("MemoryData(Box<MemoryData>)"));
+    assert!(generated_fixed_result_records.contains("NetworkDatas(Box<NetworkDatas>)"));
+    assert!(generated_fixed_result_builders.contains("pub(crate) struct FixedResultTableSet"));
+    assert!(generated_fixed_result_builders.contains("MessageTableBuilder<CpuData>"));
+    assert!(generated_fixed_result_builders.contains("MessageTableBuilder<MemoryData>"));
+    assert!(generated_fixed_result_builders.contains("\"gpu_data\""));
     assert!(record.contains("Ftrace(Box<FtraceRecord>)"));
     assert!(!record.contains("FtraceEvent("));
     assert!(record.contains("NativeHook(Box<NativeHookRecord>)"));
     assert!(!record.contains("NativeHookConfig("));
     assert!(!record.contains("NativeHookEvent("));
+    assert!(record.contains("FixedResult(Box<FixedResultRecord>)"));
+    assert!(!record.contains("CpuData("));
 }
 
 #[test]
@@ -350,6 +383,8 @@ fn build_script_splits_codegen_by_responsibility() {
         "build/ftrace_arrow_codegen.rs",
         "build/native_hook_domain_codegen.rs",
         "build/native_hook_arrow_codegen.rs",
+        "build/fixed_result_domain_codegen.rs",
+        "build/fixed_result_arrow_codegen.rs",
     ] {
         assert!(
             std::path::Path::new(&format!("{manifest_dir}/{path}")).exists(),
@@ -372,6 +407,8 @@ fn build_script_splits_codegen_by_responsibility() {
         "mod ftrace_arrow_codegen;",
         "mod native_hook_arrow_codegen;",
         "mod native_hook_domain_codegen;",
+        "mod fixed_result_arrow_codegen;",
+        "mod fixed_result_domain_codegen;",
         "mod proto_codegen;",
     ] {
         assert!(build_rs.contains(module), "{module} should be declared");
@@ -453,6 +490,18 @@ fn ftrace_event_family_generation_avoids_old_sched_entrypoint() {
 
     assert!(native_hook_domain_codegen.contains("proto/native_hook/native_hook_config.proto"));
     assert!(native_hook_domain_codegen.contains("proto/native_hook/native_hook_result.proto"));
+    assert!(
+        build_rs.contains("FIXED_RESULT_PROTO_FILES"),
+        "fixed result proto inputs should be explicit"
+    );
+    assert!(
+        build_rs.contains("generate_fixed_result_records"),
+        "fixed result domain codegen should be wired"
+    );
+    assert!(
+        build_rs.contains("generate_fixed_result_table_builders"),
+        "fixed result Arrow codegen should be wired"
+    );
 
     let ftrace_family_decl = ftrace_arrow_codegen
         .split("FTRACE_EVENT_FAMILIES")

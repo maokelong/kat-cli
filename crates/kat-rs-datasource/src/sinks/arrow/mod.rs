@@ -8,6 +8,7 @@ use anyhow::Result;
 
 use crate::{
     arrow_table::ArrowTableSet,
+    fixed_result_table_builders::FixedResultTableSet,
     ftrace_event_table_builders::FtraceTableSet,
     native_hook_table_builders::NativeHookTableSet,
     proto::ProfilerPluginData,
@@ -24,6 +25,7 @@ pub(crate) struct ArrowSink {
     profiler_table: MessageTableBuilder<ProfilerPluginData>,
     event_tables: FtraceTableSet,
     native_hook_tables: NativeHookTableSet,
+    fixed_result_tables: FixedResultTableSet,
 }
 
 impl ArrowSink {
@@ -32,6 +34,7 @@ impl ArrowSink {
             profiler_table: MessageTableBuilder::new(PROFILER_PLUGIN_DATA_TABLE)?,
             event_tables: FtraceTableSet::new()?,
             native_hook_tables: NativeHookTableSet::new()?,
+            fixed_result_tables: FixedResultTableSet::new()?,
         })
     }
 
@@ -39,6 +42,7 @@ impl ArrowSink {
         let mut tables = vec![self.profiler_table.into_table()?];
         tables.extend(self.event_tables.into_tables()?);
         tables.extend(self.native_hook_tables.into_tables()?);
+        tables.extend(self.fixed_result_tables.into_tables()?);
 
         Ok(ArrowTableSet::new(tables))
     }
@@ -47,6 +51,7 @@ impl ArrowSink {
         let mut tables = vec![self.profiler_table.flush_table()?];
         tables.extend(self.event_tables.flush_tables()?);
         tables.extend(self.native_hook_tables.flush_tables()?);
+        tables.extend(self.fixed_result_tables.flush_tables()?);
 
         Ok(ArrowTableSet::new(tables))
     }
@@ -60,6 +65,7 @@ impl TraceRecordSink for ArrowSink {
             }
             TraceRecord::Ftrace(record) => self.event_tables.push_record(*record)?,
             TraceRecord::NativeHook(record) => self.native_hook_tables.push_record(*record)?,
+            TraceRecord::FixedResult(record) => self.fixed_result_tables.push_record(*record)?,
         }
 
         Ok(())

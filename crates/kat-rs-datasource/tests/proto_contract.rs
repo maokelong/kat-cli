@@ -11,6 +11,30 @@ mod proto {
         pub mod native_hook {
             include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
         }
+
+        pub mod cpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.cpu_data.rs"));
+        }
+
+        pub mod memory_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.memory_data.rs"));
+        }
+
+        pub mod process_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.process_data.rs"));
+        }
+
+        pub mod diskio_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.diskio_data.rs"));
+        }
+
+        pub mod network_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.network_data.rs"));
+        }
+
+        pub mod gpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.gpu_data.rs"));
+        }
     }
 
     pub(crate) use kat::hitrace::ProfilerPluginData;
@@ -27,6 +51,60 @@ mod record {
     #![allow(dead_code)]
 
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/record.rs"));
+}
+
+mod formats {
+    pub(crate) mod hitrace {
+        pub(crate) mod profiler {
+            #![allow(dead_code)]
+
+            use anyhow::Result;
+            use prost::Message;
+
+            use crate::record::TraceRecordSink;
+
+            pub(crate) struct PluginEnvelope<'a> {
+                pub(crate) payload: &'a [u8],
+            }
+
+            pub(crate) trait PluginDecoder {
+                fn plugin_name(&self) -> &'static str;
+
+                fn configure(
+                    &mut self,
+                    _envelope: &PluginEnvelope<'_>,
+                    _sink: &mut dyn TraceRecordSink,
+                ) -> Result<()> {
+                    Ok(())
+                }
+
+                fn decode_data(
+                    &mut self,
+                    envelope: &PluginEnvelope<'_>,
+                    sink: &mut dyn TraceRecordSink,
+                ) -> Result<()>;
+            }
+
+            #[derive(Clone, Copy)]
+            pub(crate) struct PluginDecoderSpec {
+                #[allow(dead_code)]
+                new_decoder: fn() -> Box<dyn PluginDecoder>,
+            }
+
+            impl PluginDecoderSpec {
+                pub(crate) const fn new(new_decoder: fn() -> Box<dyn PluginDecoder>) -> Self {
+                    Self { new_decoder }
+                }
+            }
+
+            pub(crate) fn decode_payload<M>(envelope: &PluginEnvelope<'_>) -> Result<M>
+            where
+                M: Default + Message,
+            {
+                Ok(M::decode(envelope.payload)?)
+            }
+        }
+    }
 }
 
 mod domains {
@@ -53,6 +131,16 @@ mod domains {
 
         pub(crate) use event::{NativeHookEvent, NativeHookEventContext};
         pub(crate) use records::NativeHookRecord;
+    }
+
+    pub(crate) mod fixed_result {
+        #![allow(dead_code)]
+
+        mod records {
+            include!(concat!(env!("OUT_DIR"), "/fixed_result_records.rs"));
+        }
+
+        pub(crate) use records::FixedResultRecord;
     }
 }
 
@@ -105,6 +193,7 @@ fn trace_record_stream_models_pre_sink_records() {
         }
         record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
+        record::TraceRecord::FixedResult(_) => unreachable!("expected plugin data record"),
     }
 
     let event = domains::ftrace::FtraceEventRecord::new(
@@ -128,6 +217,7 @@ fn trace_record_stream_models_pre_sink_records() {
         },
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected ftrace event record"),
+        record::TraceRecord::FixedResult(_) => unreachable!("expected ftrace event record"),
     }
 
     let config = proto::NativeHookConfig {
@@ -147,6 +237,7 @@ fn trace_record_stream_models_pre_sink_records() {
         },
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook config"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook config"),
+        record::TraceRecord::FixedResult(_) => unreachable!("expected native hook config"),
     }
 
     let event = domains::native_hook::NativeHookEvent::new(
@@ -169,6 +260,29 @@ fn trace_record_stream_models_pre_sink_records() {
         },
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook event"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook event"),
+        record::TraceRecord::FixedResult(_) => unreachable!("expected native hook event"),
+    }
+
+    let cpu_data = proto::kat::cpu_data::CpuData {
+        process_num: 2,
+        user_load: 1.5,
+        total_load: 2.5,
+        ..Default::default()
+    };
+    match record::TraceRecord::FixedResult(Box::new(
+        domains::fixed_result::FixedResultRecord::CpuData(Box::new(cpu_data)),
+    )) {
+        record::TraceRecord::FixedResult(record) => match *record {
+            domains::fixed_result::FixedResultRecord::CpuData(data) => {
+                assert_eq!(data.process_num, 2);
+                assert_eq!(data.user_load, 1.5);
+                assert_eq!(data.total_load, 2.5);
+            }
+            _ => unreachable!("expected cpu data"),
+        },
+        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected fixed result record"),
+        record::TraceRecord::Ftrace(_) => unreachable!("expected fixed result record"),
+        record::TraceRecord::NativeHook(_) => unreachable!("expected fixed result record"),
     }
 }
 
@@ -386,6 +500,94 @@ fn generated_proto_includes_native_hook_config_and_events() {
         decoded.events[3].event,
         Some(proto::kat::native_hook::native_hook_data::Event::TraceFreeEvent(_))
     ));
+}
+
+#[test]
+fn generated_proto_includes_fixed_result_system_plugins() {
+    let cpu = proto::kat::cpu_data::CpuData {
+        process_num: 2,
+        user_load: 1.5,
+        sys_load: 2.5,
+        total_load: 4.0,
+        ..Default::default()
+    };
+    let decoded =
+        proto::kat::cpu_data::CpuData::decode(cpu.encode_to_vec().as_slice()).expect("decode");
+    assert_eq!(decoded.process_num, 2);
+    assert_eq!(decoded.user_load, 1.5);
+    assert_eq!(decoded.total_load, 4.0);
+
+    let memory = proto::kat::memory_data::MemoryData {
+        zram: 64,
+        gpu_limit_size: 128,
+        gpu_used_size: 32,
+        ..Default::default()
+    };
+    let decoded = proto::kat::memory_data::MemoryData::decode(memory.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.zram, 64);
+    assert_eq!(decoded.gpu_limit_size, 128);
+    assert_eq!(decoded.gpu_used_size, 32);
+
+    let process = proto::kat::process_data::ProcessData {
+        processesinfo: vec![proto::kat::process_data::ProcessInfo {
+            pid: 42,
+            name: "render".to_string(),
+            ppid: 7,
+            uid: 1000,
+            cpuinfo: Some(proto::kat::process_data::CpuInfo {
+                cpu_usage: 12.5,
+                thread_sum: 3,
+                cpu_time_ms: 456,
+            }),
+            ..Default::default()
+        }],
+    };
+    let decoded = proto::kat::process_data::ProcessData::decode(process.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.processesinfo.len(), 1);
+    assert_eq!(decoded.processesinfo[0].pid, 42);
+    assert_eq!(decoded.processesinfo[0].name, "render");
+
+    let diskio = proto::kat::diskio_data::DiskioData {
+        rd_sectors_kb: 10,
+        wr_sectors_kb: 20,
+        ..Default::default()
+    };
+    let decoded = proto::kat::diskio_data::DiskioData::decode(diskio.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.rd_sectors_kb, 10);
+    assert_eq!(decoded.wr_sectors_kb, 20);
+
+    let network = proto::kat::network_data::NetworkDatas {
+        networkinfo: vec![proto::kat::network_data::NetworkData {
+            pid: 42,
+            tx_bytes: 100,
+            rx_bytes: 200,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let decoded =
+        proto::kat::network_data::NetworkDatas::decode(network.encode_to_vec().as_slice())
+            .expect("decode");
+    assert_eq!(decoded.networkinfo.len(), 1);
+    assert_eq!(decoded.networkinfo[0].pid, 42);
+    assert_eq!(decoded.networkinfo[0].tx_bytes, 100);
+
+    let gpu = proto::kat::gpu_data::GpuData {
+        boottime: 100,
+        gpu_utilisation: 80,
+        gpu_data_array: vec![proto::kat::gpu_data::GpuDataExt {
+            boottime: 101,
+            gpu_utilisation: 81,
+        }],
+    };
+    let decoded =
+        proto::kat::gpu_data::GpuData::decode(gpu.encode_to_vec().as_slice()).expect("decode");
+    assert_eq!(decoded.boottime, 100);
+    assert_eq!(decoded.gpu_utilisation, 80);
+    assert_eq!(decoded.gpu_data_array.len(), 1);
 }
 
 #[test]

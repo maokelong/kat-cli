@@ -1,3 +1,7 @@
+#[path = "build/fixed_result_arrow_codegen.rs"]
+mod fixed_result_arrow_codegen;
+#[path = "build/fixed_result_domain_codegen.rs"]
+mod fixed_result_domain_codegen;
 #[path = "build/ftrace_arrow_codegen.rs"]
 mod ftrace_arrow_codegen;
 #[path = "build/native_hook_arrow_codegen.rs"]
@@ -7,6 +11,11 @@ mod native_hook_domain_codegen;
 #[path = "build/proto_codegen.rs"]
 mod proto_codegen;
 
+use fixed_result_arrow_codegen::generate_fixed_result_table_builders;
+use fixed_result_domain_codegen::{
+    FIXED_RESULT_PLUGIN_SPECS, FIXED_RESULT_PROTO_FILES, fixed_result_enum_paths,
+    fixed_result_serializable_message_paths, generate_fixed_result_records,
+};
 use ftrace_arrow_codegen::{
     EventFamily, FTRACE_EVENT_FAMILIES, generate_ftrace_event_table_builders,
 };
@@ -31,6 +40,7 @@ fn main() {
         .chain(FTRACE_PAYLOAD_PROTO_FILES.iter().copied())
         .chain(FTRACE_EVENT_FAMILIES.iter().map(|family| family.proto_path))
         .chain(NATIVE_HOOK_PROTO_FILES.iter().copied())
+        .chain(FIXED_RESULT_PROTO_FILES.iter().copied())
         .collect::<Vec<_>>();
     let mut config = prost_build::Config::new();
     config.protoc_executable(protoc);
@@ -77,6 +87,15 @@ fn main() {
             config.type_attribute(&path, "#[derive(serde::Serialize, serde::Deserialize)]");
         }
     }
+    for message_path in fixed_result_serializable_message_paths(&fds) {
+        config.type_attribute(
+            &message_path,
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        );
+    }
+    for enum_path in fixed_result_enum_paths(&fds) {
+        config.enum_attribute(&enum_path, "#[allow(clippy::enum_variant_names)]");
+    }
     config.field_attribute(
         ".kat.hitrace.ProfilerPluginData.data",
         "#[serde(with = \"serde_bytes\")]",
@@ -97,6 +116,10 @@ fn main() {
     generate_native_hook_records(&native_hook_events).expect("native hook records are written");
     generate_native_hook_table_builders(&native_hook_events)
         .expect("native hook table builders are written");
+    generate_fixed_result_records(FIXED_RESULT_PLUGIN_SPECS)
+        .expect("fixed result records are written");
+    generate_fixed_result_table_builders(FIXED_RESULT_PLUGIN_SPECS)
+        .expect("fixed result table builders are written");
 
     for proto_file in proto_files {
         println!("cargo:rerun-if-changed={proto_file}");

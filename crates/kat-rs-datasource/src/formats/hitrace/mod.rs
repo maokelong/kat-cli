@@ -10,6 +10,7 @@ use log::debug;
 
 use crate::{
     domains::{
+        fixed_result::FIXED_RESULT_PLUGIN_DECODERS,
         ftrace::FTRACE_PLUGIN_DECODER,
         native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
     },
@@ -35,11 +36,12 @@ fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
     let mut offset = 0usize;
-    let decoder_specs = [
+    let mut decoder_specs = vec![
         FTRACE_PLUGIN_DECODER,
         NATIVE_HOOK_PLUGIN_DECODER,
         HOOK_DAEMON_PLUGIN_DECODER,
     ];
+    decoder_specs.extend_from_slice(FIXED_RESULT_PLUGIN_DECODERS);
     let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
 
     while offset < bytes.len() {
