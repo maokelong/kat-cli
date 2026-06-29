@@ -16,6 +16,9 @@ pub(crate) struct PluginEnvelope<'a> {
     pub(crate) payload: &'a [u8],
     pub(crate) version: &'a str,
     pub(crate) sample_interval: u32,
+    pub(crate) clock_id: i32,
+    pub(crate) tv_sec: u64,
+    pub(crate) tv_nsec: u64,
     pub(crate) section_start: usize,
 }
 
@@ -38,6 +41,9 @@ impl<'a> PluginEnvelope<'a> {
             payload: message.data.as_slice(),
             version: message.version.as_str(),
             sample_interval: message.sample_interval,
+            clock_id: message.clock_id,
+            tv_sec: message.tv_sec,
+            tv_nsec: message.tv_nsec,
             section_start,
         }
     }

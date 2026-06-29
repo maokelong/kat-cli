@@ -19,7 +19,7 @@ ProfilerPluginData
   -> <Plugin>Data    // data envelope
 ```
 
-因此本轮不应该把它们接入 ftrace 或 native_hook 路径，也不应该借机引入 payload manifest 或通用 schema framework。合理切片是新增一个 `fixed_result` domain：它承接这批“单个 config message + 单个 root result message”的 profiler plugin，并将 decoded root payload 直接投影为 Arrow 表。
+因此本轮不应该把它们接入 ftrace 或 native_hook 路径，也不应该借机引入 payload manifest 或通用 schema framework。合理切片是新增一个 `fixed_result` domain：它承接这批“单个 config message + 单个 root result message”的 profiler plugin，将 decoded root payload 投影为带 profiler envelope meta 的 Arrow direct 表，并对 root result 的顶层 `repeated message` 字段生成一层 flat fact tables。
 
 ## Upstream 依据
 
@@ -42,15 +42,16 @@ runtime plugin name 来自 upstream `device/plugins/*_plugin/src/*_module.cpp` �
 2. 通过 `prost_build` 生成 Rust proto 类型，包含 config/result 以及 result 内部 nested message。
 3. 新增 `domains/fixed_result`，decode 这批 plugin 的 config/data envelope，并产出 `FixedResultRecord`。
 4. 在 `TraceRecord` 增加粗粒度 `FixedResult` variant，不把 6 个 plugin 的内部 message 摊平成全局 record。
-5. 在 Arrow sink 新增 `FixedResultTableSet`，暴露每个 plugin 的 config/result direct tables。
-6. 保持 `profiler_plugin_data` raw table 行为不变。
-7. 增加 proto contract、domain/record contract 和 datasource query 测试。
+5. 在 Arrow sink 新增 `FixedResultTableSet`，暴露每个 plugin 的 config/result direct tables，并给这些表补充 profiler envelope meta。
+6. 对 result root message 的顶层 `repeated message` 字段生成 flat fact tables，每行带同一份 envelope meta 和 `child_index`。
+7. 保持 `profiler_plugin_data` raw table 行为不变。
+8. 增加 proto contract、domain/record contract 和 datasource query 测试。
 
 ## 非目标
 
 1. 不实现 TraceStreamer derived tables。
 2. 不做跨 plugin 归一化，例如统一 CPU/memory/process 时间轴。
-3. 不拆解所有 repeated child message 为独立 child table。
+3. 不递归拆解所有 nested/repeated child message；本轮只展开 result root 的顶层 `repeated message` 字段。
 4. 不引入 payload shape manifest、通用 descriptor schema 层或运行时反射 decoder。
 5. 不修改 `.htrace` file reader 或 profiler envelope 机制层。
 6. 不把 plugin name、config envelope name 当成 payload schema 真相。
@@ -88,6 +89,30 @@ ProfilerPluginData envelope
 
 `FixedResultRecord` 是 domain 内部 enum，包含 12 个 variant：6 个 config + 6 个 result。这个 enum 由 build helper 根据静态 `FixedResultPluginSpec` 生成，避免重复手写 decode 和 record variant。
 
+每个 `FixedResultRecord` variant 不再只携带裸 protobuf message，而是携带 `FixedResultMessage<T>`：
+
+```text
+FixedResultMessage<T>
+  -> ProfilerEnvelopeMeta
+  -> decoded protobuf message
+```
+
+`ProfilerEnvelopeMeta` 来自 `ProfilerPluginData` envelope，字段使用 `envelope_` 前缀，避免和 payload 自己的 `tv_sec`、`tv_nsec` 等字段冲突：
+
+```text
+envelope_plugin_name
+envelope_name
+envelope_kind
+envelope_version
+envelope_sample_interval
+envelope_clock_id
+envelope_tv_sec
+envelope_tv_nsec
+envelope_section_start
+```
+
+本轮不派生 `timestamp_ns`，避免把时间策略提前固化为额外语义字段。
+
 ### 模块 C：Arrow direct tables
 
 新增 generated `FixedResultTableSet`，每个 config/result root message 一个 direct table：
@@ -101,7 +126,24 @@ network_config, network_data
 gpu_config, gpu_data
 ```
 
-这些表使用现有 `MessageTableBuilder<T>`，保留 protobuf nested/repeated 字段为 Arrow nested/list 字段。本轮不拆 child table，因为 issue 的这批 plugin 是 fixed root result，拆所有 repeated child 会把本轮推回已放弃的通用 schema/table framework。
+这些表使用 fixed_result 专用 table builder，将 `ProfilerEnvelopeMeta` 和 root protobuf message 展平成同一行。root 表仍保留 protobuf nested/repeated 字段为 Arrow nested/list 字段，用于 direct/debug 查询和溯源。
+
+同时，build helper 基于 descriptor 收集每个 result root message 的顶层 `repeated message` 字段，并生成一层 flat fact table。命名规则为：
+
+```text
+<root_table>_<repeated_field>
+```
+
+示例：
+
+```text
+process_data_processesinfo
+network_data_networkinfo
+gpu_data_gpu_data_array
+memory_data_meminfo
+```
+
+child fact row 带 `ProfilerEnvelopeMeta` 和 `child_index`，再展开 child message 自身字段。它解决第一版 root-message-only 表面对 SQL 不友好的问题，但不递归展开 child message 内部的 repeated/nested 字段，也不实现 TraceStreamer derived/statistic tables。
 
 ### 模块 D：build helpers
 
@@ -110,9 +152,9 @@ gpu_config, gpu_data
 | 文件 | 消费者 | 职责 |
 | --- | --- | --- |
 | `build/fixed_result_domain_codegen.rs` | `domains/fixed_result` | 静态 plugin spec、proto 文件列表、serde derive message 路径、生成 `FixedResultRecord` 和 decoder specs |
-| `build/fixed_result_arrow_codegen.rs` | `sinks/arrow` | 生成 `FixedResultTableSet` 和 table builder routing |
+| `build/fixed_result_arrow_codegen.rs` | `sinks/arrow` | 生成 `FixedResultTableSet`、root direct table routing 和顶层 repeated child fact table routing |
 
-descriptor 只用于收集 message/nested message 事实，帮助 `serde` derive 覆盖 nested payload。它不决定 runtime plugin name，也不决定哪些 plugin 属于本批次；本批次列表来自 issue #53。
+descriptor 只用于收集 message/nested message/顶层 repeated child 字段事实，帮助 `serde` derive 覆盖 nested payload，并生成机械 child fact table。它不决定 runtime plugin name，也不决定哪些 plugin 属于本批次；本批次列表来自 issue #53。
 
 ### 模块 E：验证
 
@@ -120,13 +162,14 @@ descriptor 只用于收集 message/nested message 事实，帮助 `serde` derive
 
 1. `proto_contract`：确认 6 个 plugin 的 Rust proto 类型可 encode/decode，`TraceRecord::FixedResult` 保持粗粒度。
 2. `hitrace_architecture_contract`：确认 fixed_result 没有污染 `.htrace` file reader/profiler 机制层，build helper 按消费者拆分。
-3. `hitrace_datasource_query`：用合成 `.htrace` 同时写入 6 个 plugin 的 config/data envelope，查询 12 张 direct tables 中的代表性字段，并确认 raw `profiler_plugin_data` 仍可查。
+3. `hitrace_datasource_query`：用合成 `.htrace` 同时写入 6 个 plugin 的 config/data envelope，查询 12 张 root direct tables 中的代表性字段、envelope meta 字段和至少两个 child fact tables，并确认 raw `profiler_plugin_data` 仍可查。
 
 ## 头脑风暴校验
 
 - 方案“每个 plugin 手写一套 decoder/table”：最直接，但会在 6 个 plugin 上重复同一模式，后续 fixed result plugin 继续扩散。
 - 方案“运行时 prost-reflect + descriptor 自动投影”：改动面太大，会引入新的 schema/runtime 反射层，偏离当前架构初心。
 - 选择方案“静态 FixedResultPluginSpec + build-time 机械生成”：plugin 列表仍由 domain 语义确认，descriptor 只提供 proto 事实；能减少重复，又不把 ftrace/native_hook 强行纳入同一模型。
+- 对 “root-message-only direct table” 的复盘：它能证明 decode 成功，但不适合作为后续查询面的地基，因为 repeated child 藏在 list/struct 列里，且 direct table 缺少和 raw envelope 关联的时间/来源上下文。因此本设计补充 envelope meta 和一层 child fact table。
 
 ## 验收标准
 
@@ -134,9 +177,10 @@ descriptor 只用于收集 message/nested message 事实，帮助 `serde` derive
 2. 6 个 plugin 的 proto 均进入 `prost_build`，并生成可 encode/decode 的 Rust 类型。
 3. 每个 plugin 的 payload shape 和 root result message 在 spec 与代码中明确。
 4. 每个 plugin 的 config/data envelope 能通过 domain decode 产出 `FixedResultRecord`。
-5. Arrow sink 暴露 12 张 fixed result direct tables。
-6. 合成 `.htrace` 端到端查询能查到每个 plugin 的代表性字段。
-7. `.htrace` file reader、profiler envelope 机制层、ftrace、native_hook 行为不回退。
+5. Arrow sink 暴露 12 张 fixed result root direct tables，且 root rows 带 `envelope_` meta 字段。
+6. Arrow sink 暴露 result root 顶层 `repeated message` 字段的 child fact tables。
+7. 合成 `.htrace` 端到端查询能查到每个 plugin 的代表性字段，且能查到 fixed_result envelope meta 与 child fact row。
+8. `.htrace` file reader、profiler envelope 机制层、ftrace、native_hook 行为不回退。
 
 ## 验证命令
 

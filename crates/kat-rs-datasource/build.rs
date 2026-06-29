@@ -13,8 +13,9 @@ mod proto_codegen;
 
 use fixed_result_arrow_codegen::generate_fixed_result_table_builders;
 use fixed_result_domain_codegen::{
-    FIXED_RESULT_PLUGIN_SPECS, FIXED_RESULT_PROTO_FILES, fixed_result_enum_paths,
-    fixed_result_serializable_message_paths, generate_fixed_result_records,
+    FIXED_RESULT_PLUGIN_SPECS, FIXED_RESULT_PROTO_FILES, fixed_result_child_table_specs,
+    fixed_result_enum_paths, fixed_result_serializable_message_paths,
+    generate_fixed_result_records,
 };
 use ftrace_arrow_codegen::{
     EventFamily, FTRACE_EVENT_FAMILIES, generate_ftrace_event_table_builders,
@@ -58,6 +59,7 @@ fn main() {
     let native_hook_data = message_in_file(&fds, NATIVE_HOOK_RESULT_PROTO, "NativeHookData");
     let native_hook_events =
         native_hook_events_from_descriptor(native_hook_data, &native_hook_messages);
+    let fixed_result_child_tables = fixed_result_child_table_specs(&fds, FIXED_RESULT_PLUGIN_SPECS);
 
     config.type_attribute(
         ".kat.hitrace.ProfilerPluginData",
@@ -118,7 +120,7 @@ fn main() {
         .expect("native hook table builders are written");
     generate_fixed_result_records(FIXED_RESULT_PLUGIN_SPECS)
         .expect("fixed result records are written");
-    generate_fixed_result_table_builders(FIXED_RESULT_PLUGIN_SPECS)
+    generate_fixed_result_table_builders(FIXED_RESULT_PLUGIN_SPECS, &fixed_result_child_tables)
         .expect("fixed result table builders are written");
 
     for proto_file in proto_files {

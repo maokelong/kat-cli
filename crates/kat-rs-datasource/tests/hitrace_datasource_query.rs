@@ -466,18 +466,52 @@ async fn query_extracts_fixed_result_system_plugin_direct_tables() {
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     let rows = datasource
-        .query_json("select pid, report_process_info from cpu_config")
+        .query_json(
+            "select envelope_plugin_name, envelope_name, envelope_kind, envelope_clock_id, \
+             envelope_tv_sec, envelope_tv_nsec, envelope_sample_interval, envelope_version, \
+             pid, report_process_info from cpu_config",
+        )
         .await
         .expect("cpu_config query succeeds");
-    assert_eq!(rows, json!([{ "pid": 42, "report_process_info": true }]));
+    assert_eq!(
+        rows,
+        json!([{
+            "envelope_plugin_name": "cpu-plugin",
+            "envelope_name": "cpu-plugin_config",
+            "envelope_kind": "config",
+            "envelope_clock_id": 2,
+            "envelope_tv_sec": 10u64,
+            "envelope_tv_nsec": 200u64,
+            "envelope_sample_interval": 16,
+            "envelope_version": "1.0",
+            "pid": 42,
+            "report_process_info": true,
+        }])
+    );
 
     let rows = datasource
-        .query_json("select process_num, user_load, total_load from cpu_data")
+        .query_json(
+            "select envelope_plugin_name, envelope_name, envelope_kind, envelope_clock_id, \
+             envelope_tv_sec, envelope_tv_nsec, envelope_sample_interval, envelope_version, \
+             process_num, user_load, total_load from cpu_data",
+        )
         .await
         .expect("cpu_data query succeeds");
     assert_eq!(
         rows,
-        json!([{ "process_num": 2, "user_load": 1.5, "total_load": 4.0 }])
+        json!([{
+            "envelope_plugin_name": "cpu-plugin",
+            "envelope_name": "cpu-plugin",
+            "envelope_kind": "data",
+            "envelope_clock_id": 2,
+            "envelope_tv_sec": 10u64,
+            "envelope_tv_nsec": 200u64,
+            "envelope_sample_interval": 16,
+            "envelope_version": "1.0",
+            "process_num": 2,
+            "user_load": 1.5,
+            "total_load": 4.0,
+        }])
     );
 
     let rows = datasource
@@ -521,6 +555,24 @@ async fn query_extracts_fixed_result_system_plugin_direct_tables() {
     );
 
     let rows = datasource
+        .query_json(
+            "select envelope_plugin_name, envelope_name, child_index, pid, name \
+             from process_data_processesinfo",
+        )
+        .await
+        .expect("process_data_processesinfo fact table query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "envelope_plugin_name": "process-plugin",
+            "envelope_name": "process-plugin",
+            "child_index": 0,
+            "pid": 42,
+            "name": "render",
+        }])
+    );
+
+    let rows = datasource
         .query_json("select report_io_stats from diskio_config")
         .await
         .expect("diskio_config query succeeds");
@@ -556,6 +608,27 @@ async fn query_extracts_fixed_result_system_plugin_direct_tables() {
                 "rx_bytes": 200u64,
                 "details": [],
             }]
+        }])
+    );
+
+    let rows = datasource
+        .query_json(
+            "select envelope_tv_sec, envelope_tv_nsec, child_index, pid, tv_sec, tv_nsec, \
+             tx_bytes, rx_bytes from network_data_networkinfo",
+        )
+        .await
+        .expect("network_data_networkinfo fact table query succeeds");
+    assert_eq!(
+        rows,
+        json!([{
+            "envelope_tv_sec": 10u64,
+            "envelope_tv_nsec": 200u64,
+            "child_index": 0,
+            "pid": 42,
+            "tv_sec": 0u64,
+            "tv_nsec": 0u64,
+            "tx_bytes": 100u64,
+            "rx_bytes": 200u64,
         }])
     );
 

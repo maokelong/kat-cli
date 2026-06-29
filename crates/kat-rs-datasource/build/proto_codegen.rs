@@ -58,6 +58,21 @@ pub(crate) fn snake_to_upper_camel(name: &str) -> String {
     camel
 }
 
+pub(crate) fn proto_message_to_rust_type(name: &str) -> String {
+    let words = upper_camel_words(name);
+    let mut output = String::new();
+
+    for word in words {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            output.push(first.to_ascii_uppercase());
+            output.extend(chars.map(|ch| ch.to_ascii_lowercase()));
+        }
+    }
+
+    output
+}
+
 pub(crate) fn camel_to_snake(name: &str) -> String {
     let mut snake = String::new();
     for (index, ch) in name.chars().enumerate() {
@@ -71,6 +86,35 @@ pub(crate) fn camel_to_snake(name: &str) -> String {
         }
     }
     snake
+}
+
+fn upper_camel_words(name: &str) -> Vec<String> {
+    let chars = name.chars().collect::<Vec<_>>();
+    if chars.is_empty() {
+        return Vec::new();
+    }
+
+    let mut words = Vec::new();
+    let mut start = 0;
+
+    for index in 1..chars.len() {
+        let previous = chars[index - 1];
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+        let starts_new_word = (current.is_ascii_uppercase()
+            && (previous.is_ascii_lowercase() || previous.is_ascii_digit()))
+            || (current.is_ascii_uppercase()
+                && previous.is_ascii_uppercase()
+                && next.is_some_and(|ch| ch.is_ascii_lowercase()));
+
+        if starts_new_word {
+            words.push(chars[start..index].iter().collect::<String>());
+            start = index;
+        }
+    }
+
+    words.push(chars[start..].iter().collect::<String>());
+    words
 }
 
 pub(crate) fn proto_file<'a>(

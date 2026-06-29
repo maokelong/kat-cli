@@ -63,8 +63,23 @@ mod formats {
 
             use crate::record::TraceRecordSink;
 
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            pub(crate) enum PluginEnvelopeKind {
+                Data,
+                Config,
+            }
+
             pub(crate) struct PluginEnvelope<'a> {
+                pub(crate) plugin_name: &'a str,
+                pub(crate) envelope_name: &'a str,
+                pub(crate) kind: PluginEnvelopeKind,
                 pub(crate) payload: &'a [u8],
+                pub(crate) version: &'a str,
+                pub(crate) sample_interval: u32,
+                pub(crate) clock_id: i32,
+                pub(crate) tv_sec: u64,
+                pub(crate) tv_nsec: u64,
+                pub(crate) section_start: usize,
             }
 
             pub(crate) trait PluginDecoder {
@@ -134,13 +149,12 @@ mod domains {
     }
 
     pub(crate) mod fixed_result {
-        #![allow(dead_code)]
+        #![allow(dead_code, unused_imports)]
 
-        mod records {
-            include!(concat!(env!("OUT_DIR"), "/fixed_result_records.rs"));
-        }
-
-        pub(crate) use records::FixedResultRecord;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/domains/fixed_result/mod.rs"
+        ));
     }
 }
 
@@ -269,14 +283,30 @@ fn trace_record_stream_models_pre_sink_records() {
         total_load: 2.5,
         ..Default::default()
     };
+    let fixed_result_envelope = formats::hitrace::profiler::PluginEnvelope {
+        plugin_name: "cpu-plugin",
+        envelope_name: "cpu-plugin",
+        kind: formats::hitrace::profiler::PluginEnvelopeKind::Data,
+        payload: &[],
+        version: "1.0",
+        sample_interval: 16,
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        section_start: 0,
+    };
+    let fixed_result_message = domains::fixed_result::FixedResultMessage::new(
+        domains::fixed_result::ProfilerEnvelopeMeta::from_envelope(&fixed_result_envelope),
+        cpu_data,
+    );
     match record::TraceRecord::FixedResult(Box::new(
-        domains::fixed_result::FixedResultRecord::CpuData(Box::new(cpu_data)),
+        domains::fixed_result::FixedResultRecord::CpuData(Box::new(fixed_result_message)),
     )) {
         record::TraceRecord::FixedResult(record) => match *record {
             domains::fixed_result::FixedResultRecord::CpuData(data) => {
-                assert_eq!(data.process_num, 2);
-                assert_eq!(data.user_load, 1.5);
-                assert_eq!(data.total_load, 2.5);
+                assert_eq!(data.message.process_num, 2);
+                assert_eq!(data.message.user_load, 1.5);
+                assert_eq!(data.message.total_load, 2.5);
             }
             _ => unreachable!("expected cpu data"),
         },

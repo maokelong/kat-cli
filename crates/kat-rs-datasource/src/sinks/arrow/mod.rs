@@ -1,5 +1,6 @@
 //! Arrow sink for trace records.
 
+mod fixed_result;
 mod ftrace;
 mod native_hook;
 mod table;
@@ -15,6 +16,7 @@ use crate::{
     record::{TraceRecord, TraceRecordSink},
 };
 
+pub(crate) use fixed_result::{FixedResultChildTableBuilder, FixedResultMessageTableBuilder};
 pub(crate) use ftrace::{EventMeta, FtraceEventTableBuilder};
 pub(crate) use native_hook::NativeHookEventTableBuilder;
 pub(crate) use table::MessageTableBuilder;

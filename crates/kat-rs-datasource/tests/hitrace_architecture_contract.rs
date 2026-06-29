@@ -229,6 +229,7 @@ fn ftrace_domain_decodes_payload_to_neutral_records() {
 #[test]
 fn arrow_sink_owns_record_to_table_conversion() {
     let sink_mod = source("src/sinks/arrow/mod.rs");
+    let fixed_result_sink = source("src/sinks/arrow/fixed_result.rs");
     let ftrace_sink = source("src/sinks/arrow/ftrace.rs");
     let native_hook_sink = source("src/sinks/arrow/native_hook.rs");
     let table = source("src/sinks/arrow/table.rs");
@@ -260,6 +261,7 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(!sink_mod.contains("profiler_rows"));
     assert!(!sink_mod.contains("SchedDirectTableBuilders"));
     assert!(!sink_mod.contains("mod event_table"));
+    assert!(sink_mod.contains("mod fixed_result"));
     assert!(sink_mod.contains("mod ftrace"));
     assert!(sink_mod.contains("mod native_hook"));
     assert!(sink_mod.contains("FtraceTableSet"));
@@ -296,8 +298,15 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(!native_hook_domain.contains("Event::AllocEvent"));
     assert!(!native_hook_domain.contains("Event::MapsInfo"));
     assert!(fixed_result_domain.contains("fixed_result_records.rs"));
+    assert!(fixed_result_domain.contains("pub(crate) struct ProfilerEnvelopeMeta"));
+    assert!(fixed_result_domain.contains("pub(crate) struct FixedResultMessage"));
+    assert!(fixed_result_domain.contains("pub(crate) struct FixedResultChildMeta"));
     assert!(!fixed_result_domain.contains("CpuData"));
     assert!(!fixed_result_domain.contains("MemoryData"));
+    assert!(fixed_result_sink.contains("pub(crate) struct FixedResultMessageTableBuilder"));
+    assert!(fixed_result_sink.contains("pub(crate) struct FixedResultChildTableBuilder"));
+    assert!(fixed_result_sink.contains("EventTableBuilder<ProfilerEnvelopeMeta>"));
+    assert!(fixed_result_sink.contains("EventTableBuilder<FixedResultChildMeta>"));
     assert!(generated_native_hook_records.contains("pub(crate) enum NativeHookRecord"));
     assert!(generated_native_hook_records.contains("native_hook_data::Event"));
     assert!(generated_native_hook_records.contains("Event::AllocEvent"));
@@ -305,12 +314,20 @@ fn arrow_sink_owns_record_to_table_conversion() {
     assert!(generated_native_hook_records.contains("NativeHookRecord::MapsInfo"));
     assert!(generated_native_hook_records.contains("NativeHookRecord::SymbolTable"));
     assert!(generated_fixed_result_records.contains("pub(crate) enum FixedResultRecord"));
-    assert!(generated_fixed_result_records.contains("CpuData(Box<CpuData>)"));
-    assert!(generated_fixed_result_records.contains("MemoryData(Box<MemoryData>)"));
-    assert!(generated_fixed_result_records.contains("NetworkDatas(Box<NetworkDatas>)"));
+    assert!(generated_fixed_result_records.contains("CpuData(Box<FixedResultMessage<CpuData>>)"));
+    assert!(
+        generated_fixed_result_records.contains("MemoryData(Box<FixedResultMessage<MemoryData>>)")
+    );
+    assert!(
+        generated_fixed_result_records
+            .contains("NetworkDatas(Box<FixedResultMessage<NetworkDatas>>)")
+    );
+    assert!(generated_fixed_result_records.contains("ProfilerEnvelopeMeta::from_envelope"));
     assert!(generated_fixed_result_builders.contains("pub(crate) struct FixedResultTableSet"));
-    assert!(generated_fixed_result_builders.contains("MessageTableBuilder<CpuData>"));
-    assert!(generated_fixed_result_builders.contains("MessageTableBuilder<MemoryData>"));
+    assert!(generated_fixed_result_builders.contains("FixedResultMessageTableBuilder"));
+    assert!(generated_fixed_result_builders.contains("FixedResultChildTableBuilder"));
+    assert!(generated_fixed_result_builders.contains("\"process_data_processesinfo\""));
+    assert!(generated_fixed_result_builders.contains("\"network_data_networkinfo\""));
     assert!(generated_fixed_result_builders.contains("\"gpu_data\""));
     assert!(record.contains("Ftrace(Box<FtraceRecord>)"));
     assert!(!record.contains("FtraceEvent("));
