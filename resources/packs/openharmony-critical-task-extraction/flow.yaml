@@ -1,0 +1,31 @@
+id: critical_task_extraction
+
+constants:
+  require_main_thread: true
+  max_iterations: 8
+  min_edge_duration_ns: 1000000
+  source_lookback_ns: 5000000
+  max_task_count: 12
+  start_marker_match_kind: window_start_marker_candidate
+  end_marker_match_kind: window_end_marker_candidate
+
+steps:
+  - id: locate_target_thread
+    uses: flow
+    resource: locate_thread_by_process
+    output: target_thread
+
+  - id: locate_target_window
+    uses: flow
+    resource: locate_window_by_markers
+    output: target_window
+
+  - id: extract_critical_tasks
+    uses: flow
+    resource: extract_critical_tasks_in_window
+    output: critical_tasks
+
+  - id: summarize_critical_tasks
+    uses: summaries
+    resource: critical_task_evidence
+    output: critical_task_evidence

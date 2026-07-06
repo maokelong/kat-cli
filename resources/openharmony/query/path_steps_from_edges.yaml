@@ -1,0 +1,119 @@
+id: openharmony.query.path_steps_from_edges
+uses: query
+
+requires:
+  tables:
+    selected_path_edges:
+      columns:
+        - path_id
+        - iteration
+        - edge_kind
+        - edge_start_ts
+        - edge_end_ts
+        - critical_cost_ns
+        - from_itid
+        - from_tid
+        - from_thread_name
+        - to_itid
+        - to_tid
+        - to_thread_name
+        - callstack_row_id
+        - wait_state_row_id
+        - wakeup_row_id
+        - evidence_name
+
+context:
+  subscribes: {}
+  publishes: {}
+
+output:
+  table: path_step_rows
+
+sql: |
+  SELECT
+    s.path_id,
+    s.iteration,
+    s.edge_kind,
+    s.edge_start_ts,
+    s.edge_end_ts,
+    s.critical_cost_ns,
+    s.from_itid,
+    s.from_tid,
+    s.from_thread_name,
+    s.to_itid,
+    s.to_tid,
+    s.to_thread_name,
+    s.callstack_row_id,
+    s.wait_state_row_id,
+    s.wakeup_row_id,
+    s.evidence_name,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'wakeup_dependency'
+      WHEN s.evidence_name LIKE '%StartDecoding%'
+        OR s.evidence_name LIKE '%CreateImagePixelMap%' THEN 'image_decode'
+      WHEN s.evidence_name LIKE '%UIVsyncTask%'
+        OR s.evidence_name LIKE '%FlushLayoutTask%'
+        OR s.evidence_name LIKE '%CreateTaskLayout%'
+        OR s.evidence_name LIKE '%layoutMeasure%' THEN 'layout_measure'
+      WHEN s.evidence_name LIKE '%UI Initialize%'
+        OR s.evidence_name LIKE '%AddAbilityStage%'
+        OR s.evidence_name LIKE '%AbilityThreadMain%'
+        OR s.evidence_name LIKE '%UIAbilityThread::Attach%'
+        OR s.evidence_name LIKE '%UIAbilityImpl::Init%'
+        OR s.evidence_name LIKE '%JsUIAbility::Init%' THEN 'ui_init'
+      WHEN s.evidence_name LIKE '%JSPandaFileExecutor%'
+        OR s.evidence_name LIKE '%SourceTextModule::Evaluate%'
+        OR s.evidence_name LIKE '%LoadJsModule%'
+        OR s.evidence_name LIKE '%JsRuntime::LoadModule%'
+        OR s.evidence_name LIKE '%LoadModule%'
+        OR s.evidence_name LIKE '%RunScript%'
+        OR s.evidence_name LIKE '%.abc%' THEN 'js_module_load'
+      WHEN s.evidence_name LIKE '%Resource%'
+        OR s.evidence_name LIKE '%HapParser%'
+        OR s.evidence_name LIKE '%Extractor%'
+        OR s.evidence_name LIKE '%Deserialize%' THEN 'resource_load'
+      WHEN s.evidence_name = 'binder transaction'
+        OR s.evidence_name LIKE '%Proxy::%'
+        OR s.evidence_name LIKE '%BundleMgr%' THEN 'ipc_binder'
+      WHEN s.evidence_name LIKE '%HandleLaunch%'
+        OR s.evidence_name LIKE '%HandleAbilityTransaction%'
+        OR s.evidence_name LIKE '%OnStart%'
+        OR s.evidence_name LIKE '%OnForeground%' THEN 'lifecycle'
+      ELSE 'callstack_work'
+    END AS purpose_code,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'current thread waited for scheduler wakeup; next step follows wakeup source thread'
+      WHEN s.evidence_name LIKE '%StartDecoding%'
+        OR s.evidence_name LIKE '%CreateImagePixelMap%' THEN 'image decode or pixel map creation'
+      WHEN s.evidence_name LIKE '%UIVsyncTask%'
+        OR s.evidence_name LIKE '%FlushLayoutTask%'
+        OR s.evidence_name LIKE '%CreateTaskLayout%'
+        OR s.evidence_name LIKE '%layoutMeasure%' THEN 'first-frame drawing, layout, or measure'
+      WHEN s.evidence_name LIKE '%UI Initialize%'
+        OR s.evidence_name LIKE '%AddAbilityStage%'
+        OR s.evidence_name LIKE '%AbilityThreadMain%'
+        OR s.evidence_name LIKE '%UIAbilityThread::Attach%'
+        OR s.evidence_name LIKE '%UIAbilityImpl::Init%'
+        OR s.evidence_name LIKE '%JsUIAbility::Init%' THEN 'UIAbility or AbilityStage initialization'
+      WHEN s.evidence_name LIKE '%JSPandaFileExecutor%'
+        OR s.evidence_name LIKE '%SourceTextModule::Evaluate%'
+        OR s.evidence_name LIKE '%LoadJsModule%'
+        OR s.evidence_name LIKE '%JsRuntime::LoadModule%'
+        OR s.evidence_name LIKE '%LoadModule%'
+        OR s.evidence_name LIKE '%RunScript%'
+        OR s.evidence_name LIKE '%.abc%' THEN 'load or execute ArkTS/JS module'
+      WHEN s.evidence_name LIKE '%Resource%'
+        OR s.evidence_name LIKE '%HapParser%'
+        OR s.evidence_name LIKE '%Extractor%'
+        OR s.evidence_name LIKE '%Deserialize%' THEN 'resource package, snapshot, or serialized data loading'
+      WHEN s.evidence_name = 'binder transaction'
+        OR s.evidence_name LIKE '%Proxy::%'
+        OR s.evidence_name LIKE '%BundleMgr%' THEN 'binder or system service call'
+      WHEN s.evidence_name LIKE '%HandleLaunch%'
+        OR s.evidence_name LIKE '%HandleAbilityTransaction%'
+        OR s.evidence_name LIKE '%OnStart%'
+        OR s.evidence_name LIKE '%OnForeground%' THEN 'application or Ability lifecycle handling'
+      ELSE 'thread-local execution span'
+    END AS purpose_hint
+  FROM selected_path_edges s
+  ORDER BY s.path_id, s.iteration;

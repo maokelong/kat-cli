@@ -1,0 +1,17 @@
+id: openharmony.flows.locate_window_by_markers
+
+steps:
+  - id: grep_window_start_marker
+    uses: grep
+    resource: openharmony.grep.window_start_marker_by_thread
+    output: window_start_marker_matches
+
+  - id: grep_window_end_marker
+    uses: grep
+    resource: openharmony.grep.window_end_marker_by_thread
+    output: window_end_marker_matches
+
+  - id: build_target_window
+    uses: query
+    resource: openharmony.query.build_window_from_marker_matches
+    output: target_window

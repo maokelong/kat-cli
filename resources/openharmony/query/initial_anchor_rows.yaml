@@ -1,0 +1,67 @@
+id: openharmony.query.initial_anchor_rows
+uses: query
+
+requires:
+  tables: {}
+
+context:
+  subscribes:
+    subject_thread_itid:
+      carrier: scalar
+    subject_thread_tid:
+      carrier: scalar
+    subject_thread_name:
+      carrier: scalar
+    target_window:
+      carrier: interval
+  publishes:
+    anchor_path_id:
+      carrier: scalar
+      from:
+        column: path_id
+    anchor_iteration:
+      carrier: scalar
+      from:
+        column: iteration
+    anchor_kind:
+      carrier: scalar
+      from:
+        column: anchor_kind
+    anchor_tid:
+      carrier: scalar
+      from:
+        column: tid
+    anchor_itid:
+      carrier: scalar
+      from:
+        column: itid
+    anchor_thread_name:
+      carrier: scalar
+      from:
+        column: thread_name
+    anchor_interval:
+      carrier: interval
+      from:
+        start_column: interval_start_ts
+        end_column: interval_end_ts
+    anchor_current_callstack_id:
+      carrier: scalar
+      from:
+        column: current_callstack_id
+
+output:
+  table: initial_anchor_rows
+
+sql: |
+  SELECT
+    1 AS path_id,
+    0 AS iteration,
+    'thread_window' AS anchor_kind,
+    CAST('{{ctx.subject_thread_itid}}' AS BIGINT) AS itid,
+    CAST('{{ctx.subject_thread_tid}}' AS BIGINT) AS tid,
+    '{{ctx.subject_thread_name}}' AS thread_name,
+    CAST('{{ctx.target_window.start}}' AS BIGINT) AS interval_start_ts,
+    CAST('{{ctx.target_window.end}}' AS BIGINT) AS interval_end_ts,
+    CAST(NULL AS BIGINT) AS current_callstack_id,
+    CAST(NULL AS BIGINT) AS source_edge_row_id,
+    'initial_subject_window' AS reason_code;

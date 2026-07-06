@@ -1,0 +1,58 @@
+id: openharmony.grep.process_by_name_regex
+uses: grep
+
+requires:
+  tables:
+    process:
+      columns: [id, ipid, pid, name]
+
+context:
+  subscribes:
+    process_name_pattern:
+      carrier: scalar
+  publishes:
+    candidate_process_id:
+      carrier: scalar
+      from:
+        column: source_row_id
+    candidate_process_ipid:
+      carrier: scalar
+      from:
+        column: ipid
+    candidate_process_pid:
+      carrier: scalar
+      from:
+        column: pid
+    candidate_process_name:
+      carrier: scalar
+      from:
+        column: name
+
+output:
+  table: process_matches
+  columns:
+    - source_row_id
+    - ipid
+    - pid
+    - name
+
+target:
+  table: process
+  columns:
+    - name
+
+patterns:
+  - id: process_name
+    kind: regex
+    value: "{{ctx.process_name_pattern}}"
+
+predicates:
+  - column: name
+    is_not_null: true
+
+order_by:
+  - column: ipid
+    direction: asc
+
+limit: 8
+match_kind: process_name_candidate

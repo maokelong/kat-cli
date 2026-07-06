@@ -1,0 +1,133 @@
+id: openharmony.query.derive_next_anchor_rows
+uses: query
+
+requires:
+  tables: {}
+
+context:
+  subscribes:
+    source_lookback_ns:
+      carrier: scalar
+    edge_path_id:
+      carrier: scalar
+    edge_iteration:
+      carrier: scalar
+    edge_kind:
+      carrier: scalar
+    edge_row_id:
+      carrier: scalar
+    edge_start_ts:
+      carrier: scalar
+    edge_end_ts:
+      carrier: scalar
+    edge_from_itid:
+      carrier: scalar
+    edge_from_tid:
+      carrier: scalar
+    edge_from_thread_name:
+      carrier: scalar
+    edge_callstack_row_id:
+      carrier: scalar
+    edge_wakeup_from_itid:
+      carrier: scalar
+    edge_wakeup_from_tid:
+      carrier: scalar
+    edge_wakeup_from_thread_name:
+      carrier: scalar
+    target_window:
+      carrier: interval
+  publishes:
+    anchor_path_id:
+      carrier: scalar
+      from:
+        column: path_id
+    anchor_iteration:
+      carrier: scalar
+      from:
+        column: iteration
+    anchor_kind:
+      carrier: scalar
+      from:
+        column: anchor_kind
+    anchor_tid:
+      carrier: scalar
+      from:
+        column: tid
+    anchor_itid:
+      carrier: scalar
+      from:
+        column: itid
+    anchor_thread_name:
+      carrier: scalar
+      from:
+        column: thread_name
+    anchor_interval:
+      carrier: interval
+      from:
+        start_column: interval_start_ts
+        end_column: interval_end_ts
+    anchor_current_callstack_id:
+      carrier: scalar
+      from:
+        column: current_callstack_id
+
+output:
+  table: next_anchor_rows
+
+sql: |
+  WITH selected_edge AS (
+    SELECT
+      CAST('{{ctx.edge_path_id}}' AS BIGINT) AS path_id,
+      CAST('{{ctx.edge_iteration}}' AS BIGINT) AS iteration,
+      '{{ctx.edge_kind}}' AS edge_kind,
+      CAST('{{ctx.edge_row_id}}' AS BIGINT) AS edge_row_id,
+      CAST('{{ctx.edge_start_ts}}' AS BIGINT) AS edge_start_ts,
+      CAST('{{ctx.edge_end_ts}}' AS BIGINT) AS edge_end_ts,
+      CAST('{{ctx.edge_from_itid}}' AS BIGINT) AS from_itid,
+      CAST('{{ctx.edge_from_tid}}' AS BIGINT) AS from_tid,
+      '{{ctx.edge_from_thread_name}}' AS from_thread_name,
+      {{ctx.edge_callstack_row_id}} AS callstack_row_id,
+      {{ctx.edge_wakeup_from_itid}} AS wakeup_from_itid,
+      {{ctx.edge_wakeup_from_tid}} AS wakeup_from_tid,
+      '{{ctx.edge_wakeup_from_thread_name}}' AS wakeup_from_thread_name
+  )
+  SELECT
+    s.path_id,
+    s.iteration + 1 AS iteration,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'wakeup_source_thread'
+      ELSE 'callstack_span'
+    END AS anchor_kind,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_itid
+      ELSE s.from_itid
+    END AS itid,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_tid
+      ELSE s.from_tid
+    END AS tid,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_thread_name
+      ELSE s.from_thread_name
+    END AS thread_name,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency'
+        THEN CASE
+          WHEN s.edge_start_ts - CAST('{{ctx.source_lookback_ns}}' AS BIGINT) > CAST('{{ctx.target_window.start}}' AS BIGINT)
+            THEN s.edge_start_ts - CAST('{{ctx.source_lookback_ns}}' AS BIGINT)
+          ELSE CAST('{{ctx.target_window.start}}' AS BIGINT)
+        END
+      ELSE s.edge_start_ts
+    END AS interval_start_ts,
+    s.edge_end_ts AS interval_end_ts,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN CAST(NULL AS BIGINT)
+      ELSE s.callstack_row_id
+    END AS current_callstack_id,
+    s.edge_row_id AS source_edge_row_id,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'follow_wakeup_source'
+      ELSE 'drill_down_callstack_span'
+    END AS reason_code
+  FROM selected_edge s
+  WHERE s.edge_end_ts > s.edge_start_ts;

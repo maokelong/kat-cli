@@ -1,0 +1,67 @@
+id: openharmony.query.build_window_from_marker_matches
+uses: query
+
+context:
+  subscribes:
+    subject_thread_itid:
+      carrier: scalar
+    subject_thread_tid:
+      carrier: scalar
+    subject_thread_name:
+      carrier: scalar
+    window_start_callstack_id:
+      carrier: scalar
+    window_start_ts:
+      carrier: scalar
+    window_start_dur:
+      carrier: scalar
+    window_start_marker_name:
+      carrier: scalar
+    window_end_callstack_id:
+      carrier: scalar
+    window_end_ts:
+      carrier: scalar
+    window_end_dur:
+      carrier: scalar
+    window_end_marker_name:
+      carrier: scalar
+  publishes:
+    target_window:
+      carrier: interval
+      from:
+        start_column: window_start_ts
+        end_column: window_end_ts
+
+output:
+  table: target_window
+
+sql: |
+  WITH marker_ctx AS (
+    SELECT
+      CAST('{{ctx.subject_thread_itid}}' AS BIGINT) AS itid,
+      CAST('{{ctx.subject_thread_tid}}' AS BIGINT) AS tid,
+      '{{ctx.subject_thread_name}}' AS thread_name,
+      CAST('{{ctx.window_start_callstack_id}}' AS BIGINT) AS window_start_callstack_id,
+      CAST('{{ctx.window_start_ts}}' AS BIGINT) AS window_start_ts,
+      CAST('{{ctx.window_start_dur}}' AS BIGINT) AS window_start_dur,
+      '{{ctx.window_start_marker_name}}' AS window_start_marker_name,
+      CAST('{{ctx.window_end_callstack_id}}' AS BIGINT) AS window_end_callstack_id,
+      CAST('{{ctx.window_end_ts}}' AS BIGINT) AS window_end_ts,
+      CAST('{{ctx.window_end_dur}}' AS BIGINT) AS window_end_dur,
+      '{{ctx.window_end_marker_name}}' AS window_end_marker_name
+  )
+  SELECT
+    itid,
+    tid,
+    thread_name,
+    window_start_callstack_id,
+    window_start_ts,
+    window_start_dur,
+    window_start_marker_name,
+    window_end_callstack_id,
+    window_end_ts,
+    window_end_dur,
+    window_end_marker_name,
+    window_end_ts - window_start_ts AS window_dur
+  FROM marker_ctx
+  WHERE window_end_ts >= window_start_ts;

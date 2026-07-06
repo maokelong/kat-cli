@@ -1,0 +1,12 @@
+id: openharmony.flows.locate_thread_by_process
+
+steps:
+  - id: grep_process_by_name
+    uses: grep
+    resource: openharmony.grep.process_by_name_regex
+    output: process_matches
+
+  - id: select_subject_thread
+    uses: query
+    resource: openharmony.query.select_thread_from_process_matches
+    output: target_thread

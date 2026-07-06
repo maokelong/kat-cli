@@ -1,0 +1,47 @@
+sections:
+  - id: target_window
+    from: target_window
+    include:
+      - thread_name
+      - window_start_ts
+      - window_end_ts
+      - window_dur
+      - window_start_marker_name
+      - window_end_marker_name
+
+  - id: critical_tasks
+    from: critical_tasks
+    order_by:
+      field: rank
+      direction: asc
+    limit: 10
+    include:
+      - rank
+      - task_type
+      - duration_ns
+      - thread_name
+      - label
+      - reason_code
+      - raw_refs
+    truncation:
+      show_total: true
+      artifact_ref: true
+
+  - id: path_steps
+    from: path_steps
+    order_by:
+      field: iteration
+      direction: asc
+    limit: 12
+    include:
+      - iteration
+      - edge_kind
+      - critical_cost_ns
+      - from_thread_name
+      - to_thread_name
+      - evidence_name
+      - purpose_code
+      - purpose_hint
+    truncation:
+      show_total: true
+      artifact_ref: true

@@ -1,0 +1,54 @@
+id: openharmony.query.select_thread_from_process_matches
+uses: query
+
+requires:
+  tables:
+    thread:
+      columns: [id, itid, tid, name, ipid, is_main_thread]
+
+context:
+  subscribes:
+    candidate_process_id:
+      carrier: scalar
+    candidate_process_ipid:
+      carrier: scalar
+    candidate_process_pid:
+      carrier: scalar
+    candidate_process_name:
+      carrier: scalar
+    require_main_thread:
+      carrier: scalar
+  publishes:
+    subject_thread_itid:
+      carrier: scalar
+      from:
+        column: itid
+    subject_thread_tid:
+      carrier: scalar
+      from:
+        column: tid
+    subject_thread_name:
+      carrier: scalar
+      from:
+        column: thread_name
+
+output:
+  table: target_thread
+
+sql: |
+  SELECT
+    CAST('{{ctx.candidate_process_id}}' AS BIGINT) AS process_row_id,
+    CAST('{{ctx.candidate_process_ipid}}' AS BIGINT) AS ipid,
+    CAST('{{ctx.candidate_process_pid}}' AS BIGINT) AS pid,
+    '{{ctx.candidate_process_name}}' AS process_name,
+    t.id AS thread_row_id,
+    t.itid,
+    t.tid,
+    t.name AS thread_name,
+    t.is_main_thread
+  FROM thread t
+  WHERE t.ipid = CAST('{{ctx.candidate_process_ipid}}' AS BIGINT)
+    AND ('{{ctx.require_main_thread}}' <> 'true'
+      OR t.is_main_thread = 1)
+  ORDER BY t.is_main_thread DESC, t.itid ASC
+  LIMIT 1;

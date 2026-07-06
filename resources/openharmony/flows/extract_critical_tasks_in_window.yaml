@@ -1,0 +1,70 @@
+id: openharmony.flows.extract_critical_tasks_in_window
+
+steps:
+  - id: build_initial_anchor
+    uses: query
+    resource: openharmony.query.initial_anchor_rows
+    output: initial_anchor_rows
+
+  - id: trace_wakeup_chain
+    uses: loop
+    state:
+      slot_prefix: anchor
+    max_iterations:
+      slot: max_iterations
+    accumulators:
+      path_edges:
+        kind: table
+        append_from: selected_path_edges
+      path_steps:
+        kind: table
+        append_from: path_step_rows
+    body:
+      - id: build_candidate_path_edges
+        uses: query
+        resource: openharmony.query.candidate_path_edges
+        output: candidate_path_edges
+
+      - id: branch_on_candidate_edges
+        uses: branch
+        when:
+          row_count:
+            table: candidate_path_edges
+            equals: 0
+        then:
+          - id: create_empty_selected_edges
+            uses: query
+            resource: openharmony.query.empty_path_edges
+            output: selected_path_edges
+
+          - id: create_empty_next_anchor
+            uses: query
+            resource: openharmony.query.empty_anchor_rows
+            output: next_anchor_rows
+
+          - id: create_empty_path_steps
+            uses: query
+            resource: openharmony.query.empty_path_steps
+            output: path_step_rows
+        else:
+          - id: select_best_path_edges
+            uses: query
+            resource: openharmony.query.select_best_path_edges
+            output: selected_path_edges
+
+          - id: derive_next_anchor
+            uses: query
+            resource: openharmony.query.derive_next_anchor_rows
+            output: next_anchor_rows
+
+          - id: classify_path_steps
+            uses: query
+            resource: openharmony.query.path_steps_from_edges
+            output: path_step_rows
+    next_state:
+      slot_prefix: anchor
+
+  - id: rank_critical_tasks
+    uses: query
+    resource: openharmony.query.rank_critical_tasks
+    output: critical_tasks

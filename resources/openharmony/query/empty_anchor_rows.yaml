@@ -1,0 +1,27 @@
+id: openharmony.query.empty_anchor_rows
+uses: query
+
+requires:
+  tables: {}
+
+context:
+  subscribes: {}
+  publishes: {}
+
+output:
+  table: next_anchor_rows
+
+sql: |
+  SELECT
+    CAST(NULL AS BIGINT) AS path_id,
+    CAST(NULL AS BIGINT) AS iteration,
+    CAST(NULL AS TEXT) AS anchor_kind,
+    CAST(NULL AS BIGINT) AS itid,
+    CAST(NULL AS BIGINT) AS tid,
+    CAST(NULL AS TEXT) AS thread_name,
+    CAST(NULL AS BIGINT) AS interval_start_ts,
+    CAST(NULL AS BIGINT) AS interval_end_ts,
+    CAST(NULL AS BIGINT) AS current_callstack_id,
+    CAST(NULL AS BIGINT) AS source_edge_row_id,
+    CAST(NULL AS TEXT) AS reason_code
+  WHERE 1 = 0;

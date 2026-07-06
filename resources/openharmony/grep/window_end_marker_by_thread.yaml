@@ -1,0 +1,64 @@
+id: openharmony.grep.window_end_marker_by_thread
+uses: grep
+
+requires:
+  tables:
+    callstack:
+      columns: [id, ts, dur, callid, name]
+
+context:
+  subscribes:
+    subject_thread_itid:
+      carrier: scalar
+    end_marker_pattern:
+      carrier: scalar
+    end_marker_match_kind:
+      carrier: scalar
+  publishes:
+    window_end_callstack_id:
+      carrier: scalar
+      from:
+        column: source_row_id
+    window_end_ts:
+      carrier: scalar
+      from:
+        column: ts
+    window_end_dur:
+      carrier: scalar
+      from:
+        column: dur
+    window_end_marker_name:
+      carrier: scalar
+      from:
+        column: name
+
+output:
+  table: window_end_marker_matches
+  columns:
+    - source_row_id
+    - ts
+    - dur
+    - name
+
+target:
+  table: callstack
+  columns:
+    - name
+
+patterns:
+  - id: window_end_marker
+    kind: regex
+    value: "{{ctx.end_marker_pattern}}"
+
+predicates:
+  - column: callid
+    equals: "{{ctx.subject_thread_itid}}"
+
+order_by:
+  - column: ts
+    direction: asc
+  - column: id
+    direction: asc
+
+limit: 1
+match_kind: "{{ctx.end_marker_match_kind}}"

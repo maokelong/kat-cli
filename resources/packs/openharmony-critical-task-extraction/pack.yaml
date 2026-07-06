@@ -1,0 +1,52 @@
+pack:
+  id: openharmony.critical_task_extraction
+  title: OpenHarmony critical task extraction
+  domain: openharmony
+
+inputs:
+  process_name_pattern:
+    type: regex
+  start_marker_pattern:
+    type: regex
+  end_marker_pattern:
+    type: regex
+
+requires:
+  tables:
+    - process
+    - thread
+    - callstack
+    - thread_state
+    - instant
+
+imports:
+  flows:
+    locate_thread_by_process: openharmony.flows.locate_thread_by_process
+    locate_window_by_markers: openharmony.flows.locate_window_by_markers
+    extract_critical_tasks_in_window: openharmony.flows.extract_critical_tasks_in_window
+  summaries:
+    critical_task_evidence: openharmony.summaries.critical_task_evidence
+
+entry_flow: critical_task_extraction
+
+outputs:
+  default: brief
+  artifacts:
+    target_thread:
+      kind: table
+      lifecycle: run_local
+    target_window:
+      kind: table
+      lifecycle: run_local
+    path_edges:
+      kind: table
+      lifecycle: run_local
+    path_steps:
+      kind: table
+      lifecycle: run_local
+    critical_tasks:
+      kind: table
+      lifecycle: run_local
+    critical_task_evidence:
+      kind: evidence
+      lifecycle: run_local

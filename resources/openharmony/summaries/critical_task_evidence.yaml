@@ -1,0 +1,86 @@
+id: openharmony.summaries.critical_task_evidence
+uses: summaries
+
+requires:
+  tables:
+    target_thread:
+      columns: [process_name, itid, tid, thread_name, is_main_thread]
+    target_window:
+      columns: [window_start_ts, window_end_ts, window_dur]
+    path_edges:
+      columns: [iteration, edge_kind, critical_cost_ns, from_thread_name, to_thread_name]
+    path_steps:
+      columns: [iteration, edge_kind, critical_cost_ns, purpose_code, purpose_hint]
+    critical_tasks:
+      columns: [rank, task_type, duration_ns, thread_name, label, reason_code, raw_refs]
+
+context:
+  subscribes: {}
+  publishes: {}
+
+output:
+  evidence: critical_task_evidence
+
+summary:
+  evidence:
+    - id: target_window_shape
+      fact: target_window_shape
+      metrics:
+        window_count:
+          table: target_window
+          aggregate: row_count
+        window_dur:
+          table: target_window
+          column: window_dur
+          aggregate: max
+      refs:
+        - table: target_thread
+          max_rows: 1
+        - table: target_window
+          max_rows: 1
+
+    - id: critical_task_shape
+      fact: critical_task_shape
+      metrics:
+        path_edge_count:
+          table: path_edges
+          aggregate: row_count
+        path_step_count:
+          table: path_steps
+          aggregate: row_count
+        task_count:
+          table: critical_tasks
+          aggregate: row_count
+        total_ranked_duration_ns:
+          table: critical_tasks
+          column: duration_ns
+          aggregate: sum
+        distinct_task_type_count:
+          table: critical_tasks
+          column: task_type
+          aggregate: count_distinct
+      refs:
+        - table: path_steps
+          columns:
+            - iteration
+            - edge_kind
+            - critical_cost_ns
+            - purpose_code
+            - purpose_hint
+          order_by:
+            - column: iteration
+              direction: asc
+          max_rows: 12
+        - table: critical_tasks
+          columns:
+            - rank
+            - task_type
+            - duration_ns
+            - thread_name
+            - label
+            - reason_code
+            - raw_refs
+          order_by:
+            - column: rank
+              direction: asc
+          max_rows: 12

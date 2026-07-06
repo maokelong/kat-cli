@@ -1,0 +1,168 @@
+id: openharmony.query.candidate_path_edges
+uses: query
+
+requires:
+  tables:
+    callstack:
+      columns: [id, ts, dur, callid, name, depth, parent_id]
+    thread_state:
+      columns: [id, ts, dur, itid, tid, state]
+    instant:
+      columns: [rowid, ts, name, ref, wakeup_from, ref_type]
+    thread:
+      columns: [itid, tid, name]
+
+context:
+  subscribes:
+    min_edge_duration_ns:
+      carrier: scalar
+    anchor_path_id:
+      carrier: scalar
+    anchor_iteration:
+      carrier: scalar
+    anchor_kind:
+      carrier: scalar
+    anchor_tid:
+      carrier: scalar
+    anchor_itid:
+      carrier: scalar
+    anchor_thread_name:
+      carrier: scalar
+    anchor_interval:
+      carrier: interval
+    anchor_current_callstack_id:
+      carrier: scalar
+
+output:
+  table: candidate_path_edges
+
+sql: |
+  WITH current_anchor AS (
+    SELECT
+      CAST('{{ctx.anchor_path_id}}' AS BIGINT) AS path_id,
+      CAST('{{ctx.anchor_iteration}}' AS BIGINT) AS iteration,
+      '{{ctx.anchor_kind}}' AS anchor_kind,
+      CAST('{{ctx.anchor_itid}}' AS BIGINT) AS itid,
+      CAST('{{ctx.anchor_tid}}' AS BIGINT) AS tid,
+      '{{ctx.anchor_thread_name}}' AS thread_name,
+      CAST('{{ctx.anchor_interval.start}}' AS BIGINT) AS interval_start_ts,
+      CAST('{{ctx.anchor_interval.end}}' AS BIGINT) AS interval_end_ts,
+      {{ctx.anchor_current_callstack_id}} AS current_callstack_id
+  ),
+  callstack_candidates AS (
+    SELECT
+      a.path_id,
+      a.iteration,
+      a.anchor_kind AS from_anchor_kind,
+      a.itid AS from_itid,
+      a.tid AS from_tid,
+      a.thread_name AS from_thread_name,
+      a.interval_start_ts AS from_interval_start_ts,
+      a.interval_end_ts AS from_interval_end_ts,
+      a.current_callstack_id AS from_callstack_id,
+      a.itid AS to_itid,
+      a.tid AS to_tid,
+      a.thread_name AS to_thread_name,
+      'callstack_span' AS edge_kind,
+      c.id AS edge_row_id,
+      c.id AS callstack_row_id,
+      c.parent_id AS parent_callstack_row_id,
+      c.name AS evidence_name,
+      CASE
+        WHEN c.ts > a.interval_start_ts THEN c.ts
+        ELSE a.interval_start_ts
+      END AS edge_start_ts,
+      CASE
+        WHEN c.ts + c.dur < a.interval_end_ts THEN c.ts + c.dur
+        ELSE a.interval_end_ts
+      END AS edge_end_ts,
+      c.dur AS raw_dur,
+      c.depth AS depth,
+      CAST(NULL AS BIGINT) AS wait_state_row_id,
+      CAST(NULL AS BIGINT) AS wakeup_row_id,
+      CAST(NULL AS BIGINT) AS wakeup_from_itid,
+      CAST(NULL AS BIGINT) AS wakeup_from_tid,
+      CAST(NULL AS TEXT) AS wakeup_from_thread_name,
+      70 AS priority
+    FROM current_anchor a
+    JOIN callstack c
+      ON c.callid = a.itid
+     AND c.ts < a.interval_end_ts
+     AND c.ts + c.dur > a.interval_start_ts
+     AND c.dur > 0
+     AND (
+       (a.current_callstack_id IS NULL AND c.depth = 0)
+       OR c.parent_id = a.current_callstack_id
+     )
+  ),
+  wakeup_candidates AS (
+    SELECT
+      a.path_id,
+      a.iteration,
+      a.anchor_kind AS from_anchor_kind,
+      a.itid AS from_itid,
+      a.tid AS from_tid,
+      a.thread_name AS from_thread_name,
+      a.interval_start_ts AS from_interval_start_ts,
+      a.interval_end_ts AS from_interval_end_ts,
+      a.current_callstack_id AS from_callstack_id,
+      wt.itid AS to_itid,
+      wt.tid AS to_tid,
+      wt.name AS to_thread_name,
+      'wakeup_dependency' AS edge_kind,
+      i.rowid AS edge_row_id,
+      CAST(NULL AS BIGINT) AS callstack_row_id,
+      CAST(NULL AS BIGINT) AS parent_callstack_row_id,
+      'sched_wakeup' AS evidence_name,
+      CASE
+        WHEN st.ts > a.interval_start_ts THEN st.ts
+        ELSE a.interval_start_ts
+      END AS edge_start_ts,
+      i.ts AS edge_end_ts,
+      i.ts - CASE
+        WHEN st.ts > a.interval_start_ts THEN st.ts
+        ELSE a.interval_start_ts
+      END AS raw_dur,
+      CAST(NULL AS BIGINT) AS depth,
+      st.id AS wait_state_row_id,
+      i.rowid AS wakeup_row_id,
+      i.wakeup_from AS wakeup_from_itid,
+      wt.tid AS wakeup_from_tid,
+      wt.name AS wakeup_from_thread_name,
+      90 AS priority
+    FROM current_anchor a
+    JOIN thread_state st
+      ON st.itid = a.itid
+     AND st.state <> 'Running'
+     AND st.ts < a.interval_end_ts
+     AND st.ts + st.dur > a.interval_start_ts
+    JOIN instant i
+      ON i.name = 'sched_wakeup'
+     AND i.ref_type = 'itid'
+     AND i.ref = a.itid
+     AND i.ts >= st.ts
+     AND i.ts <= st.ts + st.dur
+     AND i.ts >= a.interval_start_ts
+     AND i.ts <= a.interval_end_ts
+     AND i.wakeup_from IS NOT NULL
+    LEFT JOIN thread wt
+      ON wt.itid = i.wakeup_from
+  )
+  SELECT
+    *,
+    edge_end_ts - edge_start_ts AS critical_cost_ns,
+    CASE
+      WHEN edge_kind = 'wakeup_dependency' THEN 'scheduler_wait'
+      ELSE 'local_work'
+    END AS cost_kind
+  FROM callstack_candidates
+  WHERE edge_end_ts > edge_start_ts
+    AND edge_end_ts - edge_start_ts >= CAST('{{ctx.min_edge_duration_ns}}' AS BIGINT)
+  UNION ALL
+  SELECT
+    *,
+    edge_end_ts - edge_start_ts AS critical_cost_ns,
+    'scheduler_wait' AS cost_kind
+  FROM wakeup_candidates
+  WHERE edge_end_ts > edge_start_ts
+    AND edge_end_ts - edge_start_ts >= CAST('{{ctx.min_edge_duration_ns}}' AS BIGINT);

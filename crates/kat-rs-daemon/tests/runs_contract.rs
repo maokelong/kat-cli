@@ -24,7 +24,7 @@ async fn run_endpoint_returns_validation_error_for_unknown_run() {
 }
 
 #[tokio::test]
-async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief() {
+async fn run_endpoint_rejects_unknown_pack_for_existing_dataset() {
     let datasets_dir = tempdir().expect("datasets tempdir is created");
     let datasets_root = datasets_dir.path().join("datasets");
     let dataset_name = "existing-dataset";
@@ -32,7 +32,7 @@ async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief(
     std::fs::create_dir_all(datasets_root.join(dataset_name)).expect("dataset dir is created");
 
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
-    let create = request_json(
+    let response = request_json(
         app.clone(),
         "POST",
         "/v1/runs",
@@ -49,31 +49,90 @@ async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief(
     )
     .await;
 
-    assert_eq!(create.status, StatusCode::OK, "{:?}", create.body);
-    assert!(
-        create.body["data"]["runId"].is_string(),
+    assert_eq!(
+        response.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
         "{:?}",
-        create.body
+        response.body
     );
-    assert_eq!(create.body["data"]["status"], "FAILED");
-    assert_eq!(create.body["data"]["packRef"], "packs/example.yaml");
-    assert_eq!(create.body["data"]["stepCount"], 1);
-    assert_eq!(create.body["data"]["evidenceCount"], 0);
-    assert_eq!(create.body["data"]["briefSectionCount"], 0);
+    assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+}
 
-    let run_id = create.body["data"]["runId"]
+#[tokio::test]
+async fn runs_openharmony_critical_task_pack_on_materialized_sqlite_dataset() {
+    let sqlite_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root is above crate manifest dir")
+        .join("test/test.db");
+    if !sqlite_path.exists() {
+        eprintln!(
+            "skip runs_openharmony_critical_task_pack_on_materialized_sqlite_dataset: missing {}",
+            sqlite_path.display()
+        );
+        return;
+    }
+
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "openharmony-critical-task-test";
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create_dataset = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite_path.to_string_lossy(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        create_dataset.status,
+        StatusCode::CREATED,
+        "{:?}",
+        create_dataset.body
+    );
+
+    let dataset = create_dataset.body["data"]["dataset"].clone();
+    let run = request_json(
+        app.clone(),
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "packRef": "openharmony.critical_task_extraction",
+            "dataset": {
+                "name": dataset["name"],
+                "directory": dataset["directory"],
+            },
+            "inputs": {
+                "process_name_pattern": "(^|\\.)tencent\\.wechat$|^com\\.tencent\\.wechat$",
+                "start_marker_pattern": "HandleLaunchAbility.*com\\.tencent\\.wechat",
+                "end_marker_pattern": "UIVsyncTask.*firstDrawFrame\\s*[:=]\\s*1",
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(run.status, StatusCode::OK, "{:?}", run.body);
+    assert_eq!(run.body["data"]["status"], "COMPLETED");
+    assert_eq!(
+        run.body["data"]["packRef"],
+        "openharmony.critical_task_extraction"
+    );
+    assert_eq!(run.body["data"]["evidenceCount"], 2);
+
+    let run_id = run.body["data"]["runId"]
         .as_str()
         .expect("run id is returned");
-
-    let detail = request_json(app.clone(), "GET", &format!("/v1/runs/{run_id}"), None).await;
-    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.body);
-    assert!(detail.body["data"]["snapshotDigest"].is_string());
-    assert_eq!(
-        detail.body["data"]["diagnostics"][0]["code"],
-        "PACK_RUNTIME_NOT_IMPLEMENTED"
-    );
-    assert_eq!(detail.body["data"]["steps"][0]["uses"], "runtime");
-    assert_eq!(detail.body["data"]["steps"][0]["status"], "FAILED");
 
     let evidence = request_json(
         app.clone(),
@@ -82,24 +141,30 @@ async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief(
         None,
     )
     .await;
+
     assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
+    let critical_task_shape = evidence.body["data"]["evidence"]
+        .as_array()
+        .expect("evidence is an array")
+        .iter()
+        .find(|item| item["id"] == "critical_task_shape")
+        .expect("critical_task_shape evidence is returned");
+    assert_eq!(critical_task_shape["metrics"]["path_edge_count"], json!(8));
+    assert_eq!(critical_task_shape["metrics"]["path_step_count"], json!(8));
+    assert_eq!(critical_task_shape["metrics"]["task_count"], json!(8));
     assert_eq!(
-        evidence.body["data"],
-        json!({
-            "runId": run_id,
-            "evidence": [],
-        })
+        critical_task_shape["metrics"]["total_ranked_duration_ns"],
+        json!(3544401000_i64)
     );
 
     let brief = request_json(app, "GET", &format!("/v1/runs/{run_id}/brief"), None).await;
     assert_eq!(brief.status, StatusCode::OK, "{:?}", brief.body);
-    assert_eq!(
-        brief.body["data"],
-        json!({
-            "runId": run_id,
-            "sections": [],
-        })
-    );
+    let has_critical_tasks = brief.body["data"]["sections"]
+        .as_array()
+        .expect("brief sections are an array")
+        .iter()
+        .any(|section| section["id"] == "critical_tasks");
+    assert!(has_critical_tasks, "{:?}", brief.body);
 }
 
 #[test]

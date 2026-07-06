@@ -26,7 +26,7 @@ pub fn routes() -> Router<AppState> {
     path = "/v1/runs",
     request_body = CreateRunRequest,
     responses(
-        (status = 200, description = "Run placeholder was created", body = DataEnvelope<RunSummaryDto>),
+        (status = 200, description = "Run was executed", body = DataEnvelope<RunSummaryDto>),
         (status = 400, description = "Request body is malformed", body = ErrorEnvelope),
         (status = 404, description = "Dataset not found", body = ErrorEnvelope),
         (status = 422, description = "Dataset validation failed", body = ErrorEnvelope)
@@ -41,7 +41,7 @@ pub(crate) async fn create_run(
     let dataset = state
         .dataset_service
         .resolve_existing(request.dataset.clone())?;
-    let run = state.run_service.create_placeholder(request, dataset).await;
+    let run = state.run_service.create(request, dataset).await?;
 
     Ok(Json(DataEnvelope {
         data: run.to_summary_dto(),

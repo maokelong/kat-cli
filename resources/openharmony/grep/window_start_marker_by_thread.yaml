@@ -1,0 +1,64 @@
+id: openharmony.grep.window_start_marker_by_thread
+uses: grep
+
+requires:
+  tables:
+    callstack:
+      columns: [id, ts, dur, callid, name]
+
+context:
+  subscribes:
+    subject_thread_itid:
+      carrier: scalar
+    start_marker_pattern:
+      carrier: scalar
+    start_marker_match_kind:
+      carrier: scalar
+  publishes:
+    window_start_callstack_id:
+      carrier: scalar
+      from:
+        column: source_row_id
+    window_start_ts:
+      carrier: scalar
+      from:
+        column: ts
+    window_start_dur:
+      carrier: scalar
+      from:
+        column: dur
+    window_start_marker_name:
+      carrier: scalar
+      from:
+        column: name
+
+output:
+  table: window_start_marker_matches
+  columns:
+    - source_row_id
+    - ts
+    - dur
+    - name
+
+target:
+  table: callstack
+  columns:
+    - name
+
+patterns:
+  - id: window_start_marker
+    kind: regex
+    value: "{{ctx.start_marker_pattern}}"
+
+predicates:
+  - column: callid
+    equals: "{{ctx.subject_thread_itid}}"
+
+order_by:
+  - column: ts
+    direction: asc
+  - column: id
+    direction: asc
+
+limit: 1
+match_kind: "{{ctx.start_marker_match_kind}}"

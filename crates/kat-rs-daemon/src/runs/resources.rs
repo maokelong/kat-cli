@@ -105,6 +105,145 @@ pub struct FlowStep {
     pub extra: HashMap<String, Value>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct GrepResource {
+    pub id: String,
+    #[serde(default)]
+    pub context: ResourceContext,
+    pub output: TableOutput,
+    pub target: GrepTarget,
+    #[serde(default)]
+    pub patterns: Vec<GrepPattern>,
+    #[serde(default)]
+    pub predicates: Vec<GrepPredicate>,
+    #[serde(default)]
+    pub order_by: Vec<OrderBy>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct QueryResource {
+    pub id: String,
+    #[serde(default)]
+    pub context: ResourceContext,
+    pub output: TableOutput,
+    pub sql: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SummaryResource {
+    pub id: String,
+    pub summary: SummaryBody,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BriefResource {
+    #[serde(default)]
+    pub sections: Vec<BriefSection>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ResourceContext {
+    #[serde(default)]
+    pub publishes: HashMap<String, PublishSpec>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PublishSpec {
+    pub carrier: String,
+    pub from: PublishFrom,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PublishFrom {
+    pub column: Option<String>,
+    pub start_column: Option<String>,
+    pub end_column: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TableOutput {
+    pub table: String,
+    #[serde(default)]
+    pub columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GrepTarget {
+    pub table: String,
+    #[serde(default)]
+    pub columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GrepPattern {
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GrepPredicate {
+    pub column: String,
+    pub equals: Option<String>,
+    #[serde(default)]
+    pub is_not_null: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct OrderBy {
+    pub column: String,
+    pub direction: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SummaryBody {
+    #[serde(default)]
+    pub evidence: Vec<EvidenceSpec>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct EvidenceSpec {
+    pub id: String,
+    pub fact: String,
+    #[serde(default)]
+    pub metrics: HashMap<String, MetricSpec>,
+    #[serde(default)]
+    pub refs: Vec<RefSpec>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricSpec {
+    pub table: String,
+    pub column: Option<String>,
+    pub aggregate: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RefSpec {
+    pub table: String,
+    #[serde(default)]
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub order_by: Vec<OrderBy>,
+    pub max_rows: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BriefSection {
+    pub id: String,
+    #[serde(rename = "from")]
+    pub from_table: String,
+    #[serde(default)]
+    pub include: Vec<String>,
+    pub order_by: Option<BriefOrderBy>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BriefOrderBy {
+    pub field: String,
+    pub direction: Option<String>,
+}
+
 impl ResourceRoot {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
@@ -141,6 +280,66 @@ impl ResourceRoot {
         self.load_yaml(path)
     }
 
+    pub fn load_flow_resource(
+        &self,
+        manifest: &Manifest,
+        resource_ref: &str,
+    ) -> Result<LoadedYaml<Flow>, ApiError> {
+        let resource = manifest.resources.flows.get(resource_ref).ok_or_else(|| {
+            ApiError::validation(format!(
+                "flow resource is not declared in manifest: {resource_ref}"
+            ))
+        })?;
+
+        self.load_yaml(&resource.path)
+    }
+
+    pub fn load_grep_resource(
+        &self,
+        manifest: &Manifest,
+        resource_ref: &str,
+    ) -> Result<LoadedYaml<GrepResource>, ApiError> {
+        let resource = manifest.resources.grep.get(resource_ref).ok_or_else(|| {
+            ApiError::validation(format!(
+                "grep resource is not declared in manifest: {resource_ref}"
+            ))
+        })?;
+
+        self.load_yaml(&resource.path)
+    }
+
+    pub fn load_query_resource(
+        &self,
+        manifest: &Manifest,
+        resource_ref: &str,
+    ) -> Result<LoadedYaml<QueryResource>, ApiError> {
+        let resource = manifest.resources.query.get(resource_ref).ok_or_else(|| {
+            ApiError::validation(format!(
+                "query resource is not declared in manifest: {resource_ref}"
+            ))
+        })?;
+
+        self.load_yaml(&resource.path)
+    }
+
+    pub fn load_summary_resource(
+        &self,
+        manifest: &Manifest,
+        resource_ref: &str,
+    ) -> Result<LoadedYaml<SummaryResource>, ApiError> {
+        let resource = manifest
+            .resources
+            .summaries
+            .get(resource_ref)
+            .ok_or_else(|| {
+                ApiError::validation(format!(
+                    "summary resource is not declared in manifest: {resource_ref}"
+                ))
+            })?;
+
+        self.load_yaml(&resource.path)
+    }
+
     pub fn load_entry_flow(&self, pack: &LoadedYaml<Pack>) -> Result<LoadedYaml<Flow>, ApiError> {
         let pack_dir = pack.path.parent().ok_or_else(|| {
             ApiError::validation(format!(
@@ -158,6 +357,20 @@ impl ResourceRoot {
         }
 
         Ok(flow)
+    }
+
+    pub fn load_pack_brief(
+        &self,
+        pack: &LoadedYaml<Pack>,
+    ) -> Result<LoadedYaml<BriefResource>, ApiError> {
+        let pack_dir = pack.path.parent().ok_or_else(|| {
+            ApiError::validation(format!(
+                "pack path does not have parent directory: {}",
+                pack.path.display()
+            ))
+        })?;
+
+        self.load_yaml(pack_dir.join("brief.yaml"))
     }
 
     fn load_yaml<T>(&self, path: impl AsRef<Path>) -> Result<LoadedYaml<T>, ApiError>

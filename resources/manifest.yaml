@@ -1,0 +1,91 @@
+schema_version: 1
+kind: source_manifest
+
+operators:
+  grep:
+    summary: Locate candidate rows with bounded predicates.
+  query:
+    summary: Run deterministic relational transforms.
+  branch:
+    summary: Select one of two static branches from run-local table facts.
+  loop:
+    summary: Repeat a static body with bounded state advancement.
+  summaries:
+    summary: Extract structured evidence from run-local artifacts.
+
+tables:
+  process:
+    summary: Process facts decoded from an OpenHarmony trace.
+  thread:
+    summary: Thread identity and process relationship facts.
+  callstack:
+    summary: Callstack spans with timestamps, durations, names, and nesting.
+  thread_state:
+    summary: Thread scheduling state intervals.
+  instant:
+    summary: Instant events such as scheduler wakeups.
+
+resources:
+  flows:
+    openharmony.flows.locate_thread_by_process:
+      summary: Select a subject thread from a process name pattern.
+      path: openharmony/flows/locate_thread_by_process.yaml
+    openharmony.flows.locate_window_by_markers:
+      summary: Build a target thread window from start and end marker patterns.
+      path: openharmony/flows/locate_window_by_markers.yaml
+    openharmony.flows.extract_critical_tasks_in_window:
+      summary: Extract and rank task-level contributors inside a target window.
+      path: openharmony/flows/extract_critical_tasks_in_window.yaml
+  grep:
+    openharmony.grep.process_by_name_regex:
+      summary: Match process rows by process name regex.
+      path: openharmony/grep/process_by_name_regex.yaml
+    openharmony.grep.window_start_marker_by_thread:
+      summary: Match the first window start marker on the subject thread.
+      path: openharmony/grep/window_start_marker_by_thread.yaml
+    openharmony.grep.window_end_marker_by_thread:
+      summary: Match the first window end marker on the subject thread.
+      path: openharmony/grep/window_end_marker_by_thread.yaml
+  query:
+    openharmony.query.select_thread_from_process_matches:
+      summary: Select the subject thread from process matches.
+      path: openharmony/query/select_thread_from_process_matches.yaml
+    openharmony.query.build_window_from_marker_matches:
+      summary: Build the target window from matched callstack markers.
+      path: openharmony/query/build_window_from_marker_matches.yaml
+    openharmony.query.initial_anchor_rows:
+      summary: Convert the target thread window into the first path anchor.
+      path: openharmony/query/initial_anchor_rows.yaml
+    openharmony.query.candidate_path_edges:
+      summary: Build local work and wakeup-dependency edge candidates from the current anchor.
+      path: openharmony/query/candidate_path_edges.yaml
+    openharmony.query.select_best_path_edges:
+      summary: Select the strongest edge for the current path iteration.
+      path: openharmony/query/select_best_path_edges.yaml
+    openharmony.query.derive_next_anchor_rows:
+      summary: Advance the current anchor, following wakeup source threads when selected.
+      path: openharmony/query/derive_next_anchor_rows.yaml
+    openharmony.query.path_steps_from_edges:
+      summary: Classify selected path edges into task-level path steps.
+      path: openharmony/query/path_steps_from_edges.yaml
+    openharmony.query.empty_path_edges:
+      summary: Produce an empty selected edge table for terminal loop iterations.
+      path: openharmony/query/empty_path_edges.yaml
+    openharmony.query.empty_anchor_rows:
+      summary: Produce an empty anchor table for terminal loop iterations.
+      path: openharmony/query/empty_anchor_rows.yaml
+    openharmony.query.empty_path_steps:
+      summary: Produce an empty path step table for terminal loop iterations.
+      path: openharmony/query/empty_path_steps.yaml
+    openharmony.query.rank_critical_tasks:
+      summary: Rank candidate tasks into the public critical_tasks artifact.
+      path: openharmony/query/rank_critical_tasks.yaml
+  summaries:
+    openharmony.summaries.critical_task_evidence:
+      summary: Summarize target window shape and ranked critical tasks.
+      path: openharmony/summaries/critical_task_evidence.yaml
+
+packs:
+  openharmony.critical_task_extraction:
+    summary: Extract ranked task-level latency contributors from an OpenHarmony thread window.
+    path: packs/openharmony-critical-task-extraction/pack.yaml

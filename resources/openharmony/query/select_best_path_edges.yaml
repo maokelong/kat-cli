@@ -1,0 +1,123 @@
+id: openharmony.query.select_best_path_edges
+uses: query
+
+requires:
+  tables:
+    candidate_path_edges:
+      columns:
+        - path_id
+        - iteration
+        - edge_kind
+        - edge_row_id
+        - edge_start_ts
+        - edge_end_ts
+        - critical_cost_ns
+        - priority
+
+context:
+  subscribes: {}
+  publishes:
+    edge_path_id:
+      carrier: scalar
+      from:
+        column: path_id
+    edge_iteration:
+      carrier: scalar
+      from:
+        column: iteration
+    edge_kind:
+      carrier: scalar
+      from:
+        column: edge_kind
+    edge_row_id:
+      carrier: scalar
+      from:
+        column: edge_row_id
+    edge_start_ts:
+      carrier: scalar
+      from:
+        column: edge_start_ts
+    edge_end_ts:
+      carrier: scalar
+      from:
+        column: edge_end_ts
+    edge_from_itid:
+      carrier: scalar
+      from:
+        column: from_itid
+    edge_from_tid:
+      carrier: scalar
+      from:
+        column: from_tid
+    edge_from_thread_name:
+      carrier: scalar
+      from:
+        column: from_thread_name
+    edge_callstack_row_id:
+      carrier: scalar
+      from:
+        column: callstack_row_id
+    edge_wakeup_from_itid:
+      carrier: scalar
+      from:
+        column: wakeup_from_itid
+    edge_wakeup_from_tid:
+      carrier: scalar
+      from:
+        column: wakeup_from_tid
+    edge_wakeup_from_thread_name:
+      carrier: scalar
+      from:
+        column: wakeup_from_thread_name
+
+output:
+  table: selected_path_edges
+
+sql: |
+  WITH ranked AS (
+    SELECT
+      c.*,
+      ROW_NUMBER() OVER (
+        PARTITION BY c.path_id, c.iteration
+        ORDER BY
+          c.critical_cost_ns DESC,
+          c.priority DESC,
+          c.edge_start_ts ASC,
+          c.edge_kind ASC,
+          c.edge_row_id ASC
+      ) AS selection_rank
+    FROM candidate_path_edges c
+  )
+  SELECT
+    path_id,
+    iteration,
+    from_anchor_kind,
+    from_itid,
+    from_tid,
+    from_thread_name,
+    from_interval_start_ts,
+    from_interval_end_ts,
+    from_callstack_id,
+    to_itid,
+    to_tid,
+    to_thread_name,
+    edge_kind,
+    edge_row_id,
+    callstack_row_id,
+    parent_callstack_row_id,
+    evidence_name,
+    edge_start_ts,
+    edge_end_ts,
+    raw_dur,
+    critical_cost_ns,
+    cost_kind,
+    depth,
+    wait_state_row_id,
+    wakeup_row_id,
+    wakeup_from_itid,
+    wakeup_from_tid,
+    wakeup_from_thread_name,
+    priority,
+    selection_rank
+  FROM ranked
+  WHERE selection_rank = 1;

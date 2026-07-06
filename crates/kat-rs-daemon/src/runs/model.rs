@@ -1,11 +1,10 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::api::{
     DatasetDto, RunBriefResponse, RunDetailDto, RunEvidenceResponse, RunStepDto, RunSummaryDto,
 };
 
-const FAILED_STATUS: &str = "FAILED";
-const PLACEHOLDER_DIAGNOSTIC: &str = "PACK_RUNTIME_NOT_IMPLEMENTED";
+const COMPLETED_STATUS: &str = "COMPLETED";
 
 #[derive(Debug)]
 pub struct RunRecord {
@@ -21,20 +20,26 @@ pub struct RunRecord {
 }
 
 impl RunRecord {
-    pub fn failed_placeholder(run_id: String, pack_ref: String, dataset: DatasetDto) -> Self {
+    pub fn completed(
+        run_id: String,
+        pack_ref: String,
+        dataset: DatasetDto,
+        snapshot_digest: String,
+        steps: Vec<RunStepRecord>,
+        diagnostics: Vec<Value>,
+        evidence: Vec<Value>,
+        brief_sections: Vec<Value>,
+    ) -> Self {
         Self {
             run_id,
-            status: FAILED_STATUS.to_owned(),
+            status: COMPLETED_STATUS.to_owned(),
             pack_ref,
             dataset,
-            snapshot_digest: PLACEHOLDER_DIAGNOSTIC.to_owned(),
-            steps: vec![RunStepRecord::failed("runtime")],
-            diagnostics: vec![json!({
-                "code": PLACEHOLDER_DIAGNOSTIC,
-                "message": "pack runtime is not implemented yet"
-            })],
-            evidence: Vec::new(),
-            brief_sections: Vec::new(),
+            snapshot_digest,
+            steps,
+            diagnostics,
+            evidence,
+            brief_sections,
         }
     }
 
@@ -84,15 +89,18 @@ pub struct RunStepRecord {
 }
 
 impl RunStepRecord {
-    fn failed(uses: impl Into<String>) -> Self {
-        let uses = uses.into();
-
+    pub fn completed(
+        id: impl Into<String>,
+        uses: impl Into<String>,
+        output: Option<String>,
+        row_count: Option<usize>,
+    ) -> Self {
         Self {
-            id: uses.clone(),
-            uses,
-            status: FAILED_STATUS.to_owned(),
-            output: None,
-            row_count: None,
+            id: id.into(),
+            uses: uses.into(),
+            status: COMPLETED_STATUS.to_owned(),
+            output,
+            row_count,
         }
     }
 
