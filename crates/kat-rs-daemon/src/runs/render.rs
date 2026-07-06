@@ -21,6 +21,12 @@ pub fn render_template(input: &str, context: &ContextStore) -> Result<String, Ap
     }
     rendered.push_str(&input[last..]);
 
+    if rendered.contains("{{") || rendered.contains("}}") {
+        return Err(ApiError::validation(
+            "unsupported or malformed context placeholder",
+        ));
+    }
+
     Ok(rendered)
 }
 

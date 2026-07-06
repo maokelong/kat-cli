@@ -107,7 +107,18 @@ pub struct FlowStep {
 
 impl ResourceRoot {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        let root = root.into();
+        if root.is_relative() && !root.exists() {
+            let package_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            for ancestor in package_dir.ancestors() {
+                let candidate = ancestor.join(&root);
+                if candidate.exists() {
+                    return Self { root: candidate };
+                }
+            }
+        }
+
+        Self { root }
     }
 
     pub fn load_manifest(&self) -> Result<LoadedYaml<Manifest>, ApiError> {
@@ -128,6 +139,25 @@ impl ResourceRoot {
 
     pub fn load_flow_by_path(&self, path: impl AsRef<Path>) -> Result<LoadedYaml<Flow>, ApiError> {
         self.load_yaml(path)
+    }
+
+    pub fn load_entry_flow(&self, pack: &LoadedYaml<Pack>) -> Result<LoadedYaml<Flow>, ApiError> {
+        let pack_dir = pack.path.parent().ok_or_else(|| {
+            ApiError::validation(format!(
+                "pack path does not have parent directory: {}",
+                pack.path.display()
+            ))
+        })?;
+        let flow: LoadedYaml<Flow> = self.load_yaml(pack_dir.join("flow.yaml"))?;
+
+        if flow.value.id != pack.value.entry_flow {
+            return Err(ApiError::validation(format!(
+                "entry flow id {} does not match pack entry_flow {}",
+                flow.value.id, pack.value.entry_flow
+            )));
+        }
+
+        Ok(flow)
     }
 
     fn load_yaml<T>(&self, path: impl AsRef<Path>) -> Result<LoadedYaml<T>, ApiError>

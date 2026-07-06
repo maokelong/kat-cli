@@ -122,6 +122,55 @@ fn context_renderer_replaces_scalar_and_interval_slots() {
     );
 }
 
+#[test]
+fn context_renderer_rejects_unknown_and_malformed_slots() {
+    let mut context = kat_rs_daemon::runs::context::ContextStore::new();
+    context
+        .publish_interval("target_window", 245720189000, 246329390000, "test")
+        .expect("interval publishes");
+
+    let cases = [
+        "select {{ctx.missing_slot}}",
+        "select {{ctx.target_window}}",
+        "select {{ ctx.target_window.start }}",
+        "select {{ctx.target_window.starts}}",
+        "select {{ctx.target_window.foo}}",
+        "select {{ctx.target_window.start}",
+    ];
+
+    for template in cases {
+        assert!(
+            kat_rs_daemon::runs::render::render_template(template, &context).is_err(),
+            "template should be rejected: {template}"
+        );
+    }
+}
+
+#[test]
+fn resource_root_loads_real_manifest_pack_and_entry_flow() {
+    let root = kat_rs_daemon::runs::resources::ResourceRoot::new("resources");
+
+    let manifest = root.load_manifest().expect("manifest loads");
+    let pack = root
+        .load_pack(&manifest.value, "openharmony.critical_task_extraction")
+        .expect("pack loads");
+    let flow = root.load_entry_flow(&pack).expect("entry flow loads");
+
+    assert!(manifest.digest.starts_with("sha256:"));
+    assert!(pack.digest.starts_with("sha256:"));
+    assert!(flow.digest.starts_with("sha256:"));
+    assert_eq!(pack.value.pack.id, "openharmony.critical_task_extraction");
+    assert_eq!(flow.value.id, "critical_task_extraction");
+    assert_eq!(
+        pack.path.file_name().and_then(|name| name.to_str()),
+        Some("pack.yaml")
+    );
+    assert_eq!(
+        flow.path.file_name().and_then(|name| name.to_str()),
+        Some("flow.yaml")
+    );
+}
+
 struct JsonResponse {
     status: StatusCode,
     body: serde_json::Value,
