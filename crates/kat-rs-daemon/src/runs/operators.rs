@@ -8,7 +8,7 @@ use std::{
 
 use arrow_array::{
     Array, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
-    RecordBatch, StringArray, StringViewArray, UInt32Array, UInt64Array,
+    NullArray, RecordBatch, StringArray, StringViewArray, UInt32Array, UInt64Array,
 };
 use arrow_schema::{DataType, Field, Schema};
 use kat_rs_datasource::TraceDatasource;
@@ -36,6 +36,7 @@ pub struct ExecutionState {
     pub diagnostics: Vec<Value>,
     pub evidence: Vec<Value>,
     pub brief_sections: Vec<Value>,
+    pub resource_digests: Vec<String>,
 }
 
 impl ExecutionState {
@@ -47,7 +48,12 @@ impl ExecutionState {
             diagnostics: Vec::new(),
             evidence: Vec::new(),
             brief_sections: Vec::new(),
+            resource_digests: Vec::new(),
         }
+    }
+
+    pub fn record_resource_digest(&mut self, digest: impl Into<String>) {
+        self.resource_digests.push(digest.into());
     }
 }
 
@@ -81,6 +87,7 @@ pub async fn build_brief_sections(
     state: &mut ExecutionState,
 ) -> Result<(), ApiError> {
     let brief = root.load_pack_brief(pack)?;
+    state.record_resource_digest(brief.digest.clone());
     let mut sections = Vec::new();
 
     for section in brief.value.sections {
@@ -128,6 +135,7 @@ async fn execute_flow_step(
         .map(String::as_str)
         .unwrap_or(resource);
     let flow = root.load_flow_resource(manifest, flow_ref)?;
+    state.record_resource_digest(flow.digest.clone());
 
     execute_flow(root, manifest, pack, &flow.value, state).await?;
     state.steps.push(RunStepRecord::completed(
@@ -146,6 +154,7 @@ pub async fn execute_query_step(
     state: &mut ExecutionState,
 ) -> Result<(), ApiError> {
     let resource = root.load_query_resource(manifest, required_resource(step)?)?;
+    state.record_resource_digest(resource.digest.clone());
     let row_count = execute_query_resource(&resource.value, state).await?;
 
     state.steps.push(RunStepRecord::completed(
@@ -164,6 +173,7 @@ pub async fn execute_grep_step(
     state: &mut ExecutionState,
 ) -> Result<(), ApiError> {
     let resource = root.load_grep_resource(manifest, required_resource(step)?)?;
+    state.record_resource_digest(resource.digest.clone());
     let row_count = execute_grep_resource(&resource.value, state).await?;
 
     state.steps.push(RunStepRecord::completed(
@@ -261,6 +271,7 @@ pub async fn execute_summaries_step(
         .map(String::as_str)
         .unwrap_or(resource);
     let resource = root.load_summary_resource(manifest, summary_ref)?;
+    state.record_resource_digest(resource.digest.clone());
     let evidence = execute_summary_resource(&resource.value, state).await?;
     let row_count = evidence.len();
 
@@ -820,13 +831,97 @@ fn normalize_batches_for_register(
         .first()
         .ok_or_else(|| ApiError::query_failed("query returned rows without a record batch"))?
         .schema();
-    let columns = schema
+
+    Ok(vec![rows_to_record_batch_with_schema(schema, rows)?])
+}
+
+fn rows_to_record_batch_with_schema(
+    schema: Arc<Schema>,
+    rows: &[Map<String, Value>],
+) -> Result<RecordBatch, ApiError> {
+    let arrays = schema
         .fields()
         .iter()
-        .map(|field| field.name().clone())
-        .collect::<Vec<_>>();
+        .map(|field| typed_values_to_array(field.name(), field.data_type(), rows))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(vec![rows_to_record_batch(&columns, rows)?])
+    RecordBatch::try_new(schema, arrays)
+        .map_err(|error| ApiError::query_failed(format!("{error:#}")))
+}
+
+fn typed_values_to_array(
+    column: &str,
+    data_type: &DataType,
+    rows: &[Map<String, Value>],
+) -> Result<Arc<dyn Array>, ApiError> {
+    match data_type {
+        DataType::Null => Ok(Arc::new(NullArray::new(rows.len()))),
+        DataType::Boolean => Ok(Arc::new(BooleanArray::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(Value::as_bool))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Int64 => Ok(Arc::new(Int64Array::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_i64))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Int32 => Ok(Arc::new(Int32Array::from(
+            rows.iter()
+                .map(|row| {
+                    row.get(column)
+                        .and_then(value_as_i64)
+                        .and_then(|value| i32::try_from(value).ok())
+                })
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::UInt64 => Ok(Arc::new(UInt64Array::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_u64))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::UInt32 => Ok(Arc::new(UInt32Array::from(
+            rows.iter()
+                .map(|row| {
+                    row.get(column)
+                        .and_then(value_as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                })
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Float64 => Ok(Arc::new(Float64Array::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_f64))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Float32 => Ok(Arc::new(Float32Array::from(
+            rows.iter()
+                .map(|row| {
+                    row.get(column)
+                        .and_then(value_as_f64)
+                        .map(|value| value as f32)
+                })
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Utf8 => Ok(Arc::new(StringArray::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_str).map(str::to_owned))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::LargeUtf8 => Ok(Arc::new(LargeStringArray::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_str).map(str::to_owned))
+                .collect::<Vec<_>>(),
+        ))),
+        DataType::Utf8View => Ok(Arc::new(StringViewArray::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_str).map(str::to_owned))
+                .collect::<Vec<_>>(),
+        ))),
+        other => Err(ApiError::query_failed(format!(
+            "unsupported query output column type for {column}: {other:?}"
+        ))),
+    }
 }
 
 fn infer_column_type(column: &str, rows: &[Map<String, Value>]) -> DataType {
@@ -1046,6 +1141,18 @@ fn value_as_i64(value: &Value) -> Option<i64> {
         .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
 }
 
+fn value_as_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|value| u64::try_from(value).ok()))
+}
+
+fn value_as_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value_as_i64(value).map(|value| value as f64))
+}
+
 fn value_as_str(value: &Value) -> Option<&str> {
     match value {
         Value::String(value) => Some(value),
@@ -1124,4 +1231,35 @@ struct LoopMaxIterations {
 struct LoopAccumulator {
     kind: String,
     append_from: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::{Int64Array, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+
+    use super::{batches_to_rows, normalize_batches_for_register};
+
+    #[test]
+    fn normalize_batches_preserves_all_null_column_schema() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "all_null",
+            DataType::Int64,
+            true,
+        )]));
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![None, None]))])
+                .expect("batch builds");
+        let rows = batches_to_rows(std::slice::from_ref(&batch)).expect("rows convert");
+
+        let normalized = normalize_batches_for_register(std::slice::from_ref(&batch), &rows)
+            .expect("normalizes");
+
+        assert_eq!(
+            normalized[0].schema().field(0).data_type(),
+            &DataType::Int64
+        );
+    }
 }

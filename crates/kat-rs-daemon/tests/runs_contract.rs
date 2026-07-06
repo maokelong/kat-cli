@@ -24,7 +24,7 @@ async fn run_endpoint_returns_validation_error_for_unknown_run() {
 }
 
 #[tokio::test]
-async fn run_endpoint_rejects_unknown_pack_for_existing_dataset() {
+async fn run_endpoint_returns_validation_error_when_dataset_directory_is_not_a_catalog() {
     let datasets_dir = tempdir().expect("datasets tempdir is created");
     let datasets_root = datasets_dir.path().join("datasets");
     let dataset_name = "existing-dataset";
@@ -133,6 +133,23 @@ async fn runs_openharmony_critical_task_pack_on_materialized_sqlite_dataset() {
     let run_id = run.body["data"]["runId"]
         .as_str()
         .expect("run id is returned");
+
+    let detail = request_json(app.clone(), "GET", &format!("/v1/runs/{run_id}"), None).await;
+    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.body);
+    let snapshot_digest = detail.body["data"]["snapshotDigest"]
+        .as_str()
+        .expect("snapshot digest is returned");
+    let snapshot_digests = snapshot_digest.split(',').collect::<Vec<_>>();
+    assert!(
+        snapshot_digests.len() > 10,
+        "snapshot digest should include loaded imports and brief: {snapshot_digest}"
+    );
+    assert!(
+        snapshot_digests
+            .iter()
+            .all(|digest| digest.starts_with("sha256:")),
+        "{snapshot_digest}"
+    );
 
     let evidence = request_json(
         app.clone(),

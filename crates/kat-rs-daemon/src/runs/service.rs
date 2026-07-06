@@ -44,6 +44,9 @@ impl RunService {
         let entry_flow = resource_root.load_entry_flow(&pack)?;
         let mut state = ExecutionState::new(datasource);
 
+        state.record_resource_digest(manifest.digest.clone());
+        state.record_resource_digest(pack.digest.clone());
+        state.record_resource_digest(entry_flow.digest.clone());
         publish_inputs(&mut state, inputs)?;
         publish_constants(&mut state, &entry_flow.value.constants)?;
         execute_flow(
@@ -56,7 +59,7 @@ impl RunService {
         .await?;
         build_brief_sections(&resource_root, &pack, &mut state).await?;
 
-        let snapshot_digest = format!("{},{},{}", manifest.digest, pack.digest, entry_flow.digest);
+        let snapshot_digest = stable_resource_snapshot_digest(state.resource_digests.clone());
         let run = RunRecord::completed(
             run_id,
             pack_ref,
@@ -77,6 +80,12 @@ impl RunService {
             .await
             .ok_or_else(|| ApiError::validation(format!("run not found: {run_id}")))
     }
+}
+
+fn stable_resource_snapshot_digest(mut digests: Vec<String>) -> String {
+    digests.sort();
+    digests.dedup();
+    digests.join(",")
 }
 
 fn publish_inputs(

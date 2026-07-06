@@ -23,10 +23,6 @@ sections:
       - label
       - reason_code
       - raw_refs
-    truncation:
-      show_total: true
-      artifact_ref: true
-
   - id: path_steps
     from: path_steps
     order_by:
@@ -42,6 +38,3 @@ sections:
       - evidence_name
       - purpose_code
       - purpose_hint
-    truncation:
-      show_total: true
-      artifact_ref: true
