@@ -231,6 +231,40 @@ curl -sS -X POST \
 }
 ```
 
+### OpenHarmony SQLite MVP run
+
+MVP run path 会先把 OpenHarmony SQLite 导出物化为本地 Parquet dataset，再通过 `/v1/runs` 执行 pack。
+
+```bash
+curl -sS -X POST http://127.0.0.1:3030/v1/datasets \
+  -H 'content-type: application/json' \
+  -d '{
+    "dataset": {
+      "name": "openharmony-test",
+      "directory": "D:/work/kat_rs/0706/kat-rs/test/datasets"
+    },
+    "input": {
+      "source": "SQLITE",
+      "file": "D:/work/kat_rs/0706/kat-rs/test/test.db"
+    }
+  }'
+
+curl -sS -X POST http://127.0.0.1:3030/v1/runs \
+  -H 'content-type: application/json' \
+  -d '{
+    "packRef": "openharmony.critical_task_extraction",
+    "dataset": {
+      "name": "openharmony-test",
+      "directory": "D:/work/kat_rs/0706/kat-rs/test/datasets"
+    },
+    "inputs": {
+      "process_name_pattern": "(^|\\.)tencent\\.wechat$|^com\\.tencent\\.wechat$",
+      "start_marker_pattern": "HandleLaunchAbility.*com\\.tencent\\.wechat",
+      "end_marker_pattern": "UIVsyncTask.*firstDrawFrame\\s*[:=]\\s*1"
+    }
+  }'
+```
+
 其他接口：
 
 ```text
