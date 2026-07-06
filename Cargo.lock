@@ -2121,6 +2121,7 @@ dependencies = [
  "hex",
  "kat-rs-datasource",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",

@@ -113,6 +113,8 @@ pub enum DatasetSourceInput {
         #[serde(rename = "tracesFile")]
         traces_file: String,
     },
+    #[serde(rename = "SQLITE")]
+    Sqlite { file: String },
 }
 
 #[derive(Debug, Serialize, ToSchema)]

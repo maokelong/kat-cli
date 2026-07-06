@@ -553,6 +553,58 @@ async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sour
 }
 
 #[tokio::test]
+async fn dataset_create_materializes_sqlite_fixture_and_can_query_catalog() {
+    let dir = tempdir().expect("tempdir is created");
+    let sqlite_path = dir.path().join("input.db");
+    create_openharmony_sqlite_fixture(&sqlite_path);
+    let datasets_root = dir.path().join("datasets");
+    let dataset_name = "sqlite-openharmony";
+    let dataset_path = datasets_root.join(dataset_name);
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite_path.to_string_lossy(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+    assert_eq!(create.body["data"]["dataset"]["name"], dataset_name);
+    assert_eq!(
+        create.body["data"]["dataset"]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+
+    let query = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "sql": "select count(*) as process_count from process"
+        })),
+    )
+    .await;
+
+    assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
+    assert_eq!(query.body["data"], json!([{ "process_count": 1 }]));
+}
+
+#[tokio::test]
 async fn dataset_query_reads_materialized_dataset_without_sources() {
     let fixture = LangfuseFixture::new();
     let datasets_dir = tempdir().expect("datasets tempdir is created");
@@ -1052,6 +1104,26 @@ fn assert_bad_request_envelope(response: JsonResponse) {
         response.body
     );
     assert!(response.body["error"]["details"].is_null());
+}
+
+fn create_openharmony_sqlite_fixture(path: &Path) {
+    let connection = rusqlite::Connection::open(path).expect("sqlite fixture opens");
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE process (id INT, ipid INT, pid INT, name TEXT);
+            CREATE TABLE thread (id INT, itid INT, tid INT, name TEXT, ipid INT, is_main_thread INT);
+            CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, depth INT, parent_id INT);
+            CREATE TABLE thread_state (id INT, ts INT, dur INT, itid INT, tid INT, state TEXT);
+            CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT);
+            INSERT INTO process VALUES (89, 89, 15040, '.tencent.wechat');
+            INSERT INTO thread VALUES (405, 405, 15040, '.tencent.wechat', 89, 1);
+            INSERT INTO callstack VALUES (6387, 245720189000, 481901000, 405, 'HandleLaunchAbility', 0, 4294967295);
+            INSERT INTO thread_state VALUES (1, 245720189000, 1000000, 405, 15040, 'Sleeping');
+            INSERT INTO instant VALUES (245721000000, 'sched_wakeup', 405, 406, 'itid');
+            "#,
+        )
+        .expect("sqlite fixture schema is created");
 }
 
 struct LangfuseFixture {

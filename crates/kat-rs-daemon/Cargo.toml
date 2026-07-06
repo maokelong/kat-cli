@@ -25,5 +25,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
+rusqlite.workspace = true
 tempfile.workspace = true
 tower.workspace = true
