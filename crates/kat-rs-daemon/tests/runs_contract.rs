@@ -100,6 +100,28 @@ async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief(
     );
 }
 
+#[test]
+fn context_renderer_replaces_scalar_and_interval_slots() {
+    let mut context = kat_rs_daemon::runs::context::ContextStore::new();
+    context
+        .publish_scalar("subject_thread_itid", json!(405), "test")
+        .expect("scalar publishes");
+    context
+        .publish_interval("target_window", 245720189000, 246329390000, "test")
+        .expect("interval publishes");
+
+    let rendered = kat_rs_daemon::runs::render::render_template(
+        "select {{ctx.subject_thread_itid}} as itid, {{ctx.target_window.start}} as start_ts, {{ctx.target_window.end}} as end_ts",
+        &context,
+    )
+    .expect("template renders");
+
+    assert_eq!(
+        rendered,
+        "select 405 as itid, 245720189000 as start_ts, 246329390000 as end_ts"
+    );
+}
+
 struct JsonResponse {
     status: StatusCode,
     body: serde_json::Value,
