@@ -2,6 +2,8 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use serde_json::json;
+use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -17,6 +19,85 @@ async fn run_endpoint_returns_validation_error_for_unknown_run() {
         response.body
     );
     assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test]
+async fn run_endpoint_creates_placeholder_and_returns_detail_evidence_and_brief() {
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "existing-dataset";
+
+    std::fs::create_dir_all(datasets_root.join(dataset_name)).expect("dataset dir is created");
+
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "packRef": "packs/example.yaml",
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "inputs": {
+                "traceId": "trace-1"
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(create.status, StatusCode::OK, "{:?}", create.body);
+    assert!(
+        create.body["data"]["runId"].is_string(),
+        "{:?}",
+        create.body
+    );
+    assert_eq!(create.body["data"]["status"], "FAILED");
+    assert_eq!(create.body["data"]["packRef"], "packs/example.yaml");
+    assert_eq!(create.body["data"]["stepCount"], 1);
+    assert_eq!(create.body["data"]["evidenceCount"], 0);
+    assert_eq!(create.body["data"]["briefSectionCount"], 0);
+
+    let run_id = create.body["data"]["runId"]
+        .as_str()
+        .expect("run id is returned");
+
+    let detail = request_json(app.clone(), "GET", &format!("/v1/runs/{run_id}"), None).await;
+    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.body);
+    assert!(detail.body["data"]["snapshotDigest"].is_string());
+    assert_eq!(
+        detail.body["data"]["diagnostics"][0]["code"],
+        "PACK_RUNTIME_NOT_IMPLEMENTED"
+    );
+    assert_eq!(detail.body["data"]["steps"][0]["uses"], "runtime");
+    assert_eq!(detail.body["data"]["steps"][0]["status"], "FAILED");
+
+    let evidence = request_json(
+        app.clone(),
+        "GET",
+        &format!("/v1/runs/{run_id}/evidence"),
+        None,
+    )
+    .await;
+    assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
+    assert_eq!(
+        evidence.body["data"],
+        json!({
+            "runId": run_id,
+            "evidence": [],
+        })
+    );
+
+    let brief = request_json(app, "GET", &format!("/v1/runs/{run_id}/brief"), None).await;
+    assert_eq!(brief.status, StatusCode::OK, "{:?}", brief.body);
+    assert_eq!(
+        brief.body["data"],
+        json!({
+            "runId": run_id,
+            "sections": [],
+        })
+    );
 }
 
 struct JsonResponse {

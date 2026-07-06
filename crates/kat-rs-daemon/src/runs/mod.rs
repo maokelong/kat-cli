@@ -5,3 +5,5 @@ pub mod render;
 pub mod resources;
 pub mod service;
 pub mod store;
+
+pub use service::RunService;

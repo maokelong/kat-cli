@@ -167,44 +167,46 @@ pub struct CreateRunRequest {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunSummaryDto {
-    pub id: String,
+    pub run_id: String,
+    pub status: String,
     pub pack_ref: String,
     pub dataset: DatasetDto,
-    pub status: String,
-    pub diagnostic: String,
-    pub created_at: String,
-    pub completed_at: Option<String>,
+    pub step_count: usize,
+    pub evidence_count: usize,
+    pub brief_section_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunDetailDto {
     pub summary: RunSummaryDto,
-    pub inputs: BTreeMap<String, Value>,
     pub steps: Vec<RunStepDto>,
+    pub diagnostics: Vec<Value>,
+    pub snapshot_digest: String,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunStepDto {
     pub id: String,
-    pub name: String,
+    pub uses: String,
     pub status: String,
-    pub diagnostic: String,
+    pub output: Option<String>,
+    pub row_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunEvidenceResponse {
-    pub summary: RunSummaryDto,
+    pub run_id: String,
     pub evidence: Vec<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunBriefResponse {
-    pub summary: RunSummaryDto,
-    pub brief: String,
+    pub run_id: String,
+    pub sections: Vec<Value>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

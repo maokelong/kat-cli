@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
-use crate::{
-    dataset_service::DatasetService, runs::service::RunService, service::DatasourceService,
-};
+use crate::{dataset_service::DatasetService, runs::RunService, service::DatasourceService};
 
 #[derive(Clone)]
 pub struct AppState {

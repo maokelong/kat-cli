@@ -1,8 +1,6 @@
 use axum::{
     Json, Router,
     extract::{Path, State, rejection::JsonRejection},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     routing::{get, post},
 };
 
@@ -28,7 +26,7 @@ pub fn routes() -> Router<AppState> {
     path = "/v1/runs",
     request_body = CreateRunRequest,
     responses(
-        (status = 201, description = "Run placeholder was created", body = DataEnvelope<RunSummaryDto>),
+        (status = 200, description = "Run placeholder was created", body = DataEnvelope<RunSummaryDto>),
         (status = 400, description = "Request body is malformed", body = ErrorEnvelope),
         (status = 404, description = "Dataset not found", body = ErrorEnvelope),
         (status = 422, description = "Dataset validation failed", body = ErrorEnvelope)
@@ -37,7 +35,7 @@ pub fn routes() -> Router<AppState> {
 pub(crate) async fn create_run(
     State(state): State<AppState>,
     request: Result<Json<CreateRunRequest>, JsonRejection>,
-) -> Result<Response, ApiError> {
+) -> Result<Json<DataEnvelope<RunSummaryDto>>, ApiError> {
     let Json(request) =
         request.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let dataset = state
@@ -45,13 +43,9 @@ pub(crate) async fn create_run(
         .resolve_existing(request.dataset.clone())?;
     let run = state.run_service.create_placeholder(request, dataset).await;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(DataEnvelope {
-            data: run.to_summary_dto(),
-        }),
-    )
-        .into_response())
+    Ok(Json(DataEnvelope {
+        data: run.to_summary_dto(),
+    }))
 }
 
 #[utoipa::path(

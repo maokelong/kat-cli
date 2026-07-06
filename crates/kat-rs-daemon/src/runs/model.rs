@@ -1,7 +1,4 @@
-use std::collections::BTreeMap;
-
-use serde_json::Value;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use serde_json::{Value, json};
 
 use crate::api::{
     DatasetDto, RunBriefResponse, RunDetailDto, RunEvidenceResponse, RunStepDto, RunSummaryDto,
@@ -12,79 +9,67 @@ const PLACEHOLDER_DIAGNOSTIC: &str = "PACK_RUNTIME_NOT_IMPLEMENTED";
 
 #[derive(Debug)]
 pub struct RunRecord {
-    pub id: String,
+    pub run_id: String,
+    pub status: String,
     pub pack_ref: String,
     pub dataset: DatasetDto,
-    pub inputs: BTreeMap<String, Value>,
-    pub status: String,
-    pub diagnostic: String,
-    pub created_at: OffsetDateTime,
-    pub completed_at: Option<OffsetDateTime>,
+    pub snapshot_digest: String,
     pub steps: Vec<RunStepRecord>,
+    pub diagnostics: Vec<Value>,
     pub evidence: Vec<Value>,
-    pub brief: String,
+    pub brief_sections: Vec<Value>,
 }
 
 impl RunRecord {
-    pub fn failed_placeholder(
-        id: String,
-        pack_ref: String,
-        dataset: DatasetDto,
-        inputs: BTreeMap<String, Value>,
-    ) -> Self {
-        let now = OffsetDateTime::now_utc();
-        let diagnostic = PLACEHOLDER_DIAGNOSTIC.to_owned();
-
+    pub fn failed_placeholder(run_id: String, pack_ref: String, dataset: DatasetDto) -> Self {
         Self {
-            id,
+            run_id,
+            status: FAILED_STATUS.to_owned(),
             pack_ref,
             dataset,
-            inputs,
-            status: FAILED_STATUS.to_owned(),
-            diagnostic: diagnostic.clone(),
-            created_at: now,
-            completed_at: Some(now),
-            steps: vec![RunStepRecord::failed(
-                "pack-runtime",
-                "Pack runtime",
-                diagnostic.clone(),
-            )],
+            snapshot_digest: PLACEHOLDER_DIAGNOSTIC.to_owned(),
+            steps: vec![RunStepRecord::failed("runtime")],
+            diagnostics: vec![json!({
+                "code": PLACEHOLDER_DIAGNOSTIC,
+                "message": "pack runtime is not implemented yet"
+            })],
             evidence: Vec::new(),
-            brief: format!("{diagnostic}: pack runtime is not implemented yet."),
+            brief_sections: Vec::new(),
         }
     }
 
     pub fn to_summary_dto(&self) -> RunSummaryDto {
         RunSummaryDto {
-            id: self.id.clone(),
+            run_id: self.run_id.clone(),
+            status: self.status.clone(),
             pack_ref: self.pack_ref.clone(),
             dataset: self.dataset.clone(),
-            status: self.status.clone(),
-            diagnostic: self.diagnostic.clone(),
-            created_at: format_timestamp(self.created_at),
-            completed_at: self.completed_at.map(format_timestamp),
+            step_count: self.steps.len(),
+            evidence_count: self.evidence.len(),
+            brief_section_count: self.brief_sections.len(),
         }
     }
 
     pub fn to_detail_dto(&self) -> RunDetailDto {
         RunDetailDto {
             summary: self.to_summary_dto(),
-            inputs: self.inputs.clone(),
             steps: self.steps.iter().map(RunStepRecord::to_step_dto).collect(),
+            diagnostics: self.diagnostics.clone(),
+            snapshot_digest: self.snapshot_digest.clone(),
         }
     }
 
     pub fn to_evidence_response(&self) -> RunEvidenceResponse {
         RunEvidenceResponse {
-            summary: self.to_summary_dto(),
+            run_id: self.run_id.clone(),
             evidence: self.evidence.clone(),
         }
     }
 
     pub fn to_brief_response(&self) -> RunBriefResponse {
         RunBriefResponse {
-            summary: self.to_summary_dto(),
-            brief: self.brief.clone(),
+            run_id: self.run_id.clone(),
+            sections: self.brief_sections.clone(),
         }
     }
 }
@@ -92,37 +77,32 @@ impl RunRecord {
 #[derive(Debug)]
 pub struct RunStepRecord {
     pub id: String,
-    pub name: String,
+    pub uses: String,
     pub status: String,
-    pub diagnostic: String,
+    pub output: Option<String>,
+    pub row_count: Option<usize>,
 }
 
 impl RunStepRecord {
-    fn failed(
-        id: impl Into<String>,
-        name: impl Into<String>,
-        diagnostic: impl Into<String>,
-    ) -> Self {
+    fn failed(uses: impl Into<String>) -> Self {
+        let uses = uses.into();
+
         Self {
-            id: id.into(),
-            name: name.into(),
+            id: uses.clone(),
+            uses,
             status: FAILED_STATUS.to_owned(),
-            diagnostic: diagnostic.into(),
+            output: None,
+            row_count: None,
         }
     }
 
     fn to_step_dto(&self) -> RunStepDto {
         RunStepDto {
             id: self.id.clone(),
-            name: self.name.clone(),
+            uses: self.uses.clone(),
             status: self.status.clone(),
-            diagnostic: self.diagnostic.clone(),
+            output: self.output.clone(),
+            row_count: self.row_count,
         }
     }
-}
-
-fn format_timestamp(timestamp: OffsetDateTime) -> String {
-    timestamp
-        .format(&Rfc3339)
-        .expect("UTC timestamp must format as RFC3339")
 }

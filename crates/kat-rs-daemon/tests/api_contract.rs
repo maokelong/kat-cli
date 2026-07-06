@@ -184,7 +184,7 @@ async fn openapi_endpoint_returns_current_api_paths() {
         "#/components/schemas/CreateRunRequest"
     );
     assert_eq!(
-        value["paths"]["/v1/runs"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+        value["paths"]["/v1/runs"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
             ["$ref"],
         "#/components/schemas/DataEnvelope_RunSummaryDto"
     );

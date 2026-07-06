@@ -15,7 +15,7 @@ impl RunStore {
         self.runs
             .write()
             .await
-            .insert(run.id.clone(), Arc::clone(&run));
+            .insert(run.run_id.clone(), Arc::clone(&run));
         run
     }
 

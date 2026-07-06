@@ -24,8 +24,9 @@ impl RunService {
         request: CreateRunRequest,
         dataset: DatasetDto,
     ) -> Arc<RunRecord> {
+        let CreateRunRequest { pack_ref, .. } = request;
         let run_id = Uuid::now_v7().simple().to_string();
-        let run = RunRecord::failed_placeholder(run_id, request.pack_ref, dataset, request.inputs);
+        let run = RunRecord::failed_placeholder(run_id, pack_ref, dataset);
 
         self.store.insert(run).await
     }
