@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{fs, path::Path, sync::Arc};
 
 use kat_rs_datasource::TraceDatasource;
-use serde_json::Value;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -47,7 +48,7 @@ impl RunService {
         state.record_resource_digest(manifest.digest.clone());
         state.record_resource_digest(pack.digest.clone());
         state.record_resource_digest(entry_flow.digest.clone());
-        publish_inputs(&mut state, inputs)?;
+        publish_inputs(&mut state, inputs.clone())?;
         publish_constants(&mut state, &entry_flow.value.constants)?;
         execute_flow(
             &resource_root,
@@ -59,7 +60,8 @@ impl RunService {
         .await?;
         build_brief_sections(&resource_root, &pack, &mut state).await?;
 
-        let snapshot_digest = stable_resource_snapshot_digest(state.resource_digests.clone());
+        let snapshot_digest =
+            stable_run_snapshot_digest(&dataset, &inputs, &state.resource_digests)?;
         let run = RunRecord::completed(
             run_id,
             pack_ref,
@@ -78,14 +80,42 @@ impl RunService {
         self.store
             .get(run_id)
             .await
-            .ok_or_else(|| ApiError::validation(format!("run not found: {run_id}")))
+            .ok_or_else(|| ApiError::run_not_found(run_id))
     }
 }
 
-fn stable_resource_snapshot_digest(mut digests: Vec<String>) -> String {
-    digests.sort();
-    digests.dedup();
-    digests.join(",")
+fn stable_run_snapshot_digest(
+    dataset: &DatasetDto,
+    inputs: &std::collections::BTreeMap<String, Value>,
+    resource_digests: &[String],
+) -> Result<String, ApiError> {
+    let mut resource_digests = resource_digests.to_vec();
+    resource_digests.sort();
+    resource_digests.dedup();
+
+    let snapshot = json!({
+        "dataset": dataset,
+        "datasetCatalogDigest": file_digest(Path::new(&dataset.path).join("catalog.json"))?,
+        "inputs": inputs,
+        "resources": resource_digests,
+    });
+    let bytes = serde_json::to_vec(&snapshot).map_err(|error| {
+        ApiError::internal(format!("failed to serialize run snapshot: {error}"))
+    })?;
+
+    Ok(format!("sha256:{}", hex::encode(Sha256::digest(bytes))))
+}
+
+fn file_digest(path: impl AsRef<Path>) -> Result<String, ApiError> {
+    let path = path.as_ref();
+    let bytes = fs::read(path).map_err(|error| {
+        ApiError::validation(format!(
+            "failed to read dataset catalog for run snapshot {}: {error}",
+            path.display()
+        ))
+    })?;
+
+    Ok(format!("sha256:{}", hex::encode(Sha256::digest(bytes))))
 }
 
 fn publish_inputs(

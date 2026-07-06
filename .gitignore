@@ -1,2 +1,4 @@
 /target
 .worktrees/
+/test/test.db
+/test/datasets/

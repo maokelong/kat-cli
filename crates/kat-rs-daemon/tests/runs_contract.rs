@@ -9,18 +9,18 @@ use tower::ServiceExt;
 use kat_rs_daemon::error::ErrorCode;
 
 #[tokio::test]
-async fn run_endpoint_returns_validation_error_for_unknown_run() {
+async fn run_endpoint_returns_not_found_for_unknown_run() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
 
     let response = request_json(app, "GET", "/v1/runs/run_missing", None).await;
 
     assert_eq!(
         response.status,
-        StatusCode::UNPROCESSABLE_ENTITY,
+        StatusCode::NOT_FOUND,
         "{:?}",
         response.body
     );
-    assert_eq!(response.body["error"]["code"], "VALIDATION_FAILED");
+    assert_eq!(response.body["error"]["code"], "RUN_NOT_FOUND");
 }
 
 #[tokio::test]
@@ -139,17 +139,7 @@ async fn runs_openharmony_critical_task_pack_on_materialized_sqlite_dataset() {
     let snapshot_digest = detail.body["data"]["snapshotDigest"]
         .as_str()
         .expect("snapshot digest is returned");
-    let snapshot_digests = snapshot_digest.split(',').collect::<Vec<_>>();
-    assert!(
-        snapshot_digests.len() > 10,
-        "snapshot digest should include loaded imports and brief: {snapshot_digest}"
-    );
-    assert!(
-        snapshot_digests
-            .iter()
-            .all(|digest| digest.starts_with("sha256:")),
-        "{snapshot_digest}"
-    );
+    assert!(snapshot_digest.starts_with("sha256:"), "{snapshot_digest}");
 
     let evidence = request_json(
         app.clone(),

@@ -56,7 +56,7 @@ pub(crate) async fn create_run(
     ),
     responses(
         (status = 200, description = "Run detail", body = DataEnvelope<RunDetailDto>),
-        (status = 422, description = "Run lookup failed validation", body = ErrorEnvelope)
+        (status = 404, description = "Run not found", body = ErrorEnvelope)
     )
 )]
 pub(crate) async fn get_run(
@@ -78,7 +78,7 @@ pub(crate) async fn get_run(
     ),
     responses(
         (status = 200, description = "Run evidence", body = DataEnvelope<RunEvidenceResponse>),
-        (status = 422, description = "Run lookup failed validation", body = ErrorEnvelope)
+        (status = 404, description = "Run not found", body = ErrorEnvelope)
     )
 )]
 pub(crate) async fn get_run_evidence(
@@ -100,7 +100,7 @@ pub(crate) async fn get_run_evidence(
     ),
     responses(
         (status = 200, description = "Run brief", body = DataEnvelope<RunBriefResponse>),
-        (status = 422, description = "Run lookup failed validation", body = ErrorEnvelope)
+        (status = 404, description = "Run not found", body = ErrorEnvelope)
     )
 )]
 pub(crate) async fn get_run_brief(

@@ -16,6 +16,7 @@ pub enum ErrorCode {
     DatasourceNotFound,
     Internal,
     QueryFailed,
+    RunNotFound,
     ValidationFailed,
 }
 
@@ -56,6 +57,17 @@ impl ApiError {
             code: ErrorCode::DatasetNotFound,
             message: "dataset not found".to_owned(),
             details: Some(json!({ "path": path })),
+        }
+    }
+
+    pub fn run_not_found(run_id: impl Into<String>) -> Self {
+        let run_id = run_id.into();
+
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: ErrorCode::RunNotFound,
+            message: "run not found".to_owned(),
+            details: Some(json!({ "runId": run_id })),
         }
     }
 
