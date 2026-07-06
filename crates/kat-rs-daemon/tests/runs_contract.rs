@@ -6,6 +6,8 @@ use serde_json::json;
 use tempfile::tempdir;
 use tower::ServiceExt;
 
+use kat_rs_daemon::error::ErrorCode;
+
 #[tokio::test]
 async fn run_endpoint_returns_validation_error_for_unknown_run() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
@@ -139,28 +141,64 @@ fn context_renderer_rejects_unknown_and_malformed_slots() {
     ];
 
     for template in cases {
-        assert!(
-            kat_rs_daemon::runs::render::render_template(template, &context).is_err(),
-            "template should be rejected: {template}"
+        let error = kat_rs_daemon::runs::render::render_template(template, &context)
+            .expect_err("template should be rejected");
+        assert_eq!(
+            error.code,
+            ErrorCode::ValidationFailed,
+            "template should fail validation: {template}"
         );
     }
 }
 
 #[test]
-fn resource_root_loads_real_manifest_pack_and_entry_flow() {
-    let root = kat_rs_daemon::runs::resources::ResourceRoot::new("resources");
+fn resource_root_loads_manifest_pack_and_entry_flow_from_fixture() {
+    let temp = tempdir().expect("resource fixture tempdir is created");
+    let resources_dir = temp.path().join("resources");
+    let pack_dir = resources_dir.join("packs").join("example");
+    std::fs::create_dir_all(&pack_dir).expect("fixture pack dir is created");
+    std::fs::write(
+        resources_dir.join("manifest.yaml"),
+        r#"schema_version: 1
+kind: kat.resources
+packs:
+  example:
+    summary: Example test pack
+    path: packs/example/pack.yaml
+"#,
+    )
+    .expect("fixture manifest is written");
+    std::fs::write(
+        pack_dir.join("pack.yaml"),
+        r#"pack:
+  id: example
+  title: Example
+  domain: test
+entry_flow: example_flow
+"#,
+    )
+    .expect("fixture pack is written");
+    std::fs::write(
+        pack_dir.join("flow.yaml"),
+        r#"id: example_flow
+steps: []
+"#,
+    )
+    .expect("fixture flow is written");
+
+    let root = kat_rs_daemon::runs::resources::ResourceRoot::new(&resources_dir);
 
     let manifest = root.load_manifest().expect("manifest loads");
     let pack = root
-        .load_pack(&manifest.value, "openharmony.critical_task_extraction")
+        .load_pack(&manifest.value, "example")
         .expect("pack loads");
     let flow = root.load_entry_flow(&pack).expect("entry flow loads");
 
     assert!(manifest.digest.starts_with("sha256:"));
     assert!(pack.digest.starts_with("sha256:"));
     assert!(flow.digest.starts_with("sha256:"));
-    assert_eq!(pack.value.pack.id, "openharmony.critical_task_extraction");
-    assert_eq!(flow.value.id, "critical_task_extraction");
+    assert_eq!(pack.value.pack.id, "example");
+    assert_eq!(flow.value.id, "example_flow");
     assert_eq!(
         pack.path.file_name().and_then(|name| name.to_str()),
         Some("pack.yaml")
