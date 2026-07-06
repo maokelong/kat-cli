@@ -12,7 +12,7 @@ use futures::StreamExt;
 use crate::{
     arrow_table::ArrowTable,
     dataset::{DatasetTableWriter, DatasetWriter},
-    formats::{hitrace, langfuse},
+    formats::{hitrace, langfuse, sqlite},
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
@@ -52,6 +52,32 @@ pub async fn materialize_langfuse_legacy_dataset(
                 dataset_path.display()
             )
         })?;
+    writer.finish().await
+}
+
+pub async fn materialize_sqlite_dataset(
+    path: impl AsRef<Path>,
+    dataset_path: impl AsRef<Path>,
+) -> Result<()> {
+    let path = path.as_ref();
+    let dataset_path = dataset_path.as_ref();
+
+    let mut writer = DatasetWriter::create(dataset_path)?;
+    for table in sqlite::openharmony_tables(path).with_context(|| {
+        format!(
+            "failed to read OpenHarmony SQLite dataset source: {}",
+            path.display()
+        )
+    })? {
+        let mut table_writer = writer.start_table(
+            table.logical_name,
+            &table.parquet_file_name,
+            table.batch.schema(),
+        )?;
+        table_writer.write(&table.batch)?;
+        writer.add_table(table_writer.finish()?);
+    }
+
     writer.finish().await
 }
 
