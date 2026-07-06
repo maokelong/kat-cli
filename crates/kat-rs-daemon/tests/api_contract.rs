@@ -103,12 +103,17 @@ async fn openapi_endpoint_returns_current_api_paths() {
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["get"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["delete"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"].is_object());
+    assert!(value["paths"]["/v1/runs"]["post"].is_object());
+    assert!(value["paths"]["/v1/runs/{runId}"]["get"].is_object());
+    assert!(value["paths"]["/v1/runs/{runId}/evidence"]["get"].is_object());
+    assert!(value["paths"]["/v1/runs/{runId}/brief"]["get"].is_object());
     assert!(value["paths"]["/v1/server"]["delete"].is_object());
 
     let schemas = &value["components"]["schemas"];
     for schema in [
         "CreateDatasetRequest",
         "CreateDatasourceRequest",
+        "CreateRunRequest",
         "DatasetQueryMeta",
         "DatasetQueryRequest",
         "DatasetDto",
@@ -124,6 +129,11 @@ async fn openapi_endpoint_returns_current_api_paths() {
         "QueryRequest",
         "QueryResponse_DatasetQueryMeta",
         "QueryResponse_DatasourceQueryMeta",
+        "RunBriefResponse",
+        "RunDetailDto",
+        "RunEvidenceResponse",
+        "RunStepDto",
+        "RunSummaryDto",
     ] {
         assert!(schemas[schema].is_object(), "missing schema {schema}");
     }
@@ -167,6 +177,36 @@ async fn openapi_endpoint_returns_current_api_paths() {
         value["paths"]["/v1/datasources/{datasourceId}"]["get"]["responses"]["404"]["content"]["application/json"]
             ["schema"]["$ref"],
         "#/components/schemas/ErrorEnvelope"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/CreateRunRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/DataEnvelope_RunSummaryDto"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_RunDetailDto"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}"]["get"]["responses"]["422"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/ErrorEnvelope"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}/evidence"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_RunEvidenceResponse"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}/brief"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_RunBriefResponse"
     );
 }
 

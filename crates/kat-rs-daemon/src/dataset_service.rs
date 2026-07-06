@@ -93,6 +93,13 @@ impl DatasetService {
         })
     }
 
+    pub fn resolve_existing(&self, dataset: DatasetLocation) -> Result<DatasetDto, ApiError> {
+        let resolved = resolve_dataset(&dataset)?;
+        ensure_dataset_exists(&resolved.path)?;
+
+        Ok(resolved.dataset)
+    }
+
     pub fn delete(&self, dataset: DatasetLocation) -> Result<(), ApiError> {
         let resolved = resolve_dataset(&dataset)?;
         ensure_dataset_exists(&resolved.path)?;

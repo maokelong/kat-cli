@@ -8,6 +8,7 @@ pub(crate) mod datasets;
 pub(crate) mod datasources;
 pub(crate) mod health;
 pub(crate) mod queries;
+pub(crate) mod runs;
 pub(crate) mod server;
 
 pub fn router(state: AppState) -> Router {
@@ -17,6 +18,7 @@ pub fn router(state: AppState) -> Router {
         .merge(datasets::routes())
         .merge(datasources::routes())
         .merge(queries::routes())
+        .merge(runs::routes())
         .merge(server::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

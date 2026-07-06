@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -123,7 +125,7 @@ pub struct DatasetResponse {
     pub dataset: DatasetDto,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetDto {
     pub name: String,
@@ -152,6 +154,57 @@ pub struct DatasetTableDto {
 pub struct DatasetQueryRequest {
     pub dataset: DatasetLocation,
     pub sql: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateRunRequest {
+    pub pack_ref: String,
+    pub dataset: DatasetLocation,
+    pub inputs: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunSummaryDto {
+    pub id: String,
+    pub pack_ref: String,
+    pub dataset: DatasetDto,
+    pub status: String,
+    pub diagnostic: String,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDetailDto {
+    pub summary: RunSummaryDto,
+    pub inputs: BTreeMap<String, Value>,
+    pub steps: Vec<RunStepDto>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunStepDto {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub diagnostic: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEvidenceResponse {
+    pub summary: RunSummaryDto,
+    pub evidence: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunBriefResponse {
+    pub summary: RunSummaryDto,
+    pub brief: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
