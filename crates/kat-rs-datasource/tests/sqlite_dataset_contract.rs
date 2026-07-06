@@ -46,6 +46,35 @@ async fn sqlite_dataset_materializes_openharmony_tables_with_instant_rowid() {
     );
 }
 
+#[tokio::test]
+async fn trace_datasource_registers_run_local_record_batches() {
+    let dir = tempdir().expect("tempdir is created");
+    let sqlite_path = dir.path().join("input.db");
+    create_sqlite_fixture(&sqlite_path);
+    let dataset_path = dir.path().join("dataset");
+    kat_rs_datasource::materialize_sqlite_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let batches = datasource
+        .query_batches("select id, name from process")
+        .await
+        .expect("source query returns batches");
+    datasource
+        .register_record_batches("process_copy", batches)
+        .expect("run-local table registers");
+
+    let rows = datasource
+        .query_json("select name from process_copy")
+        .await
+        .expect("registered table is queryable");
+
+    assert_eq!(rows, json!([{ "name": ".tencent.wechat" }]));
+}
+
 fn create_sqlite_fixture(path: &Path) {
     let connection = Connection::open(path).expect("sqlite fixture opens");
     connection

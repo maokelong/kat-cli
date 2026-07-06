@@ -3,6 +3,7 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
+use arrow_array::RecordBatch;
 use datafusion::{
     datasource::{MemTable, file_format::file_compression_type::FileCompressionType},
     prelude::{JsonReadOptions, SessionContext},
@@ -54,12 +55,30 @@ impl TraceDatasource {
     }
 
     pub async fn query_json(&self, sql: &str) -> Result<Value> {
+        let batches = self.query_batches(sql).await?;
+
+        batches_to_json(&batches)
+    }
+
+    pub async fn query_batches(&self, sql: &str) -> Result<Vec<RecordBatch>> {
         debug!("running datasource sql: {sql}");
 
         let dataframe = self.ctx.sql(sql).await?;
-        let batches = dataframe.collect().await?;
+        dataframe.collect().await.map_err(Into::into)
+    }
 
-        batches_to_json(&batches)
+    pub fn register_record_batches(
+        &self,
+        table_name: &str,
+        batches: Vec<RecordBatch>,
+    ) -> Result<()> {
+        let schema = batches
+            .first()
+            .with_context(|| format!("run-local table {table_name} produced no record batches"))?
+            .schema();
+        let mem_table = MemTable::try_new(schema, vec![batches])?;
+        self.ctx.register_table(table_name, Arc::new(mem_table))?;
+        Ok(())
     }
 }
 
