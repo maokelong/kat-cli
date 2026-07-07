@@ -40,14 +40,15 @@ fn collect_transitive(
     visiting: &mut BTreeSet<String>,
     resources: &mut BTreeMap<String, LoadedResource>,
 ) -> Result<(), ApiError> {
-    if resources.contains_key(&resource.coord) {
-        return Ok(());
-    }
     if !visiting.insert(resource.coord.clone()) {
         return Err(ApiError::validation(format!(
             "recursive pack resource reference: {}",
             resource.coord
         )));
+    }
+    if resources.contains_key(&resource.coord) {
+        visiting.remove(&resource.coord);
+        return Ok(());
     }
 
     let dependencies = match &resource.resource {
@@ -58,14 +59,13 @@ fn collect_transitive(
             .collect::<Vec<_>>(),
         Resource::Query(_) | Resource::Summaries(_) => Vec::new(),
     };
-    resources.insert(resource.coord.clone(), resource.clone());
-
     for coord in dependencies {
         let path = coord_to_path(pack_root, pack_ref, &coord)?;
         let child = load_resource(pack_root, &coord, &path)?;
         collect_transitive(pack_root, pack_ref, &child, visiting, resources)?;
     }
 
+    resources.insert(resource.coord.clone(), resource.clone());
     visiting.remove(&resource.coord);
     Ok(())
 }

@@ -1021,6 +1021,56 @@ fn pack_loader_expands_current_critical_path_pack() {
     }
 }
 
+#[test]
+fn pack_loader_rejects_recursive_pack_resource_reference() {
+    let fixture = tempdir().expect("pack tempdir is created");
+    let pack_root = fixture.path();
+    let pack_ref = "cycle/demo";
+    let pack_dir = pack_root.join("cycle");
+    let local_flows_dir = pack_dir.join("local").join("flows");
+
+    fs::create_dir_all(&local_flows_dir).expect("local flows dir is created");
+    fs::write(
+        pack_dir.join("demo.yaml"),
+        r#"kind: flow
+description: demo
+inputs: {}
+steps:
+  - run: local.flows.a
+"#,
+    )
+    .expect("entry flow is written");
+    fs::write(
+        local_flows_dir.join("a.yaml"),
+        r#"kind: flow
+description: a
+inputs: {}
+steps:
+  - run: local.flows.b
+"#,
+    )
+    .expect("flow a is written");
+    fs::write(
+        local_flows_dir.join("b.yaml"),
+        r#"kind: flow
+description: b
+inputs: {}
+steps:
+  - run: local.flows.a
+"#,
+    )
+    .expect("flow b is written");
+
+    let error = kat_rs_daemon::pack_runtime::load_snapshot(pack_root, pack_ref)
+        .expect_err("cycle should be rejected");
+
+    assert!(
+        error.message.contains("recursive pack resource reference"),
+        "unexpected error: {:?}",
+        error
+    );
+}
+
 #[tokio::test]
 async fn datasource_create_rejects_malformed_json_with_bad_request_envelope() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
