@@ -552,6 +552,26 @@ async fn sqlite_pack_demo_materializer_rejects_fractional_real_integer_values_wi
 }
 
 #[tokio::test]
+async fn sqlite_pack_demo_materializer_rejects_out_of_range_real_integer_values_with_column_name() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("real-out-of-range.db");
+    write_pack_demo_sqlite_real_integer_fixture(&sqlite_path, "9223372036854775808.0");
+
+    let error = kat_rs_datasource::materialize_sqlite_pack_demo_dataset(
+        &sqlite_path,
+        dir.path().join("dataset"),
+    )
+    .await
+    .expect_err("out-of-range real integer is rejected");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("process.id"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
 async fn dataset_reader_rejects_source_table_with_producer() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");

@@ -9,6 +9,8 @@ use rusqlite::{Connection, types::ValueRef};
 
 const PACK_DEMO_TABLES: [&str; 5] = ["process", "thread", "callstack", "thread_state", "instant"];
 const SQLITE_BATCH_ROWS: usize = 16 * 1024;
+const SQLITE_I64_REAL_MIN: f64 = -9_223_372_036_854_775_808.0;
+const SQLITE_I64_REAL_UPPER_BOUND_EXCLUSIVE: f64 = 9_223_372_036_854_775_808.0;
 
 pub(crate) struct SqliteTable {
     pub(crate) name: &'static str,
@@ -240,7 +242,7 @@ fn parse_sqlite_real_integer(table: &str, column: &SqliteColumn, value: f64) -> 
         );
     }
 
-    if value < i64::MIN as f64 || value > i64::MAX as f64 {
+    if value < SQLITE_I64_REAL_MIN || value >= SQLITE_I64_REAL_UPPER_BOUND_EXCLUSIVE {
         bail!(
             "cannot convert SQLite real value {value:?} for {table}.{}",
             column.name
