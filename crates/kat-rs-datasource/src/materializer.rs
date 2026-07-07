@@ -64,8 +64,11 @@ pub async fn materialize_sqlite_pack_demo_dataset(
 
     let mut writer = DatasetWriter::create(dataset_path)?;
     for table in crate::formats::sqlite::read_pack_demo_tables(path)? {
-        let mut table_writer =
-            writer.start_table(table.name, &table.parquet_file_name, Arc::clone(&table.schema))?;
+        let mut table_writer = writer.start_table(
+            table.name,
+            &table.parquet_file_name,
+            Arc::clone(&table.schema),
+        )?;
         for batch in &table.batches {
             table_writer.write(batch)?;
         }

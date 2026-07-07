@@ -212,7 +212,9 @@ fn push_value(
             values.push(Some(parse_sqlite_text::<i64>(table, column, value)?))
         }
         (ColumnValues::Float64(values), ValueRef::Null) => values.push(None),
-        (ColumnValues::Float64(values), ValueRef::Integer(value)) => values.push(Some(value as f64)),
+        (ColumnValues::Float64(values), ValueRef::Integer(value)) => {
+            values.push(Some(value as f64))
+        }
         (ColumnValues::Float64(values), ValueRef::Real(value)) => values.push(Some(value)),
         (ColumnValues::Float64(values), ValueRef::Text(value)) => {
             values.push(Some(parse_sqlite_text::<f64>(table, column, value)?))
@@ -221,7 +223,9 @@ fn push_value(
         (ColumnValues::Utf8(values), ValueRef::Text(value)) => {
             values.push(Some(String::from_utf8_lossy(value).into_owned()))
         }
-        (ColumnValues::Utf8(values), ValueRef::Integer(value)) => values.push(Some(value.to_string())),
+        (ColumnValues::Utf8(values), ValueRef::Integer(value)) => {
+            values.push(Some(value.to_string()))
+        }
         (ColumnValues::Utf8(values), ValueRef::Real(value)) => values.push(Some(value.to_string())),
         (ColumnValues::Binary(values), ValueRef::Null) => values.push(None),
         (ColumnValues::Binary(values), ValueRef::Blob(value)) => values.push(Some(value.to_vec())),
@@ -273,7 +277,9 @@ fn values_to_batch(schema: SchemaRef, values: &mut [ColumnValues]) -> Result<Rec
         .iter_mut()
         .map(|values| {
             let taken = match values {
-                ColumnValues::Int64(_) => std::mem::replace(values, ColumnValues::Int64(Vec::new())),
+                ColumnValues::Int64(_) => {
+                    std::mem::replace(values, ColumnValues::Int64(Vec::new()))
+                }
                 ColumnValues::Float64(_) => {
                     std::mem::replace(values, ColumnValues::Float64(Vec::new()))
                 }

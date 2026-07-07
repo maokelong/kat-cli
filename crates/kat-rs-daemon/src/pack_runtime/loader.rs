@@ -145,7 +145,9 @@ fn validate_pack_ref(pack_ref: &str) -> Result<(), ApiError> {
     if pack_ref.is_empty()
         || pack_ref.starts_with('/')
         || pack_ref.starts_with('\\')
-        || pack_ref.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || pack_ref
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
         || pack_ref.contains('\\')
     {
         return Err(ApiError::validation(format!("invalid packRef: {pack_ref}")));
@@ -179,7 +181,10 @@ fn coord_to_path(pack_root: &Path, pack_ref: &str, coord: &str) -> Result<PathBu
     }
 
     let path = match scope {
-        "common" => pack_root.join("common").join(kind).join(format!("{name}.yaml")),
+        "common" => pack_root
+            .join("common")
+            .join(kind)
+            .join(format!("{name}.yaml")),
         "local" => {
             let pack_dir = pack_ref
                 .rsplit_once('/')

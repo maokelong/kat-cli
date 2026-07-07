@@ -359,7 +359,12 @@ async fn sqlite_pack_demo_materializer_writes_only_five_source_tables() {
     );
     for table in tables {
         assert_eq!(table["kind"], "source");
-        assert!(table["path"].as_str().expect("path").starts_with("tables/sqlite."));
+        assert!(
+            table["path"]
+                .as_str()
+                .expect("path")
+                .starts_with("tables/sqlite.")
+        );
     }
 
     let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
