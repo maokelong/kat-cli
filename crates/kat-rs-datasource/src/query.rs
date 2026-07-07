@@ -3,6 +3,7 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
+use arrow_array::RecordBatch;
 use datafusion::{
     datasource::{MemTable, file_format::file_compression_type::FileCompressionType},
     prelude::{JsonReadOptions, SessionContext},
@@ -60,6 +61,37 @@ impl TraceDatasource {
         let batches = dataframe.collect().await?;
 
         batches_to_json(&batches)
+    }
+
+    pub async fn query_batches(&self, sql: &str) -> Result<Vec<RecordBatch>> {
+        debug!("running datasource sql batches: {sql}");
+        let dataframe = self.ctx.sql(sql).await?;
+        let schema = dataframe.schema().inner().clone();
+        let batches = dataframe.collect().await?;
+
+        if batches.is_empty() {
+            Ok(vec![RecordBatch::new_empty(schema)])
+        } else {
+            Ok(batches)
+        }
+    }
+
+    pub fn register_record_batches(&self, name: &str, batches: Vec<RecordBatch>) -> Result<()> {
+        let schema = batches
+            .first()
+            .with_context(|| format!("record batch table {name} is missing batches"))?
+            .schema();
+        let _ = self.ctx.deregister_table(name);
+        let mem_table = MemTable::try_new(schema, vec![batches])?;
+        self.ctx.register_table(name, Arc::new(mem_table))?;
+        Ok(())
+    }
+
+    pub async fn query_json_rows(&self, sql: &str) -> Result<Vec<Value>> {
+        match self.query_json(sql).await? {
+            Value::Array(rows) => Ok(rows),
+            value => anyhow::bail!("query returned non-array JSON value: {value}"),
+        }
     }
 }
 

@@ -990,6 +990,71 @@ async fn run_create_returns_not_found_for_missing_dataset() {
     assert_eq!(response.body["error"]["code"], "DATASET_NOT_FOUND");
 }
 
+#[tokio::test]
+async fn run_endpoint_executes_pack_until_query_outputs_exist() {
+    let pack_root = workspace_root().join("packs");
+    if !pack_root.exists() {
+        eprintln!("skipping run smoke test because packs directory is not present");
+        return;
+    }
+
+    let sqlite = SqliteFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "sqlite-run-smoke";
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite.path(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    let run = request_json(
+        app.clone(),
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "packRef": "scheduling/app-launch-critical-path/critical-task-extraction",
+            "inputs": {
+                "process_name_pattern": "(^|\\.)tencent\\.wechat$|^com\\.tencent\\.wechat$",
+                "start_marker_pattern": "HandleLaunchAbility.*com\\.tencent\\.wechat",
+                "end_marker_pattern": "UIVsyncTask.*firstDrawFrame:1"
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
+    assert_eq!(run.body["data"]["status"], "SUCCEEDED");
+    assert!(
+        run.body["data"]["outputs"]["target_window"]["rowCount"]
+            .as_u64()
+            .unwrap()
+            >= 1
+    );
+    let critical_tasks_row_count = run.body["data"]["outputs"]["critical_tasks"]["rowCount"]
+        .as_i64()
+        .unwrap();
+    assert!(critical_tasks_row_count >= 0);
+}
+
 #[test]
 fn pack_loader_expands_current_critical_path_pack() {
     let pack_root = workspace_root().join("packs");

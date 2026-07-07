@@ -1,18 +1,21 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
-use serde_json::json;
+use kat_rs_datasource::TraceDatasource;
 use uuid::Uuid;
 
 use crate::{
-    api::{
-        CreateRunRequest, EvidenceRecordDto, RunDto, RunEvidenceResponse, RunOutputDto, RunStatus,
-    },
+    api::{CreateRunRequest, EvidenceRecordDto, RunDto, RunEvidenceResponse, RunStatus},
     dataset_service::DatasetService,
     error::ApiError,
 };
 
 #[derive(Default)]
 pub struct RunService {
+    pack_root: PathBuf,
     store: Mutex<HashMap<String, StoredRun>>,
 }
 
@@ -24,7 +27,10 @@ struct StoredRun {
 
 impl RunService {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            pack_root: workspace_pack_root(),
+            store: Mutex::default(),
+        }
     }
 
     pub async fn create(
@@ -33,23 +39,21 @@ impl RunService {
         request: CreateRunRequest,
     ) -> Result<RunDto, ApiError> {
         let resolved = dataset_service.resolve_existing(&request.dataset)?;
+        let datasource = TraceDatasource::from_dataset(&resolved.path)
+            .await
+            .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+        let snapshot = crate::pack_runtime::load_snapshot(&self.pack_root, &request.pack_ref)?;
+        let execution =
+            crate::pack_runtime::execute_snapshot(&datasource, &snapshot, request.inputs).await?;
         let run_id = format!("run_{}", Uuid::now_v7().simple());
         let run = RunDto {
             run_id: run_id.clone(),
-            status: RunStatus::Failed,
+            status: RunStatus::Succeeded,
             dataset: resolved.dataset,
             pack_ref: request.pack_ref,
-            outputs: [(
-                "mvp".to_string(),
-                RunOutputDto {
-                    kind: "diagnostic".to_string(),
-                    name: "pack runtime not wired".to_string(),
-                    row_count: None,
-                },
-            )]
-            .into(),
+            outputs: execution.outputs,
             evidence_count: 0,
-            diagnostics: vec![json!({ "reason": "pack runtime not wired" }).to_string()],
+            diagnostics: Vec::new(),
         };
         self.store.lock().expect("run store lock").insert(
             run_id,
@@ -82,4 +86,11 @@ impl RunService {
             evidence: stored.evidence.clone(),
         })
     }
+}
+
+fn workspace_pack_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("packs")
 }
