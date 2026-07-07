@@ -962,6 +962,35 @@ async fn run_endpoint_returns_not_found_for_missing_run() {
 }
 
 #[tokio::test]
+async fn run_create_returns_not_found_for_missing_dataset() {
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_json(
+        app,
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "dataset": {
+                "name": "missing-dataset",
+                "directory": datasets_dir.path().to_string_lossy(),
+            },
+            "packRef": "pack:test",
+            "inputs": {}
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "DATASET_NOT_FOUND");
+}
+
+#[tokio::test]
 async fn datasource_create_rejects_malformed_json_with_bad_request_envelope() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
 

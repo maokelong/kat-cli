@@ -129,6 +129,15 @@ impl DatasetService {
     pub fn resolve_location(&self, dataset: &DatasetLocation) -> Result<ResolvedDataset, ApiError> {
         resolve_dataset(dataset)
     }
+
+    pub fn resolve_existing(
+        &self,
+        dataset: &DatasetLocation,
+    ) -> Result<ResolvedDataset, ApiError> {
+        let resolved = self.resolve_location(dataset)?;
+        ensure_dataset_exists(&resolved.path)?;
+        Ok(resolved)
+    }
 }
 
 impl Default for DatasetService {

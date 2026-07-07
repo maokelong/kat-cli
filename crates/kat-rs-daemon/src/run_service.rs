@@ -32,7 +32,7 @@ impl RunService {
         dataset_service: &DatasetService,
         request: CreateRunRequest,
     ) -> Result<RunDto, ApiError> {
-        let resolved = dataset_service.resolve_location(&request.dataset)?;
+        let resolved = dataset_service.resolve_existing(&request.dataset)?;
         let run_id = format!("run_{}", Uuid::now_v7().simple());
         let run = RunDto {
             run_id: run_id.clone(),
