@@ -246,7 +246,7 @@ fn parse_sqlite_real_integer(table: &str, column: &SqliteColumn, value: f64) -> 
         );
     }
 
-    if value < SQLITE_I64_REAL_MIN || value >= SQLITE_I64_REAL_UPPER_BOUND_EXCLUSIVE {
+    if !(SQLITE_I64_REAL_MIN..SQLITE_I64_REAL_UPPER_BOUND_EXCLUSIVE).contains(&value) {
         bail!(
             "cannot convert SQLite real value {value:?} for {table}.{}",
             column.name

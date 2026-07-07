@@ -487,7 +487,7 @@ async fn sqlite_pack_demo_materializer_parses_numeric_text_values() {
     );
     assert_eq!(
         instant_rows,
-        json!([{ "ts": 1150, "ref": 405, "value": 3.14 }])
+        json!([{ "ts": 1150, "ref": 405, "value": 2.5 }])
     );
 }
 
@@ -1141,7 +1141,7 @@ fn write_pack_demo_sqlite_numeric_text_fixture(path: &Path) {
              insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
              insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
              insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, '1100', '250', '0', 405, 15040, 15040, 'Sleeping');
-             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values ('1150', 'sched_wakeup', '405', 440, 'itid', '3.14');",
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values ('1150', 'sched_wakeup', '405', 440, 'itid', '2.5');",
         )
         .expect("sqlite numeric text fixture is written");
     rewrite_pack_demo_sqlite_declared_types(

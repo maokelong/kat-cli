@@ -5,7 +5,7 @@ use std::{
     io::Write,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -16,6 +16,7 @@ use axum::{
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
 use tempfile::{TempDir, tempdir};
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -995,7 +996,7 @@ async fn run_create_returns_not_found_for_missing_dataset() {
 
 #[tokio::test]
 async fn run_endpoint_executes_pack_until_query_outputs_exist() {
-    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let _guard = current_dir_lock().lock().await;
     let _cwd = CurrentDirGuard::set(workspace_root());
 
     let pack_root = workspace_root().join("packs");
@@ -1063,7 +1064,7 @@ async fn run_endpoint_executes_pack_until_query_outputs_exist() {
 
 #[tokio::test]
 async fn run_evidence_endpoint_returns_summary_records() {
-    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let _guard = current_dir_lock().lock().await;
     let _cwd = CurrentDirGuard::set(workspace_root());
 
     let pack_root = workspace_root().join("packs");
@@ -1118,7 +1119,10 @@ async fn run_evidence_endpoint_returns_summary_records() {
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     let run_id = run.body["data"]["runId"].as_str().expect("run id");
     assert_eq!(run.body["data"]["evidenceCount"], 2);
-    assert_eq!(run.body["data"]["outputs"]["critical_task_evidence"]["kind"], "evidence");
+    assert_eq!(
+        run.body["data"]["outputs"]["critical_task_evidence"]["kind"],
+        "evidence"
+    );
     assert!(run.body["data"]["outputs"]["critical_task_evidence"]["rowCount"].is_null());
 
     let evidence = request_json(app, "GET", &format!("/v1/runs/{run_id}/evidence"), None).await;
@@ -1140,7 +1144,9 @@ async fn run_evidence_endpoint_returns_summary_records() {
     let target_refs = target_window["refs"].as_array().expect("target refs");
     assert_eq!(target_refs.len(), 2);
     assert_eq!(target_refs[0]["table"], "target_thread");
-    let target_thread_rows = target_refs[0]["rows"].as_array().expect("target thread rows");
+    let target_thread_rows = target_refs[0]["rows"]
+        .as_array()
+        .expect("target thread rows");
     assert_eq!(target_thread_rows.len(), 1);
     assert_eq!(target_thread_rows[0]["process_row_id"], 1);
     assert_eq!(target_thread_rows[0]["ipid"], 89);
@@ -1152,7 +1158,9 @@ async fn run_evidence_endpoint_returns_summary_records() {
     assert_eq!(target_thread_rows[0]["thread_name"], ".tencent.wechat");
     assert_eq!(target_thread_rows[0]["is_main_thread"], 1);
     assert_eq!(target_refs[1]["table"], "target_window");
-    let target_window_rows = target_refs[1]["rows"].as_array().expect("target window rows");
+    let target_window_rows = target_refs[1]["rows"]
+        .as_array()
+        .expect("target window rows");
     assert_eq!(target_window_rows.len(), 1);
     assert_eq!(target_window_rows[0]["itid"], 405);
     assert_eq!(target_window_rows[0]["tid"], 15040);
@@ -1189,13 +1197,15 @@ async fn run_evidence_endpoint_returns_summary_records() {
     assert_eq!(critical_refs.len(), 2);
     assert_eq!(critical_refs[0]["table"], "path_steps");
     assert_eq!(
-        critical_refs[0]["rows"].as_array().expect("path step rows").len(),
+        critical_refs[0]["rows"]
+            .as_array()
+            .expect("path step rows")
+            .len(),
         0
     );
     assert_eq!(critical_refs[1]["table"], "critical_tasks");
     assert_eq!(
-        critical_refs[1]
-            ["rows"]
+        critical_refs[1]["rows"]
             .as_array()
             .expect("critical task rows")
             .len(),
@@ -1206,7 +1216,7 @@ async fn run_evidence_endpoint_returns_summary_records() {
 #[tokio::test]
 #[ignore = "requires local 60 MiB test/test.db fixture"]
 async fn run_endpoint_succeeds_on_local_test_db_fixture() {
-    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let _guard = current_dir_lock().lock().await;
     let _cwd = CurrentDirGuard::set(workspace_root());
 
     let workspace = workspace_root();
@@ -1262,7 +1272,10 @@ async fn run_endpoint_succeeds_on_local_test_db_fixture() {
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     assert_eq!(run.body["data"]["status"], "SUCCEEDED");
     assert_eq!(run.body["data"]["evidenceCount"], 2);
-    assert_eq!(run.body["data"]["outputs"]["critical_task_evidence"]["kind"], "evidence");
+    assert_eq!(
+        run.body["data"]["outputs"]["critical_task_evidence"]["kind"],
+        "evidence"
+    );
     assert!(run.body["data"]["outputs"]["critical_task_evidence"]["rowCount"].is_null());
 
     let run_id = run.body["data"]["runId"].as_str().expect("run id");
@@ -1286,11 +1299,18 @@ async fn run_endpoint_succeeds_on_local_test_db_fixture() {
             .unwrap()
             > 0
     );
-    assert!(critical["metrics"]["distinct_task_type_count"].as_u64().unwrap() > 0);
+    assert!(
+        critical["metrics"]["distinct_task_type_count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
 
     let critical_refs = critical["refs"].as_array().expect("critical refs");
     assert_eq!(critical_refs.len(), 2);
-    let path_steps = critical_refs[0]["rows"].as_array().expect("path steps rows");
+    let path_steps = critical_refs[0]["rows"]
+        .as_array()
+        .expect("path steps rows");
     assert!(!path_steps.is_empty(), "{:?}", evidence.body);
     assert!(path_steps.len() <= 12, "{:?}", evidence.body);
     assert_eq!(

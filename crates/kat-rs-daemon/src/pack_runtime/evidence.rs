@@ -47,7 +47,10 @@ async fn metric_value(
         ("max", Some(column)) => format!("select max({column}) as value from {}", metric.table),
         ("sum", Some(column)) => format!("select sum({column}) as value from {}", metric.table),
         ("count_distinct", Some(column)) => {
-            format!("select count(distinct {column}) as value from {}", metric.table)
+            format!(
+                "select count(distinct {column}) as value from {}",
+                metric.table
+            )
         }
         _ => {
             return Err(ApiError::validation(format!(

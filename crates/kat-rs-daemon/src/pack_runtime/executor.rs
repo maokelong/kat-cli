@@ -329,9 +329,8 @@ mod tests {
             max_iterations: json!(0),
         }];
 
-        let error = repeat_max_iterations(&conditions, &BTreeMap::new())
-            .err()
-            .expect("zero should fail");
+        let error =
+            repeat_max_iterations(&conditions, &BTreeMap::new()).expect_err("zero should fail");
 
         assert_eq!(error.message, "max_iterations must be greater than zero");
     }

@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Mutex,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
 use kat_rs_datasource::TraceDatasource;
 use uuid::Uuid;
