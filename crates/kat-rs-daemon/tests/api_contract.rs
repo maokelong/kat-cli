@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     env,
     fs::{self, File},
     io::Write,
@@ -995,12 +996,10 @@ async fn run_create_returns_not_found_for_missing_dataset() {
 #[tokio::test]
 async fn run_endpoint_executes_pack_until_query_outputs_exist() {
     let _guard = current_dir_lock().lock().expect("current dir lock");
-    let original = env::current_dir().expect("original cwd");
-    env::set_current_dir(workspace_root()).expect("cwd changes");
+    let _cwd = CurrentDirGuard::set(workspace_root());
 
     let pack_root = workspace_root().join("packs");
     if !pack_root.exists() {
-        env::set_current_dir(original).expect("cwd restores");
         eprintln!("skipping run smoke test because packs directory is not present");
         return;
     }
@@ -1048,8 +1047,6 @@ async fn run_endpoint_executes_pack_until_query_outputs_exist() {
     )
     .await;
 
-    env::set_current_dir(original).expect("cwd restores");
-
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     assert_eq!(run.body["data"]["status"], "SUCCEEDED");
     assert!(
@@ -1067,12 +1064,10 @@ async fn run_endpoint_executes_pack_until_query_outputs_exist() {
 #[tokio::test]
 async fn run_evidence_endpoint_returns_summary_records() {
     let _guard = current_dir_lock().lock().expect("current dir lock");
-    let original = env::current_dir().expect("original cwd");
-    env::set_current_dir(workspace_root()).expect("cwd changes");
+    let _cwd = CurrentDirGuard::set(workspace_root());
 
     let pack_root = workspace_root().join("packs");
     if !pack_root.exists() {
-        env::set_current_dir(original).expect("cwd restores");
         eprintln!("skipping evidence test because packs directory is not present");
         return;
     }
@@ -1120,29 +1115,99 @@ async fn run_evidence_endpoint_returns_summary_records() {
     )
     .await;
 
-    env::set_current_dir(original).expect("cwd restores");
-
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     let run_id = run.body["data"]["runId"].as_str().expect("run id");
     assert_eq!(run.body["data"]["evidenceCount"], 2);
+    assert_eq!(run.body["data"]["outputs"]["critical_task_evidence"]["kind"], "evidence");
+    assert!(run.body["data"]["outputs"]["critical_task_evidence"]["rowCount"].is_null());
 
     let evidence = request_json(app, "GET", &format!("/v1/runs/{run_id}/evidence"), None).await;
     assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
-    let ids = evidence.body["data"]["evidence"]
+    let records = evidence.body["data"]["evidence"]
         .as_array()
-        .expect("evidence array")
-        .iter()
-        .map(|record| record["id"].as_str().expect("id").to_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, vec!["target_window_shape", "critical_task_shape"]);
+        .expect("evidence array");
+    assert_eq!(records.len(), 2, "{:?}", evidence.body);
+
+    let target_window = &records[0];
+    assert_eq!(target_window["id"], "target_window_shape");
+    assert_eq!(target_window["fact"], "target_window_shape");
+    assert_eq!(
+        target_window["producingStep"],
+        "local.summaries.critical_task_evidence"
+    );
+    assert_eq!(target_window["metrics"]["window_count"], 1);
+    assert_eq!(target_window["metrics"]["window_dur"], 300);
+    let target_refs = target_window["refs"].as_array().expect("target refs");
+    assert_eq!(target_refs.len(), 2);
+    assert_eq!(target_refs[0]["table"], "target_thread");
+    let target_thread_rows = target_refs[0]["rows"].as_array().expect("target thread rows");
+    assert_eq!(target_thread_rows.len(), 1);
+    assert_eq!(target_thread_rows[0]["process_row_id"], 1);
+    assert_eq!(target_thread_rows[0]["ipid"], 89);
+    assert_eq!(target_thread_rows[0]["pid"], 15040);
+    assert_eq!(target_thread_rows[0]["process_name"], ".tencent.wechat");
+    assert_eq!(target_thread_rows[0]["thread_row_id"], 1);
+    assert_eq!(target_thread_rows[0]["itid"], 405);
+    assert_eq!(target_thread_rows[0]["tid"], 15040);
+    assert_eq!(target_thread_rows[0]["thread_name"], ".tencent.wechat");
+    assert_eq!(target_thread_rows[0]["is_main_thread"], 1);
+    assert_eq!(target_refs[1]["table"], "target_window");
+    let target_window_rows = target_refs[1]["rows"].as_array().expect("target window rows");
+    assert_eq!(target_window_rows.len(), 1);
+    assert_eq!(target_window_rows[0]["itid"], 405);
+    assert_eq!(target_window_rows[0]["tid"], 15040);
+    assert_eq!(target_window_rows[0]["thread_name"], ".tencent.wechat");
+    assert_eq!(target_window_rows[0]["window_start_callstack_id"], 1);
+    assert_eq!(target_window_rows[0]["window_start_ts"], 1000);
+    assert_eq!(target_window_rows[0]["window_start_dur"], 100);
+    assert_eq!(
+        target_window_rows[0]["window_start_marker_name"],
+        "HandleLaunchAbility##com.tencent.wechat"
+    );
+    assert_eq!(target_window_rows[0]["window_end_callstack_id"], 2);
+    assert_eq!(target_window_rows[0]["window_end_ts"], 1300);
+    assert_eq!(target_window_rows[0]["window_end_dur"], 1);
+    assert_eq!(
+        target_window_rows[0]["window_end_marker_name"],
+        "UIVsyncTask[firstDrawFrame:1]"
+    );
+    assert_eq!(target_window_rows[0]["window_dur"], 300);
+
+    let critical = &records[1];
+    assert_eq!(critical["id"], "critical_task_shape");
+    assert_eq!(critical["fact"], "critical_task_shape");
+    assert_eq!(
+        critical["producingStep"],
+        "local.summaries.critical_task_evidence"
+    );
+    assert_eq!(critical["metrics"]["path_edge_count"], 0);
+    assert_eq!(critical["metrics"]["path_step_count"], 0);
+    assert_eq!(critical["metrics"]["task_count"], 0);
+    assert!(critical["metrics"]["total_ranked_duration_ns"].is_null());
+    assert_eq!(critical["metrics"]["distinct_task_type_count"], 0);
+    let critical_refs = critical["refs"].as_array().expect("critical refs");
+    assert_eq!(critical_refs.len(), 2);
+    assert_eq!(critical_refs[0]["table"], "path_steps");
+    assert_eq!(
+        critical_refs[0]["rows"].as_array().expect("path step rows").len(),
+        0
+    );
+    assert_eq!(critical_refs[1]["table"], "critical_tasks");
+    assert_eq!(
+        critical_refs[1]
+            ["rows"]
+            .as_array()
+            .expect("critical task rows")
+            .len(),
+        0
+    );
 }
 
 #[tokio::test]
 #[ignore = "requires local 60 MiB test/test.db fixture"]
 async fn run_endpoint_succeeds_on_local_test_db_fixture() {
     let _guard = current_dir_lock().lock().expect("current dir lock");
-    let original = env::current_dir().expect("original cwd");
-    env::set_current_dir(workspace_root()).expect("cwd changes");
+    let _cwd = CurrentDirGuard::set(workspace_root());
 
     let workspace = workspace_root();
     let sqlite_path = workspace.join("test").join("test.db");
@@ -1194,16 +1259,78 @@ async fn run_endpoint_succeeds_on_local_test_db_fixture() {
     )
     .await;
 
-    env::set_current_dir(original).expect("cwd restores");
-
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     assert_eq!(run.body["data"]["status"], "SUCCEEDED");
     assert_eq!(run.body["data"]["evidenceCount"], 2);
+    assert_eq!(run.body["data"]["outputs"]["critical_task_evidence"]["kind"], "evidence");
+    assert!(run.body["data"]["outputs"]["critical_task_evidence"]["rowCount"].is_null());
 
     let run_id = run.body["data"]["runId"].as_str().expect("run id");
     let evidence = request_json(app, "GET", &format!("/v1/runs/{run_id}/evidence"), None).await;
     assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
-    assert!(evidence.body["data"]["evidence"][0]["metrics"].is_object());
+    let records = evidence.body["data"]["evidence"]
+        .as_array()
+        .expect("evidence array");
+    assert_eq!(records.len(), 2, "{:?}", evidence.body);
+
+    let critical = records
+        .iter()
+        .find(|record| record["id"] == "critical_task_shape")
+        .expect("critical task evidence exists");
+    assert!(critical["metrics"]["path_edge_count"].as_u64().unwrap() > 0);
+    assert!(critical["metrics"]["path_step_count"].as_u64().unwrap() > 0);
+    assert!(critical["metrics"]["task_count"].as_u64().unwrap() > 0);
+    assert!(
+        critical["metrics"]["total_ranked_duration_ns"]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert!(critical["metrics"]["distinct_task_type_count"].as_u64().unwrap() > 0);
+
+    let critical_refs = critical["refs"].as_array().expect("critical refs");
+    assert_eq!(critical_refs.len(), 2);
+    let path_steps = critical_refs[0]["rows"].as_array().expect("path steps rows");
+    assert!(!path_steps.is_empty(), "{:?}", evidence.body);
+    assert!(path_steps.len() <= 12, "{:?}", evidence.body);
+    assert_eq!(
+        json_object_keys(&path_steps[0]),
+        BTreeSet::from([
+            "critical_cost_ns".to_string(),
+            "edge_kind".to_string(),
+            "iteration".to_string(),
+            "purpose_code".to_string(),
+            "purpose_hint".to_string(),
+        ])
+    );
+    let step_iterations = path_steps
+        .iter()
+        .map(|row| row["iteration"].as_i64().expect("iteration"))
+        .collect::<Vec<_>>();
+    assert!(step_iterations.windows(2).all(|pair| pair[0] <= pair[1]));
+
+    let critical_tasks = critical_refs[1]["rows"]
+        .as_array()
+        .expect("critical task rows");
+    assert!(!critical_tasks.is_empty(), "{:?}", evidence.body);
+    assert!(critical_tasks.len() <= 12, "{:?}", evidence.body);
+    assert_eq!(
+        json_object_keys(&critical_tasks[0]),
+        BTreeSet::from([
+            "duration_ns".to_string(),
+            "label".to_string(),
+            "rank".to_string(),
+            "raw_refs".to_string(),
+            "reason_code".to_string(),
+            "task_type".to_string(),
+            "thread_name".to_string(),
+        ])
+    );
+    let ranks = critical_tasks
+        .iter()
+        .map(|row| row["rank"].as_i64().expect("rank"))
+        .collect::<Vec<_>>();
+    assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]));
 }
 
 #[test]
@@ -1497,6 +1624,33 @@ fn workspace_root() -> PathBuf {
 fn current_dir_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct CurrentDirGuard {
+    original: PathBuf,
+}
+
+impl CurrentDirGuard {
+    fn set(path: PathBuf) -> Self {
+        let original = env::current_dir().expect("original cwd");
+        env::set_current_dir(path).expect("cwd changes");
+        Self { original }
+    }
+}
+
+impl Drop for CurrentDirGuard {
+    fn drop(&mut self) {
+        env::set_current_dir(&self.original).expect("cwd restores");
+    }
+}
+
+fn json_object_keys(value: &serde_json::Value) -> BTreeSet<String> {
+    value
+        .as_object()
+        .expect("json object")
+        .keys()
+        .cloned()
+        .collect()
 }
 
 struct LangfuseFixture {
