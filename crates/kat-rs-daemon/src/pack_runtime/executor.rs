@@ -198,7 +198,7 @@ impl<'a> Executor<'a> {
             if let Some(set_name) = &binding.set {
                 self.datasource
                     .register_record_batches(set_name, table.batches.clone())
-                    .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+                    .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
                 self.tables.insert(set_name.clone(), table.clone());
             }
             if let Some(append_name) = &binding.append {
@@ -210,7 +210,7 @@ impl<'a> Executor<'a> {
                 appended.extend(table.batches.clone());
                 self.datasource
                     .register_record_batches(append_name, appended.clone())
-                    .map_err(|error| ApiError::validation(format!("{error:#}")))?;
+                    .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
                 self.tables
                     .insert(append_name.clone(), WorkingTable { batches: appended });
             }
@@ -223,6 +223,13 @@ pub fn table_row_count(table: &WorkingTable) -> usize {
     table.batches.iter().map(RecordBatch::num_rows).sum()
 }
 
+fn positive_max_iterations(value: Option<u64>) -> Result<usize, ApiError> {
+    value
+        .map(|value| value as usize)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ApiError::validation("max_iterations must be greater than zero"))
+}
+
 fn repeat_max_iterations(
     conditions: &[RepeatCondition],
     values: &BTreeMap<String, Value>,
@@ -230,19 +237,15 @@ fn repeat_max_iterations(
     for condition in conditions {
         if let RepeatCondition::MaxIterations { max_iterations } = condition {
             return match max_iterations {
-                Value::Number(value) => value
-                    .as_u64()
-                    .map(|value| value as usize)
-                    .ok_or_else(|| ApiError::validation("max_iterations must be positive")),
-                Value::String(name) => values
-                    .get(name)
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize)
-                    .ok_or_else(|| {
-                        ApiError::validation(format!(
-                            "max_iterations references non-integer value {name}"
-                        ))
-                    }),
+                Value::Number(value) => positive_max_iterations(value.as_u64()),
+                Value::String(name) => positive_max_iterations(
+                    values.get(name).and_then(Value::as_u64),
+                )
+                .map_err(|_| {
+                    ApiError::validation(format!(
+                        "max_iterations references non-positive integer value {name}"
+                    ))
+                }),
                 _ => Err(ApiError::validation("unsupported max_iterations value")),
             };
         }
@@ -264,12 +267,21 @@ fn repeat_empty_conditions_met(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, path::Path};
 
+    use kat_rs_datasource::{TraceDatasource, materialize_sqlite_pack_demo_dataset};
+    use rusqlite::Connection;
     use serde_json::json;
+    use tempfile::tempdir;
 
     use super::{repeat_empty_conditions_met, repeat_max_iterations};
-    use crate::pack_runtime::model::RepeatCondition;
+    use crate::{
+        error::ErrorCode,
+        pack_runtime::model::{
+            ExecutionSnapshot, FlowResource, InputSpec, LoadedResource, OutputBinding, OutputKind,
+            QueryResource, RepeatCondition, Resource, ResourceKind, RunStep,
+        },
+    };
 
     #[test]
     fn repeat_max_iterations_reads_named_input_value() {
@@ -291,5 +303,139 @@ mod tests {
         }];
 
         assert!(repeat_empty_conditions_met(&conditions, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn repeat_max_iterations_rejects_zero() {
+        let conditions = [RepeatCondition::MaxIterations {
+            max_iterations: json!(0),
+        }];
+
+        let error = repeat_max_iterations(&conditions, &BTreeMap::new())
+            .err()
+            .expect("zero should fail");
+
+        assert_eq!(error.message, "max_iterations must be greater than zero");
+    }
+
+    #[tokio::test]
+    async fn execute_snapshot_maps_append_registration_failures_to_query_failed() {
+        let fixture = tempdir().expect("fixture tempdir is created");
+        let sqlite_path = fixture.path().join("pack-demo.db");
+        write_sqlite_fixture(&sqlite_path);
+        let dataset_path = fixture.path().join("dataset");
+        materialize_sqlite_pack_demo_dataset(&sqlite_path, &dataset_path)
+            .await
+            .expect("dataset materializes");
+        let datasource = TraceDatasource::from_dataset(&dataset_path)
+            .await
+            .expect("dataset opens");
+
+        let snapshot = ExecutionSnapshot {
+            entry: loaded_resource(
+                "local.flows.demo",
+                Resource::Flow(FlowResource {
+                    kind: ResourceKind::Flow,
+                    description: "demo".to_string(),
+                    inputs: empty_inputs(),
+                    outputs: BTreeMap::new(),
+                    steps: vec![
+                        crate::pack_runtime::model::FlowStep::Run(RunStep {
+                            run: "local.query.pids".to_string(),
+                            inputs: BTreeMap::new(),
+                            outputs: BTreeMap::from([(
+                                "rows".to_string(),
+                                OutputBinding {
+                                    set: None,
+                                    append: Some("shared".to_string()),
+                                },
+                            )]),
+                        }),
+                        crate::pack_runtime::model::FlowStep::Run(RunStep {
+                            run: "local.query.names".to_string(),
+                            inputs: BTreeMap::new(),
+                            outputs: BTreeMap::from([(
+                                "rows".to_string(),
+                                OutputBinding {
+                                    set: None,
+                                    append: Some("shared".to_string()),
+                                },
+                            )]),
+                        }),
+                    ],
+                    examples: Vec::new(),
+                }),
+            ),
+            resources: BTreeMap::from([
+                (
+                    "local.query.pids".to_string(),
+                    loaded_resource(
+                        "local.query.pids",
+                        Resource::Query(QueryResource {
+                            kind: ResourceKind::Query,
+                            description: "pids".to_string(),
+                            inputs: empty_inputs(),
+                            outputs: BTreeMap::from([("rows".to_string(), OutputKind::Table)]),
+                            sql: "select pid from process".to_string(),
+                        }),
+                    ),
+                ),
+                (
+                    "local.query.names".to_string(),
+                    loaded_resource(
+                        "local.query.names",
+                        Resource::Query(QueryResource {
+                            kind: ResourceKind::Query,
+                            description: "names".to_string(),
+                            inputs: empty_inputs(),
+                            outputs: BTreeMap::from([("rows".to_string(), OutputKind::Table)]),
+                            sql: "select name from process".to_string(),
+                        }),
+                    ),
+                ),
+            ]),
+        };
+
+        let error = super::execute_snapshot(&datasource, &snapshot, BTreeMap::new())
+            .await
+            .err()
+            .expect("schema mismatch should fail");
+
+        assert_eq!(error.code, ErrorCode::QueryFailed);
+    }
+
+    fn empty_inputs() -> InputSpec {
+        InputSpec {
+            required: BTreeMap::new(),
+            optional: BTreeMap::new(),
+            defaults: BTreeMap::new(),
+        }
+    }
+
+    fn loaded_resource(coord: &str, resource: Resource) -> LoadedResource {
+        LoadedResource {
+            coord: coord.to_string(),
+            path: format!("{coord}.yaml"),
+            digest: "sha256:test".to_string(),
+            resource,
+        }
+    }
+
+    fn write_sqlite_fixture(path: &Path) {
+        let connection = Connection::open(path).expect("sqlite opens");
+        connection
+            .execute_batch(
+                "create table process(id int, ipid int, pid int, name text, start_ts int);
+                 create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int);
+                 create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int);
+                 create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text);
+                 create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real);
+                 insert into process(id, ipid, pid, name, start_ts) values (1, 89, 15040, '.tencent.wechat', 0);
+                 insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+                 insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+                 insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, 1100, 100, 0, 405, 15040, 15040, 'Sleeping');
+                 insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 405, 'itid', null);",
+            )
+            .expect("sqlite fixture is written");
     }
 }

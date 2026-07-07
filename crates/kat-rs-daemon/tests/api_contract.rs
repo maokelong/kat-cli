@@ -1,8 +1,10 @@
 use std::{
+    env,
     fs::{self, File},
     io::Write,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
 
@@ -992,8 +994,13 @@ async fn run_create_returns_not_found_for_missing_dataset() {
 
 #[tokio::test]
 async fn run_endpoint_executes_pack_until_query_outputs_exist() {
+    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let original = env::current_dir().expect("original cwd");
+    env::set_current_dir(workspace_root()).expect("cwd changes");
+
     let pack_root = workspace_root().join("packs");
     if !pack_root.exists() {
+        env::set_current_dir(original).expect("cwd restores");
         eprintln!("skipping run smoke test because packs directory is not present");
         return;
     }
@@ -1040,6 +1047,8 @@ async fn run_endpoint_executes_pack_until_query_outputs_exist() {
         })),
     )
     .await;
+
+    env::set_current_dir(original).expect("cwd restores");
 
     assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
     assert_eq!(run.body["data"]["status"], "SUCCEEDED");
@@ -1341,6 +1350,11 @@ fn workspace_root() -> PathBuf {
         .join("..")
         .canonicalize()
         .expect("workspace root canonicalizes")
+}
+
+fn current_dir_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 struct LangfuseFixture {
