@@ -990,6 +990,37 @@ async fn run_create_returns_not_found_for_missing_dataset() {
     assert_eq!(response.body["error"]["code"], "DATASET_NOT_FOUND");
 }
 
+#[test]
+fn pack_loader_expands_current_critical_path_pack() {
+    let pack_root = workspace_root().join("packs");
+    if !pack_root.exists() {
+        eprintln!("skipping pack loader test because packs directory is not present");
+        return;
+    }
+
+    let snapshot = kat_rs_daemon::pack_runtime::load_snapshot(
+        &pack_root,
+        "scheduling/app-launch-critical-path/critical-task-extraction",
+    )
+    .expect("snapshot loads");
+
+    assert_eq!(snapshot.entry.coord, "local.flows.critical-task-extraction");
+    assert!(
+        snapshot
+            .resources
+            .contains_key("common.query.process_by_name_regex")
+    );
+    assert!(
+        snapshot
+            .resources
+            .contains_key("local.summaries.critical_task_evidence")
+    );
+    for resource in snapshot.resources.values() {
+        assert!(resource.digest.starts_with("sha256:"), "{resource:?}");
+        assert!(resource.path.ends_with(".yaml"), "{resource:?}");
+    }
+}
+
 #[tokio::test]
 async fn datasource_create_rejects_malformed_json_with_bad_request_envelope() {
     let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
@@ -1187,6 +1218,14 @@ fn assert_bad_request_envelope(response: JsonResponse) {
         response.body
     );
     assert!(response.body["error"]["details"].is_null());
+}
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .canonicalize()
+        .expect("workspace root canonicalizes")
 }
 
 struct LangfuseFixture {

@@ -4,6 +4,7 @@ pub mod dataset_service;
 pub mod error;
 pub mod identity;
 pub mod openapi;
+pub mod pack_runtime;
 pub mod registry;
 pub mod routes;
 pub mod run_service;
