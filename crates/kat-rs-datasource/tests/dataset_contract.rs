@@ -485,9 +485,13 @@ async fn sqlite_pack_demo_materializer_parses_numeric_text_values() {
         thread_state_rows,
         json!([{ "ts": 1100, "dur": 250, "cpu": 0 }])
     );
+    let expected_instant_value = serde_json::Value::Number(
+        serde_json::Number::from_f64("3.14".parse().expect("3.14 parses as f64"))
+            .expect("3.14 is finite"),
+    );
     assert_eq!(
         instant_rows,
-        json!([{ "ts": 1150, "ref": 405, "value": 2.5 }])
+        json!([{ "ts": 1150, "ref": 405, "value": expected_instant_value }])
     );
 }
 
@@ -1141,7 +1145,7 @@ fn write_pack_demo_sqlite_numeric_text_fixture(path: &Path) {
              insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
              insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
              insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, '1100', '250', '0', 405, 15040, 15040, 'Sleeping');
-             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values ('1150', 'sched_wakeup', '405', 440, 'itid', '2.5');",
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values ('1150', 'sched_wakeup', '405', 440, 'itid', '3.14');",
         )
         .expect("sqlite numeric text fixture is written");
     rewrite_pack_demo_sqlite_declared_types(
