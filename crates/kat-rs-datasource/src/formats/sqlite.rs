@@ -114,8 +114,6 @@ fn read_table(connection: &Connection, table: &'static str) -> Result<SqliteTabl
 fn table_select_sql(table: &str) -> String {
     match table {
         "instant" => "select rowid as rowid, * from instant".to_string(),
-        // The pack demo dataset contract only exposes the main thread row from this source table.
-        "thread" => "select * from thread where is_main_thread = 1".to_string(),
         _ => format!("select * from {table}"),
     }
 }

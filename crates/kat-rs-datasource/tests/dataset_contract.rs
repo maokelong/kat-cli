@@ -365,11 +365,23 @@ async fn sqlite_pack_demo_materializer_writes_only_five_source_tables() {
     let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
+    let thread_rows = datasource
+        .query_json("select itid, name, is_main_thread from thread order by itid")
+        .await
+        .expect("thread rows query works");
+    assert_eq!(
+        thread_rows,
+        json!([
+            { "itid": 405, "name": ".tencent.wechat", "is_main_thread": 1 },
+            { "itid": 440, "name": "OS_IPC_1_15359", "is_main_thread": 0 }
+        ])
+    );
+
     let rows = datasource
         .query_json(
             "select p.name, t.name as thread_name \
              from process p join thread t on t.ipid = p.ipid \
-             where p.name = '.tencent.wechat'",
+             where p.name = '.tencent.wechat' and t.is_main_thread = 1",
         )
         .await
         .expect("query works");
