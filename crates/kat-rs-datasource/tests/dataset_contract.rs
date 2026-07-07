@@ -446,6 +446,67 @@ async fn sqlite_pack_demo_materializer_rejects_missing_required_table() {
 }
 
 #[tokio::test]
+async fn sqlite_pack_demo_materializer_parses_numeric_text_values() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("numeric-text.db");
+    write_pack_demo_sqlite_numeric_text_fixture(&sqlite_path);
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_sqlite_pack_demo_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let process_rows = datasource
+        .query_json("select id, ipid, start_ts from process")
+        .await
+        .expect("process numeric text query works");
+    let thread_state_rows = datasource
+        .query_json("select ts, dur, cpu from thread_state")
+        .await
+        .expect("thread_state numeric text query works");
+    let instant_rows = datasource
+        .query_json("select ts, ref, value from instant")
+        .await
+        .expect("instant numeric text query works");
+
+    assert_eq!(
+        process_rows,
+        json!([{ "id": 1, "ipid": 89, "start_ts": 123 }])
+    );
+    assert_eq!(
+        thread_state_rows,
+        json!([{ "ts": 1100, "dur": 250, "cpu": 0 }])
+    );
+    assert_eq!(
+        instant_rows,
+        json!([{ "ts": 1150, "ref": 405, "value": 3.14 }])
+    );
+}
+
+#[tokio::test]
+async fn sqlite_pack_demo_materializer_rejects_unparseable_numeric_text_with_column_name() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("numeric-text-invalid.db");
+    write_pack_demo_sqlite_invalid_numeric_text_fixture(&sqlite_path);
+
+    let error = kat_rs_datasource::materialize_sqlite_pack_demo_dataset(
+        &sqlite_path,
+        dir.path().join("dataset"),
+    )
+    .await
+    .expect_err("invalid numeric text is rejected");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("thread_state.dur"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
 async fn dataset_reader_rejects_source_table_with_producer() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
@@ -995,4 +1056,117 @@ fn write_pack_demo_sqlite_fixture(path: &Path) {
              insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 440, 'itid', null);",
         )
         .expect("sqlite fixture is written");
+}
+
+fn write_pack_demo_sqlite_numeric_text_fixture(path: &Path) {
+    let connection = rusqlite::Connection::open(path).expect("sqlite opens");
+    connection
+        .execute_batch(
+            "create table process(id text, ipid text, pid text, name text, start_ts text);
+             create table thread(id text, itid text, tid text, name text, start_ts text, end_ts text, ipid text, is_main_thread text);
+             create table callstack(id text, ts text, dur text, callid text, cat text, name text, depth text, parent_id text);
+             create table thread_state(id text, ts text, dur text, cpu text, itid text, tid text, pid text, state text);
+             create table instant(ts text, name text, ref text, wakeup_from text, ref_type text, value text);
+             insert into process(id, ipid, pid, name, start_ts) values (1, 89, 15040, '.tencent.wechat', '123');
+             insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+             insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+             insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, '1100', '250', '0', 405, 15040, 15040, 'Sleeping');
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values ('1150', 'sched_wakeup', '405', 440, 'itid', '3.14');",
+        )
+        .expect("sqlite numeric text fixture is written");
+    rewrite_pack_demo_sqlite_declared_types(
+        &connection,
+        &[
+            (
+                "process",
+                "create table process(id int, ipid int, pid int, name text, start_ts int)",
+            ),
+            (
+                "thread",
+                "create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int)",
+            ),
+            (
+                "callstack",
+                "create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int)",
+            ),
+            (
+                "thread_state",
+                "create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text)",
+            ),
+            (
+                "instant",
+                "create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real)",
+            ),
+        ],
+    );
+}
+
+fn write_pack_demo_sqlite_invalid_numeric_text_fixture(path: &Path) {
+    let connection = rusqlite::Connection::open(path).expect("sqlite opens");
+    connection
+        .execute_batch(
+            "create table process(id text, ipid text, pid text, name text, start_ts text);
+             create table thread(id text, itid text, tid text, name text, start_ts text, end_ts text, ipid text, is_main_thread text);
+             create table callstack(id text, ts text, dur text, callid text, cat text, name text, depth text, parent_id text);
+             create table thread_state(id text, ts text, dur text, cpu text, itid text, tid text, pid text, state text);
+             create table instant(ts text, name text, ref text, wakeup_from text, ref_type text, value text);
+             insert into process(id, ipid, pid, name, start_ts) values (1, 89, 15040, '.tencent.wechat', 0);
+             insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+             insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+             insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, 1100, 'not-a-number', 0, 405, 15040, 15040, 'Sleeping');
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 440, 'itid', null);",
+        )
+        .expect("sqlite invalid numeric text fixture is written");
+    rewrite_pack_demo_sqlite_declared_types(
+        &connection,
+        &[
+            (
+                "process",
+                "create table process(id int, ipid int, pid int, name text, start_ts int)",
+            ),
+            (
+                "thread",
+                "create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int)",
+            ),
+            (
+                "callstack",
+                "create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int)",
+            ),
+            (
+                "thread_state",
+                "create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text)",
+            ),
+            (
+                "instant",
+                "create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real)",
+            ),
+        ],
+    );
+}
+
+fn rewrite_pack_demo_sqlite_declared_types(
+    connection: &rusqlite::Connection,
+    table_sqls: &[(&str, &str)],
+) {
+    connection
+        .execute_batch("pragma writable_schema=on;")
+        .expect("writable schema is enabled");
+    for (table, sql) in table_sqls {
+        connection
+            .execute(
+                "update sqlite_master set sql = ?1 where type = 'table' and name = ?2",
+                rusqlite::params![sql, table],
+            )
+            .expect("table schema sql is rewritten");
+    }
+    connection
+        .execute_batch("pragma writable_schema=off;")
+        .expect("writable schema is disabled");
+
+    let schema_version: i64 = connection
+        .query_row("pragma schema_version", [], |row| row.get(0))
+        .expect("schema version is read");
+    connection
+        .execute_batch(&format!("pragma schema_version={};", schema_version + 1))
+        .expect("schema version is bumped");
 }

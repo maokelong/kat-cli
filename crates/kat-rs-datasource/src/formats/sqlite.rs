@@ -203,9 +203,15 @@ fn push_value(
     match (values, value) {
         (ColumnValues::Int64(values), ValueRef::Null) => values.push(None),
         (ColumnValues::Int64(values), ValueRef::Integer(value)) => values.push(Some(value)),
+        (ColumnValues::Int64(values), ValueRef::Text(value)) => {
+            values.push(Some(parse_sqlite_text::<i64>(table, column, value)?))
+        }
         (ColumnValues::Float64(values), ValueRef::Null) => values.push(None),
         (ColumnValues::Float64(values), ValueRef::Integer(value)) => values.push(Some(value as f64)),
         (ColumnValues::Float64(values), ValueRef::Real(value)) => values.push(Some(value)),
+        (ColumnValues::Float64(values), ValueRef::Text(value)) => {
+            values.push(Some(parse_sqlite_text::<f64>(table, column, value)?))
+        }
         (ColumnValues::Utf8(values), ValueRef::Null) => values.push(None),
         (ColumnValues::Utf8(values), ValueRef::Text(value)) => {
             values.push(Some(String::from_utf8_lossy(value).into_owned()))
@@ -221,6 +227,22 @@ fn push_value(
     }
 
     Ok(())
+}
+
+fn parse_sqlite_text<T>(table: &str, column: &SqliteColumn, value: &[u8]) -> Result<T>
+where
+    T: std::str::FromStr,
+{
+    let text = std::str::from_utf8(value)
+        .with_context(|| format!("cannot decode SQLite text for {table}.{}", column.name))?;
+    text.parse::<T>().map_err(|_| {
+        anyhow::anyhow!(
+            "cannot convert SQLite text value {:?} for {}.{}",
+            text,
+            table,
+            column.name
+        )
+    })
 }
 
 fn values_to_batch(schema: SchemaRef, values: &mut [ColumnValues]) -> Result<RecordBatch> {
