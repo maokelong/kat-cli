@@ -103,6 +103,9 @@ async fn openapi_endpoint_returns_current_api_paths() {
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["get"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}"]["delete"].is_object());
     assert!(value["paths"]["/v1/datasources/{datasourceId}/queries"]["post"].is_object());
+    assert!(value["paths"]["/v1/runs"]["post"].is_object());
+    assert!(value["paths"]["/v1/runs/{runId}"]["get"].is_object());
+    assert!(value["paths"]["/v1/runs/{runId}/evidence"]["get"].is_object());
     assert!(value["paths"]["/v1/server"]["delete"].is_object());
 
     let schemas = &value["components"]["schemas"];
@@ -119,11 +122,18 @@ async fn openapi_endpoint_returns_current_api_paths() {
         "DatasetTableDto",
         "DatasourceDto",
         "DatasourceQueryMeta",
+        "EvidenceRecordDto",
+        "EvidenceRefDto",
         "ErrorEnvelope",
         "PaginatedEnvelope_DatasetDto",
         "QueryRequest",
         "QueryResponse_DatasetQueryMeta",
         "QueryResponse_DatasourceQueryMeta",
+        "CreateRunRequest",
+        "RunDto",
+        "RunEvidenceResponse",
+        "RunOutputDto",
+        "RunStatus",
     ] {
         assert!(schemas[schema].is_object(), "missing schema {schema}");
     }
@@ -167,6 +177,21 @@ async fn openapi_endpoint_returns_current_api_paths() {
         value["paths"]["/v1/datasources/{datasourceId}"]["get"]["responses"]["404"]["content"]["application/json"]
             ["schema"]["$ref"],
         "#/components/schemas/ErrorEnvelope"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/CreateRunRequest"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_RunDto"
+    );
+    assert_eq!(
+        value["paths"]["/v1/runs/{runId}/evidence"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/DataEnvelope_RunEvidenceResponse"
     );
 }
 
@@ -919,6 +944,21 @@ async fn query_endpoint_returns_structured_error_for_missing_datasource() {
             }
         })
     );
+}
+
+#[tokio::test]
+async fn run_endpoint_returns_not_found_for_missing_run() {
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let response = request_json(app, "GET", "/v1/runs/run_missing", None).await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    assert_eq!(response.body["error"]["code"], "RUN_NOT_FOUND");
 }
 
 #[tokio::test]

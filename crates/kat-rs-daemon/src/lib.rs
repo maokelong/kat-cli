@@ -6,6 +6,7 @@ pub mod identity;
 pub mod openapi;
 pub mod registry;
 pub mod routes;
+pub mod run_service;
 pub mod server;
 pub mod service;
 pub mod state;

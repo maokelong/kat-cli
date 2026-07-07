@@ -16,6 +16,7 @@ pub enum ErrorCode {
     DatasourceNotFound,
     Internal,
     QueryFailed,
+    RunNotFound,
     ValidationFailed,
 }
 
@@ -65,6 +66,15 @@ impl ApiError {
             code: ErrorCode::ValidationFailed,
             message: message.into(),
             details: None,
+        }
+    }
+
+    pub fn run_not_found(run_id: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: ErrorCode::RunNotFound,
+            message: "run not found".to_owned(),
+            details: Some(json!({ "runId": run_id })),
         }
     }
 

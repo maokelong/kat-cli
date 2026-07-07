@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -123,7 +125,7 @@ pub struct DatasetResponse {
     pub dataset: DatasetDto,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetDto {
     pub name: String,
@@ -184,4 +186,66 @@ pub struct DatasourceQueryMeta {
 pub struct DatasetQueryMeta {
     pub elapsed_ms: u128,
     pub dataset: DatasetDto,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateRunRequest {
+    pub dataset: DatasetLocation,
+    #[serde(rename = "packRef")]
+    pub pack_ref: String,
+    pub inputs: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RunStatus {
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDto {
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    pub status: RunStatus,
+    pub dataset: DatasetDto,
+    #[serde(rename = "packRef")]
+    pub pack_ref: String,
+    pub outputs: BTreeMap<String, RunOutputDto>,
+    pub evidence_count: usize,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunOutputDto {
+    pub kind: String,
+    pub name: String,
+    pub row_count: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEvidenceResponse {
+    pub run: RunDto,
+    pub evidence: Vec<EvidenceRecordDto>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceRecordDto {
+    pub id: String,
+    pub fact: String,
+    pub metrics: BTreeMap<String, Value>,
+    pub refs: Vec<EvidenceRefDto>,
+    pub producing_step: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceRefDto {
+    pub table: String,
+    pub rows: Vec<Value>,
 }

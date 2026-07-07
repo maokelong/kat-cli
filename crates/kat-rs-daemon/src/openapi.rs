@@ -3,11 +3,12 @@ use utoipa::OpenApi;
 
 use crate::{
     api::{
-        CreateDatasetRequest, CreateDatasourceRequest, DatasetDto, DatasetInspectResponse,
-        DatasetLocation, DatasetQueryMeta, DatasetQueryRequest, DatasetResponse,
-        DatasetSourceInput, DatasetTableDto, DatasourceDto, DatasourceQueryMeta, DatasourceSource,
-        HealthResponse, InputFileDto, InputRole, PaginatedEnvelope, Pagination, QueryRequest,
-        QueryResponse, ShutdownResponse,
+        CreateDatasetRequest, CreateDatasourceRequest, CreateRunRequest, DatasetDto,
+        DatasetInspectResponse, DatasetLocation, DatasetQueryMeta, DatasetQueryRequest,
+        DatasetResponse, DatasetSourceInput, DatasetTableDto, DatasourceDto, DatasourceQueryMeta,
+        DatasourceSource, EvidenceRecordDto, EvidenceRefDto, HealthResponse, InputFileDto,
+        InputRole, PaginatedEnvelope, Pagination, QueryRequest, QueryResponse, RunDto,
+        RunEvidenceResponse, RunOutputDto, RunStatus, ShutdownResponse,
     },
     error::{ErrorBody, ErrorCode, ErrorEnvelope},
 };
@@ -26,11 +27,15 @@ use crate::{
         crate::routes::datasources::get_datasource,
         crate::routes::datasources::delete_datasource,
         crate::routes::queries::query,
+        crate::routes::runs::create_run,
+        crate::routes::runs::get_run,
+        crate::routes::runs::get_run_evidence,
         crate::routes::server::shutdown
     ),
     components(schemas(
         CreateDatasourceRequest,
         CreateDatasetRequest,
+        CreateRunRequest,
         DatasetDto,
         DatasetInspectResponse,
         DatasetLocation,
@@ -42,6 +47,8 @@ use crate::{
         DatasourceDto,
         DatasourceQueryMeta,
         DatasourceSource,
+        EvidenceRecordDto,
+        EvidenceRefDto,
         ErrorBody,
         ErrorCode,
         ErrorEnvelope,
@@ -53,6 +60,10 @@ use crate::{
         QueryRequest,
         QueryResponse<DatasetQueryMeta>,
         QueryResponse<DatasourceQueryMeta>,
+        RunDto,
+        RunEvidenceResponse,
+        RunOutputDto,
+        RunStatus,
         ShutdownResponse
     ))
 )]
