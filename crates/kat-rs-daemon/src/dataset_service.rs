@@ -8,6 +8,7 @@ use std::{
 use kat_rs_datasource::{
     DatasetLocator, DatasetStore, TraceDatasource, inspect_dataset_tables,
     materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
+    materialize_sqlite_pack_demo_dataset,
 };
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
@@ -36,7 +37,7 @@ impl DatasetService {
     }
 
     pub async fn create(&self, request: CreateDatasetRequest) -> Result<DatasetDto, ApiError> {
-        let resolved = resolve_dataset(&request.dataset)?;
+        let resolved = self.resolve_location(&request.dataset)?;
         let load = dataset_load(request.input)?;
         let _permit = self
             .materialize_limiter
@@ -74,7 +75,7 @@ impl DatasetService {
     }
 
     pub fn inspect(&self, dataset: DatasetLocation) -> Result<DatasetInspectResponse, ApiError> {
-        let resolved = resolve_dataset(&dataset)?;
+        let resolved = self.resolve_location(&dataset)?;
         ensure_dataset_exists(&resolved.path)?;
         let tables = inspect_dataset_tables(&resolved.path)
             .map_err(|error| ApiError::validation(format!("{error:#}")))?
@@ -94,7 +95,7 @@ impl DatasetService {
     }
 
     pub fn delete(&self, dataset: DatasetLocation) -> Result<(), ApiError> {
-        let resolved = resolve_dataset(&dataset)?;
+        let resolved = self.resolve_location(&dataset)?;
         ensure_dataset_exists(&resolved.path)?;
         fs::remove_dir_all(&resolved.path).map_err(|error| {
             if error.kind() == ErrorKind::NotFound {
@@ -112,7 +113,7 @@ impl DatasetService {
         &self,
         request: DatasetQueryRequest,
     ) -> Result<(DatasetDto, Vec<Value>), ApiError> {
-        let resolved = resolve_dataset(&request.dataset)?;
+        let resolved = self.resolve_location(&request.dataset)?;
         ensure_dataset_exists(&resolved.path)?;
         let datasource = TraceDatasource::from_dataset(&resolved.path)
             .await
@@ -123,6 +124,10 @@ impl DatasetService {
             .map_err(|error| ApiError::query_failed(format!("{error:#}")))?;
 
         Ok((resolved.dataset, rows_as_array(rows)?))
+    }
+
+    pub fn resolve_location(&self, dataset: &DatasetLocation) -> Result<ResolvedDataset, ApiError> {
+        resolve_dataset(dataset)
     }
 }
 
@@ -140,11 +145,14 @@ enum DatasetLoad {
         observations_path: PathBuf,
         traces_path: PathBuf,
     },
+    Sqlite {
+        path: PathBuf,
+    },
 }
 
-struct ResolvedDataset {
-    dataset: DatasetDto,
-    path: PathBuf,
+pub struct ResolvedDataset {
+    pub dataset: DatasetDto,
+    pub path: PathBuf,
 }
 
 pub struct DatasetList {
@@ -263,6 +271,11 @@ fn dataset_load(input: DatasetSourceInput) -> Result<DatasetLoad, ApiError> {
                 traces_path: traces.path,
             })
         }
+        DatasetSourceInput::Sqlite { file } => {
+            let input = resolve_input(InputRole::File, file)?;
+
+            Ok(DatasetLoad::Sqlite { path: input.path })
+        }
     }
 }
 
@@ -274,6 +287,9 @@ async fn materialize_dataset(load: DatasetLoad, dataset_path: &Path) -> Result<(
             traces_path,
         } => {
             materialize_langfuse_legacy_dataset(observations_path, traces_path, dataset_path).await
+        }
+        DatasetLoad::Sqlite { path } => {
+            materialize_sqlite_pack_demo_dataset(path, dataset_path).await
         }
     };
 

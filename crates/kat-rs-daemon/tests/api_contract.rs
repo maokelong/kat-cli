@@ -553,6 +553,72 @@ async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sour
 }
 
 #[tokio::test]
+async fn dataset_create_materializes_sqlite_pack_demo_fixture() {
+    let sqlite = SqliteFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "sqlite-pack-demo";
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite.path(),
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    let inspect = request_json(
+        app.clone(),
+        "GET",
+        &format!(
+            "/v1/datasets/{dataset_name}?directory={}",
+            datasets_root.to_string_lossy()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(inspect.status, StatusCode::OK, "{:?}", inspect.body);
+    let names = inspect.body["data"]["tables"]
+        .as_array()
+        .expect("tables")
+        .iter()
+        .map(|table| table["name"].as_str().expect("name").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec!["process", "thread", "callstack", "thread_state", "instant"]
+    );
+
+    let query = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "sql": "select count(*) as process_count from process where name = '.tencent.wechat'"
+        })),
+    )
+    .await;
+    assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
+    assert_eq!(query.body["data"], json!([{ "process_count": 1 }]));
+}
+
+#[tokio::test]
 async fn dataset_query_reads_materialized_dataset_without_sources() {
     let fixture = LangfuseFixture::new();
     let datasets_dir = tempdir().expect("datasets tempdir is created");
@@ -1090,6 +1156,41 @@ impl LangfuseFixture {
 
     fn traces_path(&self) -> String {
         self.traces_path.to_string_lossy().into_owned()
+    }
+}
+
+struct SqliteFixture {
+    _dir: TempDir,
+    path: PathBuf,
+}
+
+impl SqliteFixture {
+    fn new() -> Self {
+        let dir = tempdir().expect("sqlite tempdir is created");
+        let path = dir.path().join("pack-demo.db");
+        let connection = rusqlite::Connection::open(&path).expect("sqlite opens");
+        connection
+            .execute_batch(
+                "create table process(id int, ipid int, pid int, name text, start_ts int);
+                 create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int);
+                 create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int);
+                 create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text);
+                 create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real);
+                 insert into process(id, ipid, pid, name, start_ts) values (1, 89, 15040, '.tencent.wechat', 0);
+                 insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+                 insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+                 insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (2, 1300, 1, 405, 'H', 'UIVsyncTask[firstDrawFrame:1]', 0, null);
+                 insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, 1100, 100, 0, 405, 15040, 15040, 'Sleeping');
+                 insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 405, 'itid', null);",
+            )
+            .expect("sqlite fixture is written");
+        drop(connection);
+
+        Self { _dir: dir, path }
+    }
+
+    fn path(&self) -> String {
+        self.path.to_string_lossy().into_owned()
     }
 }
 

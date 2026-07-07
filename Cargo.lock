@@ -2071,6 +2071,7 @@ dependencies = [
  "axum",
  "flate2",
  "kat-rs-datasource",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
