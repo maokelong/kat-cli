@@ -55,6 +55,26 @@ pub async fn materialize_langfuse_legacy_dataset(
     writer.finish().await
 }
 
+pub async fn materialize_sqlite_pack_demo_dataset(
+    path: impl AsRef<Path>,
+    dataset_path: impl AsRef<Path>,
+) -> Result<()> {
+    let path = path.as_ref();
+    let dataset_path = dataset_path.as_ref();
+
+    let mut writer = DatasetWriter::create(dataset_path)?;
+    for table in crate::formats::sqlite::read_pack_demo_tables(path)? {
+        let mut table_writer =
+            writer.start_table(table.name, &table.parquet_file_name, Arc::clone(&table.schema))?;
+        for batch in &table.batches {
+            table_writer.write(batch)?;
+        }
+        writer.add_table(table_writer.finish()?);
+    }
+
+    writer.finish().await
+}
+
 async fn write_langfuse_tables(
     writer: &mut DatasetWriter,
     observations_path: &Path,

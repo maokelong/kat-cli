@@ -327,6 +327,113 @@ async fn materialized_catalog_records_source_table_kind() {
 }
 
 #[tokio::test]
+async fn sqlite_pack_demo_materializer_writes_only_five_source_tables() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("pack-demo.db");
+    write_pack_demo_sqlite_fixture(&sqlite_path);
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_sqlite_pack_demo_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let catalog: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dataset_path.join("catalog.json")).expect("catalog is read"),
+    )
+    .expect("catalog json parses");
+    let tables = catalog["tables"].as_array().expect("tables is an array");
+    let names = tables
+        .iter()
+        .map(|table| table["name"].as_str().expect("table name").to_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        vec![
+            "process".to_string(),
+            "thread".to_string(),
+            "callstack".to_string(),
+            "thread_state".to_string(),
+            "instant".to_string(),
+        ]
+    );
+    for table in tables {
+        assert_eq!(table["kind"], "source");
+        assert!(table["path"].as_str().expect("path").starts_with("tables/sqlite."));
+    }
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json(
+            "select p.name, t.name as thread_name \
+             from process p join thread t on t.ipid = p.ipid \
+             where p.name = '.tencent.wechat'",
+        )
+        .await
+        .expect("query works");
+
+    assert_eq!(
+        rows,
+        json!([{ "name": ".tencent.wechat", "thread_name": ".tencent.wechat" }])
+    );
+}
+
+#[tokio::test]
+async fn sqlite_pack_demo_materializer_exposes_instant_rowid() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("pack-demo.db");
+    write_pack_demo_sqlite_fixture(&sqlite_path);
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_sqlite_pack_demo_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json("select rowid, name, ref, wakeup_from from instant order by rowid")
+        .await
+        .expect("rowid query works");
+
+    assert_eq!(
+        rows,
+        json!([{ "rowid": 1, "name": "sched_wakeup", "ref": 405, "wakeup_from": 440 }])
+    );
+}
+
+#[tokio::test]
+async fn sqlite_pack_demo_materializer_rejects_missing_required_table() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("missing-table.db");
+    let connection = rusqlite::Connection::open(&sqlite_path).expect("sqlite opens");
+    connection
+        .execute_batch(
+            "create table process(id int, ipid int, pid int, name text);
+             create table thread(id int, itid int, tid int, name text, ipid int);
+             create table callstack(id int, ts int, dur int, callid int, name text);",
+        )
+        .expect("partial schema is created");
+    drop(connection);
+
+    let error = kat_rs_datasource::materialize_sqlite_pack_demo_dataset(
+        &sqlite_path,
+        dir.path().join("dataset"),
+    )
+    .await
+    .expect_err("missing table is rejected");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("missing required SQLite table thread_state"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
 async fn dataset_reader_rejects_source_table_with_producer() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
@@ -856,4 +963,24 @@ fn write_jsonl_gz_generated(
     }
 
     encoder.finish().expect("gzip stream is finished");
+}
+
+fn write_pack_demo_sqlite_fixture(path: &Path) {
+    let connection = rusqlite::Connection::open(path).expect("sqlite opens");
+    connection
+        .execute_batch(
+            "create table process(id int, ipid int, pid int, name text, start_ts int);
+             create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int);
+             create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int);
+             create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text);
+             create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real);
+             insert into process(id, ipid, pid, name, start_ts) values (1, 89, 15040, '.tencent.wechat', 0);
+             insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+             insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (2, 440, 15359, 'OS_IPC_1_15359', 0, 0, 89, 0);
+             insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+             insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (2, 1300, 1, 405, 'H', 'UIVsyncTask[firstDrawFrame:1]', 0, null);
+             insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, 1100, 100, 0, 405, 15040, 15040, 'Sleeping');
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 440, 'itid', null);",
+        )
+        .expect("sqlite fixture is written");
 }
