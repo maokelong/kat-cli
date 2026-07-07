@@ -1064,6 +1064,148 @@ async fn run_endpoint_executes_pack_until_query_outputs_exist() {
     assert!(critical_tasks_row_count >= 0);
 }
 
+#[tokio::test]
+async fn run_evidence_endpoint_returns_summary_records() {
+    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let original = env::current_dir().expect("original cwd");
+    env::set_current_dir(workspace_root()).expect("cwd changes");
+
+    let pack_root = workspace_root().join("packs");
+    if !pack_root.exists() {
+        env::set_current_dir(original).expect("cwd restores");
+        eprintln!("skipping evidence test because packs directory is not present");
+        return;
+    }
+
+    let sqlite = SqliteFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "sqlite-run-evidence";
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite.path(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    let run = request_json(
+        app.clone(),
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "packRef": "scheduling/app-launch-critical-path/critical-task-extraction",
+            "inputs": {
+                "process_name_pattern": "(^|\\.)tencent\\.wechat$|^com\\.tencent\\.wechat$",
+                "start_marker_pattern": "HandleLaunchAbility.*com\\.tencent\\.wechat",
+                "end_marker_pattern": "UIVsyncTask.*firstDrawFrame:1"
+            }
+        })),
+    )
+    .await;
+
+    env::set_current_dir(original).expect("cwd restores");
+
+    assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
+    let run_id = run.body["data"]["runId"].as_str().expect("run id");
+    assert_eq!(run.body["data"]["evidenceCount"], 2);
+
+    let evidence = request_json(app, "GET", &format!("/v1/runs/{run_id}/evidence"), None).await;
+    assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
+    let ids = evidence.body["data"]["evidence"]
+        .as_array()
+        .expect("evidence array")
+        .iter()
+        .map(|record| record["id"].as_str().expect("id").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["target_window_shape", "critical_task_shape"]);
+}
+
+#[tokio::test]
+#[ignore = "requires local 60 MiB test/test.db fixture"]
+async fn run_endpoint_succeeds_on_local_test_db_fixture() {
+    let _guard = current_dir_lock().lock().expect("current dir lock");
+    let original = env::current_dir().expect("original cwd");
+    env::set_current_dir(workspace_root()).expect("cwd changes");
+
+    let workspace = workspace_root();
+    let sqlite_path = workspace.join("test").join("test.db");
+    assert!(
+        sqlite_path.exists(),
+        "local fixture is missing: {}",
+        sqlite_path.display()
+    );
+
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "local-test-db";
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": sqlite_path.to_string_lossy(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    let run = request_json(
+        app.clone(),
+        "POST",
+        "/v1/runs",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "packRef": "scheduling/app-launch-critical-path/critical-task-extraction",
+            "inputs": {
+                "process_name_pattern": "(^|\\.)tencent\\.wechat$|^com\\.tencent\\.wechat$",
+                "start_marker_pattern": "HandleLaunchAbility.*com\\.tencent\\.wechat",
+                "end_marker_pattern": "UIVsyncTask.*firstDrawFrame:1"
+            }
+        })),
+    )
+    .await;
+
+    env::set_current_dir(original).expect("cwd restores");
+
+    assert_eq!(run.status, StatusCode::CREATED, "{:?}", run.body);
+    assert_eq!(run.body["data"]["status"], "SUCCEEDED");
+    assert_eq!(run.body["data"]["evidenceCount"], 2);
+
+    let run_id = run.body["data"]["runId"].as_str().expect("run id");
+    let evidence = request_json(app, "GET", &format!("/v1/runs/{run_id}/evidence"), None).await;
+    assert_eq!(evidence.status, StatusCode::OK, "{:?}", evidence.body);
+    assert!(evidence.body["data"]["evidence"][0]["metrics"].is_object());
+}
+
 #[test]
 fn pack_loader_expands_current_critical_path_pack() {
     let pack_root = workspace_root().join("packs");

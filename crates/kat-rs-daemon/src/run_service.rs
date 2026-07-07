@@ -46,20 +46,21 @@ impl RunService {
         let execution =
             crate::pack_runtime::execute_snapshot(&datasource, &snapshot, request.inputs).await?;
         let run_id = format!("run_{}", Uuid::now_v7().simple());
+        let evidence_count = execution.evidence.len();
         let run = RunDto {
             run_id: run_id.clone(),
             status: RunStatus::Succeeded,
             dataset: resolved.dataset,
             pack_ref: request.pack_ref,
             outputs: execution.outputs,
-            evidence_count: 0,
+            evidence_count,
             diagnostics: Vec::new(),
         };
         self.store.lock().expect("run store lock").insert(
             run_id,
             StoredRun {
                 run: run.clone(),
-                evidence: Vec::new(),
+                evidence: execution.evidence,
             },
         );
 

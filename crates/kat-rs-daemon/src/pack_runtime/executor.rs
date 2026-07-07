@@ -17,6 +17,7 @@ use super::{
 pub struct ExecutionResult {
     pub outputs: BTreeMap<String, RunOutputDto>,
     pub working_tables: BTreeMap<String, WorkingTable>,
+    pub evidence: Vec<crate::api::EvidenceRecordDto>,
 }
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ pub async fn execute_snapshot(
         snapshot,
         values: inputs,
         tables: BTreeMap::new(),
+        evidence: Vec::new(),
     };
     let Resource::Flow(entry_flow) = &snapshot.entry.resource else {
         return Err(ApiError::validation("entry pack resource must be a flow"));
@@ -42,9 +44,9 @@ pub async fn execute_snapshot(
     executor.execute_flow(entry_flow).await?;
     let outputs = entry_flow
         .outputs
-        .keys()
-        .filter_map(|name| {
-            executor.tables.get(name).map(|table| {
+        .iter()
+        .filter_map(|(name, kind)| match kind {
+            super::model::OutputKind::Table => executor.tables.get(name).map(|table| {
                 (
                     name.clone(),
                     RunOutputDto {
@@ -53,13 +55,23 @@ pub async fn execute_snapshot(
                         row_count: Some(table_row_count(table)),
                     },
                 )
-            })
+            }),
+            super::model::OutputKind::Evidence if !executor.evidence.is_empty() => Some((
+                name.clone(),
+                RunOutputDto {
+                    kind: "evidence".to_string(),
+                    name: name.clone(),
+                    row_count: None,
+                },
+            )),
+            super::model::OutputKind::Evidence => None,
         })
         .collect();
 
     Ok(ExecutionResult {
         outputs,
         working_tables: executor.tables,
+        evidence: executor.evidence,
     })
 }
 
@@ -68,6 +80,7 @@ struct Executor<'a> {
     snapshot: &'a ExecutionSnapshot,
     values: BTreeMap<String, Value>,
     tables: BTreeMap<String, WorkingTable>,
+    evidence: Vec<crate::api::EvidenceRecordDto>,
 }
 
 impl<'a> Executor<'a> {
@@ -149,7 +162,12 @@ impl<'a> Executor<'a> {
                 self.commit_outputs(&step.outputs, batches)?;
                 Ok(())
             }
-            Resource::Summaries(_) => Ok(()),
+            Resource::Summaries(summaries) => {
+                let mut records =
+                    super::evidence::build_evidence(self.datasource, &step.run, summaries).await?;
+                self.evidence.append(&mut records);
+                Ok(())
+            }
         }
     }
 
