@@ -507,6 +507,51 @@ async fn sqlite_pack_demo_materializer_rejects_unparseable_numeric_text_with_col
 }
 
 #[tokio::test]
+async fn sqlite_pack_demo_materializer_materializes_lossless_real_integer_values() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("real-integer.db");
+    write_pack_demo_sqlite_real_integer_fixture(&sqlite_path, "1.0");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_sqlite_pack_demo_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json("select id, ipid, pid, start_ts from process")
+        .await
+        .expect("lossless real integer query works");
+
+    assert_eq!(
+        rows,
+        json!([{ "id": 1, "ipid": 89, "pid": 15040, "start_ts": 0 }])
+    );
+}
+
+#[tokio::test]
+async fn sqlite_pack_demo_materializer_rejects_fractional_real_integer_values_with_column_name() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("real-fractional.db");
+    write_pack_demo_sqlite_real_integer_fixture(&sqlite_path, "1.5");
+
+    let error = kat_rs_datasource::materialize_sqlite_pack_demo_dataset(
+        &sqlite_path,
+        dir.path().join("dataset"),
+    )
+    .await
+    .expect_err("fractional real integer is rejected");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("process.id"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
 async fn dataset_reader_rejects_source_table_with_producer() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
@@ -1141,6 +1186,31 @@ fn write_pack_demo_sqlite_invalid_numeric_text_fixture(path: &Path) {
                 "create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real)",
             ),
         ],
+    );
+}
+
+fn write_pack_demo_sqlite_real_integer_fixture(path: &Path, process_id: &str) {
+    let connection = rusqlite::Connection::open(path).expect("sqlite opens");
+    connection
+        .execute_batch(&format!(
+            "create table process(id, ipid int, pid int, name text, start_ts int);
+             create table thread(id int, itid int, tid int, name text, start_ts int, end_ts int, ipid int, is_main_thread int);
+             create table callstack(id int, ts int, dur int, callid int, cat text, name text, depth int, parent_id int);
+             create table thread_state(id int, ts int, dur int, cpu int, itid int, tid int, pid int, state text);
+             create table instant(ts int, name text, ref int, wakeup_from int, ref_type text, value real);
+             insert into process(id, ipid, pid, name, start_ts) values ({process_id}, 89, 15040, '.tencent.wechat', 0);
+             insert into thread(id, itid, tid, name, start_ts, end_ts, ipid, is_main_thread) values (1, 405, 15040, '.tencent.wechat', 0, 0, 89, 1);
+             insert into callstack(id, ts, dur, callid, cat, name, depth, parent_id) values (1, 1000, 100, 405, 'H', 'HandleLaunchAbility##com.tencent.wechat', 0, null);
+             insert into thread_state(id, ts, dur, cpu, itid, tid, pid, state) values (1, 1100, 100, 0, 405, 15040, 15040, 'Sleeping');
+             insert into instant(ts, name, ref, wakeup_from, ref_type, value) values (1150, 'sched_wakeup', 405, 440, 'itid', null);"
+        ))
+        .expect("sqlite real integer fixture is written");
+    rewrite_pack_demo_sqlite_declared_types(
+        &connection,
+        &[(
+            "process",
+            "create table process(id int, ipid int, pid int, name text, start_ts int)",
+        )],
     );
 }
 

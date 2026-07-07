@@ -203,6 +203,9 @@ fn push_value(
     match (values, value) {
         (ColumnValues::Int64(values), ValueRef::Null) => values.push(None),
         (ColumnValues::Int64(values), ValueRef::Integer(value)) => values.push(Some(value)),
+        (ColumnValues::Int64(values), ValueRef::Real(value)) => {
+            values.push(Some(parse_sqlite_real_integer(table, column, value)?))
+        }
         (ColumnValues::Int64(values), ValueRef::Text(value)) => {
             values.push(Some(parse_sqlite_text::<i64>(table, column, value)?))
         }
@@ -227,6 +230,24 @@ fn push_value(
     }
 
     Ok(())
+}
+
+fn parse_sqlite_real_integer(table: &str, column: &SqliteColumn, value: f64) -> Result<i64> {
+    if !value.is_finite() || value.fract() != 0.0 {
+        bail!(
+            "cannot convert SQLite real value {value:?} for {table}.{}",
+            column.name
+        );
+    }
+
+    if value < i64::MIN as f64 || value > i64::MAX as f64 {
+        bail!(
+            "cannot convert SQLite real value {value:?} for {table}.{}",
+            column.name
+        );
+    }
+
+    Ok(value as i64)
 }
 
 fn parse_sqlite_text<T>(table: &str, column: &SqliteColumn, value: &[u8]) -> Result<T>
