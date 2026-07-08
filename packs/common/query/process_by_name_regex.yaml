@@ -1,0 +1,23 @@
+kind: query
+description: Find process rows whose names match a caller-provided regex.
+
+inputs:
+  required:
+    process_name_pattern: string
+  optional: {}
+  defaults: {}
+
+outputs:
+  process_matches: table
+
+sql: |
+  SELECT
+    id AS source_row_id,
+    ipid,
+    pid,
+    name
+  FROM process
+  WHERE name IS NOT NULL
+    AND regexp_match(name, '{{inputs.process_name_pattern}}') IS NOT NULL
+  ORDER BY ipid ASC
+  LIMIT 8;

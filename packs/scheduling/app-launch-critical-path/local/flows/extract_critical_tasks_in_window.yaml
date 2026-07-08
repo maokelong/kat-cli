@@ -1,0 +1,94 @@
+kind: flow
+description: Iteratively extract path edges, path steps, and ranked critical tasks in a target window.
+
+inputs:
+  required:
+    target_thread: table
+    target_window: table
+    max_iterations: integer
+    min_edge_duration_ns: integer
+    source_lookback_ns: integer
+    max_task_count: integer
+  optional: {}
+  defaults: {}
+
+outputs:
+  path_edges: table
+  path_steps: table
+  critical_tasks: table
+
+steps:
+  - run: common.query.initial_anchor_rows
+    inputs:
+      target_thread: target_thread
+      target_window: target_window
+    outputs:
+      anchor_rows:
+        set: anchor_rows
+
+  - repeat_until:
+      - empty: anchor_rows
+      - max_iterations: max_iterations
+    body:
+      - run: common.query.candidate_path_edges
+        inputs:
+          anchor_rows: anchor_rows
+          min_edge_duration_ns: min_edge_duration_ns
+        outputs:
+          candidate_path_edges:
+            set: candidate_path_edges
+
+      - if_empty: candidate_path_edges
+        then:
+          - run: local.query.empty_path_edges
+            inputs: {}
+            outputs:
+              selected_path_edges:
+                set: selected_path_edges
+                append: path_edges
+
+          - run: local.query.empty_anchor_rows
+            inputs: {}
+            outputs:
+              anchor_rows:
+                set: anchor_rows
+
+          - run: local.query.empty_path_steps
+            inputs: {}
+            outputs:
+              path_steps:
+                set: path_step_rows
+                append: path_steps
+        else:
+          - run: common.query.select_best_path_edges
+            inputs:
+              candidate_path_edges: candidate_path_edges
+            outputs:
+              selected_path_edges:
+                set: selected_path_edges
+                append: path_edges
+
+          - run: common.query.derive_next_anchor_rows
+            inputs:
+              selected_path_edges: selected_path_edges
+              target_window: target_window
+              source_lookback_ns: source_lookback_ns
+            outputs:
+              anchor_rows:
+                set: anchor_rows
+
+          - run: local.query.path_steps_from_edges
+            inputs:
+              selected_path_edges: selected_path_edges
+            outputs:
+              path_steps:
+                set: path_step_rows
+                append: path_steps
+
+  - run: local.query.rank_critical_tasks
+    inputs:
+      path_steps: path_steps
+      max_task_count: max_task_count
+    outputs:
+      critical_tasks:
+        set: critical_tasks

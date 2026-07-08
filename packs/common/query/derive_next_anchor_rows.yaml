@@ -1,0 +1,56 @@
+kind: query
+description: Derive next iteration anchor rows from selected path edges.
+
+inputs:
+  required:
+    selected_path_edges: table
+    target_window: table
+    source_lookback_ns: integer
+  optional: {}
+  defaults: {}
+
+outputs:
+  anchor_rows: table
+
+sql: |
+  SELECT
+    s.path_id,
+    s.iteration + 1 AS iteration,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'wakeup_source_thread'
+      ELSE 'callstack_span'
+    END AS anchor_kind,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_itid
+      ELSE s.from_itid
+    END AS itid,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_tid
+      ELSE s.from_tid
+    END AS tid,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN s.wakeup_from_thread_name
+      ELSE s.from_thread_name
+    END AS thread_name,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency'
+        THEN CASE
+          WHEN s.edge_start_ts - CAST('{{inputs.source_lookback_ns}}' AS BIGINT) > w.window_start_ts
+            THEN s.edge_start_ts - CAST('{{inputs.source_lookback_ns}}' AS BIGINT)
+          ELSE w.window_start_ts
+        END
+      ELSE s.edge_start_ts
+    END AS interval_start_ts,
+    s.edge_end_ts AS interval_end_ts,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN CAST(NULL AS BIGINT)
+      ELSE s.callstack_row_id
+    END AS current_callstack_id,
+    s.edge_row_id AS source_edge_row_id,
+    CASE
+      WHEN s.edge_kind = 'wakeup_dependency' THEN 'follow_wakeup_source'
+      ELSE 'drill_down_callstack_span'
+    END AS reason_code
+  FROM selected_path_edges s
+  CROSS JOIN target_window w
+  WHERE s.edge_end_ts > s.edge_start_ts;

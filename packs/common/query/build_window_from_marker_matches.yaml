@@ -1,0 +1,47 @@
+kind: query
+description: Build a target window table from matched start and end markers.
+
+inputs:
+  required:
+    target_thread: table
+    window_start_marker_matches: table
+    window_end_marker_matches: table
+  optional: {}
+  defaults: {}
+
+outputs:
+  target_window: table
+
+sql: |
+  WITH marker_ctx AS (
+    SELECT
+      t.itid,
+      t.tid,
+      t.thread_name,
+      s.source_row_id AS window_start_callstack_id,
+      s.ts AS window_start_ts,
+      s.dur AS window_start_dur,
+      s.name AS window_start_marker_name,
+      e.source_row_id AS window_end_callstack_id,
+      e.ts AS window_end_ts,
+      e.dur AS window_end_dur,
+      e.name AS window_end_marker_name
+    FROM target_thread t
+    CROSS JOIN window_start_marker_matches s
+    CROSS JOIN window_end_marker_matches e
+  )
+  SELECT
+    itid,
+    tid,
+    thread_name,
+    window_start_callstack_id,
+    window_start_ts,
+    window_start_dur,
+    window_start_marker_name,
+    window_end_callstack_id,
+    window_end_ts,
+    window_end_dur,
+    window_end_marker_name,
+    window_end_ts - window_start_ts AS window_dur
+  FROM marker_ctx
+  WHERE window_end_ts >= window_start_ts;

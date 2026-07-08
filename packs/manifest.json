@@ -1,0 +1,101 @@
+{
+  "$schema": "./manifest.schema.json",
+  "schema_version": 1,
+  "kind": "kat-rs.pack_manifest",
+  "release_policy": {
+    "versioned_with_release": true,
+    "immutable_after_release": true,
+    "change_rule": "Once this file is included in a kat-rs release, do not mutate it in place. Publish a new manifest version instead."
+  },
+  "packs": {
+    "scheduling": {
+      "description": "Thread scheduling, wakeup-chain, and execution latency analysis packs.",
+      "analysis_packs": [
+        {
+          "name": "critical-task-extraction",
+          "description": "Extract ranked task-level latency contributors from an app launch thread window.",
+          "inputs": [
+            "process name regex",
+            "start marker regex",
+            "end marker regex"
+          ],
+          "outputs": [
+            "target thread window",
+            "critical path steps",
+            "ranked critical tasks",
+            "structured evidence"
+          ]
+        }
+      ]
+    },
+    "memory": {
+      "description": "Memory allocation, pressure, leak, and reclaim analysis packs.",
+      "path": "memory/",
+      "analysis_packs": []
+    },
+    "storage": {
+      "description": "Storage, file system, I/O, and persistence latency analysis packs.",
+      "path": "storage/",
+      "analysis_packs": []
+    },
+    "common": {
+      "description": "Shared capability resources available when authoring or extending packs.",
+      "path": "common/",
+      "resources": {
+        "flows": [
+          {
+            "name": "locate_thread_by_process",
+            "description": "Select a subject thread from a process name pattern."
+          },
+          {
+            "name": "locate_window_by_markers",
+            "description": "Build a target thread window from start and end marker patterns."
+          }
+        ],
+        "query": [
+          {
+            "name": "process_by_name_regex",
+            "description": "Match process rows by process name regex."
+          },
+          {
+            "name": "window_start_marker_by_thread",
+            "description": "Match the first window start marker on the subject thread."
+          }
+        ],
+        "summaries": []
+      }
+    }
+  },
+  "operators": {
+    "capabilities": [
+      {
+        "name": "query",
+        "description": "Run deterministic relational transforms, including bounded regex candidate matching."
+      },
+      {
+        "name": "summaries",
+        "description": "Extract structured evidence from run-local artifacts."
+      }
+    ],
+    "controls": [
+      {
+        "name": "if_empty",
+        "description": "Choose a static branch by checking whether a named run-local table is empty."
+      },
+      {
+        "name": "repeat_until",
+        "description": "Repeat a static body until explicit termination conditions are satisfied."
+      }
+    ]
+  },
+  "tables": [
+    {
+      "name": "process",
+      "description": "Process facts decoded from captured system events."
+    },
+    {
+      "name": "thread",
+      "description": "Thread identity and process relationship facts."
+    }
+  ]
+}

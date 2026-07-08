@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kat-rs.local/schemas/pack-manifest.schema.json",
+  "title": "kat-rs pack manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "kind",
+    "release_policy",
+    "packs",
+    "operators",
+    "tables"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "kind": {
+      "type": "string",
+      "const": "kat-rs.pack_manifest"
+    },
+    "release_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "versioned_with_release",
+        "immutable_after_release",
+        "change_rule"
+      ],
+      "properties": {
+        "versioned_with_release": {
+          "type": "boolean",
+          "const": true
+        },
+        "immutable_after_release": {
+          "type": "boolean",
+          "const": true
+        },
+        "change_rule": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "packs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheduling",
+        "memory",
+        "storage",
+        "common"
+      ],
+      "properties": {
+        "scheduling": {
+          "$ref": "#/$defs/domainCatalog"
+        },
+        "memory": {
+          "$ref": "#/$defs/domainCatalog"
+        },
+        "storage": {
+          "$ref": "#/$defs/domainCatalog"
+        },
+        "common": {
+          "$ref": "#/$defs/commonCatalog"
+        }
+      }
+    },
+    "operators": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities",
+        "controls"
+      ],
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/catalogEntryList"
+        },
+        "controls": {
+          "$ref": "#/$defs/catalogEntryList"
+        }
+      }
+    },
+    "tables": {
+      "$ref": "#/$defs/catalogEntryList"
+    }
+  },
+  "$defs": {
+    "domainCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "analysis_packs"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[^/]+/$"
+        },
+        "analysis_packs": {
+          "$ref": "#/$defs/analysisPackList"
+        }
+      }
+    },
+    "analysisPackList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/analysisPackEntry"
+      },
+      "uniqueItems": true
+    },
+    "analysisPackEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "$ref": "#/$defs/stringList"
+        },
+        "outputs": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "commonCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "path",
+        "resources"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "const": "common/"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "flows",
+            "query",
+            "summaries"
+          ],
+          "properties": {
+            "flows": {
+              "$ref": "#/$defs/catalogEntryList"
+            },
+            "query": {
+              "$ref": "#/$defs/catalogEntryList"
+            },
+            "summaries": {
+              "$ref": "#/$defs/catalogEntryList"
+            }
+          }
+        }
+      }
+    },
+    "catalogEntryList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/catalogEntry"
+      },
+      "uniqueItems": true
+    },
+    "catalogEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+$"
+    },
+    "stringList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

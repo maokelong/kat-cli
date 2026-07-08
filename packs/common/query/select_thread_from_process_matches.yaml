@@ -1,0 +1,31 @@
+kind: query
+description: Select the target thread from process match rows.
+
+inputs:
+  required:
+    process_matches: table
+    require_main_thread: boolean
+  optional: {}
+  defaults: {}
+
+outputs:
+  target_thread: table
+
+sql: |
+  SELECT
+    p.source_row_id AS process_row_id,
+    p.ipid,
+    p.pid,
+    p.name AS process_name,
+    t.id AS thread_row_id,
+    t.itid,
+    t.tid,
+    t.name AS thread_name,
+    t.is_main_thread
+  FROM process_matches p
+  JOIN thread t
+    ON t.ipid = p.ipid
+  WHERE ('{{inputs.require_main_thread}}' <> 'true'
+      OR t.is_main_thread = 1)
+  ORDER BY t.is_main_thread DESC, t.itid ASC
+  LIMIT 1;

@@ -1,0 +1,83 @@
+kind: flow
+description: Extract ranked task-level latency contributors from an app launch thread window.
+
+inputs:
+  required:
+    process_name_pattern: string
+    start_marker_pattern: string
+    end_marker_pattern: string
+  optional:
+    require_main_thread: boolean
+    max_iterations: integer
+    min_edge_duration_ns: integer
+    source_lookback_ns: integer
+    max_task_count: integer
+  defaults:
+    require_main_thread: true
+    max_iterations: 8
+    min_edge_duration_ns: 1000000
+    source_lookback_ns: 5000000
+    max_task_count: 12
+
+outputs:
+  target_window: table
+  path_steps: table
+  critical_tasks: table
+  critical_task_evidence: evidence
+
+steps:
+  - run: common.flows.locate_thread_by_process
+    inputs:
+      process_name_pattern: process_name_pattern
+      require_main_thread: require_main_thread
+    outputs:
+      target_thread:
+        set: target_thread
+
+  - run: common.flows.locate_window_by_markers
+    inputs:
+      target_thread: target_thread
+      start_marker_pattern: start_marker_pattern
+      end_marker_pattern: end_marker_pattern
+    outputs:
+      target_window:
+        set: target_window
+
+  - run: local.flows.extract_critical_tasks_in_window
+    inputs:
+      target_thread: target_thread
+      target_window: target_window
+      max_iterations: max_iterations
+      min_edge_duration_ns: min_edge_duration_ns
+      source_lookback_ns: source_lookback_ns
+      max_task_count: max_task_count
+    outputs:
+      path_edges:
+        set: path_edges
+      path_steps:
+        set: path_steps
+      critical_tasks:
+        set: critical_tasks
+
+  - run: local.summaries.critical_task_evidence
+    inputs:
+      target_thread: target_thread
+      target_window: target_window
+      path_edges: path_edges
+      path_steps: path_steps
+      critical_tasks: critical_tasks
+    outputs:
+      critical_task_evidence:
+        set: critical_task_evidence
+
+examples:
+  - run: critical-task-extraction
+    inputs:
+      process_name_pattern: '(^|\.)tencent\.wechat$|^com\.tencent\.wechat$'
+      start_marker_pattern: 'HandleLaunchAbility.*com\.tencent\.wechat'
+      end_marker_pattern: 'UIVsyncTask.*firstDrawFrame\s*[:=]\s*1'
+    outputs:
+      target_window: table
+      path_steps: table
+      critical_tasks: table
+      critical_task_evidence: evidence

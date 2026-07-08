@@ -1,0 +1,26 @@
+kind: query
+description: Find the first start marker callstack row on the target thread.
+
+inputs:
+  required:
+    target_thread: table
+    start_marker_pattern: string
+  optional: {}
+  defaults: {}
+
+outputs:
+  window_start_marker_matches: table
+
+sql: |
+  SELECT
+    c.id AS source_row_id,
+    c.ts,
+    c.dur,
+    c.name
+  FROM callstack c
+  CROSS JOIN target_thread t
+  WHERE c.callid = t.itid
+    AND c.name IS NOT NULL
+    AND regexp_match(c.name, '{{inputs.start_marker_pattern}}') IS NOT NULL
+  ORDER BY c.ts ASC, c.id ASC
+  LIMIT 1;

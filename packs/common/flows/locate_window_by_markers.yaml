@@ -1,0 +1,39 @@
+kind: flow
+description: Build the target thread window from start and end marker matches.
+
+inputs:
+  required:
+    target_thread: table
+    start_marker_pattern: string
+    end_marker_pattern: string
+  optional: {}
+  defaults: {}
+
+outputs:
+  target_window: table
+
+steps:
+  - run: common.query.window_start_marker_by_thread
+    inputs:
+      target_thread: target_thread
+      start_marker_pattern: start_marker_pattern
+    outputs:
+      window_start_marker_matches:
+        set: window_start_marker_matches
+
+  - run: common.query.window_end_marker_by_thread
+    inputs:
+      target_thread: target_thread
+      end_marker_pattern: end_marker_pattern
+    outputs:
+      window_end_marker_matches:
+        set: window_end_marker_matches
+
+  - run: common.query.build_window_from_marker_matches
+    inputs:
+      target_thread: target_thread
+      window_start_marker_matches: window_start_marker_matches
+      window_end_marker_matches: window_end_marker_matches
+    outputs:
+      target_window:
+        set: target_window

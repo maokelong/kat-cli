@@ -1,0 +1,91 @@
+kind: query
+description: Rank critical task candidates from path step rows.
+
+inputs:
+  required:
+    path_steps: table
+    max_task_count: integer
+  optional: {}
+  defaults: {}
+
+outputs:
+  critical_tasks: table
+
+sql: |
+  WITH scored AS (
+    SELECT
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN 'wakeup_source'
+        ELSE 'work'
+      END AS task_type,
+      edge_start_ts AS start_ts,
+      edge_end_ts AS end_ts,
+      critical_cost_ns AS duration_ns,
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN to_itid
+        ELSE from_itid
+      END AS itid,
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN to_tid
+        ELSE from_tid
+      END AS tid,
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN to_thread_name
+        ELSE from_thread_name
+      END AS thread_name,
+      evidence_name AS label,
+      purpose_code AS reason_code,
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN
+          'thread_state:' || CAST(wait_state_row_id AS TEXT)
+            || ';instant:' || CAST(wakeup_row_id AS TEXT)
+        WHEN callstack_row_id IS NOT NULL THEN
+          'callstack:' || CAST(callstack_row_id AS TEXT)
+        ELSE
+          'path_step:' || CAST(iteration AS TEXT)
+      END AS raw_refs,
+      CASE
+        WHEN edge_kind = 'wakeup_dependency' THEN critical_cost_ns + 3000000000
+        ELSE critical_cost_ns + 1000000000
+      END AS score
+    FROM path_steps
+  ),
+  ranked AS (
+    SELECT
+      ROW_NUMBER() OVER (
+        ORDER BY
+          score DESC,
+          duration_ns DESC,
+          start_ts ASC,
+          task_type ASC,
+          label ASC
+      ) AS rank,
+      task_type,
+      start_ts,
+      end_ts,
+      duration_ns,
+      itid,
+      tid,
+      thread_name,
+      label,
+      reason_code,
+      score,
+      raw_refs
+    FROM scored
+  )
+  SELECT
+    rank,
+    task_type,
+    start_ts,
+    end_ts,
+    duration_ns,
+    itid,
+    tid,
+    thread_name,
+    label,
+    reason_code,
+    score,
+    raw_refs
+  FROM ranked
+  WHERE rank <= CAST('{{inputs.max_task_count}}' AS BIGINT)
+  ORDER BY rank ASC;

@@ -1,0 +1,28 @@
+kind: query
+description: Create initial anchor rows from the target thread and window.
+
+inputs:
+  required:
+    target_thread: table
+    target_window: table
+  optional: {}
+  defaults: {}
+
+outputs:
+  anchor_rows: table
+
+sql: |
+  SELECT
+    1 AS path_id,
+    0 AS iteration,
+    'thread_window' AS anchor_kind,
+    t.itid,
+    t.tid,
+    t.thread_name,
+    w.window_start_ts AS interval_start_ts,
+    w.window_end_ts AS interval_end_ts,
+    CAST(NULL AS BIGINT) AS current_callstack_id,
+    CAST(NULL AS BIGINT) AS source_edge_row_id,
+    'initial_subject_window' AS reason_code
+  FROM target_thread t
+  CROSS JOIN target_window w;

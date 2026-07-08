@@ -1,0 +1,32 @@
+kind: query
+description: Return an empty path step table with the expected schema.
+
+inputs:
+  required: {}
+  optional: {}
+  defaults: {}
+
+outputs:
+  path_steps: table
+
+sql: |
+  SELECT
+    CAST(NULL AS BIGINT) AS path_id,
+    CAST(NULL AS BIGINT) AS iteration,
+    CAST(NULL AS TEXT) AS edge_kind,
+    CAST(NULL AS BIGINT) AS edge_start_ts,
+    CAST(NULL AS BIGINT) AS edge_end_ts,
+    CAST(NULL AS BIGINT) AS critical_cost_ns,
+    CAST(NULL AS BIGINT) AS from_itid,
+    CAST(NULL AS BIGINT) AS from_tid,
+    CAST(NULL AS TEXT) AS from_thread_name,
+    CAST(NULL AS BIGINT) AS to_itid,
+    CAST(NULL AS BIGINT) AS to_tid,
+    CAST(NULL AS TEXT) AS to_thread_name,
+    CAST(NULL AS BIGINT) AS callstack_row_id,
+    CAST(NULL AS BIGINT) AS wait_state_row_id,
+    CAST(NULL AS BIGINT) AS wakeup_row_id,
+    CAST(NULL AS TEXT) AS evidence_name,
+    CAST(NULL AS TEXT) AS purpose_code,
+    CAST(NULL AS TEXT) AS purpose_hint
+  WHERE 1 = 0;

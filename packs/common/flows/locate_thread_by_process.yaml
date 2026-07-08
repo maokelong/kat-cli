@@ -1,0 +1,29 @@
+kind: flow
+description: Locate the target thread from process name matches.
+
+inputs:
+  required:
+    process_name_pattern: string
+  optional:
+    require_main_thread: boolean
+  defaults:
+    require_main_thread: true
+
+outputs:
+  target_thread: table
+
+steps:
+  - run: common.query.process_by_name_regex
+    inputs:
+      process_name_pattern: process_name_pattern
+    outputs:
+      process_matches:
+        set: process_matches
+
+  - run: common.query.select_thread_from_process_matches
+    inputs:
+      process_matches: process_matches
+      require_main_thread: require_main_thread
+    outputs:
+      target_thread:
+        set: target_thread
