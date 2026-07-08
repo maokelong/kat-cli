@@ -1,0 +1,4 @@
+{
+  "name": "critical-path",
+  "description": "Generic thread critical-path extraction workflows for trusted local kat-rs analysis."
+}
