@@ -553,6 +553,63 @@ async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sour
 }
 
 #[tokio::test]
+async fn dataset_create_materializes_sqlite_fixture_and_can_query_without_source() {
+    let fixture = SqliteFixture::new();
+    let datasets_dir = tempdir().expect("datasets tempdir is created");
+    let datasets_root = datasets_dir.path().join("datasets");
+    let dataset_name = "sqlite-fixture";
+    let dataset_path = datasets_root.join(dataset_name);
+    let app = kat_rs_daemon::router(kat_rs_daemon::AppState::new_for_tests());
+
+    let create = request_json(
+        app.clone(),
+        "POST",
+        "/v1/datasets",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "input": {
+                "source": "SQLITE",
+                "file": fixture.path(),
+            }
+        })),
+    )
+    .await;
+    assert_eq!(create.status, StatusCode::CREATED, "{:?}", create.body);
+
+    fs::remove_file(fixture.path_buf()).expect("sqlite source is removed");
+
+    let query = request_json(
+        app,
+        "POST",
+        "/v1/datasets/queries",
+        Some(json!({
+            "dataset": {
+                "name": dataset_name,
+                "directory": datasets_root.to_string_lossy(),
+            },
+            "sql": "select id, name from thread_names order by id"
+        })),
+    )
+    .await;
+
+    assert_eq!(query.status, StatusCode::OK, "{:?}", query.body);
+    assert_eq!(
+        query.body["meta"]["dataset"]["path"],
+        dataset_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        query.body["data"],
+        json!([
+            { "id": 1, "name": "main" },
+            { "id": 2, "name": "worker" }
+        ])
+    );
+}
+
+#[tokio::test]
 async fn dataset_query_reads_materialized_dataset_without_sources() {
     let fixture = LangfuseFixture::new();
     let datasets_dir = tempdir().expect("datasets tempdir is created");
@@ -1052,6 +1109,37 @@ fn assert_bad_request_envelope(response: JsonResponse) {
         response.body
     );
     assert!(response.body["error"]["details"].is_null());
+}
+
+struct SqliteFixture {
+    _dir: TempDir,
+    path: PathBuf,
+}
+
+impl SqliteFixture {
+    fn new() -> Self {
+        let dir = tempdir().expect("sqlite fixture tempdir is created");
+        let path = dir.path().join("trace.db");
+        let conn = rusqlite::Connection::open(&path).expect("sqlite opens");
+        conn.execute_batch(
+            "
+            create table thread(id int, name text);
+            insert into thread values (1, 'main');
+            insert into thread values (2, 'worker');
+            create view thread_names as select id, name from thread;
+            ",
+        )
+        .expect("sqlite fixture is created");
+        Self { _dir: dir, path }
+    }
+
+    fn path(&self) -> String {
+        self.path.to_string_lossy().into_owned()
+    }
+
+    fn path_buf(&self) -> &Path {
+        &self.path
+    }
 }
 
 struct LangfuseFixture {

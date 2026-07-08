@@ -17,6 +17,7 @@ log.workspace = true
 memmap2.workspace = true
 parquet.workspace = true
 prost.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_arrow.workspace = true
 serde_bytes.workspace = true

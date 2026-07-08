@@ -277,6 +277,72 @@ async fn hitrace_dataset_queries_after_source_file_is_removed() {
 }
 
 #[tokio::test]
+async fn sqlite_dataset_materializes_tables_and_views_to_queryable_catalog() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("trace.db");
+    let dataset_path = dir.path().join("dataset");
+    create_sqlite_fixture(&sqlite_path);
+
+    kat_rs_datasource::materialize_sqlite_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json("select id, name from thread_names order by id")
+        .await
+        .expect("view query works");
+
+    assert_eq!(
+        rows,
+        json!([
+            { "id": 1, "name": "main" },
+            { "id": 2, "name": "worker" }
+        ])
+    );
+
+    let catalog: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dataset_path.join("catalog.json")).expect("catalog is read"),
+    )
+    .expect("catalog parses");
+    assert_eq!(catalog["tables"][0]["kind"], "source");
+}
+
+#[tokio::test]
+async fn sqlite_dataset_materializes_untyped_view_scalar_values_as_strings() {
+    let dir = tempdir().expect("tempdir");
+    let sqlite_path = dir.path().join("trace.db");
+    let dataset_path = dir.path().join("dataset");
+    let conn = rusqlite::Connection::open(&sqlite_path).expect("sqlite opens");
+    conn.execute_batch(
+        "
+        create table source(id int, name text);
+        insert into source values (1, 'main');
+        insert into source values (2, 'worker');
+        create view dynamic_values as
+            select case when id = 1 then name else id end as value from source;
+        ",
+    )
+    .expect("fixture schema is created");
+
+    kat_rs_datasource::materialize_sqlite_dataset(&sqlite_path, &dataset_path)
+        .await
+        .expect("sqlite dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+    let rows = datasource
+        .query_json("select value from dynamic_values order by value")
+        .await
+        .expect("dynamic view query works");
+
+    assert_eq!(rows, json!([{ "value": "2" }, { "value": "main" }]));
+}
+
+#[tokio::test]
 async fn materialized_catalog_records_source_table_kind() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
@@ -826,6 +892,19 @@ fn write_jsonl_gz(path: &Path, lines: &[&str]) {
     }
 
     encoder.finish().expect("gzip stream is finished");
+}
+
+fn create_sqlite_fixture(path: &Path) {
+    let conn = rusqlite::Connection::open(path).expect("sqlite opens");
+    conn.execute_batch(
+        "
+        create table thread(id int, name text, cpu real, payload blob);
+        insert into thread values (1, 'main', 1.5, x'0102');
+        insert into thread values (2, 'worker', 2.5, null);
+        create view thread_names as select id, name from thread;
+        ",
+    )
+    .expect("fixture schema is created");
 }
 
 fn derived_thread_batch() -> RecordBatch {

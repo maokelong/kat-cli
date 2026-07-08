@@ -7,7 +7,7 @@ use std::{
 
 use kat_rs_datasource::{
     DatasetLocator, DatasetStore, TraceDatasource, inspect_dataset_tables,
-    materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
+    materialize_hitrace_dataset, materialize_langfuse_legacy_dataset, materialize_sqlite_dataset,
 };
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
@@ -140,6 +140,9 @@ enum DatasetLoad {
         observations_path: PathBuf,
         traces_path: PathBuf,
     },
+    Sqlite {
+        path: PathBuf,
+    },
 }
 
 struct ResolvedDataset {
@@ -263,6 +266,11 @@ fn dataset_load(input: DatasetSourceInput) -> Result<DatasetLoad, ApiError> {
                 traces_path: traces.path,
             })
         }
+        DatasetSourceInput::Sqlite { file } => {
+            let input = resolve_input(InputRole::File, file)?;
+
+            Ok(DatasetLoad::Sqlite { path: input.path })
+        }
     }
 }
 
@@ -275,6 +283,7 @@ async fn materialize_dataset(load: DatasetLoad, dataset_path: &Path) -> Result<(
         } => {
             materialize_langfuse_legacy_dataset(observations_path, traces_path, dataset_path).await
         }
+        DatasetLoad::Sqlite { path } => materialize_sqlite_dataset(path, dataset_path).await,
     };
 
     result.map_err(|error| map_materialize_error(error, dataset_path))

@@ -70,7 +70,7 @@ ORDER BY itid ASC, ts ASC, id ASC
 
 WAKEUP_SQL = """
 SELECT
-  rowid AS id,
+  CAST(NULL AS BIGINT) AS id,
   ts,
   ref AS target_itid,
   wakeup_from AS waker_itid,
@@ -81,7 +81,7 @@ WHERE name IN ('sched_wakeup', 'sched_wakeup_new', 'sched_waking')
   AND wakeup_from IS NOT NULL
   AND ts >= :start_ts
   AND ts <= :end_ts
-ORDER BY ts ASC, rowid ASC
+ORDER BY ts ASC
 """
 
 

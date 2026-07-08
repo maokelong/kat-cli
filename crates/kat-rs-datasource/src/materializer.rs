@@ -1,4 +1,7 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Component, Path},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use arrow_array::{Array, ArrayRef, RecordBatch, StructArray, builder::LargeStringBuilder};
@@ -12,12 +15,13 @@ use futures::StreamExt;
 use crate::{
     arrow_table::ArrowTable,
     dataset::{DatasetTableWriter, DatasetWriter},
-    formats::{hitrace, langfuse},
+    formats::{hitrace, langfuse, sqlite},
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
 
 const HITRACE_DATASET_FLUSH_RECORDS: usize = 64 * 1024;
+const SQLITE_DATASET_BATCH_ROWS: usize = 8192;
 
 pub async fn materialize_hitrace_dataset(
     path: impl AsRef<Path>,
@@ -55,6 +59,23 @@ pub async fn materialize_langfuse_legacy_dataset(
     writer.finish().await
 }
 
+pub async fn materialize_sqlite_dataset(
+    path: impl AsRef<Path>,
+    dataset_path: impl AsRef<Path>,
+) -> Result<()> {
+    let path = path.as_ref();
+    let dataset_path = dataset_path.as_ref();
+
+    let mut writer = DatasetWriter::create(dataset_path)?;
+    write_sqlite_tables(&mut writer, path).with_context(|| {
+        format!(
+            "failed to write SQLite dataset tables: {}",
+            dataset_path.display()
+        )
+    })?;
+    writer.finish().await
+}
+
 async fn write_langfuse_tables(
     writer: &mut DatasetWriter,
     observations_path: &Path,
@@ -65,6 +86,32 @@ async fn write_langfuse_tables(
     }
 
     Ok(())
+}
+
+fn write_sqlite_tables(writer: &mut DatasetWriter, path: &Path) -> Result<()> {
+    let conn = sqlite::open(path)?;
+
+    for object in sqlite::objects(&conn)? {
+        let parquet_file_name = sqlite_parquet_file_name(&object.name)?;
+        let mut table_writer =
+            writer.start_table(&object.name, &parquet_file_name, sqlite::schema(&object)?)?;
+        sqlite::stream_object(&conn, &object, &mut table_writer, SQLITE_DATASET_BATCH_ROWS)?;
+        writer.add_table(table_writer.finish()?);
+    }
+
+    Ok(())
+}
+
+fn sqlite_parquet_file_name(object_name: &str) -> Result<String> {
+    let file_name = format!("sqlite.{object_name}.parquet");
+    let path = Path::new(&file_name);
+    if !matches!(path.components().next(), Some(Component::Normal(_)))
+        || path.components().count() != 1
+    {
+        bail!("SQLite object name must be a single path component: {object_name}");
+    }
+
+    Ok(file_name)
 }
 
 struct HitraceDatasetSink {

@@ -97,6 +97,12 @@ class CriticalPathEngineTests(unittest.TestCase):
 
         self.assertIn("cycle_detected", [item.code for item in result.uncertainties])
 
+    def test_wakeup_sql_does_not_depend_on_sqlite_rowid(self) -> None:
+        from lib.facts import WAKEUP_SQL
+
+        self.assertNotIn("rowid", WAKEUP_SQL.lower())
+        self.assertIn("CAST(NULL AS BIGINT) AS id", WAKEUP_SQL)
+
 
 if __name__ == "__main__":
     unittest.main()
