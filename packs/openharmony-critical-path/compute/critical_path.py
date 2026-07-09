@@ -40,6 +40,7 @@ def critical_path(
            and instant.ref_type = 'itid'
            and instant.name like 'sched_wakeup%'
            and instant.ts between state.ts and state.ts + state.dur
+           and instant.ts between frontier.window_start and frontier.window_end
            and instant.wakeup_from is not null
           where frontier.depth < :max_depth
             and state.state in ('S', 'D')

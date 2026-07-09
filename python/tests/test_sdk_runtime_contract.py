@@ -248,6 +248,8 @@ def test_critical_path_clips_segments_and_keeps_edges_consistent(tmp_path):
         select cast(2 as bigint) as itid, cast(100000 as bigint) as ts, cast(300000 as bigint) as dur, cast('Running' as varchar) as state
         union all
         select cast(3 as bigint) as itid, cast(799950 as bigint) as ts, cast(400000 as bigint) as dur, cast('Running' as varchar) as state
+        union all
+        select cast(4 as bigint) as itid, cast(900000 as bigint) as ts, cast(300000 as bigint) as dur, cast('Running' as varchar) as state
         """
     ).write_parquet(str(tables_path / "thread_state.parquet"))
     ctx.sql(
@@ -255,6 +257,8 @@ def test_critical_path_clips_segments_and_keeps_edges_consistent(tmp_path):
         select cast(1 as bigint) as ref, cast('itid' as varchar) as ref_type, cast('sched_wakeup' as varchar) as name, cast(500000 as bigint) as ts, cast(2 as bigint) as wakeup_from
         union all
         select cast(1 as bigint) as ref, cast('itid' as varchar) as ref_type, cast('sched_wakeup' as varchar) as name, cast(800000 as bigint) as ts, cast(3 as bigint) as wakeup_from
+        union all
+        select cast(1 as bigint) as ref, cast('itid' as varchar) as ref_type, cast('sched_wakeup' as varchar) as name, cast(1050000 as bigint) as ts, cast(4 as bigint) as wakeup_from
         """
     ).write_parquet(str(tables_path / "instant.parquet"))
     ctx.sql(
@@ -264,6 +268,8 @@ def test_critical_path_clips_segments_and_keeps_edges_consistent(tmp_path):
         select cast(2 as bigint) as itid, cast(20 as bigint) as tid, cast('udk-irq' as varchar) as name, cast(200 as bigint) as ipid
         union all
         select cast(3 as bigint) as itid, cast(30 as bigint) as tid, cast('short-waker' as varchar) as name, cast(300 as bigint) as ipid
+        union all
+        select cast(4 as bigint) as itid, cast(40 as bigint) as tid, cast('late-waker' as varchar) as name, cast(400 as bigint) as ipid
         """
     ).write_parquet(str(tables_path / "thread.parquet"))
     ctx.sql(
@@ -273,6 +279,8 @@ def test_critical_path_clips_segments_and_keeps_edges_consistent(tmp_path):
         select cast(200 as bigint) as ipid, cast(2000 as bigint) as pid, cast('irq-process' as varchar) as name
         union all
         select cast(300 as bigint) as ipid, cast(3000 as bigint) as pid, cast('short-process' as varchar) as name
+        union all
+        select cast(400 as bigint) as ipid, cast(4000 as bigint) as pid, cast('late-process' as varchar) as name
         """
     ).write_parquet(str(tables_path / "process.parquet"))
     ctx.sql(
