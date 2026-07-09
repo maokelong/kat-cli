@@ -203,7 +203,6 @@ impl ColumnBuilder {
             ColumnBuilder::Int64(builder) => match value {
                 ValueRef::Null => builder.append_null(),
                 ValueRef::Integer(value) => builder.append_value(value),
-                ValueRef::Real(value) => builder.append_value(value as i64),
                 other => bail!("expected integer-compatible SQLite value, got {other:?}"),
             },
             ColumnBuilder::Float64(builder) => match value {

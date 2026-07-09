@@ -14,7 +14,10 @@ async fn sqlite_dataset_rejects_missing_source_database_without_creating_it() {
     assert!(!db_path.exists(), "source db should start missing");
 
     let result = materialize_sqlite_dataset(&db_path, &dataset_path).await;
-    assert!(result.is_err(), "missing source db should fail materialization");
+    assert!(
+        result.is_err(),
+        "missing source db should fail materialization"
+    );
     assert!(
         !db_path.exists(),
         "materialization must not create the missing source db"
@@ -124,6 +127,30 @@ async fn sqlite_dataset_preserves_null_real_text_and_blob_values() {
             "payload": "0102ff",
             "missing": null
         }])
+    );
+}
+
+#[tokio::test]
+async fn sqlite_dataset_rejects_real_values_in_integer_columns() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("types.db");
+    let connection = Connection::open(&db_path).expect("sqlite opens");
+    connection
+        .execute("create table sample_types(id integer)", [])
+        .expect("table created");
+    connection
+        .execute("insert into sample_types values (?1)", params![1.5_f64])
+        .expect("row inserted");
+    drop(connection);
+
+    let dataset_path = dir.path().join("dataset");
+    let error = materialize_sqlite_dataset(&db_path, &dataset_path)
+        .await
+        .expect_err("real value in integer column is rejected");
+
+    assert!(
+        format!("{error:#}").contains("sample_types.id"),
+        "{error:#}"
     );
 }
 

@@ -125,6 +125,50 @@ from defs import shared_workflow
     assert manifest["workflows"][0]["name"] == "shared_workflow"
 
 
+def test_discovery_worker_supports_pack_relative_imports(tmp_path):
+    pack_root = tmp_path / "sample_pack"
+    pack_root.mkdir()
+    (pack_root / "__init__.py").write_text("", encoding="utf-8")
+    (pack_root / "defs.py").write_text(
+        """
+def default_root_itid():
+    return 405
+""",
+        encoding="utf-8",
+    )
+    (pack_root / "pack.py").write_text(
+        """
+from kat import workflow
+from .defs import default_root_itid
+
+
+@workflow(title="Relative", description="Uses a relative import")
+def relative_workflow(kat, root_itid: int = default_root_itid()):
+    return {}
+""",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "kat_runtime.worker.discovery",
+            "--pack-root",
+            str(pack_root),
+        ],
+        env=worker_env(),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    manifest = json.loads(result.stdout)
+
+    assert [item["name"] for item in manifest["workflows"]] == ["relative_workflow"]
+    assert "root_itid" in manifest["workflows"][0]["signature"]
+    assert "= 405" in manifest["workflows"][0]["signature"]
+
+
 def test_sql_binding_replaces_overlapping_parameters_atomically():
     sys.path.insert(0, str(SDK_ROOT))
     from kat.context import _bind_sql_params
@@ -287,6 +331,8 @@ def test_critical_path_clips_segments_and_keeps_edges_consistent(tmp_path):
         """
         select cast(1 as bigint) as callid, cast(0 as bigint) as ts, cast(1000000 as bigint) as dur, cast('root-stack' as varchar) as name
         union all
+        select cast(1 as bigint) as callid, cast(10000 as bigint) as ts, cast(100000 as bigint) as dur, cast('root-stack-short' as varchar) as name
+        union all
         select cast(2 as bigint) as callid, cast(100000 as bigint) as ts, cast(300000 as bigint) as dur, cast('irq-stack' as varchar) as name
         """
     ).write_parquet(str(tables_path / "callstack.parquet"))
@@ -360,11 +406,12 @@ def critical_path_fixture(kat):
     nodes = _read_parquet(run_dir / "artifacts" / "path_nodes.parquet")
     edges = _read_parquet(run_dir / "artifacts" / "path_edges.parquet")
 
-    assert set(nodes["itid"]) == {1, 2}
+    assert nodes["itid"] == [1, 2]
     root_index = nodes["itid"].index(1)
     assert nodes["segment_start_ts"][root_index] == 0
     assert nodes["segment_end_ts"][root_index] == 1000000
     assert nodes["dur"][root_index] == 1000000
+    assert nodes["evidence"][root_index] == "root-stack"
 
     irq_index = nodes["itid"].index(2)
     assert nodes["thread_name"][irq_index] == "udk-irq"

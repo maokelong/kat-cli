@@ -173,6 +173,38 @@ async fn pack_run_reports_param_contract_errors() {
     );
 }
 
+#[tokio::test]
+async fn pack_run_rejects_dataset_internal_run_directory() {
+    let dir = tempdir().expect("tempdir");
+    let dataset = dir.path().join("dataset");
+    fs::create_dir_all(&dataset).expect("dataset dir created");
+    let run_dir = dataset.join("derived").join("run");
+    let cli = Cli::try_parse_from([
+        "kat-rs",
+        "pack",
+        "run",
+        "packs/demo",
+        "wf",
+        "--dataset",
+        dataset.to_str().expect("utf8 dataset path"),
+        "--run-dir",
+        run_dir.to_str().expect("utf8 run dir"),
+    ])
+    .expect("run args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = run(cli, &mut out, &mut err).await;
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        String::from_utf8(err)
+            .expect("utf8 stderr")
+            .contains("pack run directory must be outside dataset directory")
+    );
+}
+
 fn create_cli_sqlite_fixture(path: &Path) {
     let connection = Connection::open(path).expect("sqlite opens");
     connection

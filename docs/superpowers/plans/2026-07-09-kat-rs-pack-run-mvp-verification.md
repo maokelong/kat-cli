@@ -29,4 +29,4 @@ Get-Content (Join-Path $run "manifest.json")
 - Pack inspect: discovered `wechat_first_frame_critical_path` workflow and `critical_path` compute.
 - Pack run: `kat-rs pack run` completed with manifest `status: success`.
 - Artifacts: `artifacts/path_nodes.parquet` and `artifacts/path_edges.parquet` existed and were non-empty.
-- Artifact facts: `path_nodes` had `1802` rows and `path_edges` had `145` rows. `path_nodes` included `.tencent.wechat` / `itid=405`, `tid=15040` first-frame window critical-path nodes.
+- Artifact facts: `path_nodes` had `146` logical node rows and `path_edges` had `145` rows. Duplicate logical nodes by `(depth, itid, window_start, window_end)` were `0`. `path_nodes` included `.tencent.wechat` / `itid=405`, `tid=15040` first-frame window critical-path nodes.

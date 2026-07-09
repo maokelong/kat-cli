@@ -1,7 +1,9 @@
 use std::{
     collections::BTreeMap,
-    env, fs,
-    path::{Path, PathBuf},
+    env,
+    ffi::OsString,
+    fs,
+    path::{Component, Path, PathBuf},
     process::Command,
 };
 
@@ -59,6 +61,7 @@ pub fn run_discovery(pack_root: &Path) -> Result<String> {
 }
 
 pub fn run_pack(request: &PackRunRequest) -> Result<String> {
+    ensure_run_dir_outside_dataset(&request.dataset_path, &request.run_dir)?;
     fs::create_dir_all(&request.run_dir).with_context(|| {
         format!(
             "failed to create run directory {}",
@@ -92,22 +95,100 @@ fn base_python_command() -> Command {
     command
 }
 
-fn pythonpath() -> String {
+fn pythonpath() -> OsString {
     let root = env!("CARGO_MANIFEST_DIR");
     let repo_root = Path::new(root)
         .parent()
         .and_then(Path::parent)
         .expect("crate is under crates/kat-rs-cli");
     let separator = if cfg!(windows) { ";" } else { ":" };
-    format!(
-        "{}{}{}",
-        repo_root.join("python").join("kat-python-sdk").display(),
-        separator,
+    let mut entries = vec![
+        repo_root
+            .join("python")
+            .join("kat-python-sdk")
+            .into_os_string(),
         repo_root
             .join("python")
             .join("kat-python-runtime")
-            .display()
-    )
+            .into_os_string(),
+    ];
+    if let Some(existing) = env::var_os("PYTHONPATH")
+        && !existing.is_empty()
+    {
+        entries.push(existing);
+    }
+
+    let mut joined = OsString::new();
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index > 0 {
+            joined.push(separator);
+        }
+        joined.push(entry);
+    }
+    joined
+}
+
+fn ensure_run_dir_outside_dataset(dataset_path: &Path, run_dir: &Path) -> Result<()> {
+    let dataset_root = dunce::canonicalize(dataset_path).with_context(|| {
+        format!(
+            "failed to resolve dataset directory {}",
+            dataset_path.display()
+        )
+    })?;
+    let run_dir = normalized_absolute(run_dir)
+        .with_context(|| format!("failed to resolve run directory {}", run_dir.display()))?;
+
+    if is_same_or_child_path(&run_dir, &dataset_root) {
+        bail!(
+            "pack run directory must be outside dataset directory: {}",
+            run_dir.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn normalized_absolute(path: &Path) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()?.join(path)
+    };
+    Ok(normalize_components(absolute))
+}
+
+fn normalize_components(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(value) => normalized.push(value),
+            Component::RootDir | Component::Prefix(_) => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+#[cfg(windows)]
+fn is_same_or_child_path(path: &Path, root: &Path) -> bool {
+    let path = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    let root = root
+        .to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    path == root || path.starts_with(&format!("{root}\\"))
+}
+
+#[cfg(not(windows))]
+fn is_same_or_child_path(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
 }
 
 fn command_stdout(output: std::process::Output, label: &str) -> Result<String> {
@@ -126,7 +207,10 @@ fn command_stdout(output: std::process::Output, label: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use std::{
-        env, fs,
+        collections::BTreeMap,
+        env,
+        ffi::{OsStr, OsString},
+        fs,
         path::{Path, PathBuf},
         sync::Mutex,
     };
@@ -145,7 +229,8 @@ mod tests {
         let capture = dir.path().join("capture.json");
         let script = fake_python_script(dir.path(), "discovery");
 
-        set_python_env(&script);
+        let _python = EnvOverride::set("KAT_RS_PYTHON", script.as_os_str());
+        let _pythonpath = EnvOverride::set("PYTHONPATH", "existing-pythonpath");
         let stdout = run_discovery(dir.path()).expect("discovery runs");
 
         assert_eq!(stdout.trim_end(), "discovery ok");
@@ -169,6 +254,7 @@ mod tests {
             pythonpath.contains("python\\kat-python-runtime")
                 || pythonpath.contains("python/kat-python-runtime")
         );
+        assert!(pythonpath.ends_with("existing-pythonpath"));
     }
 
     #[test]
@@ -178,12 +264,14 @@ mod tests {
         let capture = dir.path().join("capture.json");
         let run_dir = dir.path().join("run");
         let script = fake_python_script(dir.path(), "run");
+        let dataset = dir.path().join("dataset");
+        fs::create_dir_all(&dataset).expect("dataset dir created");
 
-        set_python_env(&script);
+        let _python = EnvOverride::set("KAT_RS_PYTHON", script.as_os_str());
         let request = PackRunRequest {
             pack_root: dir.path().join("pack"),
             workflow: "wf".to_string(),
-            dataset_path: dir.path().join("dataset"),
+            dataset_path: dataset,
             run_dir: run_dir.clone(),
             inputs: super::parse_params(&[
                 "flag=true".to_string(),
@@ -217,9 +305,53 @@ mod tests {
         assert_eq!(written["inputs"]["name"], json!("hello"));
     }
 
-    fn set_python_env(script: &Path) {
-        unsafe {
-            env::set_var("KAT_RS_PYTHON", script.as_os_str());
+    #[test]
+    fn run_pack_rejects_run_directory_inside_dataset() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let dataset = dir.path().join("dataset");
+        fs::create_dir_all(&dataset).expect("dataset dir created");
+        let request = PackRunRequest {
+            pack_root: dir.path().join("pack"),
+            workflow: "wf".to_string(),
+            dataset_path: dataset.clone(),
+            run_dir: dataset.join("derived").join("run"),
+            inputs: BTreeMap::new(),
+        };
+
+        let error = run_pack(&request).expect_err("dataset-internal run dir rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("pack run directory must be outside dataset directory"),
+            "{error:#}"
+        );
+    }
+
+    struct EnvOverride {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvOverride {
+        fn set(key: &'static str, value: impl AsRef<OsStr>) -> Self {
+            let previous = env::var_os(key);
+            unsafe {
+                env::set_var(key, value.as_ref());
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvOverride {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => env::set_var(self.key, value),
+                    None => env::remove_var(self.key),
+                }
+            }
         }
     }
 

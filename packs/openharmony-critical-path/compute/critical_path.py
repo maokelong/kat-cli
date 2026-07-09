@@ -91,6 +91,23 @@ def critical_path(
           select *
           from ranked_states
           where rank = 1
+        ),
+        path_evidence as (
+          select
+            path_nodes.depth,
+            path_nodes.itid,
+            path_nodes.window_start,
+            path_nodes.window_end,
+            callstack.name as evidence,
+            row_number() over (
+              partition by path_nodes.depth, path_nodes.itid, path_nodes.window_start, path_nodes.window_end
+              order by callstack.dur desc, callstack.ts, callstack.name
+            ) as evidence_rank
+          from path_nodes
+          join callstack
+            on callstack.callid = path_nodes.itid
+           and callstack.ts < path_nodes.segment_end_ts
+           and callstack.ts + callstack.dur > path_nodes.segment_start_ts
         )
     """
     nodes = kat.sql(
@@ -103,6 +120,10 @@ def critical_path(
           thread.name as thread_name,
           process.pid,
           process.name as process_name,
+          path_nodes.window_start,
+          path_nodes.window_end,
+          path_nodes.parent_itid,
+          path_nodes.wakeup_ts,
           path_nodes.segment_start_ts,
           path_nodes.segment_end_ts,
           path_nodes.dur,
@@ -114,7 +135,7 @@ def critical_path(
             when path_nodes.state in ('S', 'D') then 'blocked_without_waker'
             else 'unknown'
           end as classification,
-          callstack.name as evidence,
+          path_evidence.evidence,
           case
             when path_nodes.state in ('S', 'D') and path_nodes.wakeup_ts is null then 'missing_waker'
             else null
@@ -124,10 +145,12 @@ def critical_path(
           on path_nodes.itid = thread.itid
         left join process
           on thread.ipid = process.ipid
-        left join callstack
-          on callstack.callid = path_nodes.itid
-         and callstack.ts < path_nodes.segment_end_ts
-         and callstack.ts + callstack.dur > path_nodes.segment_start_ts
+        left join path_evidence
+          on path_evidence.depth = path_nodes.depth
+         and path_evidence.itid = path_nodes.itid
+         and path_evidence.window_start = path_nodes.window_start
+         and path_evidence.window_end = path_nodes.window_end
+         and path_evidence.evidence_rank = 1
         order by path_nodes.depth, path_nodes.segment_start_ts
         """,
         root_itid=root_itid,

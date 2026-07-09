@@ -2049,6 +2049,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dunce",
  "env_logger",
  "flate2",
  "kat-rs-datasource",
@@ -2058,7 +2059,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "time",
  "tokio",
 ]
 
