@@ -1,0 +1,9 @@
+[project]
+name = "kat-python-runtime"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["datafusion"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kat_runtime*"]
