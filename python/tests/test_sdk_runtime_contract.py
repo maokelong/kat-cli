@@ -209,3 +209,25 @@ def thread_nodes(kat):
     assert (run_dir / "artifacts" / "path_nodes.parquet").exists()
     assert (run_dir / "artifacts" / "path_edges.parquet").exists()
     assert "path_nodes" in result.stdout
+
+
+def test_openharmony_critical_path_pack_is_discoverable():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "kat_runtime.worker.discovery",
+            "--pack-root",
+            str(REPO_ROOT / "packs" / "openharmony-critical-path"),
+        ],
+        env=worker_env(),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    manifest = json.loads(result.stdout)
+    workflow_names = {item["name"] for item in manifest["workflows"]}
+    compute_names = {item["name"] for item in manifest["computes"]}
+
+    assert "wechat_first_frame_critical_path" in workflow_names
+    assert "critical_path" in compute_names
