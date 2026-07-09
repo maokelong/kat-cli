@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -19,10 +20,19 @@ class Kat:
 
 
 def _bind_sql_params(sql: str, params: dict[str, Any]) -> str:
-    rendered = sql
-    for name, value in params.items():
-        rendered = rendered.replace(f":{name}", _sql_literal(value))
-    return rendered
+    if not params:
+        return sql
+
+    pattern = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = params.get(name)
+        if name not in params:
+            return match.group(0)
+        return _sql_literal(value)
+
+    return pattern.sub(replace, sql)
 
 
 def _sql_literal(value: Any) -> str:

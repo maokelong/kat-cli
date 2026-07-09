@@ -37,7 +37,7 @@ def discover_pack(pack_root: Path) -> dict[str, list[dict[str, Any]]]:
         "computes": [],
     }
     for module in load_pack_modules(pack_root):
-        for _, value in inspect.getmembers(module, inspect.isfunction):
+        for value in _iter_module_capabilities(module):
             metadata = getattr(value, "__kat_capability__", None)
             if not metadata:
                 continue
@@ -60,8 +60,15 @@ def discover_pack(pack_root: Path) -> dict[str, list[dict[str, Any]]]:
 
 def find_workflow(pack_root: Path, workflow_name: str):
     for module in load_pack_modules(pack_root):
-        for _, value in inspect.getmembers(module, inspect.isfunction):
+        for value in _iter_module_capabilities(module):
             metadata = getattr(value, "__kat_capability__", None)
             if metadata and metadata["kind"] == "workflow" and metadata["name"] == workflow_name:
                 return value
     raise KeyError(f"workflow not found: {workflow_name}")
+
+
+def _iter_module_capabilities(module: ModuleType):
+    for _, value in inspect.getmembers(module, inspect.isfunction):
+        if value.__module__ != module.__name__:
+            continue
+        yield value
