@@ -19,7 +19,9 @@ pub use dataset::{
     DatasetLocator, DatasetResolution, DatasetStore, DatasetTableInfo, inspect_dataset_tables,
     write_derived_dataset_table,
 };
-pub use materializer::{materialize_hitrace_dataset, materialize_langfuse_legacy_dataset};
+pub use materializer::{
+    materialize_hitrace_dataset, materialize_langfuse_legacy_dataset, materialize_sqlite_dataset,
+};
 pub use query::TraceDatasource;
 
 #[allow(dead_code)]

@@ -55,6 +55,42 @@ pub async fn materialize_langfuse_legacy_dataset(
     writer.finish().await
 }
 
+pub async fn materialize_sqlite_dataset(
+    path: impl AsRef<Path>,
+    dataset_path: impl AsRef<Path>,
+) -> Result<()> {
+    let path = path.as_ref();
+    let dataset_path = dataset_path.as_ref();
+
+    let connection = crate::formats::sqlite::open(path)?;
+    let tables = crate::formats::sqlite::discover_tables(&connection)
+        .with_context(|| format!("failed to inspect SQLite database: {}", path.display()))?;
+    let mut writer = DatasetWriter::create(dataset_path)?;
+
+    for table in tables {
+        let parquet_file_name = format!("sqlite.{}.parquet", table.name);
+        let mut parquet_writer = None;
+        crate::formats::sqlite::stream_table_batches(&connection, &table, |batch| {
+            if parquet_writer.is_none() {
+                parquet_writer =
+                    Some(writer.start_table(&table.name, &parquet_file_name, batch.schema())?);
+            }
+            parquet_writer
+                .as_mut()
+                .expect("writer is initialized before writing SQLite batch")
+                .write(&batch)?;
+            Ok(())
+        })
+        .with_context(|| format!("failed to materialize SQLite table {}", table.name))?;
+
+        let parquet_writer = parquet_writer
+            .with_context(|| format!("SQLite table {} produced no batches", table.name))?;
+        writer.add_table(parquet_writer.finish()?);
+    }
+
+    writer.finish().await
+}
+
 async fn write_langfuse_tables(
     writer: &mut DatasetWriter,
     observations_path: &Path,
