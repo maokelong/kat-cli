@@ -2,3 +2,4 @@
 
 pub mod commands;
 pub mod logging;
+pub mod python_worker;

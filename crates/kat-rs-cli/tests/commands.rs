@@ -97,6 +97,82 @@ async fn version_command_prints_package_version() {
     assert!(err.is_empty());
 }
 
+#[test]
+fn pack_subcommands_parse_expected_cli_surface() {
+    let inspect = Cli::try_parse_from(["kat-rs", "pack", "inspect", "packs/demo", "--json"])
+        .expect("inspect args parse");
+    match inspect.command {
+        kat_rs_cli::commands::Command::Pack(pack) => match pack.command {
+            kat_rs_cli::commands::PackSubcommand::Inspect(args) => {
+                assert_eq!(args.pack_root, Path::new("packs/demo"));
+                assert!(args.json);
+            }
+            other => panic!("unexpected subcommand: {other:?}"),
+        },
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let run = Cli::try_parse_from([
+        "kat-rs",
+        "pack",
+        "run",
+        "packs/demo",
+        "wf",
+        "--dataset",
+        "dataset",
+        "--run-dir",
+        "run",
+        "--param",
+        "root_itid=405",
+        "--param",
+        "flag=true",
+    ])
+    .expect("run args parse");
+    match run.command {
+        kat_rs_cli::commands::Command::Pack(pack) => match pack.command {
+            kat_rs_cli::commands::PackSubcommand::Run(args) => {
+                assert_eq!(args.pack_root, Path::new("packs/demo"));
+                assert_eq!(args.workflow, "wf");
+                assert_eq!(args.dataset, Path::new("dataset"));
+                assert_eq!(args.run_dir, Path::new("run"));
+                assert_eq!(args.params, vec!["root_itid=405", "flag=true"]);
+            }
+            other => panic!("unexpected subcommand: {other:?}"),
+        },
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn pack_run_reports_param_contract_errors() {
+    let cli = Cli::try_parse_from([
+        "kat-rs",
+        "pack",
+        "run",
+        "packs/demo",
+        "wf",
+        "--dataset",
+        "dataset",
+        "--run-dir",
+        "run",
+        "--param",
+        "missing_equals",
+    ])
+    .expect("run args parse");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+
+    let code = run(cli, &mut out, &mut err).await;
+
+    assert_eq!(code, 1);
+    assert!(out.is_empty());
+    assert!(
+        String::from_utf8(err)
+            .expect("utf8 stderr")
+            .contains("expected key=value parameter")
+    );
+}
+
 fn create_cli_sqlite_fixture(path: &Path) {
     let connection = Connection::open(path).expect("sqlite opens");
     connection

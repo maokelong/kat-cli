@@ -1,9 +1,6 @@
-use std::{
-    io::Write,
-    path::PathBuf,
-};
+use std::{io::Write, path::PathBuf};
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Clone, Debug, Parser)]
@@ -117,8 +114,7 @@ async fn run_dataset(args: DatasetCommand, out: &mut dyn Write) -> anyhow::Resul
     match args.command {
         DatasetSubcommand::Materialize(args) => match args.source {
             DatasetMaterializeSource::Sqlite(args) => {
-                kat_rs_datasource::materialize_sqlite_dataset(args.db_path, args.dataset_path)
-                    .await
+                kat_rs_datasource::materialize_sqlite_dataset(args.db_path, args.dataset_path).await
             }
         },
         DatasetSubcommand::Inspect(args) => {
@@ -145,8 +141,51 @@ async fn run_dataset(args: DatasetCommand, out: &mut dyn Write) -> anyhow::Resul
     }
 }
 
-async fn run_pack(_args: PackCommand, _out: &mut dyn Write) -> anyhow::Result<()> {
-    Err(anyhow!("pack commands are not implemented yet"))
+async fn run_pack(args: PackCommand, out: &mut dyn Write) -> anyhow::Result<()> {
+    match args.command {
+        PackSubcommand::Inspect(args) => {
+            let stdout = crate::python_worker::run_discovery(&args.pack_root)?;
+            if args.json {
+                write!(out, "{stdout}")?;
+            } else {
+                let value: serde_json::Value = serde_json::from_str(&stdout)?;
+                print_pack_inspect_text(out, &value)?;
+            }
+            Ok(())
+        }
+        PackSubcommand::Run(args) => {
+            let request = crate::python_worker::PackRunRequest {
+                pack_root: args.pack_root,
+                workflow: args.workflow,
+                dataset_path: args.dataset,
+                run_dir: args.run_dir,
+                inputs: crate::python_worker::parse_params(&args.params)?,
+            };
+            let stdout = crate::python_worker::run_pack(&request)?;
+            writeln!(out, "{stdout}")?;
+            Ok(())
+        }
+    }
+}
+
+fn print_pack_inspect_text(
+    out: &mut dyn Write,
+    manifest: &serde_json::Value,
+) -> anyhow::Result<()> {
+    for section in ["workflows", "facts", "computes"] {
+        writeln!(out, "{section}:")?;
+        if let Some(items) = manifest[section].as_array() {
+            for item in items {
+                writeln!(
+                    out,
+                    "  {} - {}",
+                    item["name"].as_str().unwrap_or("<unknown>"),
+                    item["title"].as_str().unwrap_or("")
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn run_version(out: &mut dyn Write) -> anyhow::Result<()> {
