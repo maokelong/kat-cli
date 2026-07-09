@@ -50,3 +50,14 @@ fn pack_run_real_python_smoke_is_available_for_manual_verification() {
         "set KAT_RS_PYTHON to the Python executable used for pack run verification"
     );
 }
+
+#[test]
+#[ignore = "requires KAT_RS_E2E_DB and local Python with datafusion installed"]
+fn local_test_db_e2e_contract_is_documented() {
+    let db = std::env::var("KAT_RS_E2E_DB")
+        .expect("set KAT_RS_E2E_DB to the local test.db path");
+    assert!(
+        std::path::Path::new(&db).exists(),
+        "KAT_RS_E2E_DB path must exist: {db}"
+    );
+}
