@@ -135,3 +135,77 @@ def test_sql_binding_replaces_overlapping_parameters_atomically():
     )
 
     assert rendered == "select 1 as id, 2 as id2"
+
+
+def test_run_worker_materializes_returned_dataframes(tmp_path):
+    dataset_path = tmp_path / "dataset"
+    dataset_path.mkdir()
+    tables_path = dataset_path / "tables"
+    tables_path.mkdir()
+
+    import datafusion
+
+    ctx = datafusion.SessionContext()
+    ctx.sql("select 405 as itid, 'main' as thread_name").write_parquet(
+        str(tables_path / "thread.parquet")
+    )
+    (dataset_path / "catalog.json").write_text(
+        json.dumps(
+            {
+                "tables": [
+                    {
+                        "name": "thread",
+                        "path": "tables/thread.parquet",
+                        "kind": "source",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pack_root = tmp_path / "pack"
+    pack_root.mkdir()
+    (pack_root / "pack.py").write_text(
+        """
+from kat import workflow
+
+@workflow(title="Thread nodes", description="Return path nodes")
+def thread_nodes(kat):
+    nodes = kat.sql("select itid, thread_name from thread")
+    edges = kat.sql("select cast(null as bigint) as from_itid, cast(null as bigint) as to_itid where false")
+    return {"path_nodes": nodes, "path_edges": edges}
+""",
+        encoding="utf-8",
+    )
+
+    run_dir = tmp_path / "run"
+    request = {
+        "packRoot": str(pack_root),
+        "workflow": "thread_nodes",
+        "datasetPath": str(dataset_path),
+        "runDir": str(run_dir),
+        "inputs": {},
+    }
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "kat_runtime.worker.run",
+            "--request",
+            str(request_path),
+        ],
+        env=worker_env(),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "success"
+    assert (run_dir / "artifacts" / "path_nodes.parquet").exists()
+    assert (run_dir / "artifacts" / "path_edges.parquet").exists()
+    assert "path_nodes" in result.stdout
