@@ -6,7 +6,7 @@ use arrow_array::{
     builder::{BinaryBuilder, Float64Builder, Int64Builder, StringBuilder},
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use rusqlite::{Connection, Row, types::ValueRef};
+use rusqlite::{Connection, OpenFlags, Row, types::ValueRef};
 
 const SQLITE_BATCH_ROWS: usize = 8192;
 
@@ -83,7 +83,7 @@ pub(crate) fn stream_table_batches(
 }
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
-    Connection::open(path)
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("failed to open SQLite database: {}", path.display()))
 }
 

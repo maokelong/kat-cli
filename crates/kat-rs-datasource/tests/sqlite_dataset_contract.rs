@@ -6,6 +6,22 @@ use serde_json::json;
 use tempfile::tempdir;
 
 #[tokio::test]
+async fn sqlite_dataset_rejects_missing_source_database_without_creating_it() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("missing.db");
+    let dataset_path = dir.path().join("dataset");
+
+    assert!(!db_path.exists(), "source db should start missing");
+
+    let result = materialize_sqlite_dataset(&db_path, &dataset_path).await;
+    assert!(result.is_err(), "missing source db should fail materialization");
+    assert!(
+        !db_path.exists(),
+        "materialization must not create the missing source db"
+    );
+}
+
+#[tokio::test]
 async fn sqlite_dataset_materializes_tables_and_queries_after_source_is_removed() {
     let dir = tempdir().expect("tempdir");
     let db_path = dir.path().join("trace.db");
