@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,7 +44,7 @@ def validate_artifacts(result: object, run_dir: Path) -> list[ArtifactPlan]:
 
 def materialize_artifacts(plans: list[ArtifactPlan]) -> list[dict[str, str]]:
     for plan in plans:
-        if plan.path.exists():
+        if os.path.lexists(plan.path):
             raise FileExistsError(f"artifact target already exists: {plan.path}")
 
     artifacts: list[dict[str, str]] = []

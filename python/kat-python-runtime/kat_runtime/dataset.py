@@ -32,7 +32,12 @@ def register_dataset(ctx: SessionContext, dataset_path: Path) -> None:
         seen_names.add(name)
 
         relative_path = Path(path_text)
-        if relative_path.is_absolute() or relative_path.drive or ".." in relative_path.parts:
+        if (
+            relative_path.is_absolute()
+            or relative_path.drive
+            or relative_path.root
+            or ".." in relative_path.parts
+        ):
             raise ValueError(f"dataset table {name} has invalid relative path: {path_text}")
         candidate = dataset_root / relative_path
         if not candidate.exists():

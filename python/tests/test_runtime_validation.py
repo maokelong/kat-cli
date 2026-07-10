@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -113,6 +114,24 @@ def test_register_dataset_rejects_absolute_and_symlink_escape(tmp_path):
         register_dataset(SessionContext(), dataset)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows root-relative path")
+def test_register_dataset_rejects_windows_root_relative_path(tmp_path):
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    parquet_path = dataset / "tables" / "thread.parquet"
+    write_parquet(parquet_path)
+    resolved_path = parquet_path.resolve()
+    root_relative_path = str(resolved_path)[len(resolved_path.drive) :]
+    parsed_path = Path(root_relative_path)
+    assert parsed_path.root
+    assert not parsed_path.drive
+    assert not parsed_path.is_absolute()
+    write_catalog(dataset, [{"name": "thread", "path": root_relative_path}])
+
+    with pytest.raises(ValueError, match="invalid relative path"):
+        register_dataset(SessionContext(), dataset)
+
+
 def test_register_dataset_rejects_non_parquet_file(tmp_path):
     dataset = tmp_path / "dataset"
     dataset.mkdir()
@@ -174,6 +193,32 @@ def test_materialize_artifacts_preflights_all_targets_before_writing(tmp_path):
 
     assert not (artifacts_dir / "first.parquet").exists()
     assert (artifacts_dir / "second.parquet").read_text(encoding="utf-8") == "keep"
+
+
+def test_materialize_artifacts_preflights_lexists_target_before_writing(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "run"
+    ctx = SessionContext()
+    plans = validate_artifacts(
+        {
+            "first": ctx.sql("select 1 as value"),
+            "second": ctx.sql("select 2 as value"),
+        },
+        run_dir,
+    )
+    reported_target = plans[1].path
+    real_lexists = os.path.lexists
+
+    def report_later_target(path):
+        return Path(path) == reported_target or real_lexists(path)
+
+    monkeypatch.setattr(os.path, "lexists", report_later_target)
+
+    with pytest.raises(FileExistsError, match="artifact target already exists"):
+        materialize_artifacts(plans)
+
+    assert not plans[0].path.exists()
 
 
 def test_materialize_artifacts_writes_queryable_single_files(tmp_path):
