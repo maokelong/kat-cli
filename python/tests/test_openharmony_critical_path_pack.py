@@ -314,6 +314,32 @@ def test_io_waker_name_promotes_only_included_threads(waker_name, expected):
     assert wait["classification"] == expected
 
 
+@pytest.mark.parametrize(
+    ("state_name", "iowait", "blocked_caller", "expected"),
+    [
+        ("D-IO", None, None, "io_block"),
+        ("D-NIO", 0, "mutex_wait", "non_io_block"),
+    ],
+)
+def test_unique_ordinary_waker_preserves_block_classification_precedence(
+    state_name, iowait, blocked_caller, expected
+):
+    facts = dependency_facts(
+        root_states=[
+            state_row(1, 0, 400, state_name, iowait=iowait, blocked_caller=blocked_caller),
+            state_row(1, 400, 100, "R"),
+        ],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[state_row(2, 0, 400, "Running")],
+    )
+    wait = next(
+        node for node in rows(run_compute(facts, root_itid=1, start_ts=0, end_ts=500).nodes)
+        if node["itid"] == 1 and node["state"] == state_name
+    )
+    assert wait["classification"] == expected
+
+
 def test_blocking_context_is_inherited_without_overwriting_child_fact():
     facts = dependency_facts(
         root_states=[
@@ -332,6 +358,31 @@ def test_blocking_context_is_inherited_without_overwriting_child_fact():
     assert child["blocking_context_node_id"] == parent["node_id"]
 
 
+@pytest.mark.parametrize("reason", ["max_depth", "cycle_detected", "udk_irq"])
+def test_dependency_terminal_child_inherits_blocking_context(reason):
+    compute = capability("compute", "extract_critical_path")
+    follow = compute.__globals__["_follow_waker"]
+    state_type = compute.__globals__["TraversalState"]
+    key = (1, 2, 400)
+    state = state_type(visited_wakeups={key} if reason == "cycle_detected" else set())
+
+    child = follow(
+        state=state, waiter_itid=1, waker_itid=2, wakeup_ts=400,
+        waiting_node_id=1, frame_depth=0,
+        max_depth=0 if reason == "max_depth" else 8,
+        waker_name="udk-irq" if reason == "udk_irq" else "worker",
+        blocking_context_node_id=17,
+        inherited_blocked_caller="parent_wait",
+        start_ts=0,
+    )
+
+    assert child is None
+    terminal = state.nodes[-1]
+    assert terminal.termination_reason == reason
+    assert terminal.blocking_context_node_id == 17
+    assert terminal.inherited_blocked_caller == "parent_wait"
+
+
 def test_short_wait_transition_is_kept_but_unrelated_noise_is_filtered():
     facts = dependency_facts(
         root_states=[
@@ -347,9 +398,26 @@ def test_short_wait_transition_is_kept_but_unrelated_noise_is_filtered():
         facts, root_itid=1, start_ts=0, end_ts=150_000, min_segment_ms=0.1
     )
     nodes = rows(result.nodes)
-    assert not any(node["itid"] == 1 and node["state"] == "Running" for node in nodes)
+    short_running = next(node for node in nodes if node["itid"] == 1 and node["state"] == "Running")
+    assert short_running["uncertainty"] == "missing_sched_evidence"
     assert any(node["itid"] == 1 and node["state"] == "S" for node in nodes)
     assert any(edge["edge_type"] == "wakeup" for edge in rows(result.edges))
+
+
+def test_short_node_without_evidence_or_dependency_role_is_filtered():
+    facts = fake_facts(
+        metadata={1: {"itid": 1, "tid": 10, "thread_name": "root", "pid": 100,
+                      "process_name": "app"}},
+        states={1: [state_row(1, 0, 50_000, "R"), state_row(1, 50_000, 100_000, "Running")]},
+        sched={1: [{"itid": 1, "ts": 50_000, "dur": 100_000, "ts_end": 150_000,
+                    "cpu": 1, "priority": 120, "end_state": "R"}]},
+        callstacks={1: []},
+    )
+    nodes = rows(run_compute(
+        facts, root_itid=1, start_ts=0, end_ts=150_000, min_segment_ms=0.1
+    ).nodes)
+    assert not any(node["state"] == "R" for node in nodes)
+    assert any(node["state"] == "Running" for node in nodes)
 
 
 def test_running_without_sched_evidence_is_unknown():

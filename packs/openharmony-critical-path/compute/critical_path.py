@@ -212,10 +212,15 @@ def _append_wakeup_edge(
 def _append_terminal_for_dependency(
     state: TraversalState, waiter_itid: int, waker_itid: int,
     waiting_node_id: int, wakeup_ts: int, depth: int, reason: str,
-    *, emit_edge: bool,
+    *, emit_edge: bool, blocking_context_node_id: int | None,
+    inherited_blocked_caller: str | None,
 ) -> PathNode:
     node = _terminal_node(
-        state, TraversalFrame(waker_itid, wakeup_ts, wakeup_ts, depth),
+        state, TraversalFrame(
+            waker_itid, wakeup_ts, wakeup_ts, depth,
+            blocking_context_node_id=blocking_context_node_id,
+            inherited_blocked_caller=inherited_blocked_caller,
+        ),
         reason, itid=waker_itid,
     )
     if emit_edge:
@@ -234,18 +239,24 @@ def _follow_waker(
         _append_terminal_for_dependency(
             state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
             frame_depth + 1, "cycle_detected", emit_edge=False,
+            blocking_context_node_id=blocking_context_node_id,
+            inherited_blocked_caller=inherited_blocked_caller,
         )
         return None
     if frame_depth >= max_depth:
         _append_terminal_for_dependency(
             state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
             frame_depth + 1, "max_depth", emit_edge=True,
+            blocking_context_node_id=blocking_context_node_id,
+            inherited_blocked_caller=inherited_blocked_caller,
         )
         return None
     if waker_name == "udk-irq":
         _append_terminal_for_dependency(
             state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
             frame_depth + 1, "udk_irq", emit_edge=True,
+            blocking_context_node_id=blocking_context_node_id,
+            inherited_blocked_caller=inherited_blocked_caller,
         )
         return None
     state.visited_wakeups.add(key)
@@ -403,7 +414,8 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
                 state.nodes[-1] = replace(wait_node, uncertainty="ambiguous_waker")
             else:
                 waker_itid = next(iter(wakers))
-                state.nodes[-1] = replace(wait_node, classification="waiting_for_waker")
+                if wait_node.classification == "unknown":
+                    state.nodes[-1] = replace(wait_node, classification="waiting_for_waker")
                 waker_metadata = _fact_rows(
                     facts.thread_metadata, "thread_metadata", waker_itid,
                     frame.start_ts, latest_ts, waker_itid,
@@ -478,7 +490,7 @@ def _filter_short_segments(state: TraversalState, min_segment_ns: int) -> None:
         and node.node_id not in protected_ids
         and node.classification not in {"io_block", "non_io_block"}
         and not node.blocked_caller
-        and node.uncertainty in {None, "missing_sched_evidence"}
+        and not node.uncertainty
         and not node.termination_reason
     }
     if not omitted_ids:
