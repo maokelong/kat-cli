@@ -20,23 +20,33 @@ def thread_metadata(kat, itid: int):
 def thread_state_segments(kat, itid: int, start_ts: int, end_ts: int):
     return kat.sql(
         """
-        with decoded as (
+        with requested_states as (
+          select itid, ts, dur, state, cpu, arg_setid
+          from thread_state
+          where itid = :itid
+            and ts < :end_ts
+            and ts + dur > :start_ts
+        ),
+        requested_argsets as (
+          select distinct arg_setid
+          from requested_states
+          where arg_setid is not null
+        ),
+        decoded as (
           select
             a.argset,
             max(case when key_dict.data = 'iowait' then a.value end) as iowait,
             max(case when key_dict.data = 'caller' and a.datatype = 1 then value_dict.data end) as blocked_caller
           from args a
+          join requested_argsets requested on requested.arg_setid = a.argset
           join data_dict key_dict on key_dict.id = a.key
           left join data_dict value_dict on value_dict.id = a.value
           group by a.argset
         )
         select s.itid, s.ts, s.dur, s.state, s.cpu, s.arg_setid,
                decoded.iowait, decoded.blocked_caller
-        from thread_state s
+        from requested_states s
         left join decoded on decoded.argset = s.arg_setid
-        where s.itid = :itid
-          and s.ts < :end_ts
-          and s.ts + s.dur > :start_ts
         order by s.ts, s.dur
         """,
         itid=itid,

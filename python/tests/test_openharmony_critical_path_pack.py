@@ -87,8 +87,13 @@ def test_scheduling_callstack_and_frame_facts_are_bounded():
     assert rows(capability("fact", "wakeup_edges")(kat, 1, 100, 500)) == [{
         "wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"
     }]
-    assert rows(capability("fact", "sched_slices")(kat, 1, 100, 500))[0]["cpu"] == 4
-    assert rows(capability("fact", "callstack_slices")(kat, 1, 100, 500))[0]["name"] == "root_stack"
+    assert rows(capability("fact", "sched_slices")(kat, 1, 100, 500)) == [{
+        "itid": 1, "ts": 200, "dur": 100, "ts_end": 300, "cpu": 4,
+        "priority": 120, "end_state": "R",
+    }]
+    assert rows(capability("fact", "callstack_slices")(kat, 1, 100, 500)) == [{
+        "itid": 1, "ts": 200, "dur": 100, "name": "root_stack",
+    }]
     assert rows(capability("fact", "first_frame_window")(kat, ".tencent.wechat")) == [{
         "root_itid": 1, "start_ts": 200, "end_ts": 500
     }]
