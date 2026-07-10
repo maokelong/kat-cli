@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 import pytest
@@ -132,16 +133,31 @@ def test_register_dataset_rejects_windows_root_relative_path(tmp_path):
         register_dataset(SessionContext(), dataset)
 
 
-def test_register_dataset_rejects_non_parquet_file(tmp_path):
+def test_register_dataset_preserves_datafusion_error_with_table_and_path_context(
+    tmp_path,
+):
     dataset = tmp_path / "dataset"
     dataset.mkdir()
     bad = dataset / "tables" / "bad.parquet"
     bad.parent.mkdir()
     bad.write_text("not parquet", encoding="utf-8")
-    write_catalog(dataset, [{"name": "bad", "path": "tables/bad.parquet"}])
+    table_name = "bad_table"
+    write_catalog(
+        dataset,
+        [{"name": table_name, "path": "tables/bad.parquet"}],
+    )
 
-    with pytest.raises(Exception, match="failed to register dataset table"):
+    with pytest.raises(Exception) as direct_error:
+        SessionContext().register_parquet(table_name, str(bad.resolve()))
+
+    with pytest.raises(Exception) as registered_error:
         register_dataset(SessionContext(), dataset)
+
+    assert type(registered_error.value) is type(direct_error.value)
+    assert str(registered_error.value) == str(direct_error.value)
+    formatted_traceback = "".join(traceback.format_exception(registered_error.value))
+    assert table_name in formatted_traceback
+    assert str(bad.resolve()) in formatted_traceback
 
 
 class FakeDataFrame:

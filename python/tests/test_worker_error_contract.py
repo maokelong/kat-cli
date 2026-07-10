@@ -101,6 +101,66 @@ def test_request_contract_rejects_shape_and_invalid_run_dir(tmp_path, payload):
 
 
 @pytest.mark.parametrize(
+    ("field", "invalid_value", "expected_type"),
+    [
+        ("inputs", [], "TypeError"),
+        ("workflow", "", "ValueError"),
+    ],
+)
+def test_request_contract_uses_valid_run_dir_before_other_field_validation(
+    tmp_path, field, invalid_value, expected_type
+):
+    request_path, run_dir = write_request(tmp_path)
+    payload = json.loads(request_path.read_text(encoding="utf-8"))
+    payload[field] = invalid_value
+    request_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert worker.run_request_file(request_path) == 1
+
+    manifest = read_manifest(run_dir)
+    assert manifest["packRoot"] == payload["packRoot"]
+    assert manifest["workflow"] == payload["workflow"]
+    assert manifest["datasetPath"] == payload["datasetPath"]
+    assert manifest["error"]["kind"] == "request_contract"
+    assert manifest["error"]["type"] == expected_type
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_dataset_registration_manifest_preserves_datafusion_error_and_context(
+    tmp_path,
+):
+    request_path, run_dir = write_request(tmp_path)
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    bad = dataset / "tables" / "bad.parquet"
+    bad.parent.mkdir()
+    bad.write_text("not parquet", encoding="utf-8")
+    table_name = "bad_table"
+    (dataset / "catalog.json").write_text(
+        json.dumps(
+            {
+                "tables": [
+                    {"name": table_name, "path": "tables/bad.parquet"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception) as direct_error:
+        worker.SessionContext().register_parquet(table_name, str(bad.resolve()))
+
+    assert worker.run_request_file(request_path) == 1
+
+    manifest = read_manifest(run_dir)
+    assert manifest["error"]["kind"] == "dataset_registration"
+    assert manifest["error"]["type"] == type(direct_error.value).__name__
+    assert manifest["error"]["message"] == str(direct_error.value)
+    assert table_name in manifest["error"]["traceback"]
+    assert str(bad.resolve()) in manifest["error"]["traceback"]
+
+
+@pytest.mark.parametrize(
     "kind",
     [
         "session_creation",

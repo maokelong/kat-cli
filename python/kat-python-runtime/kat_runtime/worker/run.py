@@ -24,6 +24,10 @@ def _read_request(request_path: Path) -> dict[str, Any]:
     request = json.loads(request_path.read_text(encoding="utf-8"))
     if not isinstance(request, dict):
         raise TypeError("request must be a JSON object")
+    return request
+
+
+def _validate_request(request: dict[str, Any]) -> None:
     for field in REQUIRED_STRING_FIELDS:
         value = request.get(field)
         if not isinstance(value, str) or not value:
@@ -32,7 +36,6 @@ def _read_request(request_path: Path) -> dict[str, Any]:
     if not isinstance(inputs, dict):
         raise TypeError("request field inputs must be an object")
     request["inputs"] = inputs
-    return request
 
 
 def _failure_manifest(
@@ -67,7 +70,10 @@ def run_request_file(request_path: Path) -> int:
 
     try:
         request = _read_request(request_path)
-        run_dir = Path(request["runDir"])
+        requested_run_dir = request.get("runDir")
+        if isinstance(requested_run_dir, str) and requested_run_dir:
+            run_dir = Path(requested_run_dir)
+        _validate_request(request)
 
         phase = "session_creation"
         ctx = SessionContext()
