@@ -443,6 +443,8 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
             state.frontier.append(TraversalFrame(
                 itid=frame.itid, start_ts=frame.start_ts, end_ts=wait_start,
                 depth=frame.depth, next_node_id=wait_node.node_id,
+                blocking_context_node_id=frame.blocking_context_node_id,
+                inherited_blocked_caller=frame.inherited_blocked_caller,
             ))
         if child is not None:
             state.frontier.append(child)
@@ -453,6 +455,8 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
             end_ts=segment_start,
             depth=frame.depth,
             next_node_id=node.node_id,
+            blocking_context_node_id=frame.blocking_context_node_id,
+            inherited_blocked_caller=frame.inherited_blocked_caller,
         ))
 
 

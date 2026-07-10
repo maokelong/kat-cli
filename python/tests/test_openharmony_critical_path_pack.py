@@ -358,6 +358,32 @@ def test_blocking_context_is_inherited_without_overwriting_child_fact():
     assert child["blocking_context_node_id"] == parent["node_id"]
 
 
+def test_blocking_context_is_preserved_across_child_continuation_segments():
+    facts = dependency_facts(
+        root_states=[
+            state_row(1, 0, 400, "D-NIO", blocked_caller="parent_wait"),
+            state_row(1, 400, 100, "R"),
+        ],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[
+            state_row(2, 0, 200, "D-NIO", blocked_caller="child_wait"),
+            state_row(2, 200, 200, "Running"),
+        ],
+    )
+    nodes = rows(run_compute(facts, root_itid=1, start_ts=0, end_ts=500).nodes)
+    parent = next(node for node in nodes if node["itid"] == 1 and node["state"] == "D-NIO")
+    children = [node for node in nodes if node["itid"] == 2]
+
+    assert len(children) == 2
+    assert {node["blocking_context_node_id"] for node in children} == {parent["node_id"]}
+    assert {node["inherited_blocked_caller"] for node in children} == {"parent_wait"}
+    assert {node["state"]: node["blocked_caller"] for node in children} == {
+        "D-NIO": "child_wait",
+        "Running": None,
+    }
+
+
 @pytest.mark.parametrize("reason", ["max_depth", "cycle_detected", "udk_irq"])
 def test_dependency_terminal_child_inherits_blocking_context(reason):
     compute = capability("compute", "extract_critical_path")
