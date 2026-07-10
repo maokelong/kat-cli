@@ -274,12 +274,15 @@ git commit -m "feat: 建立关键路径领域事实合同"
 
 - Create: `packs/openharmony-critical-path/compute/models.py`
 - Replace: `packs/openharmony-critical-path/compute/critical_path.py`
+- Create: `packs/openharmony-critical-path/workflows/critical_path.py`
+- Replace: `packs/openharmony-critical-path/workflows/first_frame.py`
+- Modify: `packs/openharmony-critical-path/pack.py`
 - Test: `python/tests/test_openharmony_critical_path_pack.py`
 
 **Interfaces:**
 
 - Consumes: Task 1 fact DataFrames.
-- Produces: `CriticalPathRequest`, `FactProvider`, `TraversalFrame`, `TraversalState`, `PathNode`, `PathEdge`, `CriticalPathResult`, `extract_critical_path(facts, request)` and `target_not_found_result()`.
+- Produces: `CriticalPathRequest`, `FactProvider`, `TraversalFrame`, `TraversalState`, `PathNode`, `PathEdge`, `CriticalPathResult`, `extract_critical_path(facts, request)`, `target_not_found_result()` and import-compatible workflow wiring.
 
 - [ ] **Step 1: Write failing model and validation tests**
 
@@ -492,6 +495,52 @@ def extract_critical_path(facts: FactProvider, request: CriticalPathRequest) -> 
 
 - [ ] **Step 4: Run model tests**
 
+Before running tests, add the final thin workflow wiring now so renaming the compute capability does not break Pack import. Create `workflows/critical_path.py` with:
+
+```python
+from functools import partial
+
+from kat import workflow
+
+from ..compute.critical_path import extract_critical_path
+from ..compute.models import CriticalPathRequest, FactProvider
+from ..facts.callstacks import callstack_slices
+from ..facts.scheduling import sched_slices, wakeup_edges
+from ..facts.threads import thread_metadata, thread_state_segments
+
+
+def fact_provider(kat) -> FactProvider:
+    return FactProvider(
+        thread_metadata=partial(thread_metadata, kat),
+        thread_state_segments=partial(thread_state_segments, kat),
+        wakeup_edges=partial(wakeup_edges, kat),
+        sched_slices=partial(sched_slices, kat),
+        callstack_slices=partial(callstack_slices, kat),
+    )
+
+
+@workflow(title="Critical path", description="Extract a critical path from a root thread and time window")
+def critical_path(kat, root_itid: int, start_ts: int, end_ts: int,
+                  max_depth: int = 8, min_segment_ms: float = 0.1):
+    result = extract_critical_path(
+        fact_provider(kat),
+        CriticalPathRequest(root_itid, start_ts, end_ts, max_depth, min_segment_ms),
+    )
+    return {"path_nodes": result.nodes, "path_edges": result.edges}
+```
+
+Replace `workflows/first_frame.py` with a fact-only adapter that imports `target_not_found_result`, `first_frame_window`, `CriticalPathRequest` and `fact_provider`. It collects the fact with:
+
+```python
+def _rows(dataframe) -> list[dict]:
+    batches = dataframe.collect()
+    return [] if not batches else batches[0].to_pylist()
+```
+
+The workflow either calls `target_not_found_result()` or calls `extract_critical_path(fact_provider(kat), CriticalPathRequest(...))`, then returns the same two artifact keys. Update `pack.py` to import `extract_critical_path`, `critical_path` and `wechat_first_frame_critical_path`.
+
+This is final wiring, not a temporary compatibility adapter. Task 6 validates it through discovery and worker execution.
+
 Run:
 
 ```powershell
@@ -503,7 +552,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit the compute contract**
 
 ```powershell
-git add packs/openharmony-critical-path/compute python/tests/test_openharmony_critical_path_pack.py
+git add packs/openharmony-critical-path/compute packs/openharmony-critical-path/workflows packs/openharmony-critical-path/pack.py python/tests/test_openharmony_critical_path_pack.py
 git commit -m "feat: 建立关键路径计算合同"
 ```
 
@@ -1019,9 +1068,9 @@ git commit -m "feat: 完善关键路径阻塞分类"
 
 **Files:**
 
-- Create: `packs/openharmony-critical-path/workflows/critical_path.py`
-- Replace: `packs/openharmony-critical-path/workflows/first_frame.py`
-- Modify: `packs/openharmony-critical-path/pack.py`
+- Verify/Modify: `packs/openharmony-critical-path/workflows/critical_path.py`
+- Verify/Modify: `packs/openharmony-critical-path/workflows/first_frame.py`
+- Verify/Modify: `packs/openharmony-critical-path/pack.py`
 - Test: `python/tests/test_openharmony_critical_path_pack.py`
 - Test: `crates/kat-rs-cli/tests/pack_run_contract.rs` only if the generic workflow serialization assertion is added; do not change production Rust.
 
@@ -1168,9 +1217,9 @@ python -m pytest python/tests/test_openharmony_critical_path_pack.py -k "discove
 
 Expected: FAIL because the generic workflow does not exist and the old first-frame workflow contains SQL and calls the old compute.
 
-- [ ] **Step 3: Implement the shared provider factory and generic workflow**
+- [ ] **Step 3: Verify the shared provider factory and generic workflow**
 
-`workflows/critical_path.py`:
+Task 2 created `workflows/critical_path.py` to keep all intermediate commits importable. Compare it to this final contract and make only corrections required by the integration tests:
 
 ```python
 from functools import partial
@@ -1210,9 +1259,9 @@ def critical_path(
     return {"path_nodes": result.nodes, "path_edges": result.edges}
 ```
 
-- [ ] **Step 4: Replace the first-frame workflow**
+- [ ] **Step 4: Verify the first-frame workflow**
 
-It may collect only the single-row result of `first_frame_window`. It must not contain SQL or state decisions:
+Task 2 replaced the first-frame workflow. Confirm it collects only the single-row result of `first_frame_window` and contains no SQL or state decisions:
 
 ```python
 @workflow(
