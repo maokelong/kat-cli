@@ -1,8 +1,6 @@
 use std::{
     collections::BTreeMap,
-    env,
-    ffi::OsString,
-    fs,
+    env, fs,
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -90,42 +88,7 @@ pub fn run_pack(request: &PackRunRequest) -> Result<String> {
 
 fn base_python_command() -> Command {
     let python = env::var_os("KAT_RS_PYTHON").unwrap_or_else(|| "python".into());
-    let mut command = Command::new(python);
-    command.env("PYTHONPATH", pythonpath());
-    command
-}
-
-fn pythonpath() -> OsString {
-    let root = env!("CARGO_MANIFEST_DIR");
-    let repo_root = Path::new(root)
-        .parent()
-        .and_then(Path::parent)
-        .expect("crate is under crates/kat-rs-cli");
-    let separator = if cfg!(windows) { ";" } else { ":" };
-    let mut entries = vec![
-        repo_root
-            .join("python")
-            .join("kat-python-sdk")
-            .into_os_string(),
-        repo_root
-            .join("python")
-            .join("kat-python-runtime")
-            .into_os_string(),
-    ];
-    if let Some(existing) = env::var_os("PYTHONPATH")
-        && !existing.is_empty()
-    {
-        entries.push(existing);
-    }
-
-    let mut joined = OsString::new();
-    for (index, entry) in entries.into_iter().enumerate() {
-        if index > 0 {
-            joined.push(separator);
-        }
-        joined.push(entry);
-    }
-    joined
+    Command::new(python)
 }
 
 fn ensure_run_dir_outside_dataset(dataset_path: &Path, run_dir: &Path) -> Result<()> {
@@ -223,7 +186,7 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn run_discovery_uses_configured_python_and_sets_pythonpath() {
+    fn run_discovery_uses_configured_python_without_rewriting_pythonpath() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let dir = tempdir().expect("tempdir");
         let capture = dir.path().join("capture.json");
@@ -245,16 +208,7 @@ mod tests {
                 dir.path().display().to_string()
             ])
         );
-        let pythonpath = payload["pythonpath"].as_str().expect("pythonpath str");
-        assert!(
-            pythonpath.contains("python\\kat-python-sdk")
-                || pythonpath.contains("python/kat-python-sdk")
-        );
-        assert!(
-            pythonpath.contains("python\\kat-python-runtime")
-                || pythonpath.contains("python/kat-python-runtime")
-        );
-        assert!(pythonpath.ends_with("existing-pythonpath"));
+        assert_eq!(payload["pythonpath"], json!("existing-pythonpath"));
     }
 
     #[test]
