@@ -196,6 +196,109 @@ def test_running_without_sched_evidence_is_unknown():
     assert node["uncertainty"] == "missing_sched_evidence"
 
 
+def dataframe_with_schema(rows, schema):
+    return SessionContext().from_arrow(pa.Table.from_pylist(rows, schema=schema))
+
+
+@pytest.mark.parametrize(("fact_name", "replacement", "expected_detail"), [
+    (
+        "thread_metadata",
+        lambda *_: dataframe_with_schema(
+            [{"itid": 1, "tid": 10, "thread_name": "root", "pid": 100}],
+            pa.schema([("itid", pa.int64()), ("tid", pa.int64()),
+                       ("thread_name", pa.string()), ("pid", pa.int64())]),
+        ),
+        "missing required columns: process_name",
+    ),
+    (
+        "thread_state_segments",
+        lambda *_: dataframe_with_schema(
+            [{"itid": 1, "ts": 0, "state": "Running", "cpu": 1,
+              "arg_setid": None, "iowait": None, "blocked_caller": None}],
+            pa.schema([("itid", pa.int64()), ("ts", pa.int64()), ("state", pa.string()),
+                       ("cpu", pa.int64()), ("arg_setid", pa.int64()), ("iowait", pa.int64()),
+                       ("blocked_caller", pa.string())]),
+        ),
+        "missing required columns: dur",
+    ),
+    (
+        "thread_state_segments",
+        lambda *_: dataframe_with_schema(
+            [{"itid": 1, "ts": 0, "dur": "10", "state": "Running", "cpu": 1,
+              "arg_setid": None, "iowait": None, "blocked_caller": None}],
+            pa.schema([("itid", pa.int64()), ("ts", pa.int64()), ("dur", pa.string()),
+                       ("state", pa.string()), ("cpu", pa.int64()), ("arg_setid", pa.int64()),
+                       ("iowait", pa.int64()), ("blocked_caller", pa.string())]),
+        ),
+        "incompatible column type: dur",
+    ),
+    (
+        "sched_slices",
+        lambda *_: dataframe_with_schema(
+            [{"itid": 1, "ts": 0, "dur": 10, "ts_end": 10, "cpu": 1, "end_state": "R"}],
+            pa.schema([("itid", pa.int64()), ("ts", pa.int64()), ("dur", pa.int64()),
+                       ("ts_end", pa.int64()), ("cpu", pa.int64()), ("end_state", pa.string())]),
+        ),
+        "missing required columns: priority",
+    ),
+    (
+        "callstack_slices",
+        lambda *_: dataframe_with_schema(
+            [{"itid": 1, "ts": 0, "dur": 10}],
+            pa.schema([("itid", pa.int64()), ("ts", pa.int64()), ("dur", pa.int64())]),
+        ),
+        "missing required columns: name",
+    ),
+])
+def test_compute_reports_fact_contract_errors_with_context(fact_name, replacement, expected_detail):
+    facts = fake_facts(
+        states={1: [{"itid": 1, "ts": 0, "dur": 10, "state": "Running", "cpu": 1,
+                    "arg_setid": None, "iowait": None, "blocked_caller": None}]},
+        sched={1: [{"itid": 1, "ts": 0, "dur": 10, "ts_end": 10,
+                    "cpu": 1, "priority": 120, "end_state": "R"}]},
+        callstacks={1: [{"itid": 1, "ts": 0, "dur": 10, "name": "stack"}]},
+    )
+    compute = capability("compute", "extract_critical_path")
+    provider_type = compute.__globals__["FactProvider"]
+    exception_type = compute.__globals__["FactContractError"]
+    provider_values = vars(facts.provider).copy()
+    provider_values[fact_name] = replacement
+    provider = provider_type(**provider_values)
+
+    with pytest.raises(exception_type) as raised:
+        compute(provider, compute.__globals__["CriticalPathRequest"](1, 0, 10))
+
+    message = str(raised.value)
+    assert fact_name in message
+    assert "itid=1" in message
+    assert "start_ts=0" in message
+    assert "end_ts=10" in message
+    assert expected_detail in message
+
+
+def test_compute_preserves_fact_collection_error_as_cause():
+    facts = fake_facts()
+    compute = capability("compute", "extract_critical_path")
+    provider_type = compute.__globals__["FactProvider"]
+    exception_type = compute.__globals__["FactContractError"]
+
+    def broken_metadata(_itid):
+        raise OSError("fact backend unavailable")
+
+    provider_values = vars(facts.provider).copy()
+    provider_values["thread_metadata"] = broken_metadata
+
+    with pytest.raises(exception_type) as raised:
+        compute(
+            provider_type(**provider_values),
+            compute.__globals__["CriticalPathRequest"](1, 0, 10),
+        )
+
+    assert "capability=thread_metadata" in str(raised.value)
+    assert "itid=1, start_ts=0, end_ts=10" in str(raised.value)
+    assert isinstance(raised.value.__cause__, OSError)
+
+
 def register(ctx: SessionContext, name: str, data: list[dict], schema: pa.Schema) -> None:
     ctx.from_arrow(pa.Table.from_pylist(data, schema=schema), name)
 

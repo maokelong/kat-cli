@@ -20,6 +20,32 @@ from .models import (
 )
 
 
+class FactContractError(RuntimeError):
+    """A normalized fact does not satisfy the compute contract."""
+
+
+_INTEGER = "integer"
+_STRING = "string"
+_FACT_COLUMNS = {
+    "thread_metadata": {
+        "itid": _INTEGER, "tid": _INTEGER, "thread_name": _STRING,
+        "pid": _INTEGER, "process_name": _STRING,
+    },
+    "thread_state_segments": {
+        "itid": _INTEGER, "ts": _INTEGER, "dur": _INTEGER, "state": _STRING,
+        "cpu": _INTEGER, "arg_setid": _INTEGER, "iowait": _INTEGER,
+        "blocked_caller": _STRING,
+    },
+    "sched_slices": {
+        "itid": _INTEGER, "ts": _INTEGER, "dur": _INTEGER, "ts_end": _INTEGER,
+        "cpu": _INTEGER, "priority": _INTEGER, "end_state": _STRING,
+    },
+    "callstack_slices": {
+        "itid": _INTEGER, "ts": _INTEGER, "dur": _INTEGER, "name": _STRING,
+    },
+}
+
+
 def _dataframe(rows: list[dict[str, Any]], schema: pa.Schema):
     ctx = SessionContext()
     return ctx.from_arrow(pa.Table.from_pylist(rows, schema=schema))
@@ -34,8 +60,48 @@ def _validate_request(request: CriticalPathRequest) -> None:
         raise ValueError("min_segment_ms must be non-negative")
 
 
-def _rows(dataframe) -> list[dict[str, Any]]:
-    return [row for batch in dataframe.collect() for row in batch.to_pylist()]
+def _fact_error(fact_name: str, itid: int, start_ts: int, end_ts: int, detail: str) -> FactContractError:
+    return FactContractError(
+        f"fact contract error: capability={fact_name}, itid={itid}, "
+        f"start_ts={start_ts}, end_ts={end_ts}: {detail}"
+    )
+
+
+def _compatible_type(actual: pa.DataType, expected: str) -> bool:
+    if expected == _INTEGER:
+        return pa.types.is_integer(actual)
+    return pa.types.is_string(actual) or pa.types.is_large_string(actual)
+
+
+def _fact_rows(
+    callback, fact_name: str, itid: int, start_ts: int, end_ts: int, *args
+) -> list[dict[str, Any]]:
+    try:
+        dataframe = callback(*args)
+        schema = dataframe.schema()
+        batches = dataframe.collect()
+    except Exception as error:
+        raise _fact_error(fact_name, itid, start_ts, end_ts, "collection failed") from error
+
+    required = _FACT_COLUMNS[fact_name]
+    available = set(schema.names)
+    missing = sorted(set(required) - available)
+    if missing:
+        raise _fact_error(
+            fact_name, itid, start_ts, end_ts,
+            f"missing required columns: {', '.join(missing)}",
+        )
+    for name, expected in required.items():
+        actual = schema.field(name).type
+        if not _compatible_type(actual, expected):
+            raise _fact_error(
+                fact_name, itid, start_ts, end_ts,
+                f"incompatible column type: {name} expected {expected}, got {actual}",
+            )
+    try:
+        return [row for batch in batches for row in batch.to_pylist()]
+    except Exception as error:
+        raise _fact_error(fact_name, itid, start_ts, end_ts, "conversion failed") from error
 
 
 def _overlap(row: dict[str, Any], start_ts: int, end_ts: int) -> int:
@@ -43,14 +109,18 @@ def _overlap(row: dict[str, Any], start_ts: int, end_ts: int) -> int:
 
 
 def _overlapping_sched(facts: FactProvider, itid: int, start_ts: int, end_ts: int) -> list[dict[str, Any]]:
-    return [row for row in _rows(facts.sched_slices(itid, start_ts, end_ts))
+    return [row for row in _fact_rows(
+        facts.sched_slices, "sched_slices", itid, start_ts, end_ts, itid, start_ts, end_ts
+    )
             if _overlap(row, start_ts, end_ts) > 0]
 
 
 def _overlapping_callstacks(
     facts: FactProvider, itid: int, start_ts: int, end_ts: int
 ) -> list[dict[str, Any]]:
-    return [row for row in _rows(facts.callstack_slices(itid, start_ts, end_ts))
+    return [row for row in _fact_rows(
+        facts.callstack_slices, "callstack_slices", itid, start_ts, end_ts, itid, start_ts, end_ts
+    )
             if _overlap(row, start_ts, end_ts) > 0]
 
 
@@ -90,10 +160,16 @@ def _terminal_node(state: TraversalState, frame: TraversalFrame, reason: str) ->
 
 def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: TraversalState) -> None:
     frame = state.frontier.pop()
-    metadata = _rows(facts.thread_metadata(frame.itid))
+    metadata = _fact_rows(
+        facts.thread_metadata, "thread_metadata", frame.itid, frame.start_ts, frame.end_ts,
+        frame.itid,
+    )
     if metadata:
         state.metadata[frame.itid] = metadata[0]
-    states = _rows(facts.thread_state_segments(frame.itid, frame.start_ts, frame.end_ts))
+    states = _fact_rows(
+        facts.thread_state_segments, "thread_state_segments", frame.itid,
+        frame.start_ts, frame.end_ts, frame.itid, frame.start_ts, frame.end_ts,
+    )
     clipped = [
         (row, max(row["ts"], frame.start_ts), min(row["ts"] + row["dur"], frame.end_ts))
         for row in states
