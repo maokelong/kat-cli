@@ -58,13 +58,22 @@ def discover_pack(pack_root: Path) -> dict[str, list[dict[str, Any]]]:
     return manifest
 
 
-def find_workflow(pack_root: Path, workflow_name: str):
-    for module in load_pack_modules(pack_root):
+def find_workflow(modules: list[ModuleType], workflow_name: str):
+    matches = []
+    for module in modules:
         for value in _iter_module_capabilities(module):
             metadata = getattr(value, "__kat_capability__", None)
-            if metadata and metadata["kind"] == "workflow" and metadata["name"] == workflow_name:
-                return value
-    raise KeyError(f"workflow not found: {workflow_name}")
+            if (
+                metadata
+                and metadata["kind"] == "workflow"
+                and metadata["name"] == workflow_name
+            ):
+                matches.append(value)
+    if not matches:
+        raise KeyError(f"workflow not found: {workflow_name}")
+    if len(matches) > 1:
+        raise ValueError(f"workflow is ambiguous: {workflow_name}")
+    return matches[0]
 
 
 def _iter_module_capabilities(module: ModuleType):

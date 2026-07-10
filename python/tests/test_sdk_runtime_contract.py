@@ -301,7 +301,15 @@ def thread_nodes(kat):
     )
 
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    artifact_path = run_dir / "artifacts" / "path_nodes.parquet"
+    reader = datafusion.SessionContext()
+    reader.register_parquet("path_nodes", str(artifact_path))
+
     assert manifest["status"] == "success"
-    assert (run_dir / "artifacts" / "path_nodes.parquet").exists()
-    assert (run_dir / "artifacts" / "path_edges.parquet").exists()
+    assert artifact_path.is_file()
+    assert (run_dir / "artifacts" / "path_edges.parquet").is_file()
+    assert reader.table("path_nodes").to_pydict() == {
+        "itid": [405],
+        "thread_name": ["main"],
+    }
     assert "path_nodes" in result.stdout
