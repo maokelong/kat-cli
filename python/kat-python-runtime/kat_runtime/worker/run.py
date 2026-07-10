@@ -9,7 +9,7 @@ from typing import Any
 from datafusion import SessionContext
 from kat import Kat
 
-from kat_runtime.artifacts import materialize_artifacts
+from kat_runtime.artifacts import materialize_artifacts, validate_artifacts
 from kat_runtime.dataset import register_dataset
 from kat_runtime.manifest import now_iso, write_manifest
 from kat_runtime.pack_loader import find_workflow
@@ -63,7 +63,8 @@ def run_request(request: dict[str, Any], run_dir: Path) -> list[dict[str, Any]]:
     workflow = find_workflow(Path(request["packRoot"]), request["workflow"])
     kat = Kat(ctx=ctx, run_dir=str(run_dir), logger=None)
     result = workflow(kat, **request.get("inputs", {}))
-    return materialize_artifacts(result, run_dir)
+    plans = validate_artifacts(result, run_dir)
+    return materialize_artifacts(plans)
 
 
 if __name__ == "__main__":
