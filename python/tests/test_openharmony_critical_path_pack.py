@@ -115,6 +115,87 @@ def test_missing_state_and_target_not_found_keep_typed_artifacts():
     assert rows(target_not_found.edges) == []
 
 
+def test_compute_walks_backward_and_emits_forward_sequence_edges():
+    facts = fake_facts(
+        metadata={1: {"itid": 1, "tid": 10, "thread_name": "root", "pid": 100, "process_name": "app"}},
+        states={1: [
+            {"itid": 1, "ts": 0, "dur": 200, "state": "Running", "cpu": 1,
+             "arg_setid": None, "iowait": None, "blocked_caller": None},
+            {"itid": 1, "ts": 200, "dur": 300, "state": "R", "cpu": 1,
+             "arg_setid": None, "iowait": None, "blocked_caller": None},
+        ]},
+        sched={1: [{"itid": 1, "ts": 0, "dur": 200, "ts_end": 200,
+                    "cpu": 1, "priority": 120, "end_state": "R"}]},
+        callstacks={1: [
+            {"itid": 1, "ts": 0, "dur": 200, "name": "root_stack"},
+            {"itid": 1, "ts": 50, "dur": 20, "name": "short_stack"},
+        ]},
+    )
+    compute = capability("compute", "extract_critical_path")
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 500)
+
+    first = compute(facts.provider, request)
+    second = compute(facts.provider, request)
+    nodes = rows(first.nodes)
+    edges = rows(first.edges)
+
+    assert [(n["state"], n["classification"]) for n in nodes] == [
+        ("R", "scheduler_wait"), ("Running", "self_running")
+    ]
+    assert next(n for n in nodes if n["state"] == "Running")["callstack_name"] == "root_stack"
+    assert edges == [{
+        "edge_id": 1,
+        "from_node_id": 2,
+        "to_node_id": 1,
+        "from_itid": 1,
+        "to_itid": 1,
+        "parent_depth": 0,
+        "child_depth": 0,
+        "wakeup_ts": None,
+        "edge_type": "sequence",
+        "confidence": "fact",
+        "reason": "thread_state_order",
+    }]
+    assert rows(second.nodes) == nodes
+
+
+@pytest.mark.parametrize(("state_name", "iowait", "blocked_caller", "classification", "uncertainty"), [
+    ("D-IO", None, None, "io_block", None),
+    ("D", 1, None, "io_block", None),
+    ("D-NIO", 0, "mutex_wait", "non_io_block", None),
+    ("D", 0, None, "unknown", "unsupported_state"),
+    ("S", None, None, "unknown", "unsupported_state"),
+])
+def test_compute_classifies_base_blocked_states(
+    state_name, iowait, blocked_caller, classification, uncertainty
+):
+    facts = fake_facts(states={1: [{
+        "itid": 1, "ts": 0, "dur": 10, "state": state_name, "cpu": 1,
+        "arg_setid": None, "iowait": iowait, "blocked_caller": blocked_caller,
+    }]})
+    compute = capability("compute", "extract_critical_path")
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 10)
+
+    node = rows(compute(facts.provider, request).nodes)[0]
+
+    assert node["classification"] == classification
+    assert node["uncertainty"] == uncertainty
+
+
+def test_running_without_sched_evidence_is_unknown():
+    facts = fake_facts(states={1: [{
+        "itid": 1, "ts": 0, "dur": 10, "state": "Running", "cpu": 1,
+        "arg_setid": None, "iowait": None, "blocked_caller": None,
+    }]})
+    compute = capability("compute", "extract_critical_path")
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 10)
+
+    node = rows(compute(facts.provider, request).nodes)[0]
+
+    assert node["classification"] == "unknown"
+    assert node["uncertainty"] == "missing_sched_evidence"
+
+
 def register(ctx: SessionContext, name: str, data: list[dict], schema: pa.Schema) -> None:
     ctx.from_arrow(pa.Table.from_pylist(data, schema=schema), name)
 
