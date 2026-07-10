@@ -9,9 +9,9 @@ def callstack_slices(kat, itid: int, start_ts: int, end_ts: int):
         """
         select callid as itid, ts, dur, name
         from callstack
-        where callid = :itid
-          and ts < :end_ts
-          and ts + dur > :start_ts
+        where callid = $itid
+          and ts < $end_ts
+          and ts + dur > $start_ts
         order by ts, dur
         """,
         itid=itid,

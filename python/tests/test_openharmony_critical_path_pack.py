@@ -793,6 +793,24 @@ def run_worker(tmp_path: Path, dataset: Path, workflow: str, inputs: dict) -> Pa
     return run_dir
 
 
+def test_pack_sources_do_not_use_legacy_colon_parameters():
+    fact_sources = [
+        (PACK_ROOT / "facts" / name).read_text(encoding="utf-8")
+        for name in ["callstacks.py", "frames.py", "scheduling.py", "threads.py"]
+    ]
+    legacy_parameters = [
+        "app_name",
+        "end_ts",
+        "itid",
+        "start_ts",
+        "target_itid",
+    ]
+
+    for source in fact_sources:
+        for parameter in legacy_parameters:
+            assert f":{parameter}" not in source
+
+
 def test_pack_discovers_generic_boundaries():
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{SDK_ROOT}{os.pathsep}{RUNTIME_ROOT}"

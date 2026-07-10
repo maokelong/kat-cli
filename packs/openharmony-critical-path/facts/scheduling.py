@@ -12,8 +12,8 @@ def wakeup_edges(kat, target_itid: int, start_ts: int, end_ts: int):
         where ref_type = 'itid'
           and name like 'sched_wakeup%'
           and wakeup_from is not null
-          and ref = :target_itid
-          and ts between :start_ts and :end_ts
+          and ref = $target_itid
+          and ts between $start_ts and $end_ts
         order by ts
         """,
         target_itid=target_itid,
@@ -28,9 +28,9 @@ def sched_slices(kat, itid: int, start_ts: int, end_ts: int):
         """
         select itid, ts, dur, ts_end, cpu, priority, end_state
         from sched_slice
-        where itid = :itid
-          and ts < :end_ts
-          and ts + dur > :start_ts
+        where itid = $itid
+          and ts < $end_ts
+          and ts + dur > $start_ts
         order by ts, dur
         """,
         itid=itid,

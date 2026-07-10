@@ -10,7 +10,7 @@ def thread_metadata(kat, itid: int):
         select t.itid, t.tid, t.name as thread_name, p.pid, p.name as process_name
         from thread t
         left join process p on p.ipid = t.ipid
-        where t.itid = :itid
+        where t.itid = $itid
         """,
         itid=itid,
     )
@@ -23,9 +23,9 @@ def thread_state_segments(kat, itid: int, start_ts: int, end_ts: int):
         with requested_states as (
           select itid, ts, dur, state, cpu, arg_setid
           from thread_state
-          where itid = :itid
-            and ts < :end_ts
-            and ts + dur > :start_ts
+          where itid = $itid
+            and ts < $end_ts
+            and ts + dur > $start_ts
         ),
         requested_argsets as (
           select distinct arg_setid

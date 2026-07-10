@@ -11,7 +11,7 @@ def first_frame_window(kat, app_name: str):
         from frame_slice f
         join process p on p.ipid = f.ipid
         join thread t on t.itid = f.itid
-        where p.name = :app_name
+        where p.name = $app_name
           and f.type = 0
           and f.dur > 0
         order by t.is_main_thread desc, f.ts
