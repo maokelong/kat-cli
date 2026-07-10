@@ -983,7 +983,7 @@ def test_blocking_context_is_inherited_without_overwriting_child_fact():
     assert child["blocking_context_node_id"] == parent["node_id"]
 
 
-def test_short_wait_transition_is_kept_but_unrelated_noise_is_filtered():
+def test_short_wait_transition_and_uncertainty_evidence_are_kept():
     facts = dependency_facts(
         root_states=[
             state_row(1, 0, 50_000, "Running"),
@@ -998,7 +998,12 @@ def test_short_wait_transition_is_kept_but_unrelated_noise_is_filtered():
         facts, root_itid=1, start_ts=0, end_ts=150_000, min_segment_ms=0.1
     )
     nodes = rows(result.nodes)
-    assert not any(node["itid"] == 1 and node["state"] == "Running" for node in nodes)
+    assert any(
+        node["itid"] == 1
+        and node["state"] == "Running"
+        and node["uncertainty"] == "missing_sched_evidence"
+        for node in nodes
+    )
     assert any(node["itid"] == 1 and node["state"] == "S" for node in nodes)
     assert any(edge["edge_type"] == "wakeup" for edge in rows(result.edges))
 ```
