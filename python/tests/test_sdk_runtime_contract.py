@@ -169,16 +169,68 @@ def relative_workflow(kat, root_itid: int = default_root_itid()):
     assert "= 405" in manifest["workflows"][0]["signature"]
 
 
-def test_sql_binding_replaces_overlapping_parameters_atomically():
+def test_kat_sql_delegates_query_and_param_values_without_rewriting():
     sys.path.insert(0, str(SDK_ROOT))
-    from kat.context import _bind_sql_params
+    from kat import Kat
 
-    rendered = _bind_sql_params(
-        "select :id as id, :id2 as id2",
-        {"id": 1, "id2": 2},
+    calls = []
+
+    class CapturingContext:
+        def sql(self, query, *, param_values):
+            calls.append((query, param_values))
+            return "dataframe"
+
+    kat = Kat(ctx=CapturingContext())
+    result = kat.sql("select $id as id, $id2 as id2", id=1, id2=2)
+
+    assert result == "dataframe"
+    assert calls == [
+        ("select $id as id, $id2 as id2", {"id": 1, "id2": 2})
+    ]
+
+
+def test_kat_sql_uses_real_datafusion_54_parameters():
+    sys.path.insert(0, str(SDK_ROOT))
+    from datafusion import DataFrame, SessionContext
+    from kat import Kat
+
+    dataframe = Kat(ctx=SessionContext()).sql(
+        """
+        select $id as id,
+               $id2 as id2,
+               $quoted as quoted,
+               $missing is null as missing,
+               $flag as flag,
+               $ratio as ratio
+        """,
+        id=1,
+        id2=2,
+        quoted="O'Reilly",
+        missing=None,
+        flag=True,
+        ratio=1.5,
     )
 
-    assert rendered == "select 1 as id, 2 as id2"
+    assert isinstance(dataframe, DataFrame)
+    assert dataframe.to_pydict() == {
+        "id": [1],
+        "id2": [2],
+        "quoted": ["O'Reilly"],
+        "missing": [True],
+        "flag": [True],
+        "ratio": [1.5],
+    }
+
+
+def test_sdk_exposes_deferred_datafusion_types_without_runtime_import():
+    sys.path.insert(0, str(SDK_ROOT))
+    from kat import Kat
+    import kat.context as context
+
+    assert Kat.__init__.__annotations__["ctx"] == "SessionContext"
+    assert Kat.sql.__annotations__["return"] == "DataFrame"
+    assert not hasattr(context, "_bind_sql_params")
+    assert not hasattr(context, "_sql_literal")
 
 
 def test_run_worker_materializes_returned_dataframes(tmp_path):
