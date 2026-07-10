@@ -534,6 +534,50 @@ def test_short_noise_filter_bridges_retained_sequence_neighbors():
     assert_graph_invariants(result)
 
 
+def test_short_noise_filter_does_not_bridge_distinct_same_thread_frames():
+    compute = capability("compute", "extract_critical_path")
+    node_type = compute.__globals__["PathNode"]
+    edge_type = compute.__globals__["PathEdge"]
+    state_type = compute.__globals__["TraversalState"]
+    filter_short = compute.__globals__["_filter_short_segments"]
+    make_result = compute.__globals__["_result"]
+
+    def node(node_id, start, end):
+        return node_type(
+            node_id=node_id, depth=0, itid=1,
+            segment_start_ts=start, segment_end_ts=end, dur=end - start,
+            state="R", classification="scheduler_wait", confidence="fact",
+        )
+
+    def sequence(edge_id, source, target):
+        return edge_type(
+            edge_id=edge_id, from_node_id=source, to_node_id=target,
+            from_itid=1, to_itid=1, parent_depth=0, child_depth=0,
+            edge_type="sequence", confidence="fact", reason="thread_state_order",
+        )
+
+    state = state_type(
+        nodes=[
+            node(1, 0, 100), node(2, 100, 150), node(3, 150, 250),
+            node(4, 50, 170), node(5, 170, 290),
+        ],
+        edges=[sequence(1, 1, 2), sequence(2, 2, 3), sequence(3, 4, 5)],
+        next_node_id=6,
+        next_edge_id=4,
+    )
+
+    filter_short(state, 100)
+    result = make_result(state)
+    sequence_pairs = {
+        (edge["from_node_id"], edge["to_node_id"])
+        for edge in rows(result.edges)
+        if edge["edge_type"] == "sequence"
+    }
+
+    assert sequence_pairs == {(1, 3), (4, 5)}
+    assert_graph_invariants(result)
+
+
 def test_running_without_sched_evidence_is_unknown():
     facts = fake_facts(states={1: [{
         "itid": 1, "ts": 0, "dur": 10, "state": "Running", "cpu": 1,

@@ -512,29 +512,60 @@ def _filter_short_segments(state: TraversalState, min_segment_ns: int) -> None:
         and edge.from_node_id not in omitted_ids
         and edge.to_node_id not in omitted_ids
     ]
-    groups: dict[tuple[int | None, int], list[PathNode]] = {}
-    for node in state.nodes:
-        if node.segment_start_ts is not None and node.segment_end_ts is not None:
-            groups.setdefault((node.itid, node.depth), []).append(node)
-    for group in groups.values():
-        ordered = sorted(
-            group,
-            key=lambda node: (node.segment_start_ts, node.segment_end_ts, node.node_id),
-        )
-        for source, target in zip(ordered, ordered[1:]):
-            retained_edges.append(PathEdge(
-                edge_id=state.next_edge_id,
-                from_node_id=source.node_id,
-                to_node_id=target.node_id,
-                from_itid=source.itid,
-                to_itid=target.itid,
-                parent_depth=source.depth,
-                child_depth=target.depth,
-                edge_type="sequence",
-                confidence="fact",
-                reason="thread_state_order",
-            ))
-            state.next_edge_id += 1
+    original_sequence = sorted(
+        (edge for edge in state.edges if edge.edge_type == "sequence"),
+        key=lambda edge: edge.edge_id,
+    )
+    retained_ids = {node.node_id for node in state.nodes}
+    successors: dict[int, list[int]] = {}
+    existing_pairs: set[tuple[int, int]] = set()
+    for edge in original_sequence:
+        successors.setdefault(edge.from_node_id, []).append(edge.to_node_id)
+        pair = (edge.from_node_id, edge.to_node_id)
+        if (
+            edge.from_node_id in retained_ids
+            and edge.to_node_id in retained_ids
+            and edge.from_node_id != edge.to_node_id
+            and pair not in existing_pairs
+        ):
+            retained_edges.append(edge)
+            existing_pairs.add(pair)
+    for source_id in sorted(retained_ids):
+        pending = list(successors.get(source_id, ()))
+        visited_omitted: set[int] = set()
+        while pending:
+            target_id = pending.pop(0)
+            if target_id in retained_ids:
+                pair = (source_id, target_id)
+                source = nodes_by_id[source_id]
+                target = nodes_by_id[target_id]
+                if (
+                    source_id != target_id
+                    and pair not in existing_pairs
+                    and source.itid == target.itid
+                    and source.depth == target.depth
+                    and source.segment_end_ts is not None
+                    and target.segment_start_ts is not None
+                    and source.segment_end_ts <= target.segment_start_ts
+                ):
+                    retained_edges.append(PathEdge(
+                        edge_id=state.next_edge_id,
+                        from_node_id=source_id,
+                        to_node_id=target_id,
+                        from_itid=source.itid,
+                        to_itid=target.itid,
+                        parent_depth=source.depth,
+                        child_depth=target.depth,
+                        edge_type="sequence",
+                        confidence="fact",
+                        reason="thread_state_order",
+                    ))
+                    state.next_edge_id += 1
+                    existing_pairs.add(pair)
+                continue
+            if target_id in omitted_ids and target_id not in visited_omitted:
+                visited_omitted.add(target_id)
+                pending.extend(successors.get(target_id, ()))
     state.edges = [
         replace(edge, edge_id=edge_id)
         for edge_id, edge in enumerate(
