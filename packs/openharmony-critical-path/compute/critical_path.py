@@ -26,6 +26,11 @@ class FactContractError(RuntimeError):
 
 _INTEGER = "integer"
 _STRING = "string"
+IO_THREAD_NAMES = frozenset({
+    "fsverity", "cdecrypt", "erofs_unzipd", "fsignature", "hmfs",
+    "wk:0/0/0", "wk:2/1/0", "wk:0/-20/0",
+})
+IO_THREAD_EXCLUSIONS = frozenset({"hmfs_txn"})
 _FACT_COLUMNS = {
     "thread_metadata": {
         "itid": _INTEGER, "tid": _INTEGER, "thread_name": _STRING,
@@ -164,6 +169,8 @@ def _append_node(
         window_start_ts=frame.start_ts,
         window_end_ts=frame.end_ts,
         classification=classification,
+        blocking_context_node_id=frame.blocking_context_node_id,
+        inherited_blocked_caller=frame.inherited_blocked_caller,
         uncertainty=uncertainty,
         termination_reason=termination_reason,
     )
@@ -317,6 +324,8 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
         sched_priority=sched.get("priority") if sched else None,
         callstack_name=callstack.get("name") if callstack else None,
         blocked_caller=row.get("blocked_caller"),
+        blocking_context_node_id=frame.blocking_context_node_id,
+        inherited_blocked_caller=frame.inherited_blocked_caller,
         confidence="fact",
         uncertainty=uncertainty,
     )
@@ -363,6 +372,8 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
             segment_start_ts=wait_start, segment_end_ts=wait_end,
             dur=wait_end - wait_start, state=wait_row["state"],
             classification=wait_classification, blocked_caller=wait_row.get("blocked_caller"),
+            blocking_context_node_id=frame.blocking_context_node_id,
+            inherited_blocked_caller=frame.inherited_blocked_caller,
             confidence="fact",
         )
         state.next_node_id += 1
@@ -399,12 +410,21 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
                 )
                 if waker_metadata:
                     state.metadata[waker_itid] = waker_metadata[0]
+                waker_name = state.metadata.get(waker_itid, {}).get("thread_name")
+                if waker_name in IO_THREAD_NAMES and waker_name not in IO_THREAD_EXCLUSIONS:
+                    state.nodes[-1] = replace(state.nodes[-1], classification="io_block")
+                blocking_node_id = None
+                inherited_caller = None
+                if wait_row["state"].startswith("D"):
+                    blocking_node_id = wait_node.node_id
+                    inherited_caller = wait_row.get("blocked_caller")
                 child = _follow_waker(
                     state=state, waiter_itid=frame.itid, waker_itid=waker_itid,
                     wakeup_ts=latest_ts, waiting_node_id=wait_node.node_id,
                     frame_depth=frame.depth, max_depth=request.max_depth,
-                    waker_name=state.metadata.get(waker_itid, {}).get("thread_name"),
-                    blocking_context_node_id=None, inherited_blocked_caller=None,
+                    waker_name=waker_name,
+                    blocking_context_node_id=blocking_node_id,
+                    inherited_blocked_caller=inherited_caller,
                     start_ts=frame.start_ts,
                 )
         if wait_start > frame.start_ts:
@@ -431,6 +451,45 @@ def _result(state: TraversalState) -> CriticalPathResult:
     )
 
 
+def _filter_short_segments(state: TraversalState, min_segment_ns: int) -> None:
+    if min_segment_ns <= 0:
+        return
+    nodes_by_id = {node.node_id: node for node in state.nodes}
+    protected_ids = {
+        node_id
+        for edge in state.edges
+        if edge.edge_type == "wakeup"
+        for node_id in (edge.from_node_id, edge.to_node_id)
+    }
+    for edge in state.edges:
+        if edge.edge_type != "sequence":
+            continue
+        source = nodes_by_id.get(edge.from_node_id)
+        target = nodes_by_id.get(edge.to_node_id)
+        if source and target and (
+            source.state == "S" or (source.state or "").startswith("D")
+        ) and target.state in {"R", "R+"}:
+            protected_ids.update((source.node_id, target.node_id))
+    omitted_ids = {
+        node.node_id
+        for node in state.nodes
+        if node.dur is not None
+        and node.dur < min_segment_ns
+        and node.node_id not in protected_ids
+        and node.classification not in {"io_block", "non_io_block"}
+        and not node.blocked_caller
+        and node.uncertainty in {None, "missing_sched_evidence"}
+        and not node.termination_reason
+    }
+    if not omitted_ids:
+        return
+    state.nodes = [node for node in state.nodes if node.node_id not in omitted_ids]
+    state.edges = [
+        edge for edge in state.edges
+        if edge.from_node_id not in omitted_ids and edge.to_node_id not in omitted_ids
+    ]
+
+
 def target_not_found_result() -> CriticalPathResult:
     state = TraversalState(nodes=[
         PathNode(
@@ -452,4 +511,5 @@ def extract_critical_path(facts: FactProvider, request: CriticalPathRequest) -> 
     ])
     while state.frontier:
         _process_frontier(facts, request, state)
+    _filter_short_segments(state, int(request.min_segment_ms * 1_000_000))
     return _result(state)

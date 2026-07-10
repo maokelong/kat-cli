@@ -91,10 +91,10 @@ def fake_facts(*, metadata=None, states=None, wakeups=None, sched=None, callstac
     return FakeFactBundle(provider, calls)
 
 
-def state_row(itid, ts, dur, state):
+def state_row(itid, ts, dur, state, *, iowait=None, blocked_caller=None):
     return {
         "itid": itid, "ts": ts, "dur": dur, "state": state, "cpu": 1,
-        "arg_setid": None, "iowait": None, "blocked_caller": None,
+        "arg_setid": None, "iowait": iowait, "blocked_caller": blocked_caller,
     }
 
 
@@ -112,10 +112,10 @@ def dependency_facts(*, root_states, wakeups, waker_name, waker_states):
     )
 
 
-def run_compute(facts, *, root_itid, start_ts, end_ts, max_depth=8):
+def run_compute(facts, *, root_itid, start_ts, end_ts, max_depth=8, min_segment_ms=0.1):
     compute = capability("compute", "extract_critical_path")
     request = compute.__globals__["CriticalPathRequest"](
-        root_itid, start_ts, end_ts, max_depth=max_depth
+        root_itid, start_ts, end_ts, max_depth=max_depth, min_segment_ms=min_segment_ms
     )
     return compute(facts.provider, request)
 
@@ -161,7 +161,7 @@ def test_compute_walks_backward_and_emits_forward_sequence_edges():
         ]},
     )
     compute = capability("compute", "extract_critical_path")
-    request = compute.__globals__["CriticalPathRequest"](1, 0, 500)
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 500, min_segment_ms=0)
 
     first = compute(facts.provider, request)
     second = compute(facts.provider, request)
@@ -273,12 +273,83 @@ def test_compute_classifies_base_blocked_states(
         "arg_setid": None, "iowait": iowait, "blocked_caller": blocked_caller,
     }]})
     compute = capability("compute", "extract_critical_path")
-    request = compute.__globals__["CriticalPathRequest"](1, 0, 10)
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 10, min_segment_ms=0)
 
     node = rows(compute(facts.provider, request).nodes)[0]
 
     assert node["classification"] == classification
     assert node["uncertainty"] == uncertainty
+
+
+@pytest.mark.parametrize(
+    ("state_name", "iowait", "blocked_caller", "expected"),
+    [
+        ("D-IO", 1, "fscache_wait", "io_block"),
+        ("D", 1, "fscache_wait", "io_block"),
+        ("D-NIO", 0, "eventfd_read", "non_io_block"),
+        ("S", None, None, "unknown"),
+    ],
+)
+def test_block_classification_is_conservative(state_name, iowait, blocked_caller, expected):
+    facts = fake_facts(states={1: [state_row(
+        1, 0, 500, state_name, iowait=iowait, blocked_caller=blocked_caller
+    )]})
+    node = rows(run_compute(facts, root_itid=1, start_ts=0, end_ts=500).nodes)[0]
+    assert node["classification"] == expected
+
+
+@pytest.mark.parametrize(
+    ("waker_name", "expected"),
+    [("fsverity", "io_block"), ("hmfs_txn", "waiting_for_waker")],
+)
+def test_io_waker_name_promotes_only_included_threads(waker_name, expected):
+    facts = dependency_facts(
+        root_states=[state_row(1, 0, 400, "S"), state_row(1, 400, 100, "R")],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name=waker_name,
+        waker_states=[state_row(2, 0, 400, "Running")],
+    )
+    nodes = rows(run_compute(facts, root_itid=1, start_ts=0, end_ts=500).nodes)
+    wait = next(node for node in nodes if node["itid"] == 1 and node["state"] == "S")
+    assert wait["classification"] == expected
+
+
+def test_blocking_context_is_inherited_without_overwriting_child_fact():
+    facts = dependency_facts(
+        root_states=[
+            state_row(1, 0, 400, "D-NIO", blocked_caller="parent_wait"),
+            state_row(1, 400, 100, "R"),
+        ],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[state_row(2, 0, 400, "D-NIO", blocked_caller="child_wait")],
+    )
+    nodes = rows(run_compute(facts, root_itid=1, start_ts=0, end_ts=500).nodes)
+    parent = next(node for node in nodes if node["itid"] == 1 and node["state"] == "D-NIO")
+    child = next(node for node in nodes if node["itid"] == 2)
+    assert child["blocked_caller"] == "child_wait"
+    assert child["inherited_blocked_caller"] == "parent_wait"
+    assert child["blocking_context_node_id"] == parent["node_id"]
+
+
+def test_short_wait_transition_is_kept_but_unrelated_noise_is_filtered():
+    facts = dependency_facts(
+        root_states=[
+            state_row(1, 0, 50_000, "Running"),
+            state_row(1, 50_000, 50_000, "S"),
+            state_row(1, 100_000, 50_000, "R"),
+        ],
+        wakeups=[{"wakeup_ts": 100_000, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[state_row(2, 50_000, 50_000, "Running")],
+    )
+    result = run_compute(
+        facts, root_itid=1, start_ts=0, end_ts=150_000, min_segment_ms=0.1
+    )
+    nodes = rows(result.nodes)
+    assert not any(node["itid"] == 1 and node["state"] == "Running" for node in nodes)
+    assert any(node["itid"] == 1 and node["state"] == "S" for node in nodes)
+    assert any(edge["edge_type"] == "wakeup" for edge in rows(result.edges))
 
 
 def test_running_without_sched_evidence_is_unknown():
@@ -287,7 +358,7 @@ def test_running_without_sched_evidence_is_unknown():
         "arg_setid": None, "iowait": None, "blocked_caller": None,
     }]})
     compute = capability("compute", "extract_critical_path")
-    request = compute.__globals__["CriticalPathRequest"](1, 0, 10)
+    request = compute.__globals__["CriticalPathRequest"](1, 0, 10, min_segment_ms=0)
 
     node = rows(compute(facts.provider, request).nodes)[0]
 
