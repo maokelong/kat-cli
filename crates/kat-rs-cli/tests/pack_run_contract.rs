@@ -41,23 +41,3 @@ fn pack_run_params_reject_missing_equals() {
     let error = parse_params(&["root_itid".to_string()]).expect_err("invalid param rejected");
     assert!(error.to_string().contains("expected key=value"));
 }
-
-#[test]
-#[ignore = "requires local Python with datafusion installed"]
-fn pack_run_real_python_smoke_is_available_for_manual_verification() {
-    assert!(
-        std::env::var_os("KAT_RS_PYTHON").is_some(),
-        "set KAT_RS_PYTHON to the Python executable used for pack run verification"
-    );
-}
-
-#[test]
-#[ignore = "requires KAT_RS_E2E_DB and local Python with datafusion installed"]
-fn local_test_db_e2e_contract_is_documented() {
-    let db = std::env::var("KAT_RS_E2E_DB")
-        .expect("set KAT_RS_E2E_DB to the local test.db path");
-    assert!(
-        std::path::Path::new(&db).exists(),
-        "KAT_RS_E2E_DB path must exist: {db}"
-    );
-}

@@ -48,4 +48,16 @@ jobs:
         run: cargo test --locked
 
       - name: Verify clean Python wheels
-        run: python python/tests/verify_wheels.py
+        run: >-
+          python python/tests/verify_wheels.py
+          --runtime-venv .python-runtime-venv
+
+      - name: Test synthetic SQLite through the real CLI
+        env:
+          KAT_RS_PYTHON: ${{ format('{0}/.python-runtime-venv/{1}', github.workspace, runner.os == 'Windows' && 'Scripts/python.exe' || 'bin/python') }}
+          PYTHONPATH: ""
+          PYTHONHOME: ""
+        run: >-
+          cargo test --locked -p kat-rs-cli
+          --test pack_run_e2e synthetic_sqlite_pack_run_e2e
+          -- --ignored --exact --nocapture
