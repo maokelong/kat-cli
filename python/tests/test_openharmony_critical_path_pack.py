@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -563,8 +564,149 @@ def test_compute_preserves_fact_collection_error_as_cause():
     assert isinstance(raised.value.__cause__, OSError)
 
 
+@pytest.mark.parametrize("text_type", [pa.string(), pa.large_string(), pa.string_view()])
+def test_compute_accepts_arrow_text_variants_from_fact_dataframes(text_type):
+    compute = capability("compute", "extract_critical_path")
+    compatible_type = compute.__globals__["_compatible_type"]
+
+    assert compatible_type(text_type, "string")
+
+
 def register(ctx: SessionContext, name: str, data: list[dict], schema: pa.Schema) -> None:
     ctx.from_arrow(pa.Table.from_pylist(data, schema=schema), name)
+
+
+def build_integration_dataset(tmp_path: Path) -> Path:
+    dataset = tmp_path / "dataset"
+    tables = dataset / "tables"
+    tables.mkdir(parents=True)
+    ctx = SessionContext()
+    definitions = {
+        "thread_state": (
+            [
+                state_row(1, 0, 400, "S"),
+                state_row(1, 400, 100, "R"),
+                state_row(2, 0, 400, "Running"),
+            ],
+            STATE_SCHEMA,
+        ),
+        "thread": (
+            [
+                {"itid": 1, "tid": 10, "name": "main", "ipid": 100, "is_main_thread": 1},
+                {"itid": 2, "tid": 20, "name": "worker", "ipid": 100, "is_main_thread": 0},
+            ],
+            pa.schema([("itid", pa.int64()), ("tid", pa.int64()), ("name", pa.string()),
+                       ("ipid", pa.int64()), ("is_main_thread", pa.int64())]),
+        ),
+        "process": (
+            [{"ipid": 100, "pid": 1000, "name": ".tencent.wechat"}],
+            pa.schema([("ipid", pa.int64()), ("pid", pa.int64()), ("name", pa.string())]),
+        ),
+        "args": (
+            [],
+            pa.schema([("key", pa.int64()), ("datatype", pa.int64()),
+                       ("value", pa.int64()), ("argset", pa.int64())]),
+        ),
+        "data_dict": (
+            [],
+            pa.schema([("id", pa.int64()), ("data", pa.string())]),
+        ),
+        "instant": (
+            [{"ts": 400, "name": "sched_wakeup", "ref": 1,
+              "wakeup_from": 2, "ref_type": "itid"}],
+            pa.schema([("ts", pa.int64()), ("name", pa.string()), ("ref", pa.int64()),
+                       ("wakeup_from", pa.int64()), ("ref_type", pa.string())]),
+        ),
+        "sched_slice": (
+            [{"itid": 2, "ts": 0, "dur": 400, "ts_end": 400, "cpu": 1,
+              "priority": 120, "end_state": "R"}],
+            SCHED_SCHEMA,
+        ),
+        "callstack": (
+            [{"callid": 2, "ts": 0, "dur": 400, "name": "worker_stack"}],
+            pa.schema([("callid", pa.int64()), ("ts", pa.int64()),
+                       ("dur", pa.int64()), ("name", pa.string())]),
+        ),
+        "frame_slice": (
+            [{"itid": 1, "ipid": 100, "ts": 0, "dur": 500, "type": 0}],
+            pa.schema([("itid", pa.int64()), ("ipid", pa.int64()), ("ts", pa.int64()),
+                       ("dur", pa.int64()), ("type", pa.int64())]),
+        ),
+    }
+    catalog = []
+    for name, (data, schema) in definitions.items():
+        path = tables / f"{name}.parquet"
+        ctx.from_arrow(pa.Table.from_pylist(data, schema=schema)).write_parquet(str(path))
+        catalog.append({"name": name, "path": f"tables/{name}.parquet", "kind": "source"})
+    (dataset / "catalog.json").write_text(json.dumps({"tables": catalog}), encoding="utf-8")
+    return dataset
+
+
+def run_worker(tmp_path: Path, dataset: Path, workflow: str, inputs: dict) -> Path:
+    run_dir = tmp_path / f"run-{workflow}"
+    request = {
+        "packRoot": str(PACK_ROOT),
+        "workflow": workflow,
+        "datasetPath": str(dataset),
+        "runDir": str(run_dir),
+        "inputs": inputs,
+    }
+    request_path = tmp_path / f"request-{workflow}.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{SDK_ROOT}{os.pathsep}{RUNTIME_ROOT}"
+    subprocess.run(
+        [sys.executable, "-m", "kat_runtime.worker.run", "--request", str(request_path)],
+        env=env, text=True, capture_output=True, check=True,
+    )
+    return run_dir
+
+
+def test_pack_discovers_generic_boundaries():
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{SDK_ROOT}{os.pathsep}{RUNTIME_ROOT}"
+    result = subprocess.run(
+        [sys.executable, "-m", "kat_runtime.worker.discovery", "--pack-root", str(PACK_ROOT)],
+        env=env, text=True, capture_output=True, check=True,
+    )
+    manifest = json.loads(result.stdout)
+    assert {item["name"] for item in manifest["workflows"]} == {
+        "critical_path", "wechat_first_frame_critical_path"
+    }
+    assert {item["name"] for item in manifest["computes"]} == {"extract_critical_path"}
+    assert {item["name"] for item in manifest["facts"]} == {
+        "thread_metadata", "thread_state_segments", "wakeup_edges",
+        "sched_slices", "callstack_slices", "first_frame_window",
+    }
+    assert not (PACK_ROOT / "facts" / "trace_streamer.py").exists()
+
+
+def test_generic_workflow_materializes_only_nodes_and_edges(tmp_path):
+    dataset_path = build_integration_dataset(tmp_path)
+    run_dir = run_worker(
+        tmp_path, dataset_path, "critical_path",
+        {"root_itid": 1, "start_ts": 0, "end_ts": 500,
+         "max_depth": 8, "min_segment_ms": 0.1},
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "success"
+    assert {item["name"] for item in manifest["artifacts"]} == {"path_nodes", "path_edges"}
+
+
+def test_wechat_workflow_returns_typed_target_not_found_artifact(tmp_path):
+    dataset_path = build_integration_dataset(tmp_path)
+    run_dir = run_worker(
+        tmp_path, dataset_path, "wechat_first_frame_critical_path",
+        {"app_name": "missing.application"},
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    artifacts = {item["name"]: item for item in manifest["artifacts"]}
+    nodes = pq.read_table(run_dir / artifacts["path_nodes"]["path"]).to_pylist()
+    edges = pq.read_table(run_dir / artifacts["path_edges"]["path"]).to_pylist()
+    assert manifest["status"] == "success"
+    assert len(nodes) == 1
+    assert nodes[0]["termination_reason"] == "target_not_found"
+    assert edges == []
 
 
 def test_openharmony_critical_path_pack_is_discoverable():

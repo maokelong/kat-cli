@@ -79,7 +79,11 @@ def _fact_error(fact_name: str, itid: int, start_ts: int, end_ts: int, detail: s
 def _compatible_type(actual: pa.DataType, expected: str) -> bool:
     if expected == _INTEGER:
         return pa.types.is_integer(actual)
-    return pa.types.is_string(actual) or pa.types.is_large_string(actual)
+    return (
+        pa.types.is_string(actual)
+        or pa.types.is_large_string(actual)
+        or pa.types.is_string_view(actual)
+    )
 
 
 def _fact_rows(
