@@ -91,6 +91,35 @@ def fake_facts(*, metadata=None, states=None, wakeups=None, sched=None, callstac
     return FakeFactBundle(provider, calls)
 
 
+def state_row(itid, ts, dur, state):
+    return {
+        "itid": itid, "ts": ts, "dur": dur, "state": state, "cpu": 1,
+        "arg_setid": None, "iowait": None, "blocked_caller": None,
+    }
+
+
+def dependency_facts(*, root_states, wakeups, waker_name, waker_states):
+    return fake_facts(
+        metadata={
+            1: {"itid": 1, "tid": 10, "thread_name": "root", "pid": 100, "process_name": "app"},
+            2: {"itid": 2, "tid": 20, "thread_name": waker_name, "pid": 100, "process_name": "app"},
+        },
+        states={1: root_states, 2: waker_states},
+        wakeups={1: wakeups},
+        sched={2: [{"itid": 2, "ts": 0, "dur": 400, "ts_end": 400,
+                    "cpu": 1, "priority": 120, "end_state": "R"}]},
+        callstacks={2: []},
+    )
+
+
+def run_compute(facts, *, root_itid, start_ts, end_ts, max_depth=8):
+    compute = capability("compute", "extract_critical_path")
+    request = compute.__globals__["CriticalPathRequest"](
+        root_itid, start_ts, end_ts, max_depth=max_depth
+    )
+    return compute(facts.provider, request)
+
+
 def test_compute_rejects_invalid_request_before_querying_facts():
     compute = capability("compute", "extract_critical_path")
     facts = fake_facts()
@@ -157,6 +186,76 @@ def test_compute_walks_backward_and_emits_forward_sequence_edges():
         "reason": "thread_state_order",
     }]
     assert rows(second.nodes) == nodes
+
+
+def test_wait_to_runnable_recurses_into_unique_waker():
+    facts = dependency_facts(
+        root_states=[state_row(1, 0, 400, "S"), state_row(1, 400, 100, "R")],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[state_row(2, 0, 400, "Running")],
+    )
+    result = run_compute(facts, root_itid=1, start_ts=0, end_ts=500, max_depth=8)
+    nodes = rows(result.nodes)
+    edges = rows(result.edges)
+
+    wait = next(node for node in nodes if node["itid"] == 1 and node["state"] == "S")
+    worker = next(node for node in nodes if node["itid"] == 2)
+    assert wait["classification"] == "waiting_for_waker"
+    assert any(edge["edge_type"] == "wakeup"
+               and edge["from_node_id"] == worker["node_id"]
+               and edge["to_node_id"] == wait["node_id"]
+               and edge["wakeup_ts"] == 400 for edge in edges)
+
+
+def test_missing_and_ambiguous_wakers_do_not_create_edges():
+    for wakeups, uncertainty in [
+        ([], "missing_waker"),
+        ([
+            {"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"},
+            {"wakeup_ts": 400, "target_itid": 1, "waker_itid": 3, "name": "sched_wakeup"},
+        ], "ambiguous_waker"),
+    ]:
+        facts = dependency_facts(
+            root_states=[state_row(1, 0, 400, "S"), state_row(1, 400, 100, "R")],
+            wakeups=wakeups,
+            waker_name="worker",
+            waker_states=[state_row(2, 0, 400, "Running")],
+        )
+        result = run_compute(facts, root_itid=1, start_ts=0, end_ts=500)
+        wait = next(node for node in rows(result.nodes) if node["state"] == "S")
+        assert wait["uncertainty"] == uncertainty
+        assert not any(edge["edge_type"] == "wakeup" for edge in rows(result.edges))
+
+
+@pytest.mark.parametrize(
+    ("max_depth", "waker_name", "reason"),
+    [(0, "worker", "max_depth"), (8, "udk-irq", "udk_irq")],
+)
+def test_depth_and_irq_create_terminal_child_without_querying_child(max_depth, waker_name, reason):
+    facts = dependency_facts(
+        root_states=[state_row(1, 0, 400, "S"), state_row(1, 400, 100, "R")],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2, "name": "sched_wakeup"}],
+        waker_name=waker_name,
+        waker_states=[state_row(2, 0, 400, "Running")],
+    )
+    result = run_compute(facts, root_itid=1, start_ts=0, end_ts=500, max_depth=max_depth)
+    assert any(node["termination_reason"] == reason for node in rows(result.nodes))
+    assert not any(call[0] == "thread_state_segments" and call[1][0] == 2 for call in facts.calls)
+
+
+def test_repeated_wakeup_key_is_reported_as_cycle():
+    compute = capability("compute", "extract_critical_path")
+    follow = compute.__globals__["_follow_waker"]
+    state_type = compute.__globals__["TraversalState"]
+    state = state_type(visited_wakeups={(1, 2, 400)})
+    result = follow(
+        state=state, waiter_itid=1, waker_itid=2, wakeup_ts=400,
+        waiting_node_id=1, frame_depth=0, max_depth=8, waker_name="worker",
+        blocking_context_node_id=None, inherited_blocked_caller=None, start_ts=0,
+    )
+    assert result is None
+    assert state.nodes[-1].termination_reason == "cycle_detected"
 
 
 @pytest.mark.parametrize(("state_name", "iowait", "blocked_caller", "classification", "uncertainty"), [

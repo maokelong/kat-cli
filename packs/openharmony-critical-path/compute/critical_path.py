@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 import pyarrow as pa
@@ -42,6 +42,10 @@ _FACT_COLUMNS = {
     },
     "callstack_slices": {
         "itid": _INTEGER, "ts": _INTEGER, "dur": _INTEGER, "name": _STRING,
+    },
+    "wakeup_edges": {
+        "wakeup_ts": _INTEGER, "target_itid": _INTEGER,
+        "waker_itid": _INTEGER, "name": _STRING,
     },
 }
 
@@ -138,24 +142,112 @@ def _blocked_classification(state_name: str, row: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _terminal_node(state: TraversalState, frame: TraversalFrame, reason: str) -> PathNode:
+def _append_node(
+    state: TraversalState,
+    frame: TraversalFrame,
+    *,
+    itid: int | None = None,
+    thread_name: str | None = None,
+    classification: str | None = None,
+    uncertainty: str | None = None,
+    termination_reason: str | None = None,
+) -> PathNode:
     metadata = state.metadata.get(frame.itid, {})
     node = PathNode(
         node_id=state.next_node_id,
         depth=frame.depth,
-        itid=frame.itid,
+        itid=frame.itid if itid is None else itid,
         tid=metadata.get("tid"),
-        thread_name=metadata.get("thread_name"),
+        thread_name=thread_name or metadata.get("thread_name"),
         pid=metadata.get("pid"),
         process_name=metadata.get("process_name"),
         window_start_ts=frame.start_ts,
         window_end_ts=frame.end_ts,
-        classification=reason,
-        uncertainty=reason,
-        termination_reason=reason,
+        classification=classification,
+        uncertainty=uncertainty,
+        termination_reason=termination_reason,
     )
     state.next_node_id += 1
+    state.nodes.append(node)
     return node
+
+
+def _terminal_node(
+    state: TraversalState,
+    frame: TraversalFrame,
+    reason: str,
+    *,
+    itid: int | None = None,
+    thread_name: str | None = None,
+    uncertainty: str | None = None,
+) -> PathNode:
+    return _append_node(
+        state, frame, itid=itid, thread_name=thread_name,
+        classification="unknown" if reason != "udk_irq" else "io_block",
+        uncertainty=uncertainty or reason, termination_reason=reason,
+    )
+
+
+def _append_wakeup_edge(
+    state: TraversalState, source: PathNode, waiting_node_id: int,
+    waiter_itid: int, wakeup_ts: int,
+) -> None:
+    state.edges.append(PathEdge(
+        edge_id=state.next_edge_id, from_node_id=source.node_id,
+        to_node_id=waiting_node_id, from_itid=source.itid, to_itid=waiter_itid,
+        parent_depth=source.depth - 1, child_depth=source.depth,
+        wakeup_ts=wakeup_ts, edge_type="wakeup", confidence="fact",
+        reason="sched_wakeup",
+    ))
+    state.next_edge_id += 1
+
+
+def _append_terminal_for_dependency(
+    state: TraversalState, waiter_itid: int, waker_itid: int,
+    waiting_node_id: int, wakeup_ts: int, depth: int, reason: str,
+    *, emit_edge: bool,
+) -> PathNode:
+    node = _terminal_node(
+        state, TraversalFrame(waker_itid, wakeup_ts, wakeup_ts, depth),
+        reason, itid=waker_itid,
+    )
+    if emit_edge:
+        _append_wakeup_edge(state, node, waiting_node_id, waiter_itid, wakeup_ts)
+    return node
+
+
+def _follow_waker(
+    *, state: TraversalState, waiter_itid: int, waker_itid: int,
+    wakeup_ts: int, waiting_node_id: int, frame_depth: int, max_depth: int,
+    waker_name: str | None, blocking_context_node_id: int | None,
+    inherited_blocked_caller: str | None, start_ts: int,
+) -> TraversalFrame | None:
+    key = (waiter_itid, waker_itid, wakeup_ts)
+    if key in state.visited_wakeups:
+        _append_terminal_for_dependency(
+            state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
+            frame_depth + 1, "cycle_detected", emit_edge=False,
+        )
+        return None
+    if frame_depth >= max_depth:
+        _append_terminal_for_dependency(
+            state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
+            frame_depth + 1, "max_depth", emit_edge=True,
+        )
+        return None
+    if waker_name == "udk-irq":
+        _append_terminal_for_dependency(
+            state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
+            frame_depth + 1, "udk_irq", emit_edge=True,
+        )
+        return None
+    state.visited_wakeups.add(key)
+    return TraversalFrame(
+        itid=waker_itid, start_ts=start_ts, end_ts=wakeup_ts,
+        depth=frame_depth + 1, wakeup_target_node_id=waiting_node_id,
+        blocking_context_node_id=blocking_context_node_id,
+        inherited_blocked_caller=inherited_blocked_caller,
+    )
 
 
 def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: TraversalState) -> None:
@@ -176,7 +268,7 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
         if max(row["ts"], frame.start_ts) < min(row["ts"] + row["dur"], frame.end_ts)
     ]
     if not clipped:
-        state.nodes.append(_terminal_node(state, frame, "missing_state"))
+        _terminal_node(state, frame, "missing_state")
         return
 
     row, segment_start, segment_end = max(
@@ -231,6 +323,12 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
     state.next_node_id += 1
     state.nodes.append(node)
 
+    if frame.wakeup_target_node_id is not None:
+        _append_wakeup_edge(
+            state, node, frame.wakeup_target_node_id,
+            state.nodes[frame.wakeup_target_node_id - 1].itid, frame.end_ts,
+        )
+
     if frame.next_node_id is not None:
         state.edges.append(PathEdge(
             edge_id=state.next_edge_id,
@@ -246,7 +344,77 @@ def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: 
         ))
         state.next_edge_id += 1
 
-    if segment_start > frame.start_ts:
+    previous = None
+    if state_name in {"R", "R+"}:
+        candidates = [item for item in clipped if item[2] == segment_start]
+        if candidates:
+            previous = max(candidates, key=lambda item: (item[1], item[0]["state"]))
+
+    if previous is not None and (
+        previous[0]["state"] == "S" or previous[0]["state"].startswith("D")
+    ):
+        wait_row, wait_start, wait_end = previous
+        wait_classification = _blocked_classification(wait_row["state"], wait_row)
+        wait_node = PathNode(
+            node_id=state.next_node_id, depth=frame.depth, itid=frame.itid,
+            tid=metadata_row.get("tid"), thread_name=metadata_row.get("thread_name"),
+            pid=metadata_row.get("pid"), process_name=metadata_row.get("process_name"),
+            window_start_ts=frame.start_ts, window_end_ts=frame.end_ts,
+            segment_start_ts=wait_start, segment_end_ts=wait_end,
+            dur=wait_end - wait_start, state=wait_row["state"],
+            classification=wait_classification, blocked_caller=wait_row.get("blocked_caller"),
+            confidence="fact",
+        )
+        state.next_node_id += 1
+        state.nodes.append(wait_node)
+        state.edges.append(PathEdge(
+            edge_id=state.next_edge_id, from_node_id=wait_node.node_id,
+            to_node_id=node.node_id, from_itid=frame.itid, to_itid=frame.itid,
+            parent_depth=frame.depth, child_depth=frame.depth,
+            edge_type="sequence", confidence="fact", reason="thread_state_order",
+        ))
+        state.next_edge_id += 1
+
+        wakeups = [row for row in _fact_rows(
+            facts.wakeup_edges, "wakeup_edges", frame.itid, wait_start, segment_start,
+            frame.itid, wait_start, segment_start,
+        ) if row["target_itid"] == frame.itid and row["wakeup_ts"] <= segment_start]
+        child = None
+        if not wakeups:
+            state.nodes[-1] = replace(
+                wait_node, uncertainty="missing_waker", termination_reason="missing_waker"
+            )
+        else:
+            latest_ts = max(row["wakeup_ts"] for row in wakeups)
+            latest = [row for row in wakeups if row["wakeup_ts"] == latest_ts]
+            wakers = {row["waker_itid"] for row in latest}
+            if len(wakers) != 1:
+                state.nodes[-1] = replace(wait_node, uncertainty="ambiguous_waker")
+            else:
+                waker_itid = next(iter(wakers))
+                state.nodes[-1] = replace(wait_node, classification="waiting_for_waker")
+                waker_metadata = _fact_rows(
+                    facts.thread_metadata, "thread_metadata", waker_itid,
+                    frame.start_ts, latest_ts, waker_itid,
+                )
+                if waker_metadata:
+                    state.metadata[waker_itid] = waker_metadata[0]
+                child = _follow_waker(
+                    state=state, waiter_itid=frame.itid, waker_itid=waker_itid,
+                    wakeup_ts=latest_ts, waiting_node_id=wait_node.node_id,
+                    frame_depth=frame.depth, max_depth=request.max_depth,
+                    waker_name=state.metadata.get(waker_itid, {}).get("thread_name"),
+                    blocking_context_node_id=None, inherited_blocked_caller=None,
+                    start_ts=frame.start_ts,
+                )
+        if wait_start > frame.start_ts:
+            state.frontier.append(TraversalFrame(
+                itid=frame.itid, start_ts=frame.start_ts, end_ts=wait_start,
+                depth=frame.depth, next_node_id=wait_node.node_id,
+            ))
+        if child is not None:
+            state.frontier.append(child)
+    elif segment_start > frame.start_ts:
         state.frontier.append(TraversalFrame(
             itid=frame.itid,
             start_ts=frame.start_ts,
