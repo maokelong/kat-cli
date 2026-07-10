@@ -53,7 +53,6 @@ def register_dataset(ctx: SessionContext, dataset_path: Path) -> None:
         try:
             ctx.register_parquet(name, str(parquet_path))
         except Exception as error:
-            error.add_note(
+            raise error from RuntimeError(
                 f"dataset table {name!r} canonical path: {parquet_path}"
             )
-            raise

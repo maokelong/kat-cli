@@ -160,6 +160,39 @@ def test_register_dataset_preserves_datafusion_error_with_table_and_path_context
     assert str(bad.resolve()) in formatted_traceback
 
 
+def test_register_dataset_preserves_error_without_add_note_support(tmp_path):
+    class RegistrationError(Exception):
+        add_note = None
+
+    class FailingContext:
+        def __init__(self, error):
+            self.error = error
+
+        def register_parquet(self, _name, _path):
+            raise self.error
+
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    parquet_path = dataset / "tables" / "table.parquet"
+    parquet_path.parent.mkdir()
+    parquet_path.write_text("stub", encoding="utf-8")
+    table_name = "python_310_table"
+    write_catalog(
+        dataset,
+        [{"name": table_name, "path": "tables/table.parquet"}],
+    )
+    original_error = RegistrationError("registration failed")
+
+    with pytest.raises(RegistrationError) as raised_error:
+        register_dataset(FailingContext(original_error), dataset)
+
+    assert raised_error.value is original_error
+    assert str(raised_error.value) == "registration failed"
+    formatted_traceback = "".join(traceback.format_exception(raised_error.value))
+    assert table_name in formatted_traceback
+    assert str(parquet_path.resolve()) in formatted_traceback
+
+
 class FakeDataFrame:
     def write_parquet(self, path):
         Path(path).write_text("fake", encoding="utf-8")
