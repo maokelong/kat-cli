@@ -36,5 +36,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install wheel build tooling
+        run: python -m pip install build
+
       - name: Test
         run: cargo test --locked
+
+      - name: Verify clean Python wheels
+        run: python python/tests/verify_wheels.py
