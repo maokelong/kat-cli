@@ -29,9 +29,16 @@ def venv_python(environment: Path) -> Path:
 
 
 def create_venv(path: Path) -> Path:
-    if path.exists():
-        raise FileExistsError(f"clean venv target already exists: {path}")
-    venv.EnvBuilder(with_pip=True, clear=False).create(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(exist_ok=False)
+    except FileExistsError:
+        raise FileExistsError(f"clean venv target already exists: {path}") from None
+    try:
+        venv.EnvBuilder(with_pip=True, clear=False).create(path)
+    except BaseException:
+        shutil.rmtree(path)
+        raise
     return venv_python(path)
 
 
@@ -122,36 +129,42 @@ assert importlib.util.find_spec("datafusion") is None
 """
         run([str(sdk_python), "-I", "-c", sdk_probe], env=clean_env())
 
+        retain_runtime_venv = args.runtime_venv is not None
         runtime_venv = (
             args.runtime_venv.resolve()
-            if args.runtime_venv is not None
+            if retain_runtime_venv
             else work / "runtime-venv"
         )
         runtime_python = create_venv(runtime_venv)
-        run(
-            [
-                str(runtime_python),
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--only-binary=:all:",
-                str(sdk_wheel),
-                str(runtime_wheel),
-            ],
-            env=clean_env(),
-        )
-        run([str(runtime_python), "-m", "pip", "check"], env=clean_env())
+        try:
+            run(
+                [
+                    str(runtime_python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--only-binary=:all:",
+                    str(sdk_wheel),
+                    str(runtime_wheel),
+                ],
+                env=clean_env(),
+            )
+            run([str(runtime_python), "-m", "pip", "check"], env=clean_env())
 
-        smoke_root = work / "smoke"
-        smoke_root.mkdir()
-        smoke_env = clean_env()
-        smoke_env["KAT_WHEEL_SMOKE_ROOT"] = str(smoke_root)
-        run(
-            [str(runtime_python), "-I", str(SMOKE)],
-            env=smoke_env,
-            cwd=work,
-        )
+            smoke_root = work / "smoke"
+            smoke_root.mkdir()
+            smoke_env = clean_env()
+            smoke_env["KAT_WHEEL_SMOKE_ROOT"] = str(smoke_root)
+            run(
+                [str(runtime_python), "-I", str(SMOKE)],
+                env=smoke_env,
+                cwd=work,
+            )
+        except BaseException:
+            if retain_runtime_venv:
+                shutil.rmtree(runtime_venv)
+            raise
         print(f"clean Runtime Python: {runtime_python}")
         print("wheel verification passed")
     return 0
