@@ -240,12 +240,14 @@ def _follow_waker(
 ) -> TraversalFrame | None:
     key = (waiter_itid, waker_itid, wakeup_ts)
     if key in state.visited_wakeups:
-        _append_terminal_for_dependency(
-            state, waiter_itid, waker_itid, waiting_node_id, wakeup_ts,
-            frame_depth + 1, "cycle_detected", emit_edge=False,
-            blocking_context_node_id=blocking_context_node_id,
-            inherited_blocked_caller=inherited_blocked_caller,
-        )
+        state.nodes = [
+            replace(
+                node,
+                uncertainty="cycle_detected",
+                termination_reason="cycle_detected",
+            ) if node.node_id == waiting_node_id else node
+            for node in state.nodes
+        ]
         return None
     if frame_depth >= max_depth:
         _append_terminal_for_dependency(
@@ -504,10 +506,42 @@ def _filter_short_segments(state: TraversalState, min_segment_ns: int) -> None:
     if not omitted_ids:
         return
     state.nodes = [node for node in state.nodes if node.node_id not in omitted_ids]
-    state.edges = [
+    retained_edges = [
         edge for edge in state.edges
-        if edge.from_node_id not in omitted_ids and edge.to_node_id not in omitted_ids
+        if edge.edge_type != "sequence"
+        and edge.from_node_id not in omitted_ids
+        and edge.to_node_id not in omitted_ids
     ]
+    groups: dict[tuple[int | None, int], list[PathNode]] = {}
+    for node in state.nodes:
+        if node.segment_start_ts is not None and node.segment_end_ts is not None:
+            groups.setdefault((node.itid, node.depth), []).append(node)
+    for group in groups.values():
+        ordered = sorted(
+            group,
+            key=lambda node: (node.segment_start_ts, node.segment_end_ts, node.node_id),
+        )
+        for source, target in zip(ordered, ordered[1:]):
+            retained_edges.append(PathEdge(
+                edge_id=state.next_edge_id,
+                from_node_id=source.node_id,
+                to_node_id=target.node_id,
+                from_itid=source.itid,
+                to_itid=target.itid,
+                parent_depth=source.depth,
+                child_depth=target.depth,
+                edge_type="sequence",
+                confidence="fact",
+                reason="thread_state_order",
+            ))
+            state.next_edge_id += 1
+    state.edges = [
+        replace(edge, edge_id=edge_id)
+        for edge_id, edge in enumerate(
+            sorted(retained_edges, key=lambda edge: edge.edge_id), start=1
+        )
+    ]
+    state.next_edge_id = len(state.edges) + 1
 
 
 def target_not_found_result() -> CriticalPathResult:
@@ -515,7 +549,7 @@ def target_not_found_result() -> CriticalPathResult:
         PathNode(
             node_id=1,
             depth=0,
-            classification="target_not_found",
+            classification="unknown",
             uncertainty="target_not_found",
             termination_reason="target_not_found",
         )

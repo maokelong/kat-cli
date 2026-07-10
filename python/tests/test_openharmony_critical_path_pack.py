@@ -35,6 +35,28 @@ def rows(dataframe) -> list[dict]:
     return result
 
 
+CLASSIFICATIONS = {
+    "self_running", "scheduler_wait", "waiting_for_waker",
+    "io_block", "non_io_block", "unknown",
+}
+
+
+def assert_graph_invariants(result) -> None:
+    nodes = rows(result.nodes)
+    edges = rows(result.edges)
+    nodes_by_id = {node["node_id"]: node for node in nodes}
+    assert len(nodes_by_id) == len(nodes)
+    for edge in edges:
+        assert edge["from_node_id"] in nodes_by_id
+        assert edge["to_node_id"] in nodes_by_id
+        if edge["edge_type"] == "sequence":
+            source = nodes_by_id[edge["from_node_id"]]
+            target = nodes_by_id[edge["to_node_id"]]
+            assert source["itid"] == target["itid"]
+            assert source["depth"] == target["depth"]
+            assert source["segment_end_ts"] <= target["segment_start_ts"]
+
+
 METADATA_SCHEMA = pa.schema([
     ("itid", pa.int64()), ("tid", pa.int64()), ("thread_name", pa.string()),
     ("pid", pa.int64()), ("process_name", pa.string()),
@@ -141,7 +163,11 @@ def test_missing_state_and_target_not_found_keep_typed_artifacts():
     assert rows(result.edges) == []
 
     target_not_found = compute.__globals__["target_not_found_result"]()
-    assert rows(target_not_found.nodes)[0]["termination_reason"] == "target_not_found"
+    target_node = rows(target_not_found.nodes)[0]
+    assert target_node["classification"] in CLASSIFICATIONS
+    assert target_node["classification"] == "unknown"
+    assert target_node["uncertainty"] == "target_not_found"
+    assert target_node["termination_reason"] == "target_not_found"
     assert rows(target_not_found.edges) == []
 
 
@@ -245,18 +271,38 @@ def test_depth_and_irq_create_terminal_child_without_querying_child(max_depth, w
     assert not any(call[0] == "thread_state_segments" and call[1][0] == 2 for call in facts.calls)
 
 
-def test_repeated_wakeup_key_is_reported_as_cycle():
+def test_repeated_wakeup_key_annotates_reachable_wait_without_duplicate_edge():
     compute = capability("compute", "extract_critical_path")
-    follow = compute.__globals__["_follow_waker"]
+    process = compute.__globals__["_process_frontier"]
     state_type = compute.__globals__["TraversalState"]
-    state = state_type(visited_wakeups={(1, 2, 400)})
-    result = follow(
-        state=state, waiter_itid=1, waker_itid=2, wakeup_ts=400,
-        waiting_node_id=1, frame_depth=0, max_depth=8, waker_name="worker",
-        blocking_context_node_id=None, inherited_blocked_caller=None, start_ts=0,
+    frame_type = compute.__globals__["TraversalFrame"]
+    request_type = compute.__globals__["CriticalPathRequest"]
+    facts = dependency_facts(
+        root_states=[state_row(1, 0, 400, "S"), state_row(1, 400, 100, "R")],
+        wakeups=[{"wakeup_ts": 400, "target_itid": 1, "waker_itid": 2,
+                  "name": "sched_wakeup"}],
+        waker_name="worker",
+        waker_states=[state_row(2, 0, 400, "Running")],
     )
-    assert result is None
-    assert state.nodes[-1].termination_reason == "cycle_detected"
+    state = state_type(
+        frontier=[frame_type(1, 0, 500, depth=0)],
+        visited_wakeups={(1, 2, 400)},
+    )
+
+    process(facts.provider, request_type(1, 0, 500), state)
+    result = compute.__globals__["_result"](state)
+    nodes = rows(result.nodes)
+    edges = rows(result.edges)
+    wait = next(node for node in nodes if node["state"] == "S")
+
+    assert wait["uncertainty"] == "cycle_detected"
+    assert wait["termination_reason"] == "cycle_detected"
+    assert len([edge for edge in edges if edge["edge_type"] == "wakeup"]) == 0
+    assert all(node["node_id"] in {
+        edge_id for edge in edges
+        for edge_id in (edge["from_node_id"], edge["to_node_id"])
+    } for node in nodes)
+    assert_graph_invariants(result)
 
 
 @pytest.mark.parametrize(("state_name", "iowait", "blocked_caller", "classification", "uncertainty"), [
@@ -385,7 +431,7 @@ def test_blocking_context_is_preserved_across_child_continuation_segments():
     }
 
 
-@pytest.mark.parametrize("reason", ["max_depth", "cycle_detected", "udk_irq"])
+@pytest.mark.parametrize("reason", ["max_depth", "udk_irq"])
 def test_dependency_terminal_child_inherits_blocking_context(reason):
     compute = capability("compute", "extract_critical_path")
     follow = compute.__globals__["_follow_waker"]
@@ -445,6 +491,47 @@ def test_short_node_without_evidence_or_dependency_role_is_filtered():
     ).nodes)
     assert not any(node["state"] == "R" for node in nodes)
     assert any(node["state"] == "Running" for node in nodes)
+
+
+def test_short_noise_filter_bridges_retained_sequence_neighbors():
+    facts = fake_facts(
+        metadata={1: {"itid": 1, "tid": 10, "thread_name": "root", "pid": 100,
+                      "process_name": "app"}},
+        states={1: [
+            state_row(1, 0, 100_000, "Running"),
+            state_row(1, 100_000, 50_000, "R"),
+            state_row(1, 150_000, 100_000, "Running"),
+        ]},
+        sched={1: [
+            {"itid": 1, "ts": 0, "dur": 100_000, "ts_end": 100_000,
+             "cpu": 1, "priority": 120, "end_state": "R"},
+            {"itid": 1, "ts": 150_000, "dur": 100_000, "ts_end": 250_000,
+             "cpu": 1, "priority": 120, "end_state": "R"},
+        ]},
+        callstacks={1: []},
+    )
+
+    result = run_compute(
+        facts, root_itid=1, start_ts=0, end_ts=250_000, min_segment_ms=0.1
+    )
+    nodes = rows(result.nodes)
+    edges = rows(result.edges)
+
+    assert [node["state"] for node in nodes] == ["Running", "Running"]
+    assert edges == [{
+        "edge_id": 1,
+        "from_node_id": 3,
+        "to_node_id": 1,
+        "from_itid": 1,
+        "to_itid": 1,
+        "parent_depth": 0,
+        "child_depth": 0,
+        "wakeup_ts": None,
+        "edge_type": "sequence",
+        "confidence": "fact",
+        "reason": "thread_state_order",
+    }]
+    assert_graph_invariants(result)
 
 
 def test_running_without_sched_evidence_is_unknown():
