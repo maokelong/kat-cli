@@ -1,192 +1,97 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+from typing import Any
+
+import pyarrow as pa
+from datafusion import SessionContext
 from kat import compute
 
+from .models import (
+    PATH_EDGE_SCHEMA,
+    PATH_NODE_SCHEMA,
+    CriticalPathRequest,
+    CriticalPathResult,
+    FactProvider,
+    PathNode,
+    TraversalFrame,
+    TraversalState,
+)
 
-@compute(title="Critical path", description="Extract a conservative thread dependency path")
-def critical_path(
-    kat,
-    root_itid: int,
-    start_ts: int,
-    end_ts: int,
-    max_depth: int = 8,
-    min_segment_ms: float = 0.1,
-):
-    min_segment_ns = int(min_segment_ms * 1_000_000)
-    path_ctes = """
-        with recursive frontier(depth, itid, window_start, window_end, parent_itid, wakeup_ts) as (
-          select
-            0 as depth,
-            cast(:root_itid as bigint) as itid,
-            cast(:start_ts as bigint) as window_start,
-            cast(:end_ts as bigint) as window_end,
-            cast(null as bigint) as parent_itid,
-            cast(null as bigint) as wakeup_ts
-          union all
-          select
-            frontier.depth + 1 as depth,
-            instant.wakeup_from as itid,
-            frontier.window_start as window_start,
-            instant.ts as window_end,
-            frontier.itid as parent_itid,
-            instant.ts as wakeup_ts
-          from frontier
-          join thread_state state
-            on state.itid = frontier.itid
-           and state.ts < frontier.window_end
-           and state.ts + state.dur > frontier.window_start
-          join instant
-            on instant.ref = frontier.itid
-           and instant.ref_type = 'itid'
-           and instant.name like 'sched_wakeup%'
-           and instant.ts between state.ts and state.ts + state.dur
-           and instant.ts between frontier.window_start and frontier.window_end
-           and instant.wakeup_from is not null
-          where frontier.depth < :max_depth
-            and state.state in ('S', 'D')
-        ),
-        candidate_states as (
-          select
-            frontier.depth,
-            frontier.itid,
-            frontier.window_start,
-            frontier.window_end,
-            frontier.parent_itid,
-            frontier.wakeup_ts,
-            case
-              when state.ts > frontier.window_start then state.ts
-              else frontier.window_start
-            end as segment_start_ts,
-            case
-              when state.ts + state.dur < frontier.window_end then state.ts + state.dur
-              else frontier.window_end
-            end as segment_end_ts,
-            state.state
-          from frontier
-          join thread_state state
-            on state.itid = frontier.itid
-           and state.ts < frontier.window_end
-           and state.ts + state.dur > frontier.window_start
-        ),
-        ranked_states as (
-          select
-            candidate_states.depth,
-            candidate_states.itid,
-            candidate_states.window_start,
-            candidate_states.window_end,
-            candidate_states.parent_itid,
-            candidate_states.wakeup_ts,
-            candidate_states.segment_start_ts,
-            candidate_states.segment_end_ts,
-            candidate_states.segment_end_ts - candidate_states.segment_start_ts as dur,
-            candidate_states.state,
-            row_number() over (
-              partition by candidate_states.depth, candidate_states.itid, candidate_states.window_start, candidate_states.window_end
-              order by candidate_states.segment_end_ts - candidate_states.segment_start_ts desc, candidate_states.segment_start_ts
-            ) as rank
-          from candidate_states
-          where candidate_states.segment_end_ts - candidate_states.segment_start_ts >= :min_segment_ns
-        ),
-        path_nodes as (
-          select *
-          from ranked_states
-          where rank = 1
-        ),
-        path_evidence as (
-          select
-            path_nodes.depth,
-            path_nodes.itid,
-            path_nodes.window_start,
-            path_nodes.window_end,
-            callstack.name as evidence,
-            row_number() over (
-              partition by path_nodes.depth, path_nodes.itid, path_nodes.window_start, path_nodes.window_end
-              order by callstack.dur desc, callstack.ts, callstack.name
-            ) as evidence_rank
-          from path_nodes
-          join callstack
-            on callstack.callid = path_nodes.itid
-           and callstack.ts < path_nodes.segment_end_ts
-           and callstack.ts + callstack.dur > path_nodes.segment_start_ts
+
+def _dataframe(rows: list[dict[str, Any]], schema: pa.Schema):
+    ctx = SessionContext()
+    return ctx.from_arrow(pa.Table.from_pylist(rows, schema=schema))
+
+
+def _validate_request(request: CriticalPathRequest) -> None:
+    if request.start_ts >= request.end_ts:
+        raise ValueError("start_ts must be less than end_ts")
+    if request.max_depth < 0:
+        raise ValueError("max_depth must be non-negative")
+    if request.min_segment_ms < 0:
+        raise ValueError("min_segment_ms must be non-negative")
+
+
+def _rows(dataframe) -> list[dict[str, Any]]:
+    return [row for batch in dataframe.collect() for row in batch.to_pylist()]
+
+
+def _terminal_node(state: TraversalState, frame: TraversalFrame, reason: str) -> PathNode:
+    metadata = state.metadata.get(frame.itid, {})
+    node = PathNode(
+        node_id=state.next_node_id,
+        depth=frame.depth,
+        itid=frame.itid,
+        tid=metadata.get("tid"),
+        thread_name=metadata.get("thread_name"),
+        pid=metadata.get("pid"),
+        process_name=metadata.get("process_name"),
+        window_start_ts=frame.start_ts,
+        window_end_ts=frame.end_ts,
+        classification=reason,
+        uncertainty=reason,
+        termination_reason=reason,
+    )
+    state.next_node_id += 1
+    return node
+
+
+def _process_frontier(facts: FactProvider, request: CriticalPathRequest, state: TraversalState) -> None:
+    frame = state.frontier.pop()
+    metadata = _rows(facts.thread_metadata(frame.itid))
+    if metadata:
+        state.metadata[frame.itid] = metadata[0]
+    states = _rows(facts.thread_state_segments(frame.itid, frame.start_ts, frame.end_ts))
+    if not states:
+        state.nodes.append(_terminal_node(state, frame, "missing_state"))
+
+
+def _result(state: TraversalState) -> CriticalPathResult:
+    return CriticalPathResult(
+        nodes=_dataframe([asdict(node) for node in state.nodes], PATH_NODE_SCHEMA),
+        edges=_dataframe([asdict(edge) for edge in state.edges], PATH_EDGE_SCHEMA),
+    )
+
+
+def target_not_found_result() -> CriticalPathResult:
+    state = TraversalState(nodes=[
+        PathNode(
+            node_id=1,
+            depth=0,
+            classification="target_not_found",
+            uncertainty="target_not_found",
+            termination_reason="target_not_found",
         )
-    """
-    nodes = kat.sql(
-        path_ctes
-        + """
-        select
-          path_nodes.depth,
-          path_nodes.itid,
-          thread.tid,
-          thread.name as thread_name,
-          process.pid,
-          process.name as process_name,
-          path_nodes.window_start,
-          path_nodes.window_end,
-          path_nodes.parent_itid,
-          path_nodes.wakeup_ts,
-          path_nodes.segment_start_ts,
-          path_nodes.segment_end_ts,
-          path_nodes.dur,
-          path_nodes.state,
-          case
-            when path_nodes.state = 'Running' then 'self_running'
-            when path_nodes.state in ('R', 'R+') then 'scheduler_wait'
-            when path_nodes.state in ('S', 'D') and path_nodes.wakeup_ts is not null then 'waiting_for_waker'
-            when path_nodes.state in ('S', 'D') then 'blocked_without_waker'
-            else 'unknown'
-          end as classification,
-          path_evidence.evidence,
-          case
-            when path_nodes.state in ('S', 'D') and path_nodes.wakeup_ts is null then 'missing_waker'
-            else null
-          end as uncertainty
-        from path_nodes
-        left join thread
-          on path_nodes.itid = thread.itid
-        left join process
-          on thread.ipid = process.ipid
-        left join path_evidence
-          on path_evidence.depth = path_nodes.depth
-         and path_evidence.itid = path_nodes.itid
-         and path_evidence.window_start = path_nodes.window_start
-         and path_evidence.window_end = path_nodes.window_end
-         and path_evidence.evidence_rank = 1
-        order by path_nodes.depth, path_nodes.segment_start_ts
-        """,
-        root_itid=root_itid,
-        start_ts=start_ts,
-        end_ts=end_ts,
-        max_depth=max_depth,
-        min_segment_ns=min_segment_ns,
-    )
+    ])
+    return _result(state)
 
-    edges = kat.sql(
-        path_ctes
-        + """
-        select
-          child.depth - 1 as parent_depth,
-          child.depth as child_depth,
-          child.itid as from_itid,
-          child.parent_itid as to_itid,
-          child.wakeup_ts,
-          'sched_wakeup' as edge_type,
-          'fact' as confidence,
-          'instant.sched_wakeup wakeup_from' as reason
-        from path_nodes child
-        where child.depth > 0
-          and exists (
-            select 1
-            from path_nodes parent
-            where parent.depth = child.depth - 1
-              and parent.itid = child.parent_itid
-          )
-        order by child.depth, child.wakeup_ts
-        """,
-        root_itid=root_itid,
-        start_ts=start_ts,
-        end_ts=end_ts,
-        max_depth=max_depth,
-        min_segment_ns=min_segment_ns,
-    )
 
-    return {"path_nodes": nodes, "path_edges": edges}
+@compute(title="Critical path", description="Traverse normalized trace facts into a critical path")
+def extract_critical_path(facts: FactProvider, request: CriticalPathRequest) -> CriticalPathResult:
+    _validate_request(request)
+    state = TraversalState(frontier=[
+        TraversalFrame(request.root_itid, request.start_ts, request.end_ts, depth=0)
+    ])
+    _process_frontier(facts, request, state)
+    return _result(state)
