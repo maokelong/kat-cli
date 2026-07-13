@@ -612,8 +612,4 @@ packs/device/
 
 ## 16. 相关记录
 
-- [ADR 0001: Short-Lived CLI Runtime](../../adr/0001-short-lived-cli-runtime.md)
-- [ADR 0002: Direct Rewrite Over Migration](../../adr/0002-direct-rewrite-over-migration.md)
-- [通用关键路径示例 Pack 重构设计](2026-07-10-kat-rs-critical-path-pack-redesign.md)
-- [CONTEXT.md](../../../CONTEXT.md)
 - [Issue #113](https://github.com/maokelong/kat-rs/issues/113)

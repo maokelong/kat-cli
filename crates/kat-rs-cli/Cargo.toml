@@ -22,5 +22,4 @@ tokio.workspace = true
 [dev-dependencies]
 flate2.workspace = true
 prost.workspace = true
-rusqlite.workspace = true
 tempfile.workspace = true

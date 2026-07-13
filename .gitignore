@@ -1,13 +1,2 @@
 /target
 .worktrees/
-.superpowers/
-**/__pycache__/
-*.py[cod]
-/.pytest-tmp/
-/.kat-wheel-verify-*/
-/.python-runtime-venv/
-/python/kat-python-sdk/build/
-/python/kat-python-sdk/*.egg-info/
-/python/kat-python-runtime/build/
-/python/kat-python-runtime/*.egg-info/
-/test/test.db
