@@ -4,7 +4,7 @@
 
 本文定义 `packs/openharmony-critical-path` 的重构方案。目标不是增加新的 Pack runtime 能力，而是让现有示例真正体现 `@workflow`、`@fact`、`@compute` 的职责边界，并完整实现 `docs/critical-path.strategy.md` 描述的关键路径策略。
 
-本文经确认修订 `2026-07-09-kat-rs-short-lived-cli-python-pack-rewrite-design.md` 中“`@compute` 只接收和返回单个 DataFrame”的约束：fact 与 compute 之间仍使用 DataFrame 传递事实，但 compute 可以接收显式 FactProvider、维护内存遍历状态并返回持有两个 DataFrame 的 `CriticalPathResult`。workflow 对 runtime 的 `dict[str, DataFrame]` 返回合同不变；其他 Pack 和 runtime 合同不因本文扩展。
+本文经确认修订 `2026-07-09-kat-rs-python-design.md` 中“`@compute` 只接收和返回单个 DataFrame”的约束：fact 与 compute 之间仍使用 DataFrame 传递事实，但 compute 可以接收显式 FactProvider、维护内存遍历状态并返回持有两个 DataFrame 的 `CriticalPathResult`。workflow 对 runtime 的 `dict[str, DataFrame]` 返回合同不变；其他 Pack 和 runtime 合同不因本文扩展。
 
 核心结论：
 

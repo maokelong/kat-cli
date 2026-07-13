@@ -2,7 +2,7 @@
 
 ## 1. 结论
 
-本设计补充并修正 `2026-07-09-kat-rs-short-lived-cli-python-pack-rewrite-design.md` 中与 Python SDK、Runtime 和 DataFusion Python API 相关的实现合同。
+本设计补充并修正 `2026-07-09-kat-rs-python-design.md` 中与 Python SDK、Runtime 和 DataFusion Python API 相关的实现合同。
 
 最终依赖方向为：
 
@@ -381,6 +381,6 @@ test/test.db
 
 ## 18. 相关设计
 
-- [短命 CLI 与 Python Pack Runtime 重写设计](2026-07-09-kat-rs-short-lived-cli-python-pack-rewrite-design.md)
+- [短命 CLI 与 Python Pack Runtime 重写设计](2026-07-09-kat-rs-python-design.md)
 - [Pack Run MVP 实现设计](2026-07-09-kat-rs-pack-run-mvp-implementation-design.md)
 - [通用关键路径示例 Pack 重构设计](2026-07-10-kat-rs-critical-path-pack-redesign.md)
