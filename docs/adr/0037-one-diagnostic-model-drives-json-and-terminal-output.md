@@ -1,0 +1,19 @@
+---
+status: accepted
+---
+
+# 一份 KAT diagnostic 同时驱动 JSON 与终端诊断
+
+本 ADR 是 Runtime failure 与公开 KAT failure 共用的 Diagnostic value schema 及其所有权规则的唯一权威；其他 Response ADR 只定义各自 envelope 和 operation-specific 内容。Skill-facing `error` 是稀疏 JSON object：只强制非空 `message`；有可靠且非空内容时才增加按近因到根因排列的 `causes`、可直接行动的 `help`，以及一个主要 `location`。公共形状不包含语义与产生方都不清晰的 `note`。可选字段没有内容时直接省略，不写 `null` 或空 array。`location` 完整包含可读逻辑输入名或 PACK 相对路径 `source`，以及从 1 开始、end-exclusive 的 `start` 和 `end` 行列；任一部分需要猜测时整体省略，不暴露私有临时路径或重复源码文本。
+
+每次失败只有一份最终 Diagnostic，不建立字段覆盖或错误合并算法：最终阻止操作成立的强制门拥有它。Runtime 写出合法 failure Response 且该分支全部 CLI-owned 外层门成功时，CLI 将严格解码的 typed Runtime Diagnostic 原值移动进新建的公开 failure envelope；后续任一 CLI-owned 强制门失败时，已有 Runtime Diagnostic 立即丢弃，由 CLI-owned typed error 生成新的 Diagnostic。Runtime 将可靠 Python exception chain 按近因到根因投影为 `causes`，不序列化异常对象、类型或 traceback；用户可见 request fact 只有在类型化 Runtime 分支已用它直接判定本次 failure 时才可进入既有 `message`、`causes` 或 `help`，候选 UUID、Runtime Response 路径、Output ID、日志路径等私有控制事实永不进入。仅仅同时出现的 request fact 与通用引擎错误不能建立因果关系。Operation log 是 Runtime、PACK、pytest 与子进程详细文本的唯一持久证据载体；这些文本经既定净化后写入日志，不参与 Response 或 Diagnostic 组装，操作只可按明确界面把同一净化投影实时镜像到 stderr；CLI 不解析 traceback、DataFusion 错误字符串或日志来猜测字段。禁止把未解码文件字节、dict、通用 JSON value 或 Runtime Response envelope 写到 stdout。
+
+KAT diagnostic 不重复调用方已知的 operation 或顶层 `log_path`，也不加入 code、severity、type、retryable、traceback、底层异常类型或通用 metadata。failure KAT Response 不存在 `result`；某项操作确实需要机器可读的失败证据时，必须为该操作显式设计 error 形状，不能把 `error` 扩张成无约束数据袋。
+
+操作定义 Operation log 后，日志无法创建时 KAT diagnostic 直接说明日志不可用，failure Response 省略顶层 `log_path`。运行中写入或最终 flush 失败时，它说明系统未能完整交付操作、日志不完整及可靠的 I/O cause；部分文件仍可读取便保留顶层路径，文件不可用时省略该字段。这些事实由同一 diagnostic 投影到 JSON 与 stderr，不把日志路径重复塞进 `error`。无目标 `kat inspect` 与 `kat inspect --dataset` 都没有独立文本证据，不创建日志；它们各自的 discovery 或 Dataset Storage typed error 仍通过同一 Diagnostic adapter 完整投影到 JSON 与 stderr，failure 投影不含 `log_path`。
+
+CLI-owned 领域 Module 只用 thiserror 返回保留真实 source 的 typed error，不依赖 miette 或 KAT Response。拥有操作生命周期的 handler 在本地定义或包装 operation-specific CLI error，以 `thiserror::Error + miette::Diagnostic` 决定该操作的用户可见业务结论、可行动 `help` 与可靠源码位置，再把最终错误冻结为一份 owned miette Report；该责任不提升到中央错误枚举。共享 Diagnostic adapter 只借用其中的 `&dyn miette::Diagnostic`，机械地把 `Display` 投影为 `message`、标准 `Error::source()` chain 投影为 `causes`、`Diagnostic::help()` 投影为 `help`，并只在恰有一个可靠 primary label 且具备 source name、source code 与 span 时生成 `location`。它不导入或匹配具体领域错误，不读取 miette 的 code、severity、URL 或 related diagnostics；operation-specific CLI error 也不定义这些 KAT 未采用的语义或 secondary label，SourceCode 只作为 miette 的终端排版上下文。adapter 不做 `Any` downcast、错误字符串解析或自造平行 Diagnostic trait；KAT 不建立覆盖全部操作的 `CliError` 大枚举。
+
+CLI-originated failure 以这份冻结的 owned Report 为唯一语义来源。Rust CLI 使用 serde 序列化 adapter 从它生成的 KAT Diagnostic 作为 Skill-facing JSON；miette renderer 直接把同一份 Report 渲染成 private `RenderedDiagnostic`，保留成熟的 source chain 与源码片段能力。两条只读投影都不得重新决定 `message`、`causes`、`help` 或 `location`，但不要求它们是同一个内存对象，也不把 `serde(skip)` 的 render context 塞进 KAT Diagnostic DTO。已经严格解码的 Runtime Diagnostic 绕过 CLI-error-to-Diagnostic adapter，仍由 operation-specific Response assembler 原值装入新建的 failure envelope；需要 stderr 时，无领域知识的通用 miette presentation adapter 只把其现有 message、causes、help 与 location 渲染为 `RenderedDiagnostic`，IPC 没有源码正文便不显示源码片段，也不重新读取 PACK 文件猜测。handler 在 Report 仍存活时完成两个投影，再把已组装 Response 与可选终端投影放入不序列化的 private `PreparedResponse<P>`；final publisher 只负责序列化与 I/O，不接触 Report 或重新解释 Diagnostic。
+
+调用点不建立 diagnostic builder；普通类型 constructor 只是 assembler 内部实现，不形成第三个组装层。miette 负责 ANSI、Unicode、终端宽度、cause chain 和源码片段排版；KAT 不自建这套诊断排版能力。child stdout/stderr 在 Operation log 边界上的 ANSI 清理与 UTF-8 文本投影是另一项职责，不从 miette 解析或生成 diagnostic。miette 自带 JSON renderer 的 schema 不可裁剪，并包含 KAT 不需要的 severity、code、labels 与 related 等第三方字段，因此它不直接成为 KAT 公共 Interface。结构化 `error` 与人类诊断必须来自同一份冻结的失败语义，不能在两条路径分别拼装可能漂移的业务结论。contract tests 验证两边的 message、cause、help 与 location 语义一致，不锁定 miette 的具体排版。`RenderedDiagnostic` 写向 terminal stderr 只作 best-effort 人类投影；写入失败不重建或改变 KAT Diagnostic，也不阻止 final publisher 继续尝试 stdout。
