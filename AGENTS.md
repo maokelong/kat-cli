@@ -35,3 +35,17 @@
 ## 6. 中文优先
 
 issue、PR、设计文档、review 说明和非显然注释中文优先。代码标识符、公共 API、命令、crate 和模块名保持英文。注释只解释业务意图、架构取舍、边界约束或不容易从代码看出的原因，不给显然代码加翻译式注释。
+
+## Agent skills
+
+### Issue tracker
+
+任务在 GitHub Issues 中管理。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+Triage 使用五个标准角色标签。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+本仓库使用 single-context 领域文档布局。见 `docs/agents/domain.md`。
