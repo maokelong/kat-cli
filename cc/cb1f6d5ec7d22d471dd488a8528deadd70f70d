@@ -1,0 +1,50 @@
+python/kat-python-runtime/kat_runtime/pack_loader.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-67
+python/kat-python-runtime/kat_runtime/worker/discovery.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-21
+python/tests/test_sdk_runtime_contract.py
+  s_5a98ce44cbcaef::t_8cd6aecd4c719b 1-85
+python/kat-python-runtime/kat_runtime/__init__.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1
+python/kat-python-sdk/kat/context.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-36
+python/kat-python-sdk/kat/decorators.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-36
+python/kat-python-runtime/pyproject.toml
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-9
+python/kat-python-sdk/kat/operators/__init__.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1
+python/kat-python-sdk/kat/__init__.py
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-4
+python/kat-python-sdk/pyproject.toml
+  s_5a98ce44cbcaef::t_d6ef6adb5debb5 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "cccb1f6d5ec7d22d471dd488a8528deadd70f70d",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 268,
+      "total_deletions": 0,
+      "accepted_lines": 268,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

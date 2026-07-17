@@ -1,0 +1,32 @@
+docs/superpowers/specs/2026-07-09-kat-rs-storage-benchmark-design.md
+  s_5a98ce44cbcaef::t_8935a6828cacff 1-317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "254edf3784697445a258b04c802c07fb62015c97",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 317,
+      "total_deletions": 0,
+      "accepted_lines": 317,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

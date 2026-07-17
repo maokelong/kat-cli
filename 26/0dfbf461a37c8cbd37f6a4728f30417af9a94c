@@ -1,0 +1,45 @@
+docs/superpowers/specs/2026-07-09-kat-rs-short-lived-cli-python-pack-rewrite-design.md
+  s_089e7c261a4389::t_1a43e4d001c613 1-616
+  s_089e7c261a4389::t_21309afc30a478 617-619
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "260dfbf461a37c8cbd37f6a4728f30417af9a94c",
+  "prompts": {
+    "s_089e7c261a4389": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4adb-1489-7443-a422-ca238c50931b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 619,
+      "total_deletions": 0,
+      "accepted_lines": 619,
+      "overriden_lines": 0
+    },
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 108,
+      "total_deletions": 0,
+      "accepted_lines": 108,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_089e7c261a4389": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4adb-1489-7443-a422-ca238c50931b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
