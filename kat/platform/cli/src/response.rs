@@ -1,7 +1,9 @@
 use std::{io::Write, process::ExitCode};
 
 use miette::Diagnostic;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use crate::text_projection::project_complete_text;
 
 pub(super) struct PreparedResponse<P> {
     response: KatResponse<P>,
@@ -24,25 +26,62 @@ enum KatResponse<P> {
     },
 }
 
-#[derive(Serialize)]
-struct KatDiagnostic {
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct KatDiagnostic {
     message: String,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     causes: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_nonnull")]
     #[serde(skip_serializing_if = "Option::is_none")]
     help: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_nonnull")]
     #[serde(skip_serializing_if = "Option::is_none")]
     location: Option<DiagnosticLocation>,
 }
 
-#[derive(Serialize)]
+fn deserialize_optional_nonnull<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+impl KatDiagnostic {
+    pub(super) fn validate(&self) -> bool {
+        !self.message.trim().is_empty()
+            && self.causes.iter().all(|cause| !cause.trim().is_empty())
+            && self
+                .help
+                .as_ref()
+                .is_none_or(|help| !help.trim().is_empty())
+            && self.location.as_ref().is_none_or(DiagnosticLocation::valid)
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct DiagnosticLocation {
     source: String,
     start: DiagnosticPosition,
     end: DiagnosticPosition,
 }
 
-#[derive(Clone, Copy, Serialize)]
+impl DiagnosticLocation {
+    fn valid(&self) -> bool {
+        !self.source.trim().is_empty()
+            && self.start.line > 0
+            && self.start.column > 0
+            && self.end.line > 0
+            && self.end.column > 0
+            && (self.end.line, self.end.column) >= (self.start.line, self.start.column)
+    }
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct DiagnosticPosition {
     line: usize,
     column: usize,
@@ -104,6 +143,40 @@ pub(super) fn prepare_cli_failure_with_log<P>(
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
     }
+}
+
+pub(super) fn prepare_runtime_failure<P>(
+    diagnostic: KatDiagnostic,
+    log_path: String,
+) -> PreparedResponse<P> {
+    let rendered_diagnostic = RenderedDiagnostic(render_runtime_diagnostic(&diagnostic));
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path: Some(log_path),
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
+fn render_runtime_diagnostic(diagnostic: &KatDiagnostic) -> String {
+    let mut rendered = diagnostic.message.clone();
+    for cause in &diagnostic.causes {
+        rendered.push_str("\n  caused by: ");
+        rendered.push_str(cause);
+    }
+    if let Some(help) = &diagnostic.help {
+        rendered.push_str("\n  help: ");
+        rendered.push_str(help);
+    }
+    if let Some(location) = &diagnostic.location {
+        rendered.push_str(&format!(
+            "\n  at {}:{}:{}",
+            location.source, location.start.line, location.start.column
+        ));
+    }
+    project_complete_text(&rendered)
 }
 
 fn project_location(diagnostic: &dyn Diagnostic) -> Option<DiagnosticLocation> {
@@ -358,5 +431,30 @@ mod tests {
                 "terminal diagnostic omitted {evidence:?}: {rendered}"
             );
         }
+    }
+
+    #[test]
+    fn runtime_diagnostic_terminal_projection_is_plain_but_json_is_unchanged() {
+        let cause = "\x1b[31mred\x1b[0m\rline\0".to_owned();
+        let prepared: PreparedResponse<Vec<String>> = prepare_runtime_failure(
+            KatDiagnostic {
+                message: "Runtime failure".to_owned(),
+                causes: vec![cause.clone()],
+                help: None,
+                location: None,
+            },
+            "log.txt".to_owned(),
+        );
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        publish_to(prepared, &mut stdout, &mut stderr);
+
+        let response: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(response["error"]["causes"], serde_json::json!([cause]));
+        let terminal = String::from_utf8(stderr).unwrap();
+        assert!(!terminal.contains('\x1b'));
+        assert!(!terminal.contains('\0'));
+        assert!(terminal.contains("red\nline\\u{0000}"));
     }
 }

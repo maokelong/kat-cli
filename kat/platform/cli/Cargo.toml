@@ -10,9 +10,13 @@ directories.workspace = true
 dunce.workspace = true
 miette.workspace = true
 kat-datasource = { path = "../datasource" }
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+strip-ansi.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+time.workspace = true
 toml.workspace = true
 uuid.workspace = true
 
@@ -20,7 +24,6 @@ uuid.workspace = true
 base64.workspace = true
 prost.workspace = true
 rusqlite.workspace = true
-tempfile.workspace = true
 
 [[bin]]
 name = "kat"

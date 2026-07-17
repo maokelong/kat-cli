@@ -28,6 +28,58 @@ fn stage_skill(root: &Path) -> (PathBuf, PathBuf) {
     (skill, binary)
 }
 
+fn stage_fake_python_host(binary: &Path) {
+    let payload = binary.parent().expect("Platform Payload directory");
+    let host = if cfg!(windows) {
+        payload.join("python").join("python.exe")
+    } else {
+        payload.join("python").join("bin").join("python3")
+    };
+    fs::create_dir_all(host.parent().unwrap()).expect("create fake Host directory");
+    let source = payload.join("fake-python-host.rs");
+    fs::write(
+        &source,
+        r#"
+use std::{env, fs, io::{self, Write}, process};
+
+fn main() {
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
+    if arguments.len() != 11
+        || arguments[..8] != fixed
+        || arguments[9] != "--response"
+    {
+        process::exit(91);
+    }
+    let request = fs::read_to_string(&arguments[8]).unwrap();
+    if !request.contains("\"operation\":\"inspect_pack\"")
+        || !request.contains("\"pack_name\":")
+        || !request.contains("\"pack_path\":")
+    {
+        process::exit(92);
+    }
+    io::stdout().write_all(b"\x1b[31mruntime stdout\x1b[0m\r\ninvalid: \xff\r").unwrap();
+    io::stderr().write_all(b"runtime stderr\r\n").unwrap();
+    fs::write(&arguments[10], env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap()).unwrap();
+    process::exit(env::var("KAT_FAKE_RUNTIME_EXIT").unwrap_or_else(|_| "0".to_owned()).parse().unwrap());
+}
+"#,
+    )
+    .expect("write fake Host source");
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let output = Command::new(rustc)
+        .arg(&source)
+        .arg("-o")
+        .arg(&host)
+        .output()
+        .expect("compile fake Host");
+    assert!(
+        output.status.success(),
+        "fake Host compilation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn configure_platform_directories(command: &mut Command, root: &Path) {
     command
         .env("XDG_DATA_HOME", root.join("xdg-data"))
@@ -52,6 +104,190 @@ fn write_pack(directory: &Path, name: &str, description: &str) -> String {
     );
     fs::write(directory.join("pack.toml"), &manifest).expect("write PACK manifest");
     manifest
+}
+
+fn targeted_inspect_command(binary: &Path, root: &Path, pack: &Path) -> Command {
+    let mut command = Command::new(binary);
+    command
+        .arg("inspect")
+        .args(["--pack", "alpha"])
+        .arg("--pack-dir")
+        .arg(pack)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"workflows":[]}}"#,
+        );
+    configure_platform_directories(&mut command, root);
+    command
+}
+
+#[test]
+fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_python_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    let manifest = write_pack(&pack, "alpha", "External PACK");
+
+    let output = targeted_inspect_command(&binary, temporary.path(), &pack)
+        .output()
+        .expect("inspect target PACK");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(response["result"]["name"], "alpha");
+    assert_eq!(response["result"]["title"], "alpha");
+    assert_eq!(response["result"]["description"], "External PACK");
+    assert_eq!(response["result"]["owner"], "Test Team");
+    assert_eq!(response["result"]["workflows"], serde_json::json!([]));
+    assert!(response["result"].get("pack").is_none());
+    let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
+    let log = fs::read_to_string(log_path).expect("read Operation log");
+    assert!(!log.contains('\u{1b}'));
+    assert!(log.contains("runtime stdout\n"));
+    assert!(log.contains("runtime stderr\n"));
+    assert!(log.contains("invalid UTF-8 in Runtime stdout was replaced"));
+    assert!(log.contains('�'));
+    assert!(log.contains("status: success\n"));
+    assert_eq!(
+        fs::read_to_string(pack.join("pack.toml")).unwrap(),
+        manifest
+    );
+    assert_eq!(fs::read_dir(&pack).unwrap().count(), 1);
+}
+
+#[test]
+fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_python_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+
+    let mut invalid = targeted_inspect_command(&binary, temporary.path(), &pack);
+    invalid.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflows":[],"extra":true}}"#,
+    );
+    let invalid = invalid.output().expect("run invalid Runtime Response");
+    assert_eq!(invalid.status.code(), Some(1));
+    let invalid_response: serde_json::Value = serde_json::from_slice(&invalid.stdout).unwrap();
+    assert_eq!(
+        invalid_response["error"]["message"],
+        "PACK inspection Runtime failed"
+    );
+    assert!(invalid_response.get("result").is_none());
+    assert!(invalid_response.get("log_path").is_some());
+
+    let mut semantic = targeted_inspect_command(&binary, temporary.path(), &pack);
+    semantic.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflows":[{"name":"bad","title":"Bad","description":"Bad","required_tables":[],"parameters":[{"name":"flag","option":"--flag","negative_option":"--no-flag","type":"boolean","required":false,"description":"Flag","default":null}]}]}}"#,
+    );
+    let semantic = semantic.output().expect("run invalid Runtime semantics");
+    assert_eq!(semantic.status.code(), Some(1));
+    let semantic_response: serde_json::Value = serde_json::from_slice(&semantic.stdout).unwrap();
+    assert_eq!(
+        semantic_response["error"]["message"],
+        "PACK inspection Runtime failed"
+    );
+    assert!(semantic_response.get("result").is_none());
+
+    let mut nonzero = targeted_inspect_command(&binary, temporary.path(), &pack);
+    nonzero.env("KAT_FAKE_RUNTIME_EXIT", "7");
+    let nonzero = nonzero.output().expect("run nonzero Runtime");
+    assert_eq!(nonzero.status.code(), Some(1));
+    let nonzero_response: serde_json::Value = serde_json::from_slice(&nonzero.stdout).unwrap();
+    assert_eq!(
+        nonzero_response["error"]["message"],
+        "PACK inspection Runtime failed"
+    );
+    assert!(nonzero_response.get("result").is_none());
+
+    let mut failure = targeted_inspect_command(&binary, temporary.path(), &pack);
+    failure.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"failure","error":{"message":"PACK declaration is invalid","causes":["missing docstring"],"help":"Add a docstring"}}"#,
+    );
+    let failure = failure.output().expect("run legal Runtime failure");
+    assert_eq!(failure.status.code(), Some(1));
+    let failure_response: serde_json::Value = serde_json::from_slice(&failure.stdout).unwrap();
+    assert_eq!(
+        failure_response["error"]["message"],
+        "PACK declaration is invalid"
+    );
+    assert_eq!(
+        failure_response["error"]["causes"],
+        serde_json::json!(["missing docstring"])
+    );
+    assert_eq!(failure_response["error"]["help"], "Add a docstring");
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("PACK declaration is invalid"));
+}
+
+#[test]
+fn targeted_pack_inspection_log_creation_failure_does_not_start_runtime() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_python_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    fs::create_dir_all(data_home(temporary.path())).unwrap();
+    fs::write(data_home(temporary.path()).join("logs"), "not a directory").unwrap();
+
+    let output = targeted_inspect_command(&binary, temporary.path(), &pack)
+        .output()
+        .expect("fail log creation");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        "PACK inspection Operation log could not be delivered"
+    );
+    assert!(response.get("log_path").is_none());
+    assert!(response.get("result").is_none());
+}
+
+#[test]
+fn targeted_pack_preflight_failures_still_deliver_the_single_operation_log() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_skill(temporary.path());
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let mut command = Command::new(&binary);
+    command
+        .arg("inspect")
+        .args(["--pack", "missing"])
+        .arg("--pack-dir")
+        .arg(&pack);
+    configure_platform_directories(&mut command, temporary.path());
+
+    let output = command.output().expect("reject unknown PACK");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        "PACK \"missing\" was not discovered"
+    );
+    assert!(response.get("result").is_none());
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("operation: kat inspect --pack"));
+    assert!(log.contains("pack: missing"));
+    assert!(log.contains("status: failure"));
+    assert_eq!(
+        fs::read_dir(data_home(temporary.path()).join("logs"))
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
