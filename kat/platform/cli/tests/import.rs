@@ -442,6 +442,166 @@ fn hitrace_to_kernel_pack_query_is_a_real_process_loop() {
 }
 
 #[test]
+#[ignore = "requires KAT_E2E_SKILL_ROOT and KAT_REAL_TRACE_STREAMER_DB for the real Demo loop"]
+fn trace_streamer_to_openharmony_demo_query_is_a_real_process_loop() {
+    let skill = PathBuf::from(
+        std::env::var_os("KAT_E2E_SKILL_ROOT")
+            .expect("KAT_E2E_SKILL_ROOT must name the complete Skill deployment"),
+    );
+    let binary = if cfg!(windows) {
+        skill.join("scripts/targets/windows-x86_64/kat.exe")
+    } else {
+        skill.join("scripts/targets/linux-x86_64/kat")
+    };
+    let database = PathBuf::from(std::env::var_os("KAT_REAL_TRACE_STREAMER_DB").expect(
+        "KAT_REAL_TRACE_STREAMER_DB must name the normalized seven-table OpenHarmony fixture",
+    ));
+    assert!(binary.is_file());
+    assert!(database.is_file());
+    assert!(
+        skill
+            .join("assets/packs/kat-openharmony-demo/pack.toml")
+            .is_file()
+    );
+
+    let temporary = tempfile::tempdir().unwrap();
+    let dataset = temporary.path().join("dataset");
+    let imported = command(&binary, temporary.path())
+        .args(["import", "trace-streamer", "--database"])
+        .arg(&database)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+    assert_eq!(
+        imported.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+
+    let inspected = command(&binary, temporary.path())
+        .args(["inspect", "--pack", "kat-openharmony-demo"])
+        .output()
+        .unwrap();
+    assert_eq!(inspected.status.code(), Some(0));
+    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(
+        inspection["result"]["workflows"],
+        serde_json::json!([{
+            "name": "first-frame-scheduling-dependencies",
+            "title": "First-frame Scheduling Dependencies",
+            "description": "Analyze observable scheduling dependencies for the earliest completed actual frame.",
+            "required_tables": [
+                "args", "data_dict", "frame_slice", "instant", "process", "thread", "thread_state"
+            ],
+            "parameters": [{
+                "name": "process_name",
+                "option": "--process-name",
+                "type": "string",
+                "required": true,
+                "description": "Exact process name to analyze."
+            }]
+        }])
+    );
+
+    let tested = command(&binary, temporary.path())
+        .args(["test", "--pack", "kat-openharmony-demo"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        tested.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&tested.stderr)
+    );
+
+    let run = command(&binary, temporary.path())
+        .args([
+            "run",
+            "--pack",
+            "kat-openharmony-demo",
+            "--workflow",
+            "first-frame-scheduling-dependencies",
+            "--dataset",
+        ])
+        .arg(&dataset)
+        .args(["--", "--process-name", ".tencent.wechat"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let run_response: serde_json::Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(
+        run_response["result"]["outputs"]["scheduling_dependencies"]["row_count"],
+        11
+    );
+    let run_id = run_response["result"]["run_id"].as_str().unwrap();
+
+    let query = command(&binary, temporary.path())
+        .args(["query", "--run", run_id, "--sql"])
+        .arg(
+            "SELECT clock_value, duration_ns, frame_thread_state, blocker_thread_id, \
+             blocker_thread_state, blocker_cpu FROM output.scheduling_dependencies \
+             ORDER BY clock_value LIMIT 20",
+        )
+        .output()
+        .unwrap();
+    assert_eq!(query.status.code(), Some(0));
+    let query: serde_json::Value = serde_json::from_slice(&query.stdout).unwrap();
+    assert_eq!(
+        query["result"]["rows"],
+        serde_json::json!([
+            ["246270250000", "127000", "Running", "15426", "Running", "0"],
+            ["246270377000", "57000", "S", "2734", "Running", "5"],
+            ["246270434000", "267000", "S", "1337", "Running", "8"],
+            ["246270701000", "6000", "S", "1814", "R", null],
+            ["246270707000", "169000", "S", "1814", "Running", "5"],
+            ["246270876000", "13000", "S", "1337", "R", null],
+            ["246270889000", "49000", "S", "1337", "Running", "8"],
+            ["246270938000", "26000", "S", "2734", "R", null],
+            ["246270964000", "35000", "S", "2734", "Running", "1"],
+            ["246270999000", "35000", "R", "15426", "R", null],
+            ["246271034000", "57000", "Running", "15426", "Running", "1"]
+        ])
+    );
+
+    let runs = data_home(temporary.path()).join("runs");
+    let published_run_count = || {
+        fs::read_dir(&runs)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().join("manifest.json").is_file())
+            .count()
+    };
+    let before_failures = published_run_count();
+    for process_name in [".does-not-exist", "hitrace"] {
+        let failed = command(&binary, temporary.path())
+            .args([
+                "run",
+                "--pack",
+                "kat-openharmony-demo",
+                "--workflow",
+                "first-frame-scheduling-dependencies",
+                "--dataset",
+            ])
+            .arg(&dataset)
+            .args(["--", "--process-name", process_name])
+            .output()
+            .unwrap();
+        assert_eq!(failed.status.code(), Some(1));
+        let response: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+        assert_eq!(response["status"], "failure");
+        assert!(response.get("result").is_none());
+    }
+    assert_eq!(published_run_count(), before_failures);
+}
+
+#[test]
 fn default_target_is_uuid_v7_under_data_home_and_is_inspectable() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());

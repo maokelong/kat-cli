@@ -1,0 +1,4 @@
+name = "kat-openharmony-demo"
+title = "OpenHarmony Scheduling Demo"
+description = "Demo: Analyze first-frame scheduling dependencies from Deprecated Trace Streamer Datasets."
+owner = "Kernel Team"
