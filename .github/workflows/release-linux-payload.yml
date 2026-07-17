@@ -1,0 +1,60 @@
+name: Build Linux Platform Payload
+
+on:
+  workflow_call:
+    inputs:
+      workflow-wheel-artifact:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux-payload:
+    name: Linux x86_64 Payload
+    runs-on: ubuntu-24.04
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64@sha256:b04887b645dde99b9e955aeae3ff4da414992d0bd88259f046295b56361c5614
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Download the single Workflow Host wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.workflow-wheel-artifact }}
+          path: target/kat/workflow-wheel
+
+      - name: Build locked Payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test -x /opt/python/cp314-cp314/bin/python
+          /opt/python/cp314-cp314/bin/python build/build_linux_payload.py \
+            --workflow-wheel target/kat/workflow-wheel/kat_workflow-0.1.0-py3-none-any.whl \
+            --output target/kat/payloads/linux-x86_64
+          mkdir -p target/distrib/.payload-inputs
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            --format=posix --pax-option=delete=atime,delete=ctime \
+            -C target/kat/payloads -czf \
+            target/distrib/.payload-inputs/linux-x86_64.tar.gz linux-x86_64
+
+      - name: Upload private Payload input
+        uses: actions/upload-artifact@v7
+        with:
+          name: artifacts-kat-linux-payload
+          path: target/distrib/
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error

@@ -1,0 +1,79 @@
+name: Build Windows Platform Payload
+
+on:
+  workflow_call:
+    inputs:
+      workflow-wheel-artifact:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows-payload:
+    name: Windows x86_64 Payload
+    runs-on: windows-2025
+
+    steps:
+      - name: Enable long paths
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Locate LLVM
+        id: llvm
+        shell: pwsh
+        run: |
+          $readobj = Join-Path ${env:ProgramFiles} "LLVM\bin\llvm-readobj.exe"
+          if (-not (Test-Path -LiteralPath $readobj -PathType Leaf)) {
+            throw "llvm-readobj is unavailable: $readobj"
+          }
+          "readobj=$readobj" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Download the single Workflow Host wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.workflow-wheel-artifact }}
+          path: target/kat/workflow-wheel
+
+      - name: Build locked Payload
+        shell: pwsh
+        run: |
+          python build/build_windows_payload.py `
+            --workflow-wheel "target/kat/workflow-wheel/kat_workflow-0.1.0-py3-none-any.whl" `
+            --readobj "${{ steps.llvm.outputs.readobj }}" `
+            --output "target/kat/payloads/windows-x86_64"
+          New-Item -ItemType Directory -Force "target/distrib/.payload-inputs" | Out-Null
+          tar -czf "target/distrib/.payload-inputs/windows-x86_64.tar.gz" `
+            -C "target/kat/payloads" windows-x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload private Payload input
+        uses: actions/upload-artifact@v7
+        with:
+          name: artifacts-kat-windows-payload
+          path: target/distrib/
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error

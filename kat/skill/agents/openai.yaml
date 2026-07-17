@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT"
+  short_description: "使用内置 KAT 工作流分析本地平台数据并验证 PACK"
+  default_prompt: "使用 $kat 分析我提供的本地平台数据，或验证我指定的 KAT PACK。"

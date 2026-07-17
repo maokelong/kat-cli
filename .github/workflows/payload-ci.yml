@@ -1,0 +1,206 @@
+name: Dual-platform Skill payload
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-wheel:
+    name: Build the single Workflow Host wheel
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Fetch the locked uv executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/kat/bootstrap-uv
+          curl --proto '=https' --tlsv1.2 --fail --location \
+            --output target/kat/bootstrap-uv/uv.tar.gz \
+            https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz
+          echo 'e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224  target/kat/bootstrap-uv/uv.tar.gz' | sha256sum --check
+          tar -xzf target/kat/bootstrap-uv/uv.tar.gz -C target/kat/bootstrap-uv
+
+      - name: Build and hash the private wheel once
+        run: >-
+          python build/build_workflow_wheel.py
+          --uv target/kat/bootstrap-uv/uv-x86_64-unknown-linux-gnu/uv
+          --output target/kat/workflow-wheel
+
+      - name: Upload the private wheel input
+        uses: actions/upload-artifact@v7
+        with:
+          name: kat-workflow-wheel
+          path: target/kat/workflow-wheel/
+          compression-level: 0
+          if-no-files-found: error
+
+  linux-payload:
+    name: Build Linux payload
+    needs: workflow-wheel
+    uses: ./.github/workflows/release-linux-payload.yml
+    with:
+      workflow-wheel-artifact: kat-workflow-wheel
+
+  windows-payload:
+    name: Build Windows payload
+    needs: workflow-wheel
+    uses: ./.github/workflows/release-windows-payload.yml
+    with:
+      workflow-wheel-artifact: kat-workflow-wheel
+
+  assemble:
+    name: Assemble the dual-platform Skill
+    needs:
+      - linux-payload
+      - windows-payload
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download both black-box payloads
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-kat-*-payload
+          path: target/distrib
+          merge-multiple: true
+
+      - name: Extract and assemble
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/kat/payloads
+          tar -xzf target/distrib/.payload-inputs/linux-x86_64.tar.gz -C target/kat/payloads
+          tar -xzf target/distrib/.payload-inputs/windows-x86_64.tar.gz -C target/kat/payloads
+          python build/assemble_skill.py \
+            --skill-source kat/skill \
+            --packs kat/packs \
+            --linux-payload target/kat/payloads/linux-x86_64 \
+            --windows-payload target/kat/payloads/windows-x86_64 \
+            --output target/kat/final-skill
+
+      - name: Upload the assembled Skill
+        uses: actions/upload-artifact@v7
+        with:
+          name: kat-dual-platform-skill
+          path: target/kat/final-skill/
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error
+
+  linux-smoke:
+    name: Linux glibc 2.28 offline smoke
+    needs: assemble
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download assembled Skill
+        uses: actions/download-artifact@v8
+        with:
+          name: kat-dual-platform-skill
+          path: target/kat/final-skill
+
+      - name: Relocate and smoke with no network or system Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='almalinux@sha256:dd9015a46bf86d46801080d9f37990528b2072b1d4a3f3851c6a5a79088adf82'
+          docker pull "$image"
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/repo,readonly" \
+            --tmpfs /work:exec,size=4g \
+            "$image" \
+            /repo/target/kat/final-skill/scripts/targets/linux-x86_64/python/bin/python3 \
+              -I -B /repo/build/smoke_skill.py \
+              --skill /repo/target/kat/final-skill \
+              --platform linux \
+              --work /work/smoke
+
+  windows-builder-smoke:
+    name: Windows builder payload smoke
+    needs: assemble
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download assembled Skill
+        uses: actions/download-artifact@v8
+        with:
+          name: kat-dual-platform-skill
+          path: target/kat/final-skill
+
+      - name: Relocate and smoke the app-local closure
+        shell: pwsh
+        run: |
+          $python = "target/kat/final-skill/scripts/targets/windows-x86_64/python/python.exe"
+          & $python -I -B build/smoke_skill.py `
+            --skill target/kat/final-skill `
+            --platform windows `
+            --work (Join-Path $env:RUNNER_TEMP "kat-payload-smoke")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  windows-client-smoke:
+    name: Clean Windows 10/11 client smoke
+    if: vars.KAT_WINDOWS_CLIENT_SMOKE == 'true'
+    needs: assemble
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - kat-clean-client
+
+    steps:
+      - name: Require a supported client image
+        shell: pwsh
+        run: |
+          $system = Get-CimInstance Win32_OperatingSystem
+          if ($system.ProductType -ne 1 -or [Environment]::OSVersion.Version.Major -lt 10) {
+            throw "final payload evidence requires a Windows 10/11 client"
+          }
+          if (Get-Command python -ErrorAction SilentlyContinue) {
+            throw "clean client image must not provide a system Python"
+          }
+
+      - name: Checkout the smoke harness
+        uses: actions/checkout@v6
+
+      - name: Download assembled Skill
+        uses: actions/download-artifact@v8
+        with:
+          name: kat-dual-platform-skill
+          path: target/kat/final-skill
+
+      - name: Run the final client evidence
+        shell: pwsh
+        run: |
+          $python = "target/kat/final-skill/scripts/targets/windows-x86_64/python/python.exe"
+          & $python -I -B build/smoke_skill.py `
+            --skill target/kat/final-skill `
+            --platform windows `
+            --work (Join-Path $env:RUNNER_TEMP "kat-clean-client-smoke")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

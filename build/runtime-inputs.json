@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "python": {
+    "implementation": "CPython",
+    "version": "3.14.6",
+    "abi": "standard-gil",
+    "provider": "python-build-standalone",
+    "release": "20260623"
+  },
+  "uv": {
+    "version": "0.11.28"
+  },
+  "platforms": {
+    "linux-x86_64": {
+      "rustTarget": "x86_64-unknown-linux-gnu",
+      "minimumGlibc": "2.28",
+      "pythonArchive": {
+        "filename": "cpython-3.14.6+20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29"
+      },
+      "uvArchive": {
+        "filename": "uv-x86_64-unknown-linux-gnu.tar.gz",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224"
+      },
+      "requirementsLock": "build/requirements-linux.lock.txt"
+    },
+    "windows-x86_64": {
+      "rustTarget": "x86_64-pc-windows-msvc",
+      "minimumWindows": "10",
+      "pythonArchive": {
+        "filename": "cpython-3.14.6+20260623-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "sha256": "ec05b628ad749682d06d225780fbc02e7bbb5ce2146c9bd8e74a3659b14b693a"
+      },
+      "uvArchive": {
+        "filename": "uv-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-pc-windows-msvc.zip",
+        "sha256": "0a23463216d09c6a72ff80ef5dc5a795f07dc1575cb84d24596c2f124a441b7b"
+      },
+      "vcRuntime": {
+        "provider": "Visual Studio 2022 CRT Redist VSIX",
+        "version": "14.44.35211",
+        "archive": {
+          "filename": "Microsoft.VC.14.44.17.14.CRT.Redist.X64.base.vsix",
+          "url": "https://download.visualstudio.microsoft.com/download/pr/45d3b8dd-bced-4b37-9974-142f748d710c/4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5/Microsoft.VC.14.44.17.14.CRT.Redist.X64.base.vsix",
+          "sha256": "4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5"
+        },
+        "contentRoot": "Contents/VC/Redist/MSVC/14.44.35112/x64/Microsoft.VC143.CRT"
+      },
+      "requirementsLock": "build/requirements-windows.lock.txt"
+    }
+  }
+}
