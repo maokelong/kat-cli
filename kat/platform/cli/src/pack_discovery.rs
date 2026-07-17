@@ -21,6 +21,8 @@ impl DiscoveredPacks {
         self.packs.values()
     }
 
+    // 精确目标选择由后续 PACK inspection/run/test 切片接入。
+    #[allow(dead_code)]
     pub(crate) fn get(&self, name: &str) -> Option<&DiscoveredPack> {
         self.packs.get(name)
     }
@@ -51,6 +53,8 @@ impl DiscoveredPack {
         &self.owner
     }
 
+    // canonical directory 只交给后续私有 Runtime request，不进入公开列表。
+    #[allow(dead_code)]
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
     }
