@@ -104,6 +104,17 @@ pub(super) fn prepare_success_with_log<P>(
     }
 }
 
+pub(super) fn success_response_size<P: Serialize>(
+    result: &P,
+    log_path: Option<&str>,
+) -> Result<usize, serde_json::Error> {
+    serde_json::to_vec(&KatResponse::Success {
+        result,
+        log_path: log_path.map(str::to_owned),
+    })
+    .map(|frame| frame.len())
+}
+
 pub(super) fn prepare_cli_failure<P>(report: miette::Report) -> PreparedResponse<P> {
     prepare_cli_failure_with_log(report, None)
 }
@@ -127,7 +138,7 @@ pub(super) fn prepare_cli_failure_with_log<P>(
         }
         source = cause.source();
     }
-    let rendered_diagnostic = RenderedDiagnostic(format!("{report:?}"));
+    let rendered_diagnostic = RenderedDiagnostic(project_complete_text(&format!("{report:?}")));
     let location = project_location(diagnostic);
 
     PreparedResponse {

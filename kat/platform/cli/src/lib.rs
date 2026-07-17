@@ -16,7 +16,7 @@ use clap::{Args, Parser, Subcommand};
 use miette::Diagnostic;
 use operation_log::{OperationLog, OperationLogError};
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Parser)]
@@ -51,6 +51,18 @@ enum Operation {
     },
     /// Execute one Workflow and atomically publish one Run.
     Run(RunArgs),
+    /// Query the Table Outputs of one published Run.
+    Query(QueryArgs),
+}
+
+#[derive(Args)]
+struct QueryArgs {
+    /// Select one exact published Run ID.
+    #[arg(long, value_name = "RUN_ID")]
+    run: String,
+    /// Execute one unmodified read-only DataFusion SQL statement.
+    #[arg(long, value_name = "SQL")]
+    sql: String,
 }
 
 #[derive(Args)]
@@ -204,6 +216,7 @@ pub fn run() -> ExitCode {
             response::publish(prepared)
         }
         Operation::Run(arguments) => response::publish(run_workflow(arguments)),
+        Operation::Query(arguments) => response::publish(query_run(arguments)),
     }
 }
 
@@ -343,7 +356,8 @@ struct PublicOutput {
     row_count: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct RunManifest {
     run_id: String,
     pack: String,
@@ -352,6 +366,23 @@ struct RunManifest {
     dataset: Option<String>,
     inputs: BTreeMap<String, serde_json::Value>,
     outputs: BTreeMap<String, workflow_runtime::RuntimeOutput>,
+}
+
+const QUERY_RESPONSE_BYTE_LIMIT: usize = 256 * 1024;
+
+#[derive(Serialize)]
+struct QueryResult {
+    dataset: QueryDatasetResult,
+    columns: Vec<workflow_runtime::Column>,
+    rows: Vec<Vec<serde_json::Value>>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum QueryDatasetResult {
+    NotProvided,
+    Available { path: String },
+    Unavailable { path: String, cause: String },
 }
 
 impl RunManifest {
@@ -513,6 +544,303 @@ fn run_workflow(arguments: RunArgs) -> response::PreparedResponse<RunResult> {
         return response::prepare_cli_failure_with_log(miette::Report::new(error), Some(log_path));
     }
     response::prepare_success_with_log(result, Some(log_path))
+}
+
+fn query_run(arguments: QueryArgs) -> response::PreparedResponse<QueryResult> {
+    let Some(data_home) = locate_data_home() else {
+        return response::prepare_cli_failure(miette::Report::new(
+            QueryOperationError::DataHomeUnavailable,
+        ));
+    };
+    let mut log = match OperationLog::create(&data_home, "query", |file| {
+        writeln!(
+            file,
+            "operation: kat query\nrun: {:?}\nsql: {:?}",
+            arguments.run, arguments.sql
+        )
+    }) {
+        Ok(log) => log,
+        Err(error) => return query_log_failure(error),
+    };
+    if let Err(source) = locate_skill_root() {
+        return finish_query_failure(log, QueryOperationError::SkillRoot(source));
+    }
+    let (run_path, manifest) = match read_run_manifest(&data_home, &arguments.run) {
+        Ok(value) => value,
+        Err(error) => return finish_query_failure(log, error),
+    };
+    let (runtime_dataset, public_dataset) = match resolve_query_dataset(manifest.dataset.as_deref())
+    {
+        Ok(value) => value,
+        Err(error) => return finish_query_failure(log, error),
+    };
+    let Some(run_path_text) = run_path.to_str().map(str::to_owned) else {
+        return finish_query_failure(log, QueryOperationError::NonUnicodeRunPath);
+    };
+    let outputs = manifest
+        .outputs
+        .iter()
+        .map(|(name, output)| (name.clone(), output.output_id.clone()))
+        .collect();
+    if let Err(error) = log.append(
+        format!(
+            "run_path: {:?}\ndataset_status: {}\noutputs: {}\n",
+            run_path,
+            query_dataset_status(&public_dataset),
+            manifest.outputs.len()
+        )
+        .as_bytes(),
+    ) {
+        return query_log_failure(error);
+    }
+    let outcome = workflow_runtime::query_run(
+        log,
+        workflow_runtime::QueryRunInvocation {
+            run_id: arguments.run,
+            run_path: run_path_text,
+            outputs,
+            dataset: runtime_dataset,
+            sql: arguments.sql,
+        },
+    );
+    let (runtime, log_path) = match outcome {
+        Ok(workflow_runtime::QueryRunOutcome::Success { result, log_path }) => (result, log_path),
+        Ok(workflow_runtime::QueryRunOutcome::Failure {
+            diagnostic,
+            log_path,
+        }) => return response::prepare_runtime_failure(diagnostic, log_path),
+        Err(error) => {
+            let log_path = error.log_path();
+            return response::prepare_cli_failure_with_log(miette::Report::new(error), log_path);
+        }
+    };
+    let result = QueryResult {
+        dataset: public_dataset,
+        columns: runtime.columns,
+        rows: runtime.rows,
+    };
+    let candidate_size = match response::success_response_size(&result, Some(&log_path)) {
+        Ok(size) => size,
+        Err(source) => {
+            return response::prepare_cli_failure_with_log(
+                miette::Report::new(QueryOperationError::EncodeCandidate(source)),
+                Some(log_path),
+            );
+        }
+    };
+    if candidate_size > QUERY_RESPONSE_BYTE_LIMIT {
+        return response::prepare_cli_failure_with_log(
+            miette::Report::new(QueryOperationError::ResponseLimit {
+                actual: candidate_size,
+                limit: QUERY_RESPONSE_BYTE_LIMIT,
+            }),
+            Some(log_path),
+        );
+    }
+    response::prepare_success_with_log(result, Some(log_path))
+}
+
+fn read_run_manifest(
+    data_home: &std::path::Path,
+    run_id: &str,
+) -> Result<(PathBuf, RunManifest), QueryOperationError> {
+    let identity = uuid::Uuid::parse_str(run_id)
+        .ok()
+        .filter(|identity| identity.get_version_num() == 7 && identity.to_string() == run_id)
+        .ok_or_else(|| QueryOperationError::RunNotFound {
+            run_id: diagnostic_safe_argument(run_id),
+        })?;
+    debug_assert_eq!(identity.to_string(), run_id);
+    let runs = data_home.join("runs");
+    let candidate = runs.join(run_id);
+    let manifest_path = candidate.join("manifest.json");
+    if !manifest_path.is_file() {
+        return Err(QueryOperationError::RunNotFound {
+            run_id: run_id.to_owned(),
+        });
+    }
+    if manifest_path.is_symlink() {
+        return Err(QueryOperationError::InvalidRunLayout);
+    }
+    let run_path = dunce::canonicalize(&candidate).map_err(QueryOperationError::CorruptRunPath)?;
+    let runs_path = dunce::canonicalize(&runs).map_err(QueryOperationError::CorruptRunPath)?;
+    if run_path.parent() != Some(runs_path.as_path())
+        || run_path.file_name().and_then(|name| name.to_str()) != Some(run_id)
+        || !run_path.is_dir()
+    {
+        return Err(QueryOperationError::InvalidRunLayout);
+    }
+    let bytes =
+        fs::read(run_path.join("manifest.json")).map_err(QueryOperationError::ReadManifest)?;
+    let manifest: RunManifest =
+        serde_json::from_slice(&bytes).map_err(QueryOperationError::DecodeManifest)?;
+    validate_run_manifest(&manifest, run_id)?;
+    Ok((run_path, manifest))
+}
+
+fn diagnostic_safe_argument(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|character| {
+            if character.is_control() {
+                character.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![character]
+            }
+        })
+        .collect()
+}
+
+fn validate_run_manifest(manifest: &RunManifest, run_id: &str) -> Result<(), QueryOperationError> {
+    if manifest.run_id != run_id
+        || manifest.pack.trim().is_empty()
+        || manifest.workflow.trim().is_empty()
+        || manifest.outputs.is_empty()
+        || manifest
+            .dataset
+            .as_ref()
+            .is_some_and(|path| path.is_empty() || !std::path::Path::new(path).is_absolute())
+    {
+        return Err(QueryOperationError::InvalidManifestFacts);
+    }
+    let mut output_ids = std::collections::HashSet::new();
+    for (name, output) in &manifest.outputs {
+        if !workflow_runtime::valid_output_name(name)
+            || output.output_id.len() != 32
+            || !output
+                .output_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !output_ids.insert(&output.output_id)
+            || output
+                .columns
+                .iter()
+                .any(|column| column.name.is_empty() || column.data_type.trim().is_empty())
+        {
+            return Err(QueryOperationError::InvalidManifestFacts);
+        }
+    }
+    if manifest.inputs.iter().any(|(name, value)| {
+        name.is_empty()
+            || !matches!(
+                value,
+                serde_json::Value::Null
+                    | serde_json::Value::Bool(_)
+                    | serde_json::Value::Number(_)
+                    | serde_json::Value::String(_)
+            )
+    }) {
+        return Err(QueryOperationError::InvalidManifestFacts);
+    }
+    Ok(())
+}
+
+fn resolve_query_dataset(
+    recorded_path: Option<&str>,
+) -> Result<(workflow_runtime::QueryDatasetRequest, QueryDatasetResult), QueryOperationError> {
+    let Some(recorded_path) = recorded_path else {
+        return Ok((
+            workflow_runtime::QueryDatasetRequest::NotProvided,
+            QueryDatasetResult::NotProvided,
+        ));
+    };
+    match kat_datasource::resolve_dataset(std::path::Path::new(recorded_path)) {
+        Ok(dataset) => {
+            let resolved = project_query_dataset(&dataset)?;
+            let path = resolved.path.clone();
+            Ok((
+                workflow_runtime::QueryDatasetRequest::Available {
+                    path: resolved.path,
+                    tables: resolved.tables,
+                },
+                QueryDatasetResult::Available { path },
+            ))
+        }
+        Err(source) => {
+            let cause = error_chain(&source);
+            Ok((
+                workflow_runtime::QueryDatasetRequest::Unavailable {
+                    path: recorded_path.to_owned(),
+                    cause: cause.clone(),
+                },
+                QueryDatasetResult::Unavailable {
+                    path: recorded_path.to_owned(),
+                    cause,
+                },
+            ))
+        }
+    }
+}
+
+fn project_query_dataset(
+    dataset: &kat_datasource::ResolvedDataset,
+) -> Result<workflow_runtime::ResolvedDatasetRequest, QueryOperationError> {
+    let path = query_unicode_path("Dataset", dataset.path())?;
+    let mut tables = BTreeMap::new();
+    for table in dataset.tables() {
+        tables.insert(
+            table.name().to_owned(),
+            query_unicode_path("Dataset table", table.path())?,
+        );
+    }
+    Ok(workflow_runtime::ResolvedDatasetRequest { path, tables })
+}
+
+fn query_unicode_path(
+    label: &'static str,
+    path: &std::path::Path,
+) -> Result<String, QueryOperationError> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| QueryOperationError::NonUnicodeDatasetPath {
+            label,
+            path: path.to_path_buf(),
+        })
+}
+
+fn query_dataset_status(dataset: &QueryDatasetResult) -> &'static str {
+    match dataset {
+        QueryDatasetResult::NotProvided => "not_provided",
+        QueryDatasetResult::Available { .. } => "available",
+        QueryDatasetResult::Unavailable { .. } => "unavailable",
+    }
+}
+
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut rendered = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if !cause.to_string().trim().is_empty() {
+            rendered.push_str(": ");
+            rendered.push_str(&cause.to_string());
+        }
+        source = cause.source();
+    }
+    rendered
+}
+
+fn finish_query_failure(
+    mut log: OperationLog,
+    error: QueryOperationError,
+) -> response::PreparedResponse<QueryResult> {
+    if let Err(log_error) = log.append(format!("status: failure\nerror: {error:?}\n").as_bytes()) {
+        return query_log_failure(log_error);
+    }
+    let report = miette::Report::new(error);
+    match log.finish() {
+        Ok(log_path) => response::prepare_cli_failure_with_log(report, Some(log_path)),
+        Err(error) => query_log_failure(error),
+    }
+}
+
+fn query_log_failure(error: OperationLogError) -> response::PreparedResponse<QueryResult> {
+    let log_path = error.readable_path();
+    let error = if log_path.is_some() {
+        QueryOperationError::IncompleteOperationLog(error)
+    } else {
+        QueryOperationError::OperationLog(error)
+    };
+    response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
 }
 
 fn create_run_candidate(
@@ -1103,6 +1431,55 @@ enum RunOperationError {
     },
     #[error("private Run candidate path is not representable as native Unicode")]
     PrivateCandidatePath,
+}
+
+#[derive(Debug, Error, Diagnostic)]
+enum QueryOperationError {
+    #[error("KAT Skill is unavailable")]
+    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    SkillRoot(#[source] SkillRootError),
+    #[error("KAT Data Home is unavailable on this platform")]
+    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
+    DataHomeUnavailable,
+    #[error("Query Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Query"))]
+    OperationLog(#[source] OperationLogError),
+    #[error("Query Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog(#[source] OperationLogError),
+    #[error("Run {run_id} does not exist")]
+    #[diagnostic(help("Use the exact Run ID returned by a successful `kat run`"))]
+    RunNotFound { run_id: String },
+    #[error("Run is corrupted")]
+    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
+    CorruptRunPath(#[source] io::Error),
+    #[error("Run is corrupted")]
+    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
+    InvalidRunLayout,
+    #[error("Run is corrupted")]
+    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
+    ReadManifest(#[source] io::Error),
+    #[error("Run is corrupted")]
+    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
+    DecodeManifest(#[source] serde_json::Error),
+    #[error("Run is corrupted")]
+    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
+    InvalidManifestFacts,
+    #[error("Run path cannot be represented as native Unicode")]
+    NonUnicodeRunPath,
+    #[error("{label} path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodeDatasetPath { label: &'static str, path: PathBuf },
+    #[error("failed to encode the candidate Query Response")]
+    EncodeCandidate(#[source] serde_json::Error),
+    #[error(
+        "Query Response byte limit exceeded: candidate is {actual} bytes, limit is {limit} bytes"
+    )]
+    #[diagnostic(help(
+        "Narrow the projection, filter, aggregate, or use an explicit LIMIT, then retry"
+    ))]
+    ResponseLimit { actual: usize, limit: usize },
 }
 
 #[derive(Debug, Error, Diagnostic)]

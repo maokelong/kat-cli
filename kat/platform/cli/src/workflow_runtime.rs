@@ -3,12 +3,18 @@ use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::LazyLock,
     sync::mpsc::{self, Sender},
     thread,
+    time::{Duration, Instant},
 };
 
+use arrow_array::types::{
+    ArrowPrimitiveType, Decimal128Type, Decimal256Type, DecimalType,
+    validate_decimal_precision_and_scale,
+};
+use command_group::{CommandGroup, GroupChild};
 use miette::Diagnostic;
 use regex::Regex;
 use serde::de::DeserializeOwned;
@@ -23,6 +29,8 @@ use crate::{
 };
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
+pub(crate) const QUERY_ROW_LIMIT: usize = 1_000;
+const QUERY_HOST_HARD_TIMEOUT: Duration = Duration::from_secs(7);
 static WORKFLOW_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\A[a-z0-9]+(?:-[a-z0-9]+)*\z").unwrap());
 static TABLE_NAME: LazyLock<Regex> =
@@ -54,6 +62,17 @@ pub(crate) enum RunWorkflowOutcome {
     },
 }
 
+pub(crate) enum QueryRunOutcome {
+    Success {
+        result: QueryRunResult,
+        log_path: String,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log_path: String,
+    },
+}
+
 #[derive(Serialize)]
 pub(crate) struct ResolvedDatasetRequest {
     pub(crate) path: String,
@@ -68,6 +87,64 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) arguments: Vec<String>,
     pub(crate) candidate_id: String,
     pub(crate) run_path: String,
+}
+
+pub(crate) struct QueryRunInvocation {
+    pub(crate) run_id: String,
+    pub(crate) run_path: String,
+    pub(crate) outputs: BTreeMap<String, String>,
+    pub(crate) dataset: QueryDatasetRequest,
+    pub(crate) sql: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum QueryDatasetRequest {
+    NotProvided,
+    Available {
+        path: String,
+        tables: BTreeMap<String, String>,
+    },
+    Unavailable {
+        path: String,
+        cause: String,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct QueryRunResult {
+    pub(crate) columns: Vec<Column>,
+    pub(crate) rows: Vec<Vec<serde_json::Value>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateQueryRunResult {
+    columns: Vec<Column>,
+    rows: Vec<Vec<PrivateQueryCell>>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PrivateQueryCell {
+    Decimal(PrivateDecimalCell),
+    Scalar(serde_json::Value),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateDecimalCell {
+    decimal: PrivateDecimal,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateDecimal {
+    bits: u16,
+    unscaled: String,
+    precision: u8,
+    scale: i8,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -265,6 +342,167 @@ pub(crate) fn run_workflow(
     }
 }
 
+pub(crate) fn query_run(
+    mut log: OperationLog,
+    invocation: QueryRunInvocation,
+) -> Result<QueryRunOutcome, QueryRunError> {
+    let request = QueryRunRequest {
+        operation: "query_run",
+        run_id: &invocation.run_id,
+        run_path: &invocation.run_path,
+        outputs: &invocation.outputs,
+        dataset: &invocation.dataset,
+        sql: &invocation.sql,
+    };
+    let response: RuntimeResponse<PrivateQueryRunResult> = match exchange_request_with_timeout(
+        "kat-query-run-",
+        &request,
+        &mut log,
+        Some(QUERY_HOST_HARD_TIMEOUT),
+    ) {
+        Ok(response) => response,
+        Err(ExchangeError::Log(error)) => return Err(QueryRunError::operation_log(error)),
+        Err(ExchangeError::Runtime(error)) => {
+            return Err(finish_query_runtime_error(log, error));
+        }
+    };
+    match response {
+        RuntimeResponse::Success { result } => {
+            let result = match project_query_result(result) {
+                Ok(result) => result,
+                Err(error) => return Err(finish_query_runtime_error(log, error)),
+            };
+            if let Err(error) = validate_query_result(&result) {
+                return Err(finish_query_runtime_error(log, error));
+            }
+            if let Err(source) = log.append(b"runtime_status: success\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(QueryRunError::operation_log)?;
+            Ok(QueryRunOutcome::Success { result, log_path })
+        }
+        RuntimeResponse::Failure { error } => {
+            if !error.validate() {
+                return Err(finish_query_runtime_error(
+                    log,
+                    RuntimeFailure::InvalidResponse(
+                        "Runtime Diagnostic contains empty or invalid fields".to_owned(),
+                    ),
+                ));
+            }
+            if let Err(source) = log.append(b"runtime_status: failure\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(QueryRunError::operation_log)?;
+            Ok(QueryRunOutcome::Failure {
+                diagnostic: error,
+                log_path,
+            })
+        }
+    }
+}
+
+fn project_query_result(result: PrivateQueryRunResult) -> Result<QueryRunResult, RuntimeFailure> {
+    let rows = result
+        .rows
+        .into_iter()
+        .map(|row| row.into_iter().map(project_query_cell).collect())
+        .collect::<Result<_, _>>()?;
+    Ok(QueryRunResult {
+        columns: result.columns,
+        rows,
+    })
+}
+
+fn project_query_cell(cell: PrivateQueryCell) -> Result<serde_json::Value, RuntimeFailure> {
+    match cell {
+        PrivateQueryCell::Scalar(value) => Ok(value),
+        PrivateQueryCell::Decimal(cell) => {
+            let decimal = cell.decimal;
+            let rendered = match decimal.bits {
+                128 => {
+                    let value = decimal.unscaled.parse::<i128>().map_err(|_| {
+                        RuntimeFailure::InvalidResponse(
+                            "query_run Decimal128 has an invalid unscaled value".to_owned(),
+                        )
+                    })?;
+                    validate_and_format_decimal::<Decimal128Type>(
+                        value,
+                        decimal.precision,
+                        decimal.scale,
+                    )?
+                }
+                256 => {
+                    let value = decimal
+                        .unscaled
+                        .parse::<<Decimal256Type as ArrowPrimitiveType>::Native>()
+                        .map_err(|_| {
+                            RuntimeFailure::InvalidResponse(
+                                "query_run Decimal256 has an invalid unscaled value".to_owned(),
+                            )
+                        })?;
+                    validate_and_format_decimal::<Decimal256Type>(
+                        value,
+                        decimal.precision,
+                        decimal.scale,
+                    )?
+                }
+                _ => {
+                    return Err(RuntimeFailure::InvalidResponse(
+                        "query_run supports only Decimal128 and Decimal256".to_owned(),
+                    ));
+                }
+            };
+            Ok(serde_json::Value::String(rendered))
+        }
+    }
+}
+
+fn validate_and_format_decimal<T: DecimalType>(
+    value: T::Native,
+    precision: u8,
+    scale: i8,
+) -> Result<String, RuntimeFailure> {
+    validate_decimal_precision_and_scale::<T>(precision, scale)
+        .and_then(|()| T::validate_decimal_precision(value, precision, scale))
+        .map_err(|error| {
+            RuntimeFailure::InvalidResponse(format!("query_run {} is invalid: {error}", T::PREFIX))
+        })?;
+    Ok(T::format_decimal(value, precision, scale))
+}
+
+fn validate_query_result(result: &QueryRunResult) -> Result<(), RuntimeFailure> {
+    if result.rows.len() > QUERY_ROW_LIMIT {
+        return invalid_response(format!(
+            "query_run returned more than {QUERY_ROW_LIMIT} rows"
+        ));
+    }
+    for column in &result.columns {
+        if column.name.is_empty() || column.data_type.trim().is_empty() {
+            return invalid_response("query_run contains an empty column name or type".to_owned());
+        }
+    }
+    for row in &result.rows {
+        if row.len() != result.columns.len() {
+            return invalid_response(
+                "query_run row width does not match its ordered columns".to_owned(),
+            );
+        }
+        if row.iter().any(|value| {
+            !matches!(
+                value,
+                serde_json::Value::Null
+                    | serde_json::Value::Bool(_)
+                    | serde_json::Value::Number(_)
+                    | serde_json::Value::String(_)
+            )
+        }) {
+            return invalid_response("query_run rows must contain only JSON scalars".to_owned());
+        }
+    }
+    Ok(())
+}
+
 fn validate_run_result(result: &RunWorkflowResult) -> Result<(), RuntimeFailure> {
     if result.outputs.is_empty() {
         return invalid_response("run_workflow outputs must not be empty".to_owned());
@@ -291,7 +529,7 @@ fn validate_run_result(result: &RunWorkflowResult) -> Result<(), RuntimeFailure>
     }
     let mut output_ids = HashSet::new();
     for (name, output) in &result.outputs {
-        if !TABLE_NAME.is_match(name) {
+        if !valid_output_name(name) {
             return invalid_response(format!("invalid Output name {name:?}"));
         }
         if output.output_id.len() != 32
@@ -316,6 +554,10 @@ fn validate_run_result(result: &RunWorkflowResult) -> Result<(), RuntimeFailure>
     Ok(())
 }
 
+pub(crate) fn valid_output_name(value: &str) -> bool {
+    TABLE_NAME.is_match(value)
+}
+
 #[derive(Serialize)]
 struct RunWorkflowRequest<'a> {
     operation: &'static str,
@@ -327,6 +569,16 @@ struct RunWorkflowRequest<'a> {
     arguments: &'a [String],
     candidate_id: &'a str,
     run_path: &'a str,
+}
+
+#[derive(Serialize)]
+struct QueryRunRequest<'a> {
+    operation: &'static str,
+    run_id: &'a str,
+    run_path: &'a str,
+    outputs: &'a BTreeMap<String, String>,
+    dataset: &'a QueryDatasetRequest,
+    sql: &'a str,
 }
 
 #[derive(Serialize)]
@@ -370,6 +622,15 @@ fn exchange_request<R: DeserializeOwned>(
     request: &impl Serialize,
     log: &mut OperationLog,
 ) -> Result<RuntimeResponse<R>, ExchangeError> {
+    exchange_request_with_timeout(prefix, request, log, None)
+}
+
+fn exchange_request_with_timeout<R: DeserializeOwned>(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+    timeout: Option<Duration>,
+) -> Result<RuntimeResponse<R>, ExchangeError> {
     let control = tempfile::Builder::new()
         .prefix(prefix)
         .tempdir()
@@ -384,7 +645,8 @@ fn exchange_request<R: DeserializeOwned>(
     if !python.is_file() {
         return Err(RuntimeFailure::MissingHost(python).into());
     }
-    let mut child = Command::new(&python)
+    let mut command = Command::new(&python);
+    command
         .args(["-I", "-B", "-X", "utf8", "-u", "-m", PRIVATE_RUNTIME_MODULE])
         .arg("--request")
         .arg(&request_path)
@@ -393,16 +655,20 @@ fn exchange_request<R: DeserializeOwned>(
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    let child = command
+        .group_spawn()
         .map_err(|source| RuntimeFailure::StartHost { python, source })?;
+    let mut process = RuntimeProcess::new(child);
 
-    if let Err(error) = capture_streams(&mut child, log) {
-        let _ = child.kill();
-        let _ = child.wait();
+    let deadline = timeout.map(|timeout| Instant::now() + timeout);
+    if let Err(error) = capture_streams(&mut process, log, deadline) {
+        if process.needs_termination() {
+            process.terminate()?;
+        }
         return Err(error);
     }
-    let status = child.wait().map_err(RuntimeFailure::WaitHost)?;
+    let status = wait_host(&mut process, deadline)?;
     if !status.success() {
         return Err(RuntimeFailure::HostExit(status.code()).into());
     }
@@ -446,12 +712,20 @@ impl RuntimeLogSink for OperationLog {
     }
 }
 
-fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(), ExchangeError> {
-    let stdout = child
+fn capture_streams(
+    process: &mut RuntimeProcess,
+    log: &mut impl RuntimeLogSink,
+    deadline: Option<Instant>,
+) -> Result<(), ExchangeError> {
+    let stdout = process
+        .child
+        .inner()
         .stdout
         .take()
         .ok_or(RuntimeFailure::MissingPipe("stdout"))?;
-    let stderr = child
+    let stderr = process
+        .child
+        .inner()
         .stderr
         .take()
         .ok_or(RuntimeFailure::MissingPipe("stderr"))?;
@@ -461,8 +735,29 @@ fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(
     let mut stdout_projection = TextProjection::new("stdout");
     let mut stderr_projection = TextProjection::new("stderr");
     let mut finished = 0;
+    let mut timed_out = false;
     while finished < 2 {
-        let event = receiver.recv().map_err(|_| RuntimeFailure::StreamChannel)?;
+        let event = match deadline.filter(|_| !timed_out) {
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    timed_out = true;
+                    process.terminate()?;
+                    continue;
+                };
+                match receiver.recv_timeout(remaining) {
+                    Ok(event) => event,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        timed_out = true;
+                        process.terminate()?;
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(RuntimeFailure::StreamChannel.into());
+                    }
+                }
+            }
+            None => receiver.recv().map_err(|_| RuntimeFailure::StreamChannel)?,
+        };
         match event {
             StreamEvent::Bytes(stream, bytes) => {
                 let projection = match stream {
@@ -471,8 +766,6 @@ fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(
                 };
                 let text = projection.push(&bytes);
                 if let Err(error) = log.append(text.as_bytes()) {
-                    let _ = child.kill();
-                    let _ = child.wait();
                     return Err(ExchangeError::Log(error));
                 }
             }
@@ -481,8 +774,6 @@ fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(
                     stream: stream.name(),
                     source,
                 };
-                let _ = child.kill();
-                let _ = child.wait();
                 return Err(error.into());
             }
             StreamEvent::Finished(stream) => {
@@ -493,8 +784,6 @@ fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(
                 };
                 let text = projection.finish();
                 if let Err(error) = log.append(text.as_bytes()) {
-                    let _ = child.kill();
-                    let _ = child.wait();
                     return Err(ExchangeError::Log(error));
                 }
             }
@@ -506,7 +795,84 @@ fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(
     stderr_thread
         .join()
         .map_err(|_| RuntimeFailure::StreamThread("stderr"))?;
-    Ok(())
+    if timed_out {
+        Err(RuntimeFailure::QueryTimeout.into())
+    } else {
+        Ok(())
+    }
+}
+
+fn wait_host(
+    process: &mut RuntimeProcess,
+    deadline: Option<Instant>,
+) -> Result<std::process::ExitStatus, RuntimeFailure> {
+    let Some(deadline) = deadline else {
+        return process.wait();
+    };
+    loop {
+        if let Some(status) = process.try_wait()? {
+            return Ok(status);
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            process.terminate()?;
+            return Err(RuntimeFailure::QueryTimeout);
+        };
+        thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
+struct RuntimeProcess {
+    child: GroupChild,
+    finished: bool,
+    termination_attempted: bool,
+}
+
+impl RuntimeProcess {
+    fn new(child: GroupChild) -> Self {
+        Self {
+            child,
+            finished: false,
+            termination_attempted: false,
+        }
+    }
+
+    fn needs_termination(&self) -> bool {
+        !self.finished && !self.termination_attempted
+    }
+
+    fn terminate(&mut self) -> Result<(), RuntimeFailure> {
+        if self.finished {
+            return Ok(());
+        }
+        debug_assert!(!self.termination_attempted);
+        self.termination_attempted = true;
+        match self.child.kill() {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
+                self.child.wait().map_err(RuntimeFailure::TerminateHost)?;
+                self.finished = true;
+                return Ok(());
+            }
+            Err(error) => return Err(RuntimeFailure::TerminateHost(error)),
+        }
+        self.child.wait().map_err(RuntimeFailure::TerminateHost)?;
+        self.finished = true;
+        Ok(())
+    }
+
+    fn wait(&mut self) -> Result<std::process::ExitStatus, RuntimeFailure> {
+        let status = self.child.wait().map_err(RuntimeFailure::WaitHost)?;
+        self.finished = true;
+        Ok(status)
+    }
+
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, RuntimeFailure> {
+        let status = self.child.try_wait().map_err(RuntimeFailure::WaitHost)?;
+        if status.is_some() {
+            self.finished = true;
+        }
+        Ok(status)
+    }
 }
 
 impl Stream {
@@ -808,6 +1174,20 @@ fn finish_run_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> Run
     }
 }
 
+fn finish_query_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> QueryRunError {
+    let details = format!("status: failure\nerror: {error}\n");
+    if let Err(log_error) = log.append(details.as_bytes()) {
+        return QueryRunError::operation_log(log_error);
+    }
+    match log.finish() {
+        Ok(log_path) => QueryRunError::Runtime {
+            source: error,
+            log_path,
+        },
+        Err(log_error) => QueryRunError::operation_log(log_error),
+    }
+}
+
 enum ExchangeError {
     Log(OperationLogError),
     Runtime(RuntimeFailure),
@@ -891,6 +1271,56 @@ pub(crate) enum RunWorkflowError {
     },
 }
 
+#[derive(Debug, Error, Diagnostic)]
+pub(crate) enum QueryRunError {
+    #[error("Query Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Query"))]
+    OperationLog {
+        error: OperationLogError,
+        log_path: Option<String>,
+    },
+    #[error("Query Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog {
+        error: OperationLogError,
+        log_path: String,
+    },
+    #[error("Workflow Runtime query failed")]
+    #[diagnostic(help(
+        "Inspect the Operation log, narrow the query, correct its inputs, and retry"
+    ))]
+    Runtime {
+        #[source]
+        source: RuntimeFailure,
+        log_path: String,
+    },
+}
+
+impl QueryRunError {
+    fn operation_log(source: OperationLogError) -> Self {
+        match source.readable_path() {
+            Some(log_path) => Self::IncompleteOperationLog {
+                error: source,
+                log_path,
+            },
+            None => Self::OperationLog {
+                error: source,
+                log_path: None,
+            },
+        }
+    }
+
+    pub(crate) fn log_path(&self) -> Option<String> {
+        match self {
+            Self::OperationLog { log_path, .. } => log_path.clone(),
+            Self::IncompleteOperationLog { log_path, .. } => Some(log_path.clone()),
+            Self::Runtime { log_path, .. } => Some(log_path.clone()),
+        }
+    }
+}
+
 impl RunWorkflowError {
     fn operation_log(source: OperationLogError) -> Self {
         match source.readable_path() {
@@ -952,6 +1382,10 @@ pub(crate) enum RuntimeFailure {
     StreamThread(&'static str),
     #[error("failed to wait for Bundled Python Host")]
     WaitHost(#[source] io::Error),
+    #[error("failed to terminate Bundled Python Host process group")]
+    TerminateHost(#[source] io::Error),
+    #[error("Output Query exceeded the 7 second Runtime Host hard time limit")]
+    QueryTimeout,
     #[error("Bundled Python Host exited without completing Runtime IPC (exit code {0:?})")]
     HostExit(Option<i32>),
     #[error("failed to read Runtime Response")]
@@ -1199,6 +1633,35 @@ mod tests {
     }
 
     #[test]
+    fn arrow_formats_and_validates_private_decimal_facts() {
+        let decimal = |bits, unscaled: &str, precision, scale| {
+            project_query_cell(PrivateQueryCell::Decimal(PrivateDecimalCell {
+                decimal: PrivateDecimal {
+                    bits,
+                    unscaled: unscaled.to_owned(),
+                    precision,
+                    scale,
+                },
+            }))
+        };
+
+        assert_eq!(
+            decimal(128, "123450", 10, 3).unwrap(),
+            serde_json::json!("123.450")
+        );
+        assert_eq!(
+            decimal(128, "123", 10, -2).unwrap(),
+            serde_json::json!("12300")
+        );
+        assert_eq!(
+            decimal(256, "-12300", 40, 4).unwrap(),
+            serde_json::json!("-1.2300")
+        );
+        assert!(decimal(128, "1000", 2, 0).is_err());
+        assert!(decimal(64, "1", 2, 0).is_err());
+    }
+
+    #[test]
     fn inherited_pipe_helper() {
         match std::env::var("KAT_INHERITED_PIPE_HELPER").as_deref() {
             Ok("direct") => {
@@ -1229,7 +1692,8 @@ mod tests {
     fn log_failure_reaps_runtime_without_waiting_for_inherited_pipes() {
         let temporary = tempfile::tempdir().unwrap();
         let executable = std::env::current_exe().unwrap();
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .args([
                 "--exact",
                 "workflow_runtime::tests::inherited_pipe_helper",
@@ -1238,19 +1702,20 @@ mod tests {
             .env("KAT_INHERITED_PIPE_HELPER", "direct")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        let child = command.group_spawn().unwrap();
+        let mut process = RuntimeProcess::new(child);
         let mut log = FailingLog {
             path: temporary.path().join("partial.log"),
         };
         let started = Instant::now();
 
-        let result = capture_streams(&mut child, &mut log);
+        let result = capture_streams(&mut process, &mut log, None);
 
         assert!(matches!(result, Err(ExchangeError::Log(_))));
+        process.terminate().unwrap();
         assert!(started.elapsed() < Duration::from_secs(2));
-        assert!(child.try_wait().unwrap().is_some());
+        assert!(process.try_wait().unwrap().is_some());
         thread::sleep(Duration::from_secs(4));
     }
 }

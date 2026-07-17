@@ -8,6 +8,7 @@ from typing import NoReturn
 
 from .execution import run_workflow
 from .pack import inspect_pack
+from .query import DatasetCapabilityError, query_run
 
 
 def main() -> int:
@@ -20,14 +21,22 @@ def main() -> int:
     operation = "Runtime"
     private_values: tuple[str, ...] = ()
     try:
-        request = _read_request(Path(arguments.request))
-        pack_path = Path(request["pack_path"])
+        request = _load_request(Path(arguments.request))
+        requested_operation = request.get("operation")
+        if type(requested_operation) is str:
+            operation = requested_operation
+        _validate_request(request)
         operation = request["operation"]
         if operation == "inspect_pack":
+            pack_path = Path(request["pack_path"])
             result = inspect_pack(request["pack_name"], request["pack_path"])
         elif operation == "run_workflow":
+            pack_path = Path(request["pack_path"])
             private_values = (request["candidate_id"], request["run_path"])
             result = run_workflow(request)
+        elif operation == "query_run":
+            private_values = (request["run_path"], *request["outputs"].values())
+            result = query_run(request)
         else:
             raise ValueError("unsupported Runtime Request operation")
         response: dict[str, object] = {"status": "success", "result": result}
@@ -40,11 +49,16 @@ def main() -> int:
     return 0
 
 
-def _read_request(path: Path) -> dict[str, object]:
+def _load_request(path: Path) -> dict[str, object]:
     with path.open("r", encoding="utf-8") as file:
         request = json.load(file)
     if type(request) is not dict:
         raise ValueError("Runtime Request must be a JSON object")
+
+    return request
+
+
+def _validate_request(request: dict[str, object]) -> None:
     operation = request.get("operation")
     if operation == "inspect_pack":
         expected = {"operation", "pack_name", "pack_path"}
@@ -83,9 +97,25 @@ def _read_request(path: Path) -> dict[str, object]:
                 for name, value in dataset["tables"].items()
             ):
                 raise TypeError("run_workflow Dataset table references must be strings")
+    elif operation == "query_run":
+        expected = {"operation", "run_id", "run_path", "outputs", "dataset", "sql"}
+        if set(request) != expected:
+            raise ValueError(
+                f"query_run Runtime Request fields must be exactly {sorted(expected)}"
+            )
+        if any(type(request[name]) is not str for name in ("run_id", "run_path", "sql")):
+            raise TypeError("query_run identity, path, and SQL fields must be strings")
+        outputs = request["outputs"]
+        if type(outputs) is not dict or not outputs or any(
+            type(name) is not str or type(value) is not str
+            for name, value in outputs.items()
+        ):
+            raise TypeError("query_run outputs must be a non-empty string mapping")
+        dataset = request["dataset"]
+        if type(dataset) is not dict:
+            raise TypeError("query_run dataset must be an object")
     else:
         raise ValueError("unsupported Runtime Request operation")
-    return request
 
 
 def _diagnostic(
@@ -108,6 +138,17 @@ def _diagnostic(
             "message": "Workflow execution failed",
             "help": "Correct the Workflow, arguments, or Dataset and retry the complete Run",
         }
+    elif operation == "query_run":
+        if isinstance(error, DatasetCapabilityError):
+            diagnostic = {
+                "message": "Run Output query requires the current Dataset",
+                "help": error.help(),
+            }
+        else:
+            diagnostic = {
+                "message": "Run Output query failed",
+                "help": "Narrow the projection, filter, aggregate, or use an explicit LIMIT, then retry",
+            }
     else:
         diagnostic = {
             "message": "PACK inspection failed",

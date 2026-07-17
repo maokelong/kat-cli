@@ -160,6 +160,8 @@ def _validate_clock_target_literals(frame: DataFrame) -> None:
 
 
 def _validate_clock_expression(expression: object) -> None:
+    if "kat_convert_clock" not in repr(expression):
+        return
     kind = expression.variant_name()
     if kind in {"AggregateFunction", "ScalarFunction", "WindowFunction"}:
         operator = expression.rex_call_operator()
@@ -173,7 +175,14 @@ def _validate_clock_expression(expression: object) -> None:
         target = operands[2]
         if target.variant_name() != "Literal":
             raise ValueError("kat_convert_clock target_domain must be a string literal")
-        value = target.python_value()
+        try:
+            value = target.python_value()
+        except ValueError as error:
+            raise ValueError(
+                "kat_convert_clock target_domain must be a string literal"
+            ) from error
+        if isinstance(value, pa.Scalar):
+            value = value.as_py()
         if type(value) is not str or not value:
             raise ValueError("kat_convert_clock target_domain must be a string literal")
     for operand in operands:
@@ -360,8 +369,14 @@ def _project_effective_input(value: object) -> object:
 
 
 class ClockResolver:
-    def __init__(self, dataset: dict[str, object] | None) -> None:
+    def __init__(
+        self,
+        dataset: dict[str, object] | None,
+        *,
+        query_dataset: object | None = None,
+    ) -> None:
         self._dataset = dataset
+        self._query_dataset = query_dataset
         self._definitions: dict[str, tuple[str, int]] | None = None
         self._baseline: dict[str, int] | None = None
 
@@ -407,6 +422,18 @@ class ClockResolver:
         if self._definitions is not None and self._baseline is not None:
             return self._definitions, self._baseline
         if self._dataset is None:
+            if type(self._query_dataset) is dict:
+                status = self._query_dataset.get("status")
+                if status == "unavailable":
+                    raise ValueError(
+                        "clock conversion requires the current Dataset, which is unavailable: "
+                        f"{self._query_dataset['cause']}; pure output.* queries remain available"
+                    )
+                if status == "not_provided":
+                    raise ValueError(
+                        "clock conversion requires a Dataset, but this Run did not provide one; "
+                        "pure output.* queries remain available"
+                    )
             raise ValueError("clock conversion requires a Dataset")
         tables = self._dataset["tables"]
         if "clock_domain" not in tables:
