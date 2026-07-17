@@ -1,0 +1,4 @@
+name = "kat-kernel"
+title = "Kernel Performance"
+description = "Analyze kernel scheduling behavior from KAT Datasets."
+owner = "Kernel Team"

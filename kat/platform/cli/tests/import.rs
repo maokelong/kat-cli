@@ -73,23 +73,29 @@ struct Switch {
 fn hitrace(path: &Path) {
     let stats = |status| Stats {
         status,
-        per_cpu: vec![PerCpu { cpu: 0 }],
+        per_cpu: vec![PerCpu { cpu: 0 }, PerCpu { cpu: 1 }],
         trace_clock: "boot".to_owned(),
     };
     let result = TraceResult {
         stats: vec![stats(0), stats(1)],
-        details: vec![Detail {
-            cpu: 0,
-            events: vec![Event {
-                timestamp: 42,
-                switch: Some(Switch {
-                    previous_name: "idle".to_owned(),
-                    previous_id: 0,
-                    next_name: "render".to_owned(),
-                    next_id: 7,
-                }),
-            }],
-        }],
+        details: vec![
+            Detail {
+                cpu: 0,
+                events: vec![
+                    switch_event(100, 0, "idle", 7, "render"),
+                    switch_event(150, 7, "render", 8, "worker"),
+                    switch_event(175, 8, "worker", 0, "idle"),
+                    switch_event(180, 0, "idle", 9, "tail"),
+                ],
+            },
+            Detail {
+                cpu: 1,
+                events: vec![
+                    switch_event(100, 0, "idle", 7, "render"),
+                    switch_event(130, 7, "render", 0, "idle"),
+                ],
+            },
+        ],
     };
     let frame = Envelope {
         name: "ftrace-plugin".to_owned(),
@@ -102,6 +108,24 @@ fn hitrace(path: &Path) {
     bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&frame);
     fs::write(path, bytes).unwrap();
+}
+
+fn switch_event(
+    timestamp: u64,
+    previous_id: i32,
+    previous_name: &str,
+    next_id: i32,
+    next_name: &str,
+) -> Event {
+    Event {
+        timestamp,
+        switch: Some(Switch {
+            previous_name: previous_name.to_owned(),
+            previous_id,
+            next_name: next_name.to_owned(),
+            next_id,
+        }),
+    }
 }
 
 fn cargo_kat() -> PathBuf {
@@ -271,6 +295,149 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
             .map(|table| table["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
         ["clock_domain", "clock_snapshot", "sched_switch"]
+    );
+}
+
+#[test]
+#[ignore = "requires KAT_E2E_SKILL_ROOT and KAT_REAL_HITRACE for the real capture loop"]
+fn hitrace_to_kernel_pack_query_is_a_real_process_loop() {
+    let skill = PathBuf::from(
+        std::env::var_os("KAT_E2E_SKILL_ROOT")
+            .expect("KAT_E2E_SKILL_ROOT must name the complete Skill deployment"),
+    );
+    let binary = if cfg!(windows) {
+        skill.join("scripts/targets/windows-x86_64/kat.exe")
+    } else {
+        skill.join("scripts/targets/linux-x86_64/kat")
+    };
+    assert!(binary.is_file());
+    assert!(skill.join("assets/packs/kat-kernel/pack.toml").is_file());
+    let trace = PathBuf::from(
+        std::env::var_os("KAT_REAL_HITRACE")
+            .expect("KAT_REAL_HITRACE must name a real OpenHarmony zero-loss capture"),
+    );
+    assert!(trace.is_file());
+
+    let temporary = tempfile::tempdir().unwrap();
+    let dataset = temporary.path().join("dataset");
+
+    let imported = command(&binary, temporary.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&trace)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+    assert_eq!(
+        imported.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+
+    let inspected = command(&binary, temporary.path())
+        .args(["inspect", "--pack", "kat-kernel"])
+        .output()
+        .unwrap();
+    assert_eq!(inspected.status.code(), Some(0));
+    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(inspection["result"]["name"], "kat-kernel");
+    assert_eq!(
+        inspection["result"]["workflows"],
+        serde_json::json!([{
+            "name": "thread-cpu-time",
+            "title": "Thread CPU Time by CPU",
+            "description": "Aggregate complete observed non-idle scheduling intervals by thread and CPU.",
+            "required_tables": ["sched_switch"],
+            "parameters": []
+        }])
+    );
+
+    let tested = command(&binary, temporary.path())
+        .args(["test", "--pack", "kat-kernel"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        tested.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&tested.stderr)
+    );
+
+    let run = command(&binary, temporary.path())
+        .args([
+            "run",
+            "--pack",
+            "kat-kernel",
+            "--workflow",
+            "thread-cpu-time",
+            "--dataset",
+        ])
+        .arg(&dataset)
+        .output()
+        .unwrap();
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let run_response: serde_json::Value = serde_json::from_slice(&run.stdout).unwrap();
+    let run_id = run_response["result"]["run_id"].as_str().unwrap();
+    assert!(
+        run_response["result"]["outputs"]["thread_cpu_time_by_cpu"]["row_count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(
+        run_response["result"]["outputs"]["thread_cpu_time_by_cpu"]["columns"],
+        serde_json::json!([
+            {"name": "thread_id", "type": "int32"},
+            {"name": "thread_name", "type": "string"},
+            {"name": "cpu", "type": "uint32"},
+            {"name": "observed_cpu_time_ns", "type": "int64"}
+        ])
+    );
+
+    let totals = command(&binary, temporary.path())
+        .args(["query", "--run", run_id, "--sql"])
+        .arg(
+            "SELECT thread_id, thread_name, SUM(observed_cpu_time_ns) AS total_cpu_time_ns \
+             FROM output.thread_cpu_time_by_cpu GROUP BY thread_id, thread_name \
+             ORDER BY total_cpu_time_ns DESC, thread_id, thread_name LIMIT 10",
+        )
+        .output()
+        .unwrap();
+    assert_eq!(totals.status.code(), Some(0));
+    let totals: serde_json::Value = serde_json::from_slice(&totals.stdout).unwrap();
+    let total_rows = totals["result"]["rows"].as_array().unwrap();
+    assert!(!total_rows.is_empty());
+    assert!(total_rows.len() <= 10);
+    assert!(
+        total_rows
+            .iter()
+            .all(|row| row.as_array().unwrap().len() == 3)
+    );
+
+    let cpus = command(&binary, temporary.path())
+        .args(["query", "--run", run_id, "--sql"])
+        .arg(
+            "SELECT thread_id, thread_name, cpu, observed_cpu_time_ns \
+             FROM output.thread_cpu_time_by_cpu \
+             ORDER BY observed_cpu_time_ns DESC, thread_id, thread_name, cpu LIMIT 10",
+        )
+        .output()
+        .unwrap();
+    assert_eq!(cpus.status.code(), Some(0));
+    let cpus: serde_json::Value = serde_json::from_slice(&cpus.stdout).unwrap();
+    let cpu_rows = cpus["result"]["rows"].as_array().unwrap();
+    assert!(!cpu_rows.is_empty());
+    assert!(cpu_rows.len() <= 10);
+    assert!(
+        cpu_rows
+            .iter()
+            .all(|row| row.as_array().unwrap().len() == 4)
     );
 }
 
