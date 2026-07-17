@@ -9,9 +9,11 @@ use std::{
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
 
 mod dataset_writer;
+mod hitrace;
 mod trace_streamer;
 
 pub use dataset_writer::DatasetWriteTarget;
+pub use hitrace::{HitraceImportError, ImportedHitrace, UnsupportedHitraceContent, import_hitrace};
 pub use trace_streamer::{ImportedDataset, TraceStreamerImportError, import_trace_streamer};
 
 pub struct DatasetInspection {

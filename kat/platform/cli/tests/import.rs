@@ -4,7 +4,105 @@ use std::{
     process::Command,
 };
 
+use prost::Message;
 use rusqlite::Connection;
+
+const HEADER_SIZE: usize = 1024;
+const HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
+
+#[derive(Clone, PartialEq, Message)]
+struct Envelope {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(bytes = "vec", tag = "3")]
+    data: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TraceResult {
+    #[prost(message, repeated, tag = "1")]
+    stats: Vec<Stats>,
+    #[prost(message, repeated, tag = "2")]
+    details: Vec<Detail>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct Stats {
+    #[prost(int32, tag = "1")]
+    status: i32,
+    #[prost(message, repeated, tag = "2")]
+    per_cpu: Vec<PerCpu>,
+    #[prost(string, tag = "3")]
+    trace_clock: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct PerCpu {
+    #[prost(uint64, tag = "1")]
+    cpu: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct Detail {
+    #[prost(uint32, tag = "1")]
+    cpu: u32,
+    #[prost(message, repeated, tag = "2")]
+    events: Vec<Event>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct Event {
+    #[prost(uint64, tag = "1")]
+    timestamp: u64,
+    #[prost(message, optional, tag = "2417")]
+    switch: Option<Switch>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct Switch {
+    #[prost(string, tag = "1")]
+    previous_name: String,
+    #[prost(int32, tag = "2")]
+    previous_id: i32,
+    #[prost(string, tag = "5")]
+    next_name: String,
+    #[prost(int32, tag = "6")]
+    next_id: i32,
+}
+
+fn hitrace(path: &Path) {
+    let stats = |status| Stats {
+        status,
+        per_cpu: vec![PerCpu { cpu: 0 }],
+        trace_clock: "boot".to_owned(),
+    };
+    let result = TraceResult {
+        stats: vec![stats(0), stats(1)],
+        details: vec![Detail {
+            cpu: 0,
+            events: vec![Event {
+                timestamp: 42,
+                switch: Some(Switch {
+                    previous_name: "idle".to_owned(),
+                    previous_id: 0,
+                    next_name: "render".to_owned(),
+                    next_id: 7,
+                }),
+            }],
+        }],
+    };
+    let frame = Envelope {
+        name: "ftrace-plugin".to_owned(),
+        data: result.encode_to_vec(),
+    }
+    .encode_to_vec();
+    let mut bytes = vec![0; HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&((HEADER_SIZE + 4 + frame.len()) as u64).to_le_bytes());
+    bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&frame);
+    fs::write(path, bytes).unwrap();
+}
 
 fn cargo_kat() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_kat"))
@@ -114,6 +212,65 @@ fn trace_streamer_import_then_inspect_is_a_real_json_process_loop() {
             .map(|table| table["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
         vec!["a_table", "a_view", "z_table"]
+    );
+}
+
+#[test]
+fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.htrace");
+    let dataset = temp.path().join("dataset");
+    hitrace(&source);
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(
+        response["result"]["unsupported_plugins"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        response["result"]["unsupported_section_types"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        response["result"]["path"],
+        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
+    );
+    let log = PathBuf::from(response["log_path"].as_str().unwrap());
+    assert!(log.is_file());
+    assert!(fs::read_to_string(log).unwrap().contains("status: success"));
+
+    let inspected = command(&binary, temp.path())
+        .arg("inspect")
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(
+        inspection["result"]["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|table| table["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["clock_domain", "clock_snapshot", "sched_switch"]
     );
 }
 

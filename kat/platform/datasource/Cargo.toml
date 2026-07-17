@@ -9,8 +9,9 @@ arrow-array.workspace = true
 arrow-schema.workspace = true
 dunce.workspace = true
 parquet.workspace = true
+prost.workspace = true
 rusqlite.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
