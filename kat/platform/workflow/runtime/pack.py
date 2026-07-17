@@ -13,10 +13,19 @@ from types import ModuleType
 import kat
 from kat._workflow import _registration_count, _registrations_since
 
-from .inspection import compile_declared_workflow
+from .inspection import CompiledWorkflow, compile_declared_workflow
 
 
 def inspect_pack(pack_name: str, pack_path: str) -> dict[str, object]:
+    workflows = load_workflows(pack_name, pack_path)
+    return {
+        "workflows": [
+            workflows[name].interface for name in sorted(workflows)
+        ]
+    }
+
+
+def load_workflows(pack_name: str, pack_path: str) -> dict[str, CompiledWorkflow]:
     if not isinstance(pack_name, str) or not pack_name:
         raise ValueError("PACK name must be a non-empty string")
     if not isinstance(pack_path, str):
@@ -34,8 +43,7 @@ def inspect_pack(pack_name: str, pack_path: str) -> dict[str, object]:
     entry_module_names = {
         ".".join(("kat", "pack", "workflows", *segments)) for _, segments in entries
     }
-    workflows: list[dict[str, object]] = []
-    names: set[str] = set()
+    workflows: dict[str, CompiledWorkflow] = {}
     for source, segments in entries:
         module_name = ".".join(("kat", "pack", "workflows", *segments))
         before = _registration_count()
@@ -50,12 +58,10 @@ def inspect_pack(pack_name: str, pack_path: str) -> dict[str, object]:
             raise ValueError(f"Workflow entry {relative} must register exactly one Workflow defined by that module")
         compiled = compile_declared_workflow(registrations[0])
         name = compiled.interface["name"]
-        if name in names:
+        if name in workflows:
             raise ValueError(f"duplicate Workflow name: {name}")
-        names.add(name)
-        workflows.append(compiled.interface)
-    workflows.sort(key=lambda workflow: workflow["name"])
-    return {"workflows": workflows}
+        workflows[name] = compiled
+    return workflows
 
 
 def _import_entry(module_name: str, entry_module_names: set[str]) -> ModuleType:

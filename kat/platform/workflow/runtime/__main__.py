@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import NoReturn
 
+from .execution import run_workflow
 from .pack import inspect_pack
 
 
@@ -16,44 +17,102 @@ def main() -> int:
     arguments = parser.parse_args()
     response_path = Path(arguments.response)
     pack_path: Path | None = None
+    operation = "Runtime"
+    private_values: tuple[str, ...] = ()
     try:
         request = _read_request(Path(arguments.request))
         pack_path = Path(request["pack_path"])
-        result = inspect_pack(request["pack_name"], request["pack_path"])
+        operation = request["operation"]
+        if operation == "inspect_pack":
+            result = inspect_pack(request["pack_name"], request["pack_path"])
+        elif operation == "run_workflow":
+            private_values = (request["candidate_id"], request["run_path"])
+            result = run_workflow(request)
+        else:
+            raise ValueError("unsupported Runtime Request operation")
         response: dict[str, object] = {"status": "success", "result": result}
     except Exception as error:
-        response = {"status": "failure", "error": _diagnostic(error, pack_path)}
+        response = {
+            "status": "failure",
+            "error": _diagnostic(error, pack_path, operation, private_values),
+        }
     _write_response(response_path, response)
     return 0
 
 
-def _read_request(path: Path) -> dict[str, str]:
+def _read_request(path: Path) -> dict[str, object]:
     with path.open("r", encoding="utf-8") as file:
         request = json.load(file)
     if type(request) is not dict:
         raise ValueError("Runtime Request must be a JSON object")
-    expected = {"operation", "pack_name", "pack_path"}
-    if set(request) != expected:
-        raise ValueError(f"inspect_pack Runtime Request fields must be exactly {sorted(expected)}")
-    if request["operation"] != "inspect_pack":
+    operation = request.get("operation")
+    if operation == "inspect_pack":
+        expected = {"operation", "pack_name", "pack_path"}
+        if set(request) != expected:
+            raise ValueError(
+                f"inspect_pack Runtime Request fields must be exactly {sorted(expected)}"
+            )
+        if type(request["pack_name"]) is not str or type(request["pack_path"]) is not str:
+            raise TypeError("inspect_pack Runtime Request fields must be strings")
+    elif operation == "run_workflow":
+        required = {
+            "operation",
+            "pack_name",
+            "pack_path",
+            "workflow_name",
+            "arguments",
+            "candidate_id",
+            "run_path",
+        }
+        if set(request) not in (required, required | {"dataset"}):
+            raise ValueError("run_workflow Runtime Request has an invalid field set")
+        if any(type(request[name]) is not str for name in required - {"operation", "arguments"}):
+            raise TypeError("run_workflow identity and path fields must be strings")
+        if type(request["arguments"]) is not list or any(
+            type(value) is not str for value in request["arguments"]
+        ):
+            raise TypeError("run_workflow arguments must be an array of strings")
+        if "dataset" in request:
+            dataset = request["dataset"]
+            if type(dataset) is not dict or set(dataset) != {"path", "tables"}:
+                raise ValueError("run_workflow Dataset must contain exactly path and tables")
+            if type(dataset["path"]) is not str or type(dataset["tables"]) is not dict:
+                raise TypeError("run_workflow Dataset path and tables have invalid types")
+            if any(
+                type(name) is not str or type(value) is not str
+                for name, value in dataset["tables"].items()
+            ):
+                raise TypeError("run_workflow Dataset table references must be strings")
+    else:
         raise ValueError("unsupported Runtime Request operation")
-    if type(request["pack_name"]) is not str or type(request["pack_path"]) is not str:
-        raise TypeError("inspect_pack Runtime Request fields must be strings")
     return request
 
 
-def _diagnostic(error: Exception, pack_path: Path | None) -> dict[str, object]:
+def _diagnostic(
+    error: Exception,
+    pack_path: Path | None,
+    operation: str,
+    private_values: tuple[str, ...],
+) -> dict[str, object]:
     causes: list[str] = []
     current: BaseException | None = error
     while current is not None:
         rendered = str(current).strip()
         if rendered:
+            for private in private_values:
+                rendered = rendered.replace(private, "<private>")
             causes.append(rendered)
         current = current.__cause__ or current.__context__
-    diagnostic: dict[str, object] = {
-        "message": "PACK inspection failed",
-        "help": "Correct the PACK production Interface and retry inspection",
-    }
+    if operation == "run_workflow":
+        diagnostic: dict[str, object] = {
+            "message": "Workflow execution failed",
+            "help": "Correct the Workflow, arguments, or Dataset and retry the complete Run",
+        }
+    else:
+        diagnostic = {
+            "message": "PACK inspection failed",
+            "help": "Correct the PACK production Interface and retry inspection",
+        }
     if causes:
         diagnostic["causes"] = causes
     location = _syntax_error_location(error, pack_path)

@@ -21,6 +21,20 @@ impl OperationLog {
         Self::create_with(data_home, file_prefix, |file| write_header(file))
     }
 
+    pub(crate) fn create_run(
+        data_home: &Path,
+        candidate_id: &str,
+        write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
+        let directory = data_home.join("logs");
+        fs::create_dir_all(&directory).map_err(|source| OperationLogError::CreateDirectory {
+            path: directory.clone(),
+            source,
+        })?;
+        let path = directory.join(format!("run-{candidate_id}.log"));
+        Self::create_at(path, |file| write_header(file))
+    }
+
     fn create_with(
         data_home: &Path,
         file_prefix: &str,
@@ -32,6 +46,13 @@ impl OperationLog {
             source,
         })?;
         let path = directory.join(format!("{file_prefix}-{}.log", uuid::Uuid::now_v7()));
+        Self::create_at(path, write_header)
+    }
+
+    fn create_at(
+        path: PathBuf,
+        write_header: impl FnOnce(&mut File) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)

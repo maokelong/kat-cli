@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -11,6 +11,7 @@ use std::{
 
 use miette::Diagnostic;
 use regex::Regex;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -40,6 +41,56 @@ pub(crate) enum InspectPackOutcome {
         diagnostic: KatDiagnostic,
         log_path: String,
     },
+}
+
+pub(crate) enum RunWorkflowOutcome {
+    Success {
+        result: RunWorkflowResult,
+        log_path: String,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log_path: String,
+    },
+}
+
+#[derive(Serialize)]
+pub(crate) struct ResolvedDatasetRequest {
+    pub(crate) path: String,
+    pub(crate) tables: BTreeMap<String, String>,
+}
+
+pub(crate) struct RunWorkflowInvocation {
+    pub(crate) pack_name: String,
+    pub(crate) pack_path: String,
+    pub(crate) workflow_name: String,
+    pub(crate) dataset: Option<ResolvedDatasetRequest>,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) candidate_id: String,
+    pub(crate) run_path: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RunWorkflowResult {
+    pub(crate) effective_inputs: BTreeMap<String, serde_json::Value>,
+    pub(crate) outputs: BTreeMap<String, RuntimeOutput>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeOutput {
+    pub(crate) output_id: String,
+    pub(crate) columns: Vec<Column>,
+    pub(crate) row_count: u64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Column {
+    pub(crate) name: String,
+    #[serde(rename = "type")]
+    pub(crate) data_type: String,
 }
 
 #[derive(Deserialize)]
@@ -160,6 +211,124 @@ pub(crate) fn inspect_pack(
     }
 }
 
+pub(crate) fn run_workflow(
+    mut log: OperationLog,
+    invocation: RunWorkflowInvocation,
+) -> Result<RunWorkflowOutcome, RunWorkflowError> {
+    let request = RunWorkflowRequest {
+        operation: "run_workflow",
+        pack_name: &invocation.pack_name,
+        pack_path: &invocation.pack_path,
+        workflow_name: &invocation.workflow_name,
+        dataset: invocation.dataset.as_ref(),
+        arguments: &invocation.arguments,
+        candidate_id: &invocation.candidate_id,
+        run_path: &invocation.run_path,
+    };
+    let response: RuntimeResponse<RunWorkflowResult> =
+        match exchange_request("kat-run-workflow-", &request, &mut log) {
+            Ok(response) => response,
+            Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
+            Err(ExchangeError::Runtime(error)) => {
+                return Err(finish_run_runtime_error(log, error));
+            }
+        };
+    match response {
+        RuntimeResponse::Success { result } => {
+            if let Err(error) = validate_run_result(&result) {
+                return Err(finish_run_runtime_error(log, error));
+            }
+            if let Err(source) = log.append(b"runtime_status: success\n") {
+                return Err(RunWorkflowError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(RunWorkflowError::operation_log)?;
+            Ok(RunWorkflowOutcome::Success { result, log_path })
+        }
+        RuntimeResponse::Failure { error } => {
+            if !error.validate() {
+                return Err(finish_run_runtime_error(
+                    log,
+                    RuntimeFailure::InvalidResponse(
+                        "Runtime Diagnostic contains empty or invalid fields".to_owned(),
+                    ),
+                ));
+            }
+            if let Err(source) = log.append(b"runtime_status: failure\n") {
+                return Err(RunWorkflowError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(RunWorkflowError::operation_log)?;
+            Ok(RunWorkflowOutcome::Failure {
+                diagnostic: error,
+                log_path,
+            })
+        }
+    }
+}
+
+fn validate_run_result(result: &RunWorkflowResult) -> Result<(), RuntimeFailure> {
+    if result.outputs.is_empty() {
+        return invalid_response("run_workflow outputs must not be empty".to_owned());
+    }
+    for (name, value) in &result.effective_inputs {
+        if name.is_empty()
+            || !matches!(
+                value,
+                serde_json::Value::Null
+                    | serde_json::Value::Bool(_)
+                    | serde_json::Value::String(_)
+                    | serde_json::Value::Number(_)
+            )
+        {
+            return invalid_response(format!(
+                "run_workflow effective input {name:?} has an invalid value"
+            ));
+        }
+        if value.as_f64().is_some_and(|number| !number.is_finite()) {
+            return invalid_response(format!(
+                "run_workflow effective input {name:?} is not finite"
+            ));
+        }
+    }
+    let mut output_ids = HashSet::new();
+    for (name, output) in &result.outputs {
+        if !TABLE_NAME.is_match(name) {
+            return invalid_response(format!("invalid Output name {name:?}"));
+        }
+        if output.output_id.len() != 32
+            || !output
+                .output_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !output_ids.insert(&output.output_id)
+        {
+            return invalid_response(
+                "run_workflow Output IDs must be unique lowercase hex".to_owned(),
+            );
+        }
+        for column in &output.columns {
+            if column.name.is_empty() || column.data_type.trim().is_empty() {
+                return invalid_response(format!(
+                    "Output {name:?} has an empty column name or type"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct RunWorkflowRequest<'a> {
+    operation: &'static str,
+    pack_name: &'a str,
+    pack_path: &'a str,
+    workflow_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dataset: Option<&'a ResolvedDatasetRequest>,
+    arguments: &'a [String],
+    candidate_id: &'a str,
+    run_path: &'a str,
+}
+
 #[derive(Serialize)]
 struct InspectPackRequest<'a> {
     operation: &'static str,
@@ -169,8 +338,8 @@ struct InspectPackRequest<'a> {
 
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-enum RuntimeResponse {
-    Success { result: InspectPackResult },
+enum RuntimeResponse<R> {
+    Success { result: R },
     Failure { error: KatDiagnostic },
 }
 
@@ -184,23 +353,31 @@ fn exchange(
     pack_name: &str,
     pack_path: &Path,
     log: &mut OperationLog,
-) -> Result<RuntimeResponse, ExchangeError> {
+) -> Result<RuntimeResponse<InspectPackResult>, ExchangeError> {
     let pack_path_text = pack_path
         .to_str()
         .ok_or_else(|| RuntimeFailure::NonUnicodePackPath(pack_path.to_path_buf()))?;
+    let request = InspectPackRequest {
+        operation: "inspect_pack",
+        pack_name,
+        pack_path: pack_path_text,
+    };
+    exchange_request("kat-inspect-pack-", &request, log)
+}
+
+fn exchange_request<R: DeserializeOwned>(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+) -> Result<RuntimeResponse<R>, ExchangeError> {
     let control = tempfile::Builder::new()
-        .prefix("kat-inspect-pack-")
+        .prefix(prefix)
         .tempdir()
         .map_err(RuntimeFailure::ControlDirectory)?;
     let control_path = dunce::canonicalize(control.path()).map_err(RuntimeFailure::ControlPath)?;
     let request_path = control_path.join("request.json");
     let response_path = control_path.join("response.json");
-    let request = serde_json::to_vec(&InspectPackRequest {
-        operation: "inspect_pack",
-        pack_name,
-        pack_path: pack_path_text,
-    })
-    .map_err(RuntimeFailure::EncodeRequest)?;
+    let request = serde_json::to_vec(request).map_err(RuntimeFailure::EncodeRequest)?;
     fs::write(&request_path, request).map_err(RuntimeFailure::WriteRequest)?;
 
     let python = bundled_python_path()?;
@@ -617,6 +794,20 @@ fn finish_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> Inspect
     }
 }
 
+fn finish_run_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> RunWorkflowError {
+    let details = format!("status: failure\nerror: {error}\n");
+    if let Err(log_error) = log.append(details.as_bytes()) {
+        return RunWorkflowError::operation_log(log_error);
+    }
+    match log.finish() {
+        Ok(log_path) => RunWorkflowError::Runtime {
+            source: error,
+            log_path,
+        },
+        Err(log_error) => RunWorkflowError::operation_log(log_error),
+    }
+}
+
 enum ExchangeError {
     Log(OperationLogError),
     Runtime(RuntimeFailure),
@@ -675,6 +866,54 @@ impl InspectPackError {
     }
 }
 
+#[derive(Debug, Error, Diagnostic)]
+pub(crate) enum RunWorkflowError {
+    #[error("Run Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Run"))]
+    OperationLog {
+        error: OperationLogError,
+        log_path: Option<String>,
+    },
+    #[error("Run Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog {
+        error: OperationLogError,
+        log_path: String,
+    },
+    #[error("Workflow Runtime failed")]
+    #[diagnostic(help("Inspect the Operation log, correct the inputs or deployment, and retry"))]
+    Runtime {
+        #[source]
+        source: RuntimeFailure,
+        log_path: String,
+    },
+}
+
+impl RunWorkflowError {
+    fn operation_log(source: OperationLogError) -> Self {
+        match source.readable_path() {
+            Some(log_path) => Self::IncompleteOperationLog {
+                error: source,
+                log_path,
+            },
+            None => Self::OperationLog {
+                error: source,
+                log_path: None,
+            },
+        }
+    }
+
+    pub(crate) fn log_path(&self) -> Option<String> {
+        match self {
+            Self::OperationLog { log_path, .. } => log_path.clone(),
+            Self::IncompleteOperationLog { log_path, .. } => Some(log_path.clone()),
+            Self::Runtime { log_path, .. } => Some(log_path.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum RuntimeFailure {
     #[error("PACK path cannot be represented as native Unicode: {0:?}")]
@@ -717,9 +956,9 @@ pub(crate) enum RuntimeFailure {
     HostExit(Option<i32>),
     #[error("failed to read Runtime Response")]
     ReadResponse(#[source] io::Error),
-    #[error("Runtime Response is not valid for inspect_pack")]
+    #[error("Runtime Response is not valid for the requested operation")]
     DecodeResponse(#[source] serde_json::Error),
-    #[error("Runtime Response is not valid for inspect_pack: {0}")]
+    #[error("Runtime Response is not valid for the requested operation: {0}")]
     InvalidResponse(String),
 }
 
@@ -767,11 +1006,11 @@ mod tests {
     #[test]
     fn strict_response_rejects_unknown_fields_and_incomplete_parameter_contracts() {
         let unknown = br#"{"status":"success","result":{"workflows":[],"extra":true}}"#;
-        assert!(serde_json::from_slice::<RuntimeResponse>(unknown).is_err());
+        assert!(serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(unknown).is_err());
 
         let response = br#"{"status":"success","result":{"workflows":[{"name":"a","title":"A","description":"A","required_tables":[],"parameters":[{"name":"flag","option":"--flag","type":"boolean","required":false,"description":"Flag","default":false}]}]}}"#;
         let RuntimeResponse::Success { result } =
-            serde_json::from_slice::<RuntimeResponse>(response).unwrap()
+            serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(response).unwrap()
         else {
             panic!("expected success response");
         };
@@ -783,7 +1022,7 @@ mod tests {
                 "result": {"workflows": [workflow]}
             });
             let RuntimeResponse::Success { result } =
-                serde_json::from_value::<RuntimeResponse>(response).unwrap()
+                serde_json::from_value::<RuntimeResponse<InspectPackResult>>(response).unwrap()
             else {
                 panic!("expected success response");
             };
@@ -879,6 +1118,54 @@ mod tests {
     }
 
     #[test]
+    fn run_response_is_strict_and_validates_output_facts() {
+        let decode = |value: serde_json::Value| {
+            serde_json::from_value::<RuntimeResponse<RunWorkflowResult>>(value)
+        };
+        assert!(
+            decode(serde_json::json!({
+                "status":"success",
+                "result":{"effective_inputs":{},"outputs":{},"extra":true}
+            }))
+            .is_err()
+        );
+
+        let result = |outputs| RunWorkflowResult {
+            effective_inputs: BTreeMap::new(),
+            outputs,
+        };
+        assert!(validate_run_result(&result(BTreeMap::new())).is_err());
+        let output = |id: &str| RuntimeOutput {
+            output_id: id.to_owned(),
+            columns: vec![Column {
+                name: "value".to_owned(),
+                data_type: "int64".to_owned(),
+            }],
+            row_count: 0,
+        };
+        assert!(
+            validate_run_result(&result(BTreeMap::from([(
+                "bad-name".to_owned(),
+                output("0123456789abcdef0123456789abcdef")
+            )])))
+            .is_err()
+        );
+        assert!(
+            validate_run_result(&result(BTreeMap::from([
+                (
+                    "first".to_owned(),
+                    output("0123456789abcdef0123456789abcdef")
+                ),
+                (
+                    "second".to_owned(),
+                    output("0123456789abcdef0123456789abcdef")
+                )
+            ])))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn readable_log_faults_are_reported_as_incomplete() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("partial.log");
@@ -897,6 +1184,18 @@ mod tests {
             error,
             InspectPackError::IncompleteOperationLog { .. }
         ));
+    }
+
+    #[test]
+    fn run_log_faults_do_not_expose_the_private_candidate_as_a_cause() {
+        let candidate_id = "019f6e00-0000-7000-8000-000000000004";
+        let error = RunWorkflowError::operation_log(OperationLogError::Write {
+            path: PathBuf::from(format!(r"C:\data\logs\run-{candidate_id}.log")),
+            source: io::Error::other("injected log write failure"),
+        });
+
+        assert!(std::error::Error::source(&error).is_none());
+        assert!(!error.to_string().contains(candidate_id));
     }
 
     #[test]

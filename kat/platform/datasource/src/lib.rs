@@ -33,6 +33,7 @@ impl DatasetInspection {
 
 pub struct TableInspection {
     name: String,
+    path: PathBuf,
     columns: Vec<ColumnInspection>,
 }
 
@@ -43,6 +44,36 @@ impl TableInspection {
 
     pub fn columns(&self) -> &[ColumnInspection] {
         &self.columns
+    }
+}
+
+pub struct ResolvedDataset {
+    path: PathBuf,
+    tables: Vec<ResolvedTable>,
+}
+
+impl ResolvedDataset {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn tables(&self) -> &[ResolvedTable] {
+        &self.tables
+    }
+}
+
+pub struct ResolvedTable {
+    name: String,
+    path: PathBuf,
+}
+
+impl ResolvedTable {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 
@@ -83,6 +114,21 @@ pub fn inspect_dataset(path: &Path) -> Result<DatasetInspection, DatasetInspecti
         tables.push(read_table(name, path)?);
     }
     Ok(DatasetInspection { path: root, tables })
+}
+
+pub fn resolve_dataset(path: &Path) -> Result<ResolvedDataset, DatasetInspectionError> {
+    let inspection = inspect_dataset(path)?;
+    Ok(ResolvedDataset {
+        path: inspection.path,
+        tables: inspection
+            .tables
+            .into_iter()
+            .map(|table| ResolvedTable {
+                name: table.name,
+                path: table.path,
+            })
+            .collect(),
+    })
 }
 
 fn canonical_unicode(path: &Path, label: &'static str) -> Result<PathBuf, DatasetInspectionError> {
@@ -196,7 +242,7 @@ fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetIns
         ArrowReaderMetadata::load(&file, ArrowReaderOptions::default()).map_err(|source| {
             DatasetInspectionError::ReadTableMetadata {
                 name: name.clone(),
-                path: canonical,
+                path: canonical.clone(),
                 source,
             }
         })?;
@@ -215,7 +261,11 @@ fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetIns
             nullable: field.is_nullable(),
         });
     }
-    Ok(TableInspection { name, columns })
+    Ok(TableInspection {
+        name,
+        path: canonical,
+        columns,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -342,7 +392,7 @@ mod tests {
 
         let inspection = inspect_dataset(&dataset).expect("inspect Dataset");
 
-        assert_eq!(inspection.path(), dunce::canonicalize(dataset).unwrap());
+        assert_eq!(inspection.path(), dunce::canonicalize(&dataset).unwrap());
         assert_eq!(
             inspection
                 .tables()
@@ -358,6 +408,21 @@ mod tests {
         assert_eq!(columns[1].name(), "label");
         assert_eq!(columns[1].data_type(), "Utf8");
         assert!(columns[1].nullable());
+
+        let resolved = resolve_dataset(&dataset).unwrap();
+        assert_eq!(resolved.path(), inspection.path());
+        assert_eq!(
+            resolved
+                .tables()
+                .iter()
+                .map(ResolvedTable::name)
+                .collect::<Vec<_>>(),
+            ["alpha", "zeta"]
+        );
+        assert_eq!(
+            resolved.tables()[0].path(),
+            dunce::canonicalize(dataset.join("tables/alpha.parquet")).unwrap()
+        );
     }
 
     #[test]

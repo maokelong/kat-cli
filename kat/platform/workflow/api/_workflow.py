@@ -17,6 +17,21 @@ _WINDOWS_DEVICES = {"con", "prn", "aux", "nul"} | {
 class Context:
     """The KAT-owned capability boundary supplied when a Workflow is executed."""
 
+    def sql(self, sql: str, **params: object) -> object:
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    def from_arrow(self, table: object) -> object:
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    def convert_clock(
+        self,
+        clock_domain: object,
+        clock_value: object,
+        *,
+        target_domain: str,
+    ) -> object:
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
 
 @dataclass(frozen=True)
 class _WorkflowDeclaration:
