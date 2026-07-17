@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   workflow-wheel:
     name: Build the single Workflow Host wheel
@@ -179,7 +183,7 @@ jobs:
         shell: pwsh
         run: |
           $system = Get-CimInstance Win32_OperatingSystem
-          if ($system.ProductType -ne 1 -or [Environment]::OSVersion.Version.Major -lt 10) {
+          if ($system.ProductType -ne 1 -or ([version]$system.Version).Major -lt 10) {
             throw "final payload evidence requires a Windows 10/11 client"
           }
           if (Get-Command python -ErrorAction SilentlyContinue) {
