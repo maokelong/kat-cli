@@ -3,6 +3,7 @@ members = [
     "crates/kat-rs-cli",
     "crates/kat-rs-daemon",
     "crates/kat-rs-datasource",
+    "kat/platform/cli",
 ]
 resolver = "2"
 
@@ -36,6 +37,8 @@ serde_arrow = { version = "0.14.1", features = ["arrow-58"] }
 serde_bytes = "0.11"
 serde_json = "1.0"
 tempfile = "3.10"
+thiserror = "2.0"
+toml = "0.9"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
