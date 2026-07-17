@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::LazyLock,
@@ -73,6 +73,17 @@ pub(crate) enum QueryRunOutcome {
     },
 }
 
+pub(crate) enum TestPackOutcome {
+    Success {
+        result: TestPackResult,
+        log_path: String,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log_path: String,
+    },
+}
+
 #[derive(Serialize)]
 pub(crate) struct ResolvedDatasetRequest {
     pub(crate) path: String,
@@ -97,6 +108,14 @@ pub(crate) struct QueryRunInvocation {
     pub(crate) sql: String,
 }
 
+pub(crate) struct TestPackInvocation<'a> {
+    pub(crate) pack_name: &'a str,
+    pub(crate) pack_path: &'a Path,
+    pub(crate) datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
+    pub(crate) tests: &'a [String],
+    pub(crate) test_report_path: &'a Path,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum QueryDatasetRequest {
@@ -116,6 +135,12 @@ pub(crate) enum QueryDatasetRequest {
 pub(crate) struct QueryRunResult {
     pub(crate) columns: Vec<Column>,
     pub(crate) rows: Vec<Vec<serde_json::Value>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TestPackResult {
+    pub(crate) summary: BTreeMap<String, u64>,
 }
 
 #[derive(Deserialize)]
@@ -402,6 +427,81 @@ pub(crate) fn query_run(
     }
 }
 
+pub(crate) fn test_pack(
+    mut log: OperationLog,
+    invocation: TestPackInvocation<'_>,
+) -> Result<TestPackOutcome, TestPackError> {
+    let Some(pack_path) = invocation.pack_path.to_str() else {
+        return Err(finish_test_runtime_error(
+            log,
+            RuntimeFailure::NonUnicodePackPath(invocation.pack_path.to_path_buf()),
+        ));
+    };
+    let request = TestPackRequest {
+        operation: "test_pack",
+        pack_name: invocation.pack_name,
+        pack_path,
+        datasets: invocation.datasets,
+        tests: invocation.tests,
+    };
+    let response: RuntimeResponse<TestPackResult> = match exchange_request_with_options(
+        "kat-test-pack-",
+        &request,
+        &mut log,
+        RuntimeExchangeOptions {
+            working_directory: Some(invocation.pack_path),
+            test_report_path: Some(invocation.test_report_path),
+            mirror_stderr: true,
+            timeout: None,
+        },
+    ) {
+        Ok(response) => response,
+        Err(ExchangeError::Log(error)) => return Err(TestPackError::operation_log(error)),
+        Err(ExchangeError::Runtime(error)) => {
+            return Err(finish_test_runtime_error(log, error));
+        }
+    };
+    match response {
+        RuntimeResponse::Success { result } => {
+            if result
+                .summary
+                .iter()
+                .any(|(category, count)| category.trim().is_empty() || *count == 0)
+            {
+                return Err(finish_test_runtime_error(
+                    log,
+                    RuntimeFailure::InvalidResponse(
+                        "test_pack summary must contain only positive named categories".to_owned(),
+                    ),
+                ));
+            }
+            if let Err(source) = log.append(b"runtime_status: success\n") {
+                return Err(TestPackError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(TestPackError::operation_log)?;
+            Ok(TestPackOutcome::Success { result, log_path })
+        }
+        RuntimeResponse::Failure { error } => {
+            if !error.validate() {
+                return Err(finish_test_runtime_error(
+                    log,
+                    RuntimeFailure::InvalidResponse(
+                        "Runtime Diagnostic contains empty or invalid fields".to_owned(),
+                    ),
+                ));
+            }
+            if let Err(source) = log.append(b"runtime_status: failure\n") {
+                return Err(TestPackError::operation_log(source));
+            }
+            let log_path = log.finish().map_err(TestPackError::operation_log)?;
+            Ok(TestPackOutcome::Failure {
+                diagnostic: error,
+                log_path,
+            })
+        }
+    }
+}
+
 fn project_query_result(result: PrivateQueryRunResult) -> Result<QueryRunResult, RuntimeFailure> {
     let rows = result
         .rows
@@ -582,6 +682,15 @@ struct QueryRunRequest<'a> {
 }
 
 #[derive(Serialize)]
+struct TestPackRequest<'a> {
+    operation: &'static str,
+    pack_name: &'a str,
+    pack_path: &'a str,
+    datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
+    tests: &'a [String],
+}
+
+#[derive(Serialize)]
 struct InspectPackRequest<'a> {
     operation: &'static str,
     pack_name: &'a str,
@@ -631,6 +740,33 @@ fn exchange_request_with_timeout<R: DeserializeOwned>(
     log: &mut OperationLog,
     timeout: Option<Duration>,
 ) -> Result<RuntimeResponse<R>, ExchangeError> {
+    exchange_request_with_options(
+        prefix,
+        request,
+        log,
+        RuntimeExchangeOptions {
+            working_directory: None,
+            test_report_path: None,
+            mirror_stderr: false,
+            timeout,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct RuntimeExchangeOptions<'a> {
+    working_directory: Option<&'a Path>,
+    test_report_path: Option<&'a Path>,
+    mirror_stderr: bool,
+    timeout: Option<Duration>,
+}
+
+fn exchange_request_with_options<R: DeserializeOwned>(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+    options: RuntimeExchangeOptions<'_>,
+) -> Result<RuntimeResponse<R>, ExchangeError> {
     let control = tempfile::Builder::new()
         .prefix(prefix)
         .tempdir()
@@ -656,13 +792,19 @@ fn exchange_request_with_timeout<R: DeserializeOwned>(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(working_directory) = options.working_directory {
+        command.current_dir(working_directory);
+    }
+    if let Some(test_report_path) = options.test_report_path {
+        command.arg("--test-report").arg(test_report_path);
+    }
     let child = command
         .group_spawn()
         .map_err(|source| RuntimeFailure::StartHost { python, source })?;
     let mut process = RuntimeProcess::new(child);
 
-    let deadline = timeout.map(|timeout| Instant::now() + timeout);
-    if let Err(error) = capture_streams(&mut process, log, deadline) {
+    let deadline = options.timeout.map(|timeout| Instant::now() + timeout);
+    if let Err(error) = capture_streams(&mut process, log, deadline, options.mirror_stderr) {
         if process.needs_termination() {
             process.terminate()?;
         }
@@ -716,6 +858,7 @@ fn capture_streams(
     process: &mut RuntimeProcess,
     log: &mut impl RuntimeLogSink,
     deadline: Option<Instant>,
+    mirror_stderr: bool,
 ) -> Result<(), ExchangeError> {
     let stdout = process
         .child
@@ -768,6 +911,9 @@ fn capture_streams(
                 if let Err(error) = log.append(text.as_bytes()) {
                     return Err(ExchangeError::Log(error));
                 }
+                if mirror_stderr {
+                    mirror_runtime_text(&text);
+                }
             }
             StreamEvent::Error(stream, source) => {
                 let error = RuntimeFailure::ReadStream {
@@ -786,6 +932,9 @@ fn capture_streams(
                 if let Err(error) = log.append(text.as_bytes()) {
                     return Err(ExchangeError::Log(error));
                 }
+                if mirror_stderr {
+                    mirror_runtime_text(&text);
+                }
             }
         }
     }
@@ -800,6 +949,13 @@ fn capture_streams(
     } else {
         Ok(())
     }
+}
+
+fn mirror_runtime_text(text: &str) {
+    let stderr = io::stderr();
+    let mut stderr = stderr.lock();
+    let _ = stderr.write_all(text.as_bytes());
+    let _ = stderr.flush();
 }
 
 fn wait_host(
@@ -1188,6 +1344,20 @@ fn finish_query_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> Q
     }
 }
 
+fn finish_test_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> TestPackError {
+    let details = format!("status: failure\nerror: {error}\n");
+    if let Err(log_error) = log.append(details.as_bytes()) {
+        return TestPackError::operation_log(log_error);
+    }
+    match log.finish() {
+        Ok(log_path) => TestPackError::Runtime {
+            source: error,
+            log_path,
+        },
+        Err(log_error) => TestPackError::operation_log(log_error),
+    }
+}
+
 enum ExchangeError {
     Log(OperationLogError),
     Runtime(RuntimeFailure),
@@ -1298,6 +1468,55 @@ pub(crate) enum QueryRunError {
     },
 }
 
+#[derive(Debug, Error, Diagnostic)]
+pub(crate) enum TestPackError {
+    #[error("PACK test Operation log could not be delivered")]
+    #[diagnostic(help("Provide writable storage and retry the complete PACK test"))]
+    OperationLog {
+        error: OperationLogError,
+        log_path: Option<String>,
+    },
+    #[error("PACK test Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog {
+        error: OperationLogError,
+        log_path: String,
+    },
+    #[error("PACK test Runtime failed")]
+    #[diagnostic(help("Inspect the Operation log, correct the PACK or deployment, and retry"))]
+    Runtime {
+        #[source]
+        source: RuntimeFailure,
+        log_path: String,
+    },
+}
+
+impl TestPackError {
+    fn operation_log(source: OperationLogError) -> Self {
+        match source.readable_path() {
+            Some(log_path) => Self::IncompleteOperationLog {
+                error: source,
+                log_path,
+            },
+            None => Self::OperationLog {
+                error: source,
+                log_path: None,
+            },
+        }
+    }
+
+    pub(crate) fn log_path(&self) -> Option<String> {
+        match self {
+            Self::OperationLog { log_path, .. } => log_path.clone(),
+            Self::IncompleteOperationLog { log_path, .. } | Self::Runtime { log_path, .. } => {
+                Some(log_path.clone())
+            }
+        }
+    }
+}
+
 impl QueryRunError {
     fn operation_log(source: OperationLogError) -> Self {
         match source.readable_path() {
@@ -1399,7 +1618,6 @@ pub(crate) enum RuntimeFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
     use std::time::{Duration, Instant};
 
     struct FailingLog {
@@ -1710,7 +1928,7 @@ mod tests {
         };
         let started = Instant::now();
 
-        let result = capture_streams(&mut process, &mut log, None);
+        let result = capture_streams(&mut process, &mut log, None, false);
 
         assert!(matches!(result, Err(ExchangeError::Log(_))));
         process.terminate().unwrap();

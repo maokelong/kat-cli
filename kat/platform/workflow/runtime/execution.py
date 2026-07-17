@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 import logging
 import math
@@ -107,6 +108,27 @@ def run_workflow(request: dict[str, object]) -> dict[str, object]:
     dataset = _resolved_dataset(request.get("dataset"))
 
     workflows = load_workflows(pack_name, pack_path)
+    return execute_loaded_workflow(
+        workflows,
+        pack_name=pack_name,
+        workflow_name=workflow_name,
+        arguments=arguments,
+        candidate_id=candidate_id,
+        run_path=run_path,
+        dataset=dataset,
+    )
+
+
+def execute_loaded_workflow(
+    workflows: dict[str, object],
+    *,
+    pack_name: str,
+    workflow_name: str,
+    arguments: list[str],
+    candidate_id: str,
+    run_path: Path,
+    dataset: dict[str, object] | None,
+) -> dict[str, object]:
     try:
         workflow = workflows[workflow_name]
     except KeyError as error:
@@ -147,6 +169,54 @@ def run_workflow(request: dict[str, object]) -> dict[str, object]:
             name: _project_effective_input(value) for name, value in effective.items()
         },
         "outputs": outputs,
+    }
+
+
+class TestWorkflowFailure(Exception):
+    pass
+
+
+def execute_test_workflow(
+    workflows: dict[str, object],
+    *,
+    pack_name: str,
+    workflow_name: object,
+    arguments: object,
+    candidate_id: str,
+    run_path: Path,
+    dataset: object,
+) -> dict[str, pa.Table]:
+    if type(workflow_name) is not str or not workflow_name:
+        raise TestWorkflowFailure("KAT Workflow test execution failed") from TypeError(
+            "kat_run workflow must be a non-empty string"
+        )
+    if isinstance(arguments, (str, bytes)) or not isinstance(arguments, Sequence):
+        raise TestWorkflowFailure("KAT Workflow test execution failed") from TypeError(
+            "kat_run arguments must be a sequence of strings"
+        )
+    if any(type(argument) is not str for argument in arguments):
+        raise TestWorkflowFailure("KAT Workflow test execution failed") from TypeError(
+            "kat_run arguments must be a sequence of strings"
+        )
+    resolved_path = _candidate_run_path(candidate_id, str(run_path))
+    resolved_dataset = _resolved_dataset(dataset)
+    try:
+        result = execute_loaded_workflow(
+            workflows,
+            pack_name=pack_name,
+            workflow_name=workflow_name,
+            arguments=list(arguments),
+            candidate_id=candidate_id,
+            run_path=resolved_path,
+            dataset=resolved_dataset,
+        )
+    except Exception as error:
+        raise TestWorkflowFailure("KAT Workflow test execution failed") from error
+    return {
+        name: pq.read_table(
+            resolved_path / "outputs" / f"{output['output_id']}.parquet"
+        )
+        for name, output in result["outputs"].items()
     }
 
 

@@ -35,6 +35,21 @@ impl OperationLog {
         Self::create_at(path, |file| write_header(file))
     }
 
+    pub(crate) fn create_test(
+        data_home: &Path,
+        token: &str,
+        write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
+        let directory = data_home.join("logs");
+        fs::create_dir_all(&directory).map_err(|source| OperationLogError::CreateDirectory {
+            path: directory.clone(),
+            source,
+        })?;
+        Self::create_at(directory.join(format!("test-{token}.log")), |file| {
+            write_header(file)
+        })
+    }
+
     fn create_with(
         data_home: &Path,
         file_prefix: &str,

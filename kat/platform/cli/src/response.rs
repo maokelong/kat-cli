@@ -18,11 +18,15 @@ enum KatResponse<P> {
         result: P,
         #[serde(skip_serializing_if = "Option::is_none")]
         log_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        test_report_path: Option<String>,
     },
     Failure {
         error: KatDiagnostic,
         #[serde(skip_serializing_if = "Option::is_none")]
         log_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        test_report_path: Option<String>,
     },
 }
 
@@ -98,7 +102,11 @@ pub(super) fn prepare_success_with_log<P>(
     log_path: Option<String>,
 ) -> PreparedResponse<P> {
     PreparedResponse {
-        response: KatResponse::Success { result, log_path },
+        response: KatResponse::Success {
+            result,
+            log_path,
+            test_report_path: None,
+        },
         rendered_diagnostic: None,
         exit_code: ExitCode::SUCCESS,
     }
@@ -111,6 +119,7 @@ pub(super) fn success_response_size<P: Serialize>(
     serde_json::to_vec(&KatResponse::Success {
         result,
         log_path: log_path.map(str::to_owned),
+        test_report_path: None,
     })
     .map(|frame| frame.len())
 }
@@ -150,6 +159,7 @@ pub(super) fn prepare_cli_failure_with_log<P>(
                 location,
             },
             log_path,
+            test_report_path: None,
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
@@ -165,10 +175,60 @@ pub(super) fn prepare_runtime_failure<P>(
         response: KatResponse::Failure {
             error: diagnostic,
             log_path: Some(log_path),
+            test_report_path: None,
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
     }
+}
+
+pub(super) fn prepare_test_success<P>(
+    result: P,
+    log_path: String,
+    test_report_path: String,
+) -> PreparedResponse<P> {
+    PreparedResponse {
+        response: KatResponse::Success {
+            result,
+            log_path: Some(log_path),
+            test_report_path: Some(test_report_path),
+        },
+        rendered_diagnostic: None,
+        exit_code: ExitCode::SUCCESS,
+    }
+}
+
+pub(super) fn prepare_test_runtime_failure<P>(
+    diagnostic: KatDiagnostic,
+    log_path: String,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
+    let rendered_diagnostic = RenderedDiagnostic(render_runtime_diagnostic(&diagnostic));
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path: Some(log_path),
+            test_report_path,
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
+pub(super) fn prepare_test_cli_failure<P>(
+    report: miette::Report,
+    log_path: Option<String>,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
+    let mut prepared = prepare_cli_failure_with_log(report, log_path);
+    match &mut prepared.response {
+        KatResponse::Failure {
+            test_report_path: path,
+            ..
+        } => *path = test_report_path,
+        KatResponse::Success { .. } => unreachable!("CLI failure constructor returned success"),
+    }
+    prepared
 }
 
 fn render_runtime_diagnostic(diagnostic: &KatDiagnostic) -> String {
