@@ -4,6 +4,10 @@ use std::{
     process::{Command, Stdio},
 };
 
+use base64::Engine;
+
+const DATA_DICT_PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
+
 fn cargo_kat() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_kat"))
 }
@@ -220,4 +224,110 @@ fn closed_stdout_makes_the_real_process_fail() {
 
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("write KAT Response"));
+}
+
+#[test]
+fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (skill, binary) = stage_skill(temporary.path());
+    let cwd = temporary.path().join("cwd");
+    let dataset = cwd.join("relative-dataset");
+    fs::create_dir_all(&dataset).unwrap();
+    fs::write(dataset.join(".kat-dataset"), []).unwrap();
+    fs::write(dataset.join("notes.txt"), "ignored").unwrap();
+    fs::create_dir(dataset.join("tables")).unwrap();
+    fs::write(
+        dataset.join("tables/data_dict.parquet"),
+        base64::engine::general_purpose::STANDARD
+            .decode(DATA_DICT_PARQUET)
+            .unwrap(),
+    )
+    .unwrap();
+    let mut command = Command::new(binary);
+    command
+        .current_dir(&cwd)
+        .args(["inspect", "--dataset", "relative-dataset"]);
+    configure_platform_directories(&mut command, temporary.path());
+
+    let output = command.output().expect("inspect Dataset");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(
+        response["result"]["path"],
+        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
+    );
+    assert_eq!(
+        response["result"]["tables"],
+        serde_json::json!([{
+            "name": "data_dict",
+            "columns": [
+                {"name": "id", "type": "Int64", "nullable": true},
+                {"name": "data", "type": "Utf8", "nullable": true}
+            ]
+        }])
+    );
+    assert!(response.get("log_path").is_none());
+    assert!(!skill.join("assets").join("packs").exists());
+    assert!(!data_home(temporary.path()).exists());
+    assert_eq!(
+        fs::read_to_string(dataset.join("notes.txt")).unwrap(),
+        "ignored"
+    );
+}
+
+#[test]
+fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_skill(temporary.path());
+    let dataset = temporary.path().join("invalid-dataset");
+    fs::create_dir(&dataset).unwrap();
+    let mut command = Command::new(&binary);
+    command.arg("inspect").arg("--dataset").arg(&dataset);
+    configure_platform_directories(&mut command, temporary.path());
+
+    let output = command.output().expect("inspect invalid Dataset");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["error"]["message"], "Dataset inspection failed");
+    assert!(response.get("result").is_none());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Dataset inspection failed"));
+
+    let corrupt = temporary.path().join("corrupt-dataset");
+    fs::create_dir_all(corrupt.join("tables")).unwrap();
+    fs::write(corrupt.join(".kat-dataset"), []).unwrap();
+    fs::write(corrupt.join("tables/events.parquet"), "broken").unwrap();
+    let mut corrupt_command = Command::new(&binary);
+    corrupt_command
+        .arg("inspect")
+        .arg("--dataset")
+        .arg(&corrupt);
+    configure_platform_directories(&mut corrupt_command, temporary.path());
+    let corrupt_output = corrupt_command.output().expect("inspect corrupt Dataset");
+    assert_eq!(corrupt_output.status.code(), Some(1));
+    let corrupt_response: serde_json::Value =
+        serde_json::from_slice(&corrupt_output.stdout).unwrap();
+    assert_eq!(
+        corrupt_response["error"]["message"],
+        "Dataset inspection failed"
+    );
+    assert!(
+        corrupt_response["error"]["causes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|cause| cause.as_str().unwrap().contains("events"))
+    );
+
+    let conflict = Command::new(binary)
+        .args(["inspect", "--dataset"])
+        .arg(&dataset)
+        .args(["--pack-dir", "pack"])
+        .output()
+        .expect("run conflicting arguments");
+    assert_eq!(conflict.status.code(), Some(2));
+    assert!(conflict.stdout.is_empty());
 }
