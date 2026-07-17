@@ -102,13 +102,15 @@ jobs:
             --linux-payload target/kat/payloads/linux-x86_64 \
             --windows-payload target/kat/payloads/windows-x86_64 \
             --output target/kat/final-skill
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            --format=posix --pax-option=delete=atime,delete=ctime \
+            -C target/kat -czf target/kat/kat-dual-platform-skill.tar.gz final-skill
 
       - name: Upload the assembled Skill
         uses: actions/upload-artifact@v7
         with:
           name: kat-dual-platform-skill
-          path: target/kat/final-skill/
-          include-hidden-files: true
+          path: target/kat/kat-dual-platform-skill.tar.gz
           compression-level: 0
           if-no-files-found: error
 
@@ -125,21 +127,24 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: kat-dual-platform-skill
-          path: target/kat/final-skill
+          path: target/kat/artifact
 
       - name: Relocate and smoke with no network or system Python
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p target/kat/smoke-input
+          tar -xzf target/kat/artifact/kat-dual-platform-skill.tar.gz \
+            -C target/kat/smoke-input
           image='almalinux@sha256:dd9015a46bf86d46801080d9f37990528b2072b1d4a3f3851c6a5a79088adf82'
           docker pull "$image"
           docker run --rm --network none \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/repo,readonly" \
             --tmpfs /work:exec,size=4g \
             "$image" \
-            /repo/target/kat/final-skill/scripts/targets/linux-x86_64/python/bin/python3 \
+            /repo/target/kat/smoke-input/final-skill/scripts/targets/linux-x86_64/python/bin/python3 \
               -I -B /repo/build/smoke_skill.py \
-              --skill /repo/target/kat/final-skill \
+              --skill /repo/target/kat/smoke-input/final-skill \
               --platform linux \
               --work /work/smoke
 
@@ -156,14 +161,19 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: kat-dual-platform-skill
-          path: target/kat/final-skill
+          path: target/kat/artifact
 
       - name: Relocate and smoke the app-local closure
         shell: pwsh
         run: |
-          $python = "target/kat/final-skill/scripts/targets/windows-x86_64/python/python.exe"
+          New-Item -ItemType Directory -Force "target/kat/smoke-input" | Out-Null
+          tar -xzf "target/kat/artifact/kat-dual-platform-skill.tar.gz" `
+            -C "target/kat/smoke-input"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $skill = "target/kat/smoke-input/final-skill"
+          $python = "$skill/scripts/targets/windows-x86_64/python/python.exe"
           & $python -I -B build/smoke_skill.py `
-            --skill target/kat/final-skill `
+            --skill $skill `
             --platform windows `
             --work (Join-Path $env:RUNNER_TEMP "kat-payload-smoke")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -197,14 +207,19 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: kat-dual-platform-skill
-          path: target/kat/final-skill
+          path: target/kat/artifact
 
       - name: Run the final client evidence
         shell: pwsh
         run: |
-          $python = "target/kat/final-skill/scripts/targets/windows-x86_64/python/python.exe"
+          New-Item -ItemType Directory -Force "target/kat/smoke-input" | Out-Null
+          tar -xzf "target/kat/artifact/kat-dual-platform-skill.tar.gz" `
+            -C "target/kat/smoke-input"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $skill = "target/kat/smoke-input/final-skill"
+          $python = "$skill/scripts/targets/windows-x86_64/python/python.exe"
           & $python -I -B build/smoke_skill.py `
-            --skill target/kat/final-skill `
+            --skill $skill `
             --platform windows `
             --work (Join-Path $env:RUNNER_TEMP "kat-clean-client-smoke")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
