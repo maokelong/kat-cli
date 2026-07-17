@@ -55,6 +55,10 @@ class WorkflowWheelTests(unittest.TestCase):
 
             self.assertEqual(wheel.name, workflow_wheel.WHEEL_NAME)
             self.assertIn(workflow_wheel.file_sha256(wheel), checksum.read_text("ascii"))
+            self.assertEqual(
+                {path.name for path in output.iterdir()},
+                {workflow_wheel.WHEEL_NAME, f"{workflow_wheel.WHEEL_NAME}.sha256"},
+            )
 
     def test_rejects_non_pure_or_wrong_version_wheel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

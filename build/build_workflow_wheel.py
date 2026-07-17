@@ -82,7 +82,9 @@ def build_workflow_wheel(repository: Path, uv: Path, output: Path) -> tuple[Path
         raise ValueError(f"uv version mismatch: expected {expected_uv}, got {actual_uv}")
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix="workflow-wheel-", dir=output.parent))
+    temporary_root = Path(
+        tempfile.mkdtemp(prefix="workflow-wheel-build-", dir=output.parent)
+    )
     try:
         environment = os.environ.copy()
         environment.update(
@@ -92,7 +94,7 @@ def build_workflow_wheel(repository: Path, uv: Path, output: Path) -> tuple[Path
                 "UV_NO_PROGRESS": "1",
             }
         )
-        source = staging / "source"
+        source = temporary_root / "source"
         shutil.copytree(
             repository / "kat/platform/workflow",
             source,
@@ -100,30 +102,40 @@ def build_workflow_wheel(repository: Path, uv: Path, output: Path) -> tuple[Path
                 "__pycache__", "*.pyc", "*.pyo", "build", "*.egg-info"
             ),
         )
+        built = temporary_root / "built"
+        built.mkdir()
         subprocess.run(
             [
                 str(uv),
                 "build",
                 "--wheel",
                 "--out-dir",
-                str(staging),
+                str(built),
                 str(source),
             ],
             check=True,
             env=environment,
         )
-        wheels = list(staging.glob("*.whl"))
+        wheels = list(built.glob("*.whl"))
         if len(wheels) != 1:
             raise ValueError(f"expected one Workflow Host wheel, found {len(wheels)}")
         validate_wheel(wheels[0])
-        staging.rename(output)
+        artifact = temporary_root / "artifact"
+        artifact.mkdir()
+        wheel = artifact / WHEEL_NAME
+        shutil.copy2(wheels[0], wheel)
+        checksum = artifact / f"{WHEEL_NAME}.sha256"
+        checksum.write_text(
+            f"{file_sha256(wheel)}  {WHEEL_NAME}\n", encoding="ascii"
+        )
+        artifact.rename(output)
     except BaseException:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(temporary_root, ignore_errors=True)
         raise
+    shutil.rmtree(temporary_root, ignore_errors=True)
 
     wheel = output / WHEEL_NAME
     checksum = output / f"{WHEEL_NAME}.sha256"
-    checksum.write_text(f"{file_sha256(wheel)}  {WHEEL_NAME}\n", encoding="ascii")
     return wheel, checksum
 
 
