@@ -8,6 +8,12 @@ use std::{
 
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
 
+mod dataset_writer;
+mod trace_streamer;
+
+pub use dataset_writer::DatasetWriteTarget;
+pub use trace_streamer::{ImportedDataset, TraceStreamerImportError, import_trace_streamer};
+
 pub struct DatasetInspection {
     path: PathBuf,
     tables: Vec<TableInspection>,
@@ -158,7 +164,7 @@ fn scan_table_candidates(root: &Path) -> Result<Vec<(String, PathBuf)>, DatasetI
     Ok(candidates)
 }
 
-fn valid_table_name(name: &str) -> bool {
+pub(crate) fn valid_table_name(name: &str) -> bool {
     let valid = !name.is_empty()
         && name.split('_').all(|segment| {
             !segment.is_empty()

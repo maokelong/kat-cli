@@ -3,7 +3,7 @@ mod response;
 
 use std::{fs, io, path::PathBuf, process::ExitCode};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use miette::Diagnostic;
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
 use serde::Serialize;
@@ -18,6 +18,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
+    /// Import one source into a complete KAT Dataset.
+    Import(ImportArgs),
     /// Inspect the PACKs available to this KAT Skill.
     Inspect {
         /// Inspect one KAT Dataset directory.
@@ -29,6 +31,28 @@ enum Operation {
             help = "Add a PACK directory for this command. The directory must directly contain pack.toml. Repeat to add more PACKs."
         )]
         pack_directories: Vec<PathBuf>,
+    },
+}
+
+#[derive(Args)]
+struct ImportArgs {
+    /// Write the Dataset at this exact directory.
+    #[arg(long, value_name = "DIRECTORY", global = true)]
+    dataset: Option<PathBuf>,
+    /// Replace the Dataset at the resolved target path. Permanently deletes all existing contents, including unrecognized files. Linked or mounted paths may affect data outside the path you typed. No backup, rollback, or failure recovery is provided.
+    #[arg(long, global = true, requires = "dataset")]
+    overwrite_dataset: bool,
+    #[command(subcommand)]
+    datasource: Datasource,
+}
+
+#[derive(Subcommand)]
+enum Datasource {
+    /// Deprecated: pre-release validation only. Its table interface is unstable and it must be removed before the first formal release.
+    TraceStreamer {
+        /// Read the Trace Streamer SQLite database at this path.
+        #[arg(long, value_name = "PATH")]
+        database: PathBuf,
     },
 }
 
@@ -56,6 +80,17 @@ pub fn run() -> ExitCode {
     };
 
     match cli.operation {
+        Operation::Import(ImportArgs {
+            dataset,
+            overwrite_dataset,
+            datasource: Datasource::TraceStreamer { database },
+        }) => {
+            let prepared = match import_trace_streamer(database, dataset, overwrite_dataset) {
+                Ok(result) => response::prepare_success(result),
+                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+            };
+            response::publish(prepared)
+        }
         Operation::Inspect {
             dataset: Some(dataset),
             ..
@@ -77,6 +112,48 @@ pub fn run() -> ExitCode {
             response::publish(prepared)
         }
     }
+}
+
+#[derive(Serialize)]
+struct ImportTraceStreamerResult {
+    path: String,
+}
+
+fn import_trace_streamer(
+    database: PathBuf,
+    dataset: Option<PathBuf>,
+    overwrite: bool,
+) -> Result<ImportTraceStreamerResult, ImportTraceStreamerError> {
+    locate_skill_root().map_err(ImportTraceStreamerError::SkillRoot)?;
+    let database = dunce::canonicalize(&database).map_err(|source| {
+        ImportTraceStreamerError::CanonicalDatabase {
+            path: database,
+            source,
+        }
+    })?;
+    if database.to_str().is_none() {
+        return Err(ImportTraceStreamerError::NonUnicodeDatabase { path: database });
+    }
+    let target = match dataset {
+        Some(path) => path,
+        None => locate_data_home()
+            .ok_or(ImportTraceStreamerError::DataHomeUnavailable)?
+            .join("datasets")
+            .join(uuid::Uuid::now_v7().to_string()),
+    };
+    let imported = kat_datasource::import_trace_streamer(
+        &database,
+        kat_datasource::DatasetWriteTarget::new(target, overwrite),
+    )
+    .map_err(|source| ImportTraceStreamerError::Import { source })?;
+    let path = imported
+        .path()
+        .to_str()
+        .ok_or_else(|| ImportTraceStreamerError::NonUnicodeDataset {
+            path: imported.path().to_path_buf(),
+        })?
+        .to_owned();
+    Ok(ImportTraceStreamerResult { path })
 }
 
 fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, InspectPacksError> {
@@ -267,6 +344,35 @@ enum InspectDatasetError {
     NonUnicodePath { path: PathBuf },
 }
 
+#[derive(Debug, Error, Diagnostic)]
+enum ImportTraceStreamerError {
+    #[error("KAT Skill is unavailable")]
+    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    SkillRoot(#[source] SkillRootError),
+    #[error("KAT Data Home is unavailable on this platform")]
+    #[diagnostic(help("Use --dataset with an explicit target on a supported local filesystem"))]
+    DataHomeUnavailable,
+    #[error("failed to resolve Trace Streamer database {path}")]
+    #[diagnostic(help("Provide an existing readable Trace Streamer SQLite database"))]
+    CanonicalDatabase {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Trace Streamer database path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodeDatabase { path: PathBuf },
+    #[error("Trace Streamer Import failed")]
+    #[diagnostic(help(
+        "Correct the source database or Dataset target and retry the complete Import"
+    ))]
+    Import {
+        #[source]
+        source: kat_datasource::TraceStreamerImportError,
+    },
+    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodeDataset { path: PathBuf },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +392,10 @@ mod tests {
         let Operation::Inspect {
             dataset,
             pack_directories,
-        } = cli.operation;
+        } = cli.operation
+        else {
+            panic!("expected inspect operation");
+        };
         assert!(dataset.is_none());
         assert_eq!(
             pack_directories,
@@ -299,5 +408,48 @@ mod tests {
         assert!(Cli::try_parse_from(["kat"]).is_err());
         assert!(Cli::try_parse_from(["kat", "list"]).is_err());
         assert!(Cli::try_parse_from(["kat", "inspect", "--version"]).is_err());
+    }
+
+    #[test]
+    fn parser_accepts_import_target_options_on_both_sides_of_datasource() {
+        for arguments in [
+            vec![
+                "kat",
+                "import",
+                "--dataset",
+                "target",
+                "--overwrite-dataset",
+                "trace-streamer",
+                "--database",
+                "source.db",
+            ],
+            vec![
+                "kat",
+                "import",
+                "trace-streamer",
+                "--database",
+                "source.db",
+                "--dataset",
+                "target",
+                "--overwrite-dataset",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(arguments).is_ok());
+        }
+    }
+
+    #[test]
+    fn parser_rejects_overwrite_without_explicit_dataset() {
+        assert!(
+            Cli::try_parse_from([
+                "kat",
+                "import",
+                "trace-streamer",
+                "--database",
+                "source.db",
+                "--overwrite-dataset",
+            ])
+            .is_err()
+        );
     }
 }
