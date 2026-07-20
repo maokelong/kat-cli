@@ -27,6 +27,7 @@ flate2 = "1.0"
 futures = "0.3"
 log = "0.4"
 memmap2 = "0.9"
+miette = { version = "7.6", features = ["fancy"] }
 parquet = { version = "58.0.0", features = ["arrow"] }
 prost = "0.14"
 prost-build = "0.14"
