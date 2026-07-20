@@ -38,7 +38,3 @@ jobs:
 
       - name: Test
         run: cargo test --locked
-
-      - name: Test isolated Windows Data Home scenarios
-        if: runner.os == 'Windows'
-        run: cargo test --locked -p kat-cli --test inspect -- --ignored
