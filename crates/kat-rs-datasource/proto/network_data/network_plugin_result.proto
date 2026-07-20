@@ -1,0 +1,80 @@
+// Copyright (c) Huawei Technologies Co., Ltd. 2021. All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package kat.network_data;
+
+option java_package = "ohos.devtools.datasources.transport.grpc.service";
+option optimize_for = LITE_RUNTIME;
+
+message NetworkDetails {
+    uint64 tx_bytes = 1;
+    uint64 rx_bytes = 2;
+    string type = 3; // e.g. "wlan0", "rmnet0", etc.
+}
+
+message NetworkData {
+    int32 pid = 1;
+    // timestamp obtained by CLOCK_REALTIME
+    uint64 tv_sec = 2;
+    uint64 tv_nsec = 3;
+    uint64 tx_bytes = 4;
+    uint64 rx_bytes = 5;
+    repeated NetworkDetails details = 6;
+}
+
+message NetworkSystemDetails {
+    string type = 1; // e.g. "wlan0", "rmnet0", etc.
+    uint64 rx_bytes = 2;
+    uint64 rx_packets = 3;
+    uint64 tx_bytes = 4;
+    uint64 tx_packets = 5;
+}
+
+message NetworkSystemData {
+    // timestamp obtained by CLOCK_REALTIME
+    uint64 tv_sec = 1;
+    uint64 tv_nsec = 2;
+    uint64 rx_bytes = 3;
+    uint64 rx_packets = 4;
+    uint64 tx_bytes = 5;
+    uint64 tx_packets = 6;
+    repeated NetworkSystemDetails details = 7;
+}
+
+message NetworkDatas {
+    repeated NetworkData networkinfo = 1;
+    NetworkSystemData network_system_info = 2;
+}
+
+//new type
+message NetworkFlowDetail {
+    string type = 1;
+    uint64 rx_bytes = 2;
+    uint64 rx_packets = 3;
+    uint64 tx_bytes = 4;
+    uint64 tx_packets = 5;
+}
+
+//new type
+message NetworkFlowData {
+    int32 pid = 1;
+    uint64 tv_sec = 2;
+    uint64 tv_nsec = 3;
+    uint64 rx_bytes = 4;
+    uint64 rx_packets = 5;
+    uint64 tx_bytes = 6;
+    uint64 tx_packets = 7;
+    repeated NetworkFlowDetail details = 8;
+}
