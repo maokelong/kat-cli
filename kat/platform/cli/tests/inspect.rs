@@ -24,15 +24,17 @@ fn stage_minimum_skill_layout(root: &Path) -> (PathBuf, PathBuf) {
     (skill, binary)
 }
 
-fn configure_platform_directories(command: &mut Command, root: &Path) {
+fn prepare_platform_data_home(command: &mut Command, root: &Path) {
     #[cfg(not(windows))]
     command
         .env("XDG_DATA_HOME", root.join("xdg-data"))
         .env("HOME", root.join("home"));
     #[cfg(windows)]
-    // ProjectDirs uses the Windows Known Folder API, so Windows process tests use
-    // the clean runner user's real Data Home instead of inventing an env override.
-    let _ = (command, root);
+    {
+        // ProjectDirs 使用 Windows Known Folder API；进程测试因此使用干净 runner 的真实 Data Home。
+        let _ = (command, root);
+        assert_clean_windows_data_home();
+    }
 }
 
 #[cfg(not(windows))]
@@ -100,8 +102,6 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
 
 #[test]
 fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
-    #[cfg(windows)]
-    assert_clean_windows_data_home();
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     let bundled = skill.join("assets").join("packs").join("bundled-directory");
@@ -126,7 +126,7 @@ fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
     command
         .current_dir(&cwd)
         .args(["inspect", "--pack-dir", "relative-pack"]);
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
     let output = command.output().expect("run staged kat inspect");
 
     assert_eq!(output.status.code(), Some(0));
@@ -169,7 +169,7 @@ fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let mut command = Command::new(cargo_kat());
     command.arg("inspect");
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("run unstaged kat inspect");
 
@@ -189,8 +189,6 @@ fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
 
 #[test]
 fn formed_operation_failure_is_one_json_response_and_readable_diagnostic() {
-    #[cfg(windows)]
-    assert_clean_windows_data_home();
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
     let broken = temporary.path().join("broken-pack");
@@ -198,7 +196,7 @@ fn formed_operation_failure_is_one_json_response_and_readable_diagnostic() {
     fs::write(broken.join("pack.toml"), "not valid TOML = [").unwrap();
     let mut command = Command::new(binary);
     command.arg("inspect").arg("--pack-dir").arg(&broken);
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("run failed inspection");
 
@@ -216,13 +214,11 @@ fn formed_operation_failure_is_one_json_response_and_readable_diagnostic() {
 
 #[test]
 fn absent_default_directories_are_an_empty_result_and_are_not_created() {
-    #[cfg(windows)]
-    assert_clean_windows_data_home();
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     let mut command = Command::new(binary);
     command.arg("inspect");
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("run empty inspection");
 
@@ -238,8 +234,6 @@ fn absent_default_directories_are_an_empty_result_and_are_not_created() {
 
 #[test]
 fn closed_stdout_makes_the_real_process_fail() {
-    #[cfg(windows)]
-    assert_clean_windows_data_home();
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     write_pack(
@@ -252,7 +246,7 @@ fn closed_stdout_makes_the_real_process_fail() {
         .arg("inspect")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
     let mut child = command.spawn().expect("spawn kat inspect");
     drop(child.stdout.take());
 
