@@ -4,25 +4,19 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 BUNDLE = "ohos.samples.distributedcalc"
-HYPIUM_COMMAND = (
-    "aa test -b com.katrs.hypium.calculator -m entry_test "
-    "-s unittest OpenHarmonyTestRunner -s class CalculatorHypiumTest -s timeout 30000"
-)
-REPORT_CODE = re.compile(r"^OHOS_REPORT_CODE:\s*0\s*$", re.MULTILINE)
-REPORT_SUMMARY = re.compile(
-    r"Tests run:\s*1,\s*Failure:\s*0,\s*Error:\s*0,\s*Pass:\s*1"
-)
+CALCULATION_COMPONENTS = ("C", "1", "0", "0", "*", "1", "0", "0", "=")
+RESULT_COMPONENT = "expression"
+EXPECTED_RESULT = "10000"
 
 
 def arguments() -> argparse.Namespace:
@@ -130,25 +124,50 @@ def remote_profiler_config(
             hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
-def hypium_report_passed(output: str) -> bool:
-    return REPORT_CODE.search(output) is not None and REPORT_SUMMARY.search(output) is not None
-
-
-def run_hypium(hdc: str, target: str, log_path: Path) -> None:
-    result = hdc_run(
-        hdc,
-        target,
-        "shell",
-        HYPIUM_COMMAND,
-        capture_output=True,
-        check=False,
-    )
-    output = (result.stdout or "") + (result.stderr or "")
-    log_path.write_text(output, encoding="utf-8")
-    if result.returncode != 0 or not hypium_report_passed(output):
+def load_hypium() -> tuple[Callable[..., Any], Any]:
+    try:
+        from hypium import BY, UiDriver
+    except ImportError as error:
         raise RuntimeError(
-            f"Hypium calculator test failed with code {result.returncode}; see {log_path}"
-        )
+            "Hypium is not installed; install tools/requirements-native-hook-capture.txt"
+        ) from error
+    return UiDriver.connect, BY
+
+
+def connect_hypium(
+    target: str,
+    log_path: Path,
+    connector: Optional[Callable[..., Any]] = None,
+    by: Any = None,
+) -> tuple[Any, Any]:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
+        if connector is None or by is None:
+            connector, by = load_hypium()
+        print(f"connect target: {target}")
+        driver = connector(device_sn=target, report_path=str(log_path.parent))
+    return driver, by
+
+
+def run_hypium(driver: Any, by: Any, log_path: Path) -> None:
+    with log_path.open("a", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
+        driver.stop_app(BUNDLE)
+        driver.start_app(BUNDLE, "MainAbility", wait_time=1)
+        for component_id in CALCULATION_COMPONENTS:
+            component = driver.wait_for_component(by.id(component_id), timeout=3)
+            component.click()
+        result = driver.wait_for_component(by.id(RESULT_COMPONENT), timeout=3)
+        actual = result.getText()
+        print(f"calculator result: {actual}")
+        if actual != EXPECTED_RESULT:
+            raise RuntimeError(
+                f"unexpected calculator result: {actual!r}, expected {EXPECTED_RESULT!r}"
+            )
+
+
+def close_hypium(driver: Any, log_path: Path) -> None:
+    with log_path.open("a", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
+        driver.close()
 
 
 def capture_failure(hdc: str, target: str, local_path: Path) -> None:
@@ -242,32 +261,36 @@ def main() -> int:
     failure = run_dir / "failure.png"
     remote = f"/data/local/tmp/native_heap_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.htrace"
 
+    driver, by = connect_hypium(target, hypium_log)
     ui_error: Optional[Exception] = None
-    with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
-        "wb"
-    ) as log:
-        profiler_command = (
-            f"hiprofiler_cmd -c {config} -o {remote} -t {args.duration} -s -k"
-        )
-        profiler = subprocess.Popen(
-            [hdc, "-t", target, "shell", profiler_command],
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-        wait_for_profiler(hdc, target, remote, profiler)
-        try:
-            run_hypium(hdc, target, hypium_log)
-        except Exception as error:
-            ui_error = error
+    try:
+        with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
+            "wb"
+        ) as log:
+            profiler_command = (
+                f"hiprofiler_cmd -c {config} -o {remote} -t {args.duration} -s -k"
+            )
+            profiler = subprocess.Popen(
+                [hdc, "-t", target, "shell", profiler_command],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            wait_for_profiler(hdc, target, remote, profiler)
             try:
-                capture_failure(hdc, target, failure)
-            except Exception:
-                pass
-            profiler.wait()
-        else:
-            profiler.wait()
-        if profiler.returncode != 0:
-            raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
+                run_hypium(driver, by, hypium_log)
+            except Exception as error:
+                ui_error = error
+                try:
+                    capture_failure(hdc, target, failure)
+                except Exception:
+                    pass
+                profiler.wait()
+            else:
+                profiler.wait()
+            if profiler.returncode != 0:
+                raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
+    finally:
+        close_hypium(driver, hypium_log)
     if ui_error:
         raise RuntimeError(f"calculator interaction failed: {ui_error}")
 

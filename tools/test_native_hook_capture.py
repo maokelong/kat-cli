@@ -2,42 +2,71 @@ import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import native_hook_capture as capture
 
 
 class NativeHookCaptureTest(unittest.TestCase):
-    def test_accepts_successful_hypium_report(self) -> None:
-        output = """
-OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0
-OHOS_REPORT_CODE: 0
-"""
-        self.assertTrue(capture.hypium_report_passed(output))
-
-    def test_rejects_failed_hypium_report_even_when_command_finished(self) -> None:
-        output = """
-OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 1, Error: 0, Pass: 0, Ignore: 0
-OHOS_REPORT_CODE: -1
-TestFinished-ResultCode: 0
-"""
-        self.assertFalse(capture.hypium_report_passed(output))
-
-    @patch.object(capture, "hdc_run")
-    def test_hypium_nonzero_command_is_fatal_even_with_passing_report(
-        self, hdc_run: Mock
-    ) -> None:
-        output = """OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0
-OHOS_REPORT_CODE: 0
-"""
-        hdc_run.return_value = CompletedProcess([], 9, output, "")
+    def test_hypium_controls_preinstalled_calculator_and_checks_result(self) -> None:
+        by = Mock()
+        by.id.side_effect = lambda value: f"selector:{value}"
+        driver = Mock()
+        components = [Mock() for _ in capture.CALCULATION_COMPONENTS]
+        result = Mock()
+        result.getText.return_value = capture.EXPECTED_RESULT
+        driver.wait_for_component.side_effect = [*components, result]
         with TemporaryDirectory() as temporary:
             log = Path(temporary) / "hypium.log"
+            capture.run_hypium(driver, by, log)
 
-            with self.assertRaisesRegex(RuntimeError, "code 9"):
-                capture.run_hypium("hdc", "target", log)
+        driver.stop_app.assert_called_once_with(capture.BUNDLE)
+        driver.start_app.assert_called_once_with(capture.BUNDLE, "MainAbility", wait_time=1)
+        self.assertEqual(
+            driver.wait_for_component.call_args_list,
+            [
+                *[call(f"selector:{item}", timeout=3) for item in capture.CALCULATION_COMPONENTS],
+                call(f"selector:{capture.RESULT_COMPONENT}", timeout=3),
+            ],
+        )
+        for component in components:
+            component.click.assert_called_once_with()
 
-            self.assertEqual(log.read_text(encoding="utf-8"), output)
+    def test_hypium_connection_explicitly_selects_target(self) -> None:
+        connector = Mock(return_value="driver")
+        by = Mock()
+        with TemporaryDirectory() as temporary:
+            log = Path(temporary) / "hypium.log"
+            actual = capture.connect_hypium("target", log, connector=connector, by=by)
+
+        self.assertEqual(actual, ("driver", by))
+        connector.assert_called_once_with(device_sn="target", report_path=str(log.parent))
+
+    def test_hypium_rejects_unexpected_result_and_closes_driver(self) -> None:
+        by = Mock()
+        by.id.side_effect = lambda value: value
+        driver = Mock()
+        result = Mock()
+        result.getText.return_value = "9999"
+        driver.wait_for_component.side_effect = [
+            *[Mock() for _ in capture.CALCULATION_COMPONENTS],
+            result,
+        ]
+
+        with TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(RuntimeError, "unexpected calculator result"):
+                capture.run_hypium(driver, by, Path(temporary) / "hypium.log")
+
+    def test_close_hypium_closes_driver(self) -> None:
+        driver = Mock()
+        with TemporaryDirectory() as temporary:
+            capture.close_hypium(driver, Path(temporary) / "hypium.log")
+        driver.close.assert_called_once_with()
+
+    @patch.dict("sys.modules", {"hypium": None})
+    def test_missing_hypium_has_install_hint(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "requirements-native-hook-capture"):
+            capture.load_hypium()
 
     def test_selects_only_connected_targets(self) -> None:
         output = """
