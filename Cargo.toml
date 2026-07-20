@@ -4,6 +4,7 @@ members = [
     "crates/kat-rs-daemon",
     "crates/kat-rs-datasource",
     "kat/platform/cli",
+    "kat/platform/datasource",
 ]
 resolver = "2"
 
@@ -18,6 +19,7 @@ arrow-array = "58.0.0"
 arrow-json = "58.0.0"
 arrow-schema = "58.0.0"
 axum = "0.8"
+base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 datafusion = { version = "53.1.0", default-features = false, features = ["sql", "compression", "parquet"] }
 dunce = "1.0"

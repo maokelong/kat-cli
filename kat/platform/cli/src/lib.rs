@@ -18,8 +18,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
-    /// Inspect the PACKs available to this KAT Skill.
+    /// Inspect available PACKs or one KAT Dataset.
     Inspect {
+        /// Inspect one managed KAT Dataset and its Parquet Schema.
+        #[arg(long, value_name = "DIRECTORY", conflicts_with = "pack_directories")]
+        dataset: Option<PathBuf>,
         #[arg(
             long = "pack-dir",
             value_name = "DIRECTORY",
@@ -53,7 +56,20 @@ pub fn run() -> ExitCode {
     };
 
     match cli.operation {
-        Operation::Inspect { pack_directories } => {
+        Operation::Inspect {
+            dataset: Some(dataset),
+            ..
+        } => {
+            let prepared = match inspect_dataset(dataset) {
+                Ok(result) => response::prepare_success(result),
+                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+            };
+            response::publish(prepared)
+        }
+        Operation::Inspect {
+            dataset: None,
+            pack_directories,
+        } => {
             let prepared = match inspect_packs(pack_directories) {
                 Ok(result) => response::prepare_success(result),
                 Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
@@ -90,6 +106,57 @@ fn project_pack(pack: &DiscoveredPack) -> PackResult {
         description: pack.description().to_owned(),
         owner: pack.owner().to_owned(),
     }
+}
+
+#[derive(Serialize)]
+struct InspectDatasetResult {
+    path: String,
+    tables: Vec<DatasetTableResult>,
+}
+
+#[derive(Serialize)]
+struct DatasetTableResult {
+    name: String,
+    columns: Vec<DatasetColumnResult>,
+}
+
+#[derive(Serialize)]
+struct DatasetColumnResult {
+    name: String,
+    #[serde(rename = "type")]
+    data_type: String,
+    nullable: bool,
+}
+
+fn inspect_dataset(path: PathBuf) -> Result<InspectDatasetResult, InspectDatasetError> {
+    let inspection = kat_datasource::inspect_dataset(&path)
+        .map_err(|source| InspectDatasetError::Inspection { source })?;
+    let canonical_path = inspection
+        .path()
+        .to_str()
+        .ok_or_else(|| InspectDatasetError::NonUnicodePath {
+            path: inspection.path().to_path_buf(),
+        })?
+        .to_owned();
+    Ok(InspectDatasetResult {
+        path: canonical_path,
+        tables: inspection
+            .tables()
+            .iter()
+            .map(|table| DatasetTableResult {
+                name: table.name().to_owned(),
+                columns: table
+                    .columns()
+                    .iter()
+                    .map(|column| DatasetColumnResult {
+                        name: column.name().to_owned(),
+                        data_type: column.data_type().to_owned(),
+                        nullable: column.nullable(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    })
 }
 
 fn locate_skill_root() -> Result<PathBuf, SkillRootError> {
@@ -210,6 +277,18 @@ impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
     }
 }
 
+#[derive(Debug, Error, Diagnostic)]
+enum InspectDatasetError {
+    #[error("Dataset inspection failed")]
+    #[diagnostic(help("Provide a complete KAT Dataset directory and retry"))]
+    Inspection {
+        #[source]
+        source: kat_datasource::DatasetInspectionError,
+    },
+    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodePath { path: PathBuf },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,7 +305,11 @@ mod tests {
         ])
         .expect("parse inspect");
 
-        let Operation::Inspect { pack_directories } = cli.operation;
+        let Operation::Inspect {
+            dataset,
+            pack_directories,
+        } = cli.operation;
+        assert!(dataset.is_none());
         assert_eq!(
             pack_directories,
             [PathBuf::from("first"), PathBuf::from("second")]

@@ -2071,15 +2071,28 @@ dependencies = [
 name = "kat-cli"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
  "directories",
  "dunce",
+ "kat-datasource",
  "miette",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "kat-datasource"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema",
+ "dunce",
+ "parquet",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
