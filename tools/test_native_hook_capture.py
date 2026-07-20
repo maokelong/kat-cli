@@ -75,6 +75,27 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         exercise.assert_called_once_with("hdc", "target", Path("log"), profiler)
 
+    def test_scenario_registry_includes_calculator_and_note(self) -> None:
+        self.assertEqual(set(capture.SCENARIOS), {"calculator", "note"})
+        self.assertEqual(capture.SCENARIOS["note"].bundle, "com.ohos.note")
+
+    @patch.object(capture, "exercise_note")
+    @patch.object(capture, "prepare_note")
+    def test_note_scenario_reuses_actions_discovered_during_prepare(
+        self, prepare: Mock, exercise: Mock
+    ) -> None:
+        centers = {"search:center": (20, 30)}
+        prepare.return_value = centers
+        scenario = capture.NoteScenario()
+        profiler = Mock()
+
+        scenario.prepare("hdc", "target", Path("log"))
+        scenario.exercise("hdc", "target", Path("log"), profiler)
+
+        exercise.assert_called_once_with(
+            "hdc", "target", Path("log"), profiler, centers
+        )
+
     def test_discovers_only_clickable_calculator_buttons(self) -> None:
         layout = {
             "children": [
@@ -101,6 +122,55 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "duplicate clickable"):
             capture.calculator_button_centers(layout)
+
+    def test_discovers_only_safe_note_actions(self) -> None:
+        layout = {
+            "children": [
+                self.component(
+                    "searchInput",
+                    type="TextInput",
+                    longClickable="true",
+                    bounds="[100,200][500,240]",
+                ),
+                self.component("", type="Image", accessibilityId="48"),
+            ]
+        }
+
+        self.assertEqual(
+            capture.note_action_centers(layout),
+            {
+                "search:left": (200, 220),
+                "search:center": (300, 220),
+                "search:right": (400, 220),
+            },
+        )
+
+    @patch.object(capture.time, "sleep")
+    @patch.object(capture, "logged_shell")
+    def test_note_exercise_clicks_cached_safe_action(
+        self,
+        logged_shell: Mock,
+        sleep: Mock,
+    ) -> None:
+        del sleep
+        profiler = Mock()
+        profiler.poll.side_effect = [None, 0]
+
+        with TemporaryDirectory() as temporary:
+            count = capture.exercise_note(
+                "hdc",
+                "target",
+                Path(temporary) / "uitest.log",
+                profiler,
+                {"search:center": (20, 30)},
+                seed=1234,
+            )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(
+            [call.args[2] for call in logged_shell.call_args_list],
+            ["uitest uiInput click 20 30"],
+        )
 
     @patch.object(capture, "logged_shell")
     def test_clicks_components_in_calculation_order(self, logged_shell: Mock) -> None:
