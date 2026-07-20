@@ -52,6 +52,33 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         self.assertEqual(capture.calculator_result(layout), "10000")
 
+    def test_discovers_only_clickable_calculator_buttons(self) -> None:
+        layout = {
+            "children": [
+                self.component("1", type="Button"),
+                self.component("+", type="Button", bounds="[30,40][50,80]"),
+                self.component("label", type="Text"),
+                self.component("disabled", type="Button", enabled="false"),
+                self.component("", type="Button"),
+            ]
+        }
+
+        self.assertEqual(
+            capture.calculator_button_centers(layout),
+            {"+": (40, 60), "1": (20, 30)},
+        )
+
+    def test_rejects_duplicate_clickable_button_ids(self) -> None:
+        layout = {
+            "children": [
+                self.component("1", type="Button"),
+                self.component("1", type="Button"),
+            ]
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "duplicate clickable"):
+            capture.calculator_button_centers(layout)
+
     @patch.object(capture, "logged_shell")
     def test_clicks_components_in_calculation_order(self, logged_shell: Mock) -> None:
         centers = {
@@ -70,6 +97,44 @@ class NativeHookCaptureTest(unittest.TestCase):
                 for item in capture.CALCULATION_COMPONENTS
             ],
         )
+
+    @patch.object(capture, "hdc_run")
+    @patch.object(capture, "logged_shell")
+    @patch.object(capture, "dump_layout")
+    def test_random_clicks_continue_until_profiler_exits(
+        self, dump_layout: Mock, logged_shell: Mock, hdc_run: Mock
+    ) -> None:
+        del hdc_run
+        dump_layout.return_value = {
+            "children": [
+                self.component("1", type="Button"),
+                self.component("+", type="Button", bounds="[30,40][50,80]"),
+            ]
+        }
+        profiler = Mock()
+        profiler.poll.side_effect = [None, None, 0]
+
+        with TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "uitest.log"
+            count = capture.run_random_clicks(
+                "hdc", "target", log_path, profiler, seed=1234
+            )
+            log_text = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(count, 2)
+        self.assertEqual(len(logged_shell.call_args_list), 2)
+        self.assertTrue(
+            all(
+                call.args[2] in {
+                    "uitest uiInput click 20 30",
+                    "uitest uiInput click 40 60",
+                }
+                for call in logged_shell.call_args_list
+            )
+        )
+        self.assertIn("random seed: 1234", log_text)
+        self.assertIn("random buttons: +, 1", log_text)
+        self.assertIn("random click count: 2", log_text)
 
     @patch.object(capture, "hdc_run")
     def test_dump_layout_rejects_invalid_json(self, hdc_run: Mock) -> None:
