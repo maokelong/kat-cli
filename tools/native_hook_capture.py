@@ -4,19 +4,22 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import shutil
 import subprocess
 import sys
 import time
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Iterator, Optional
 
 BUNDLE = "ohos.samples.distributedcalc"
 CALCULATION_COMPONENTS = ("C", "1", "0", "0", "*", "1", "0", "0", "=")
 RESULT_COMPONENT = "expression"
 EXPECTED_RESULT = "10000"
+BOUNDS = re.compile(r"^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$")
 
 
 def arguments() -> argparse.Namespace:
@@ -41,6 +44,7 @@ def executable(value: Optional[str], default: str) -> str:
 
 def hdc_run(hdc: str, target: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
     kwargs.setdefault("check", True)
+    kwargs.setdefault("encoding", "utf-8")
     return subprocess.run([hdc, "-t", target, *args], text=True, **kwargs)
 
 
@@ -55,7 +59,11 @@ def connected_targets(output: str) -> list[str]:
 
 def select_target(hdc: str, requested: Optional[str]) -> str:
     result = subprocess.run(
-        [hdc, "list", "targets", "-v"], check=True, capture_output=True, text=True
+        [hdc, "list", "targets", "-v"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     targets = connected_targets(result.stdout)
     if requested:
@@ -124,54 +132,136 @@ def remote_profiler_config(
             hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
-def load_hypium() -> tuple[Callable[..., Any], Any]:
-    try:
-        from hypium import BY, UiDriver
-    except ImportError as error:
+def layout_nodes(node: dict) -> Iterator[dict]:
+    yield node
+    for child in node.get("children", []):
+        yield from layout_nodes(child)
+
+
+def component_attributes(layout: dict, component_id: str) -> dict:
+    matches = [
+        node.get("attributes", {})
+        for node in layout_nodes(layout)
+        if node.get("attributes", {}).get("id") == component_id
+    ]
+    if len(matches) != 1:
         raise RuntimeError(
-            "Hypium is not installed; install tools/requirements-native-hook-capture.txt"
-        ) from error
-    return UiDriver.connect, BY
+            f"expected exactly one component with id {component_id!r}, found {len(matches)}"
+        )
+    return matches[0]
 
 
-def connect_hypium(
-    target: str,
-    log_path: Path,
-    connector: Optional[Callable[..., Any]] = None,
-    by: Any = None,
-) -> tuple[Any, Any]:
+def component_center(layout: dict, component_id: str) -> tuple[int, int]:
+    attributes = component_attributes(layout, component_id)
+    for name in ("visible", "enabled", "clickable"):
+        if attributes.get(name) != "true":
+            raise RuntimeError(f"component {component_id!r} is not {name}")
+    match = BOUNDS.fullmatch(attributes.get("bounds", ""))
+    if not match:
+        raise RuntimeError(f"component {component_id!r} has invalid bounds")
+    left, top, right, bottom = map(int, match.groups())
+    if right <= left or bottom <= top:
+        raise RuntimeError(f"component {component_id!r} has empty bounds")
+    return (left + right) // 2, (top + bottom) // 2
+
+
+def calculator_result(layout: dict) -> str:
+    return component_attributes(layout, RESULT_COMPONENT).get("text", "")
+
+
+def logged_shell(hdc: str, target: str, command: str, log) -> None:
+    result = hdc_run(
+        hdc, target, "shell", command, capture_output=True, check=False
+    )
+    log.write(f"$ {command}\n{result.stdout or ''}{result.stderr or ''}")
+    log.flush()
+    if result.returncode != 0:
+        raise RuntimeError(f"device command failed with code {result.returncode}: {command}")
+
+
+def dump_layout(hdc: str, target: str, remote: str, log) -> dict:
+    logged_shell(
+        hdc,
+        target,
+        f"uitest dumpLayout -p {remote} -b {BUNDLE}",
+        log,
+    )
+    result = hdc_run(
+        hdc, target, "shell", f"cat {remote}", capture_output=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"failed to read UiTest layout with code {result.returncode}")
+    try:
+        layout = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("UiTest returned invalid layout JSON") from error
+    log.write(f"layout bytes: {len(result.stdout.encode('utf-8'))}\n")
+    return layout
+
+
+def wait_for_calculator_layout(hdc: str, target: str, remote: str, log) -> tuple[dict, dict]:
+    deadline = time.monotonic() + 10
+    last_error: Optional[Exception] = None
+    while time.monotonic() < deadline:
+        try:
+            layout = dump_layout(hdc, target, remote, log)
+            centers = {
+                component_id: component_center(layout, component_id)
+                for component_id in dict.fromkeys(CALCULATION_COMPONENTS)
+            }
+            return layout, centers
+        except RuntimeError as error:
+            last_error = error
+            time.sleep(0.2)
+    raise RuntimeError(f"calculator page did not become ready: {last_error}")
+
+
+def start_calculator(hdc: str, target: str, log_path: Path) -> None:
+    identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("w", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
-        if connector is None or by is None:
-            connector, by = load_hypium()
-        print(f"connect target: {target}")
-        driver = connector(device_sn=target, report_path=str(log_path.parent))
-    return driver, by
+    try:
+        with log_path.open("w", encoding="utf-8") as log:
+            logged_shell(hdc, target, f"aa force-stop {BUNDLE}", log)
+            logged_shell(hdc, target, f"aa start -b {BUNDLE} -a MainAbility", log)
+            wait_for_calculator_layout(hdc, target, remote, log)
+    finally:
+        hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
-def run_hypium(driver: Any, by: Any, log_path: Path) -> None:
-    with log_path.open("a", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
-        driver.stop_app(BUNDLE)
-        driver.start_app(BUNDLE, "MainAbility", wait_time=1)
-        for component_id in CALCULATION_COMPONENTS:
-            component = driver.wait_for_component(by.id(component_id), timeout=3)
-            component.click()
-        result = driver.wait_for_component(by.id(RESULT_COMPONENT), timeout=3)
-        actual = result.getText()
-        print(f"calculator result: {actual}")
-        if actual != EXPECTED_RESULT:
+def click_calculation(hdc: str, target: str, centers: dict, log) -> None:
+    for component_id in CALCULATION_COMPONENTS:
+        x, y = centers[component_id]
+        logged_shell(hdc, target, f"uitest uiInput click {x} {y}", log)
+
+
+def run_uitest(hdc: str, target: str, log_path: Path, start_app: bool = True) -> None:
+    if start_app:
+        start_calculator(hdc, target, log_path)
+    identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
+    try:
+        with log_path.open("a", encoding="utf-8") as log:
+            _, centers = wait_for_calculator_layout(hdc, target, remote, log)
+            click_calculation(hdc, target, centers, log)
+
+            deadline = time.monotonic() + 3
+            actual = ""
+            while time.monotonic() < deadline:
+                actual = calculator_result(dump_layout(hdc, target, remote, log))
+                if actual == EXPECTED_RESULT:
+                    log.write(f"calculator result: {actual}\n")
+                    return
+                time.sleep(0.2)
             raise RuntimeError(
                 f"unexpected calculator result: {actual!r}, expected {EXPECTED_RESULT!r}"
             )
-
-
-def close_hypium(driver: Any, log_path: Path) -> None:
-    with log_path.open("a", encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log):
-        driver.close()
+    finally:
+        hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
 def capture_failure(hdc: str, target: str, local_path: Path) -> None:
-    remote = f"/data/local/tmp/hypium_failure_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
+    remote = f"/data/local/tmp/uitest_failure_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
     captured = hdc_run(
         hdc,
         target,
@@ -256,41 +346,38 @@ def main() -> int:
     trace = run_dir / "native_heap.htrace"
     database = run_dir / "trace.db"
     profiler_log = run_dir / "hiprofiler.log"
-    hypium_log = run_dir / "hypium.log"
+    uitest_log = run_dir / "uitest.log"
     streamer_log = run_dir / "trace-streamer.log"
     failure = run_dir / "failure.png"
     remote = f"/data/local/tmp/native_heap_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.htrace"
 
-    driver, by = connect_hypium(target, hypium_log)
+    start_calculator(hdc, target, uitest_log)
     ui_error: Optional[Exception] = None
-    try:
-        with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
-            "wb"
-        ) as log:
-            profiler_command = (
-                f"hiprofiler_cmd -c {config} -o {remote} -t {args.duration} -s -k"
-            )
-            profiler = subprocess.Popen(
-                [hdc, "-t", target, "shell", profiler_command],
-                stdout=log,
-                stderr=subprocess.STDOUT,
-            )
-            wait_for_profiler(hdc, target, remote, profiler)
+    with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
+        "wb"
+    ) as log:
+        profiler_command = (
+            f"hiprofiler_cmd -c {config} -o {remote} -t {args.duration} -s -k"
+        )
+        profiler = subprocess.Popen(
+            [hdc, "-t", target, "shell", profiler_command],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        wait_for_profiler(hdc, target, remote, profiler)
+        try:
+            run_uitest(hdc, target, uitest_log, start_app=False)
+        except Exception as error:
+            ui_error = error
             try:
-                run_hypium(driver, by, hypium_log)
-            except Exception as error:
-                ui_error = error
-                try:
-                    capture_failure(hdc, target, failure)
-                except Exception:
-                    pass
-                profiler.wait()
-            else:
-                profiler.wait()
-            if profiler.returncode != 0:
-                raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
-    finally:
-        close_hypium(driver, hypium_log)
+                capture_failure(hdc, target, failure)
+            except Exception:
+                pass
+            profiler.wait()
+        else:
+            profiler.wait()
+        if profiler.returncode != 0:
+            raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
     if ui_error:
         raise RuntimeError(f"calculator interaction failed: {ui_error}")
 

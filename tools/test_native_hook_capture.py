@@ -2,71 +2,85 @@ import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import native_hook_capture as capture
 
 
 class NativeHookCaptureTest(unittest.TestCase):
-    def test_hypium_controls_preinstalled_calculator_and_checks_result(self) -> None:
-        by = Mock()
-        by.id.side_effect = lambda value: f"selector:{value}"
-        driver = Mock()
-        components = [Mock() for _ in capture.CALCULATION_COMPONENTS]
-        result = Mock()
-        result.getText.return_value = capture.EXPECTED_RESULT
-        driver.wait_for_component.side_effect = [*components, result]
-        with TemporaryDirectory() as temporary:
-            log = Path(temporary) / "hypium.log"
-            capture.run_hypium(driver, by, log)
+    @staticmethod
+    def component(component_id: str, **attributes: str) -> dict:
+        return {
+            "attributes": {
+                "id": component_id,
+                "bounds": "[10,20][30,40]",
+                "visible": "true",
+                "enabled": "true",
+                "clickable": "true",
+                **attributes,
+            },
+            "children": [],
+        }
 
-        driver.stop_app.assert_called_once_with(capture.BUNDLE)
-        driver.start_app.assert_called_once_with(capture.BUNDLE, "MainAbility", wait_time=1)
+    def test_finds_nested_component_and_calculates_center(self) -> None:
+        layout = {"children": [{"children": [self.component("1")]}]}
+
+        self.assertEqual(capture.component_center(layout, "1"), (20, 30))
+
+    def test_rejects_duplicate_component_ids(self) -> None:
+        layout = {"children": [self.component("1"), self.component("1")]}
+
+        with self.assertRaisesRegex(RuntimeError, "found 2"):
+            capture.component_center(layout, "1")
+
+    def test_rejects_non_clickable_component(self) -> None:
+        layout = {"children": [self.component("1", clickable="false")]}
+
+        with self.assertRaisesRegex(RuntimeError, "not clickable"):
+            capture.component_center(layout, "1")
+
+    def test_rejects_invalid_component_bounds(self) -> None:
+        layout = {"children": [self.component("1", bounds="invalid")]}
+
+        with self.assertRaisesRegex(RuntimeError, "invalid bounds"):
+            capture.component_center(layout, "1")
+
+    def test_reads_calculator_result(self) -> None:
+        layout = {
+            "children": [self.component(capture.RESULT_COMPONENT, text="10000")]
+        }
+
+        self.assertEqual(capture.calculator_result(layout), "10000")
+
+    @patch.object(capture, "logged_shell")
+    def test_clicks_components_in_calculation_order(self, logged_shell: Mock) -> None:
+        centers = {
+            component_id: (index, index + 1)
+            for index, component_id in enumerate(
+                dict.fromkeys(capture.CALCULATION_COMPONENTS)
+            )
+        }
+
+        capture.click_calculation("hdc", "target", centers, "log")
+
         self.assertEqual(
-            driver.wait_for_component.call_args_list,
+            [item.args[2] for item in logged_shell.call_args_list],
             [
-                *[call(f"selector:{item}", timeout=3) for item in capture.CALCULATION_COMPONENTS],
-                call(f"selector:{capture.RESULT_COMPONENT}", timeout=3),
+                f"uitest uiInput click {centers[item][0]} {centers[item][1]}"
+                for item in capture.CALCULATION_COMPONENTS
             ],
         )
-        for component in components:
-            component.click.assert_called_once_with()
 
-    def test_hypium_connection_explicitly_selects_target(self) -> None:
-        connector = Mock(return_value="driver")
-        by = Mock()
-        with TemporaryDirectory() as temporary:
-            log = Path(temporary) / "hypium.log"
-            actual = capture.connect_hypium("target", log, connector=connector, by=by)
-
-        self.assertEqual(actual, ("driver", by))
-        connector.assert_called_once_with(device_sn="target", report_path=str(log.parent))
-
-    def test_hypium_rejects_unexpected_result_and_closes_driver(self) -> None:
-        by = Mock()
-        by.id.side_effect = lambda value: value
-        driver = Mock()
-        result = Mock()
-        result.getText.return_value = "9999"
-        driver.wait_for_component.side_effect = [
-            *[Mock() for _ in capture.CALCULATION_COMPONENTS],
-            result,
+    @patch.object(capture, "hdc_run")
+    def test_dump_layout_rejects_invalid_json(self, hdc_run: Mock) -> None:
+        hdc_run.side_effect = [
+            CompletedProcess([], 0, "saved", ""),
+            CompletedProcess([], 0, "not json", ""),
         ]
-
         with TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(RuntimeError, "unexpected calculator result"):
-                capture.run_hypium(driver, by, Path(temporary) / "hypium.log")
-
-    def test_close_hypium_closes_driver(self) -> None:
-        driver = Mock()
-        with TemporaryDirectory() as temporary:
-            capture.close_hypium(driver, Path(temporary) / "hypium.log")
-        driver.close.assert_called_once_with()
-
-    @patch.dict("sys.modules", {"hypium": None})
-    def test_missing_hypium_has_install_hint(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "requirements-native-hook-capture"):
-            capture.load_hypium()
+            with (Path(temporary) / "uitest.log").open("w", encoding="utf-8") as log:
+                with self.assertRaisesRegex(RuntimeError, "invalid layout JSON"):
+                    capture.dump_layout("hdc", "target", "/remote", log)
 
     def test_selects_only_connected_targets(self) -> None:
         output = """
@@ -75,6 +89,14 @@ COM256 UART Ready unknown hdc
 offline-serial USB Offline localhost hdc
 """
         self.assertEqual(capture.connected_targets(output), ["usb-serial"])
+
+    @patch.object(capture.subprocess, "run")
+    def test_hdc_output_is_decoded_as_utf8(self, run: Mock) -> None:
+        run.return_value = CompletedProcess([], 0, "", "")
+
+        capture.hdc_run("hdc", "target", "shell", "echo", capture_output=True)
+
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
 
     @patch.object(capture.subprocess, "run")
     def test_rejects_ambiguous_connected_targets(self, run: Mock) -> None:
