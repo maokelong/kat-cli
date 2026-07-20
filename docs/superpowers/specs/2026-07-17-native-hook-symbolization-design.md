@@ -16,7 +16,7 @@ Native Hook trace 中的调用帧可能只包含 `/system/lib/ndk/libffrt.so+0x7
 ## 不做什么
 
 1. 不提供 C/C++ FFI，也不保留 PoC 的 JSONL/单 ELF 命令面。
-2. 不实现跨调用或跨进程单例缓存；第一版缓存只在一次 `get_symbols` 调用内有效。
+2. 不实现全局单例或跨进程持久化缓存；需要复用时由调用方显式持有 `SymbolResolver`。
 3. 只验证固定穿刺 `100 * 100 = 10000`，不扩展为计算器功能正确性测试或复杂计算场景。
 4. 不提供 Python 到 Rust 的一键总编排；采集与分析是两个入口。
 5. 不跟随目录符号链接或 junction，不承担历史运行目录的迁移和恢复。
@@ -31,6 +31,19 @@ pub struct SymbolizationResult {
     pub missing_modules: Vec<MissingModule>,
 }
 
+pub struct SymbolResolver { /* private fields */ }
+
+impl SymbolResolver {
+    pub fn new(symbol_dir: impl Into<PathBuf>) -> Self;
+
+    pub fn get_symbols(
+        &mut self,
+        addr_list: &[String],
+        module_name_map: &HashMap<String, String>,
+        include_source_location: bool,
+    ) -> anyhow::Result<SymbolizationResult>;
+}
+
 pub fn get_symbols(
     addr_list: &[String],
     symbol_dir: &Path,
@@ -39,7 +52,9 @@ pub fn get_symbols(
 ) -> anyhow::Result<SymbolizationResult>
 ```
 
-空输入直接返回两个空列表，不扫描或校验 `symbol_dir`。非空输入要求根目录存在、是目录且可打开；不可访问的子项告警后跳过。`symbols` 与输入等长且顺序一致；`missing_modules` 按规范化模块路径排序，记录本地没有匹配 SO 的路径和出现次数。
+`SymbolResolver` 首次遇到合法查询时递归建立一次 SO basename 到完整路径列表的索引，后续调用复用该索引、模块命中/缺失结果以及 `Symbolizer`。实例生命周期内符号目录视为稳定；目录内容更新后调用方应创建新实例。兼容函数 `get_symbols` 每次创建临时实例，适合单次调用；项目内批处理应复用同一个 `SymbolResolver`。
+
+空输入直接返回两个空列表；全部输入均不合法时原样返回，二者都不扫描或校验 `symbol_dir`。存在合法查询时要求根目录存在、是目录且可打开；不可访问的子项告警后跳过。`symbols` 与输入等长且顺序一致；`missing_modules` 按规范化模块路径排序，记录本地没有匹配 SO 的路径和出现次数。
 
 `module_name_map` 的方向为“trace 中的 SO 名称或路径 → 符号目录中的 SO 名称或路径”。键和值都必须是合法 SO 名称；查找时完整设备路径键优先于 basename 键。映射后的目标继续按完整路径后缀、basename 的顺序匹配符号文件。未命中映射时保持原有匹配行为；映射目标没有符号文件时，`missing_modules` 仍记录 trace 中的原始模块路径。
 
@@ -53,7 +68,7 @@ outer+0x27 (/full/path/outer.cpp:50) => middle_inline (/full/path/middle.h:80) =
 
 内联链按外到内展开，只有主符号带偏移，不输出列号。缺少 DWARF 时退化为基本符号；demangle 失败时保留原始符号名。
 
-模块路径统一分隔符并应用名称映射后，优先做设备完整路径的后缀匹配，再按 basename 匹配。多个候选按规范化完整路径字典序选择第一个，并向标准错误输出告警。查询按选中 ELF 分组，同一 ELF 和地址在单次调用内去重。
+模块路径统一分隔符并应用名称映射后，优先做设备完整路径的后缀匹配，再按 basename 匹配。多个候选按规范化完整路径字典序选择第一个，并向标准错误输出告警。查询按选中 ELF 分组，同一 ELF 和地址在单次调用内去重；目录索引和模块选择结果可在同一 `SymbolResolver` 的多次调用间复用。
 
 ## SQLite 与 Excel
 
@@ -108,7 +123,7 @@ failure.png        # 仅 UI 或应用异常时尽力生成
 
 ## 验收与验证
 
-1. 单元测试覆盖严格语法、原样回退、顺序和重复项、确定性歧义选择、根目录与子项错误边界。
+1. 单元测试覆盖严格语法、原样回退、顺序和重复项、确定性歧义选择、根目录与子项错误边界，以及 `SymbolResolver` 的延迟索引和跨调用复用。
 2. 单元测试覆盖数据库取值优先级、稳定排序、空表以及 Excel 分页命名。
 3. 使用 `target/trace/test.db` 和 `D:\zxlDown\images\laster` 生成实际 Excel，并抽查 `libffrt.so` 地址。
 4. 构建并安装 Hypium 主 HAP 与测试 HAP，真机运行 `CalculatorHypiumTest`，要求报告为 `Tests run: 1, Failure: 0, Error: 0, Pass: 1`。

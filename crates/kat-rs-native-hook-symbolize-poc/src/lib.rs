@@ -28,83 +28,147 @@ pub struct SymbolizationResult {
     pub missing_modules: Vec<MissingModule>,
 }
 
+pub struct SymbolResolver {
+    symbol_dir: PathBuf,
+    symbol_index: Option<SymbolFileIndex>,
+    module_cache: HashMap<String, Option<PathBuf>>,
+    basic_symbolizer: Symbolizer,
+    source_symbolizer: Symbolizer,
+}
+
+struct SymbolFileIndex {
+    by_basename: HashMap<String, Vec<PathBuf>>,
+}
+
+impl SymbolResolver {
+    pub fn new(symbol_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            symbol_dir: symbol_dir.into(),
+            symbol_index: None,
+            module_cache: HashMap::new(),
+            basic_symbolizer: build_symbolizer(false),
+            source_symbolizer: build_symbolizer(true),
+        }
+    }
+
+    pub fn get_symbols(
+        &mut self,
+        addr_list: &[String],
+        module_name_map: &HashMap<String, String>,
+        include_source_location: bool,
+    ) -> Result<SymbolizationResult> {
+        if addr_list.is_empty() {
+            return Ok(SymbolizationResult {
+                symbols: Vec::new(),
+                missing_modules: Vec::new(),
+            });
+        }
+        let module_name_map = normalize_module_name_map(module_name_map)?;
+        if !addr_list
+            .iter()
+            .any(|input| parse_module_address(input).is_ok())
+        {
+            return Ok(SymbolizationResult {
+                symbols: addr_list.to_vec(),
+                missing_modules: Vec::new(),
+            });
+        }
+
+        let mut output = addr_list.to_vec();
+        let mut groups: BTreeMap<PathBuf, BTreeMap<u64, Vec<usize>>> = BTreeMap::new();
+        let mut missing_modules: BTreeMap<String, usize> = BTreeMap::new();
+
+        for (position, input) in addr_list.iter().enumerate() {
+            let Ok(query) = parse_module_address(input) else {
+                continue;
+            };
+            let mapped_module = map_module_name(&query.module, &module_name_map);
+            let Some(module) = self.resolve_module(mapped_module)? else {
+                *missing_modules.entry(query.module).or_default() += 1;
+                continue;
+            };
+            groups
+                .entry(module)
+                .or_default()
+                .entry(query.address)
+                .or_default()
+                .push(position);
+        }
+
+        let symbolizer = if include_source_location {
+            &self.source_symbolizer
+        } else {
+            &self.basic_symbolizer
+        };
+        for (elf_path, addresses) in groups {
+            let unique = addresses.keys().copied().collect::<Vec<_>>();
+            let source = Source::Elf(Elf::new(&elf_path));
+            let results = match symbolizer.symbolize(&source, Input::VirtOffset(&unique)) {
+                Ok(results) => results,
+                Err(error) => {
+                    eprintln!(
+                        "warning: cannot symbolize {}: {error:#}",
+                        elf_path.display()
+                    );
+                    continue;
+                }
+            };
+            for (address, result) in unique.into_iter().zip(results) {
+                let Symbolized::Sym(symbol) = result else {
+                    continue;
+                };
+                let formatted = format_symbol(&symbol, include_source_location);
+                for position in &addresses[&address] {
+                    output[*position] = formatted.clone();
+                }
+            }
+        }
+        Ok(SymbolizationResult {
+            symbols: output,
+            missing_modules: missing_modules
+                .into_iter()
+                .map(|(module_path, occurrence_count)| MissingModule {
+                    module_path,
+                    occurrence_count,
+                })
+                .collect(),
+        })
+    }
+
+    fn resolve_module(&mut self, requested: &str) -> Result<Option<PathBuf>> {
+        let requested = normalize(requested);
+        if let Some(module) = self.module_cache.get(&requested) {
+            return Ok(module.clone());
+        }
+        if self.symbol_index.is_none() {
+            self.symbol_index = Some(index_symbol_files(&self.symbol_dir)?);
+        }
+        let module = select_module(
+            self.symbol_index
+                .as_ref()
+                .expect("symbol index was initialized"),
+            &requested,
+        );
+        self.module_cache.insert(requested, module.clone());
+        Ok(module)
+    }
+}
+
 pub fn get_symbols(
     addr_list: &[String],
     symbol_dir: &Path,
     module_name_map: &HashMap<String, String>,
     include_source_location: bool,
 ) -> Result<SymbolizationResult> {
-    if addr_list.is_empty() {
-        return Ok(SymbolizationResult {
-            symbols: Vec::new(),
-            missing_modules: Vec::new(),
-        });
-    }
-    let files = index_symbol_files(symbol_dir)?;
-    let module_name_map = normalize_module_name_map(module_name_map)?;
-    let mut output = addr_list.to_vec();
-    let mut groups: BTreeMap<PathBuf, BTreeMap<u64, Vec<usize>>> = BTreeMap::new();
-    let mut selected_modules: HashMap<String, Option<PathBuf>> = HashMap::new();
-    let mut missing_modules: BTreeMap<String, usize> = BTreeMap::new();
+    SymbolResolver::new(symbol_dir).get_symbols(addr_list, module_name_map, include_source_location)
+}
 
-    for (position, input) in addr_list.iter().enumerate() {
-        let Ok(query) = parse_module_address(input) else {
-            continue;
-        };
-        let mapped_module = map_module_name(&query.module, &module_name_map);
-        let module = selected_modules
-            .entry(query.module.clone())
-            .or_insert_with(|| select_module(&files, mapped_module));
-        let Some(module) = module.clone() else {
-            *missing_modules.entry(query.module).or_default() += 1;
-            continue;
-        };
-        groups
-            .entry(module)
-            .or_default()
-            .entry(query.address)
-            .or_default()
-            .push(position);
-    }
-
-    let symbolizer = Symbolizer::builder()
+fn build_symbolizer(include_source_location: bool) -> Symbolizer {
+    Symbolizer::builder()
         .enable_code_info(include_source_location)
         .enable_inlined_fns(include_source_location)
         .enable_demangling(true)
-        .build();
-    for (elf_path, addresses) in groups {
-        let unique = addresses.keys().copied().collect::<Vec<_>>();
-        let source = Source::Elf(Elf::new(&elf_path));
-        let results = match symbolizer.symbolize(&source, Input::VirtOffset(&unique)) {
-            Ok(results) => results,
-            Err(error) => {
-                eprintln!(
-                    "warning: cannot symbolize {}: {error:#}",
-                    elf_path.display()
-                );
-                continue;
-            }
-        };
-        for (address, result) in unique.into_iter().zip(results) {
-            let Symbolized::Sym(symbol) = result else {
-                continue;
-            };
-            let formatted = format_symbol(&symbol, include_source_location);
-            for position in &addresses[&address] {
-                output[*position] = formatted.clone();
-            }
-        }
-    }
-    Ok(SymbolizationResult {
-        symbols: output,
-        missing_modules: missing_modules
-            .into_iter()
-            .map(|(module_path, occurrence_count)| MissingModule {
-                module_path,
-                occurrence_count,
-            })
-            .collect(),
-    })
+        .build()
 }
 
 fn normalize_module_name_map(
@@ -170,7 +234,7 @@ fn is_shared_object(module: &str) -> bool {
         })
 }
 
-fn index_symbol_files(symbol_dir: &Path) -> Result<Vec<PathBuf>> {
+fn index_symbol_files(symbol_dir: &Path) -> Result<SymbolFileIndex> {
     if !symbol_dir.is_dir() {
         bail!(
             "symbol directory does not exist or is not a directory: {}",
@@ -179,7 +243,7 @@ fn index_symbol_files(symbol_dir: &Path) -> Result<Vec<PathBuf>> {
     }
     std::fs::read_dir(symbol_dir)
         .with_context(|| format!("cannot open symbol directory {}", symbol_dir.display()))?;
-    let mut files = Vec::new();
+    let mut by_basename: HashMap<String, Vec<PathBuf>> = HashMap::new();
     for entry in WalkDir::new(symbol_dir).follow_links(false) {
         match entry {
             Ok(entry)
@@ -187,33 +251,32 @@ fn index_symbol_files(symbol_dir: &Path) -> Result<Vec<PathBuf>> {
                     || (entry.file_type().is_symlink() && entry.path().is_file()))
                     && is_shared_object(&entry.file_name().to_string_lossy()) =>
             {
-                files.push(entry.into_path());
+                by_basename
+                    .entry(entry.file_name().to_string_lossy().into_owned())
+                    .or_default()
+                    .push(entry.into_path());
             }
             Ok(_) => {}
             Err(error) => eprintln!("warning: skipping inaccessible symbol path: {error}"),
         }
     }
-    files.sort_by_key(|path| normalize(&path.to_string_lossy()));
-    Ok(files)
+    for files in by_basename.values_mut() {
+        files.sort_by_key(|path| normalize(&path.to_string_lossy()));
+    }
+    Ok(SymbolFileIndex { by_basename })
 }
 
-fn select_module(files: &[PathBuf], requested: &str) -> Option<PathBuf> {
+fn select_module(index: &SymbolFileIndex, requested: &str) -> Option<PathBuf> {
     let requested = normalize(requested);
     let basename = requested.rsplit('/').next()?;
+    let files = index.by_basename.get(basename)?;
     let suffix = files
         .iter()
         .filter(|path| normalize(&path.to_string_lossy()).ends_with(&requested))
         .cloned()
         .collect::<Vec<_>>();
     let candidates = if suffix.is_empty() {
-        files
-            .iter()
-            .filter(|path| {
-                path.file_name()
-                    .is_some_and(|name| name.to_string_lossy() == basename)
-            })
-            .cloned()
-            .collect::<Vec<_>>()
+        files.clone()
     } else {
         suffix
     };
@@ -254,7 +317,7 @@ mod tests {
     use std::{collections::HashMap, path::Path};
 
     use super::{
-        MissingModule, get_symbols, index_symbol_files, normalize_module_name_map,
+        MissingModule, SymbolResolver, get_symbols, index_symbol_files, normalize_module_name_map,
         parse_module_address,
     };
 
@@ -283,6 +346,39 @@ mod tests {
         let result = get_symbols(&inputs, Path::new("missing"), &HashMap::new(), false);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn invalid_inputs_do_not_scan_symbol_directory() {
+        let inputs = vec!["not a symbol query".to_owned()];
+        let mut resolver = SymbolResolver::new("missing");
+
+        let result = resolver
+            .get_symbols(&inputs, &HashMap::new(), false)
+            .unwrap();
+
+        assert_eq!(result.symbols, inputs);
+        assert!(result.missing_modules.is_empty());
+    }
+
+    #[test]
+    fn resolver_reuses_complete_index_after_symbol_directory_disappears() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("libfirst.so"), []).unwrap();
+        std::fs::write(directory.path().join("libsecond.so"), []).unwrap();
+        let mut resolver = SymbolResolver::new(directory.path());
+
+        let first = resolver
+            .get_symbols(&["libfirst.so+0x1".to_owned()], &HashMap::new(), false)
+            .unwrap();
+        assert!(first.missing_modules.is_empty());
+        std::fs::remove_dir_all(directory.path()).unwrap();
+
+        let second = resolver
+            .get_symbols(&["libsecond.so+0x1".to_owned()], &HashMap::new(), false)
+            .unwrap();
+
+        assert!(second.missing_modules.is_empty());
     }
 
     #[test]
@@ -342,9 +438,9 @@ mod tests {
         std::fs::write(&target, []).unwrap();
         create_file_symlink(&target, &link).unwrap();
 
-        let files = index_symbol_files(directory.path()).unwrap();
+        let index = index_symbol_files(directory.path()).unwrap();
 
-        assert_eq!(files, vec![link]);
+        assert_eq!(index.by_basename["libsymbols.so"], vec![link]);
     }
 
     #[cfg(unix)]
