@@ -50,7 +50,7 @@ pub(super) fn prepare_success<P>(result: P) -> PreparedResponse<P> {
     }
 }
 
-pub(super) fn prepare_cli_failure<P>(report: miette::Report) -> PreparedResponse<P> {
+pub(super) fn prepare_operation_failure<P>(report: miette::Report) -> PreparedResponse<P> {
     let diagnostic: &dyn Diagnostic = report.as_ref();
     let message = diagnostic.to_string();
     let help = diagnostic
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn failure_json_and_terminal_projection_share_one_report() {
         let report = miette!(help = "repair the input", "operation failed");
-        let prepared: PreparedResponse<Vec<String>> = prepare_cli_failure(report);
+        let prepared: PreparedResponse<Vec<String>> = prepare_operation_failure(report);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
@@ -274,7 +274,7 @@ mod tests {
             span: (6, 3).into(),
             cause: LocatedCause,
         });
-        let prepared: PreparedResponse<Vec<String>> = prepare_cli_failure(report);
+        let prepared: PreparedResponse<Vec<String>> = prepare_operation_failure(report);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 

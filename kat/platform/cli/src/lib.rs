@@ -23,7 +23,7 @@ enum Operation {
         #[arg(
             long = "pack-dir",
             value_name = "DIRECTORY",
-            help = "Add a PACK directory for this command. The directory must directly contain pack.toml. Repeat to add more PACKs."
+            help = "Add an exact PACK candidate directory containing pack.toml. Repetition preserves validation order; results remain sorted by PACK name."
         )]
         pack_directories: Vec<PathBuf>,
     },
@@ -56,7 +56,7 @@ pub fn run() -> ExitCode {
         Operation::Inspect { pack_directories } => {
             let prepared = match inspect_packs(pack_directories) {
                 Ok(result) => response::prepare_success(result),
-                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+                Err(error) => response::prepare_operation_failure(miette::Report::new(error)),
             };
             response::publish(prepared)
         }
@@ -79,14 +79,8 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
 }
 
 fn locate_data_home() -> Option<PathBuf> {
-    if let Some(project_dirs) = directories::ProjectDirs::from("", "", "KAT") {
-        return Some(project_dirs.data_dir().to_path_buf());
-    }
-    #[cfg(windows)]
-    if let Some(app_data) = std::env::var_os("APPDATA") {
-        return Some(PathBuf::from(app_data).join("KAT").join("data"));
-    }
-    None
+    directories::ProjectDirs::from("", "", "KAT")
+        .map(|project_dirs| project_dirs.data_dir().to_path_buf())
 }
 
 fn project_pack(pack: &DiscoveredPack) -> PackResult {
@@ -167,14 +161,16 @@ enum SkillRootError {
 #[derive(Debug, Error, Diagnostic)]
 enum InspectPacksError {
     #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    #[diagnostic(help(
+        "Run kat from <skill>/scripts/targets/<target> with a regular <skill>/SKILL.md marker"
+    ))]
     SkillRoot(
         #[from]
         #[source]
         SkillRootError,
     ),
     #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
+    #[diagnostic(help("Run KAT on Linux or Windows with a platform standard user data directory"))]
     DataHomeUnavailable,
     #[error("PACK discovery failed")]
     #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
