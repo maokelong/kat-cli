@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -151,8 +153,7 @@ def component_attributes(layout: dict, component_id: str) -> dict:
     return matches[0]
 
 
-def component_center(layout: dict, component_id: str) -> tuple[int, int]:
-    attributes = component_attributes(layout, component_id)
+def attributes_center(attributes: dict, component_id: str) -> tuple[int, int]:
     for name in ("visible", "enabled", "clickable"):
         if attributes.get(name) != "true":
             raise RuntimeError(f"component {component_id!r} is not {name}")
@@ -163,6 +164,34 @@ def component_center(layout: dict, component_id: str) -> tuple[int, int]:
     if right <= left or bottom <= top:
         raise RuntimeError(f"component {component_id!r} has empty bounds")
     return (left + right) // 2, (top + bottom) // 2
+
+
+def component_center(layout: dict, component_id: str) -> tuple[int, int]:
+    return attributes_center(component_attributes(layout, component_id), component_id)
+
+
+def calculator_button_centers(layout: dict) -> dict[str, tuple[int, int]]:
+    centers: dict[str, tuple[int, int]] = {}
+    for node in layout_nodes(layout):
+        attributes = node.get("attributes", {})
+        component_id = attributes.get("id", "")
+        if (
+            attributes.get("type") != "Button"
+            or not component_id
+            or any(
+                attributes.get(name) != "true"
+                for name in ("visible", "enabled", "clickable")
+            )
+        ):
+            continue
+        if component_id in centers:
+            raise RuntimeError(
+                f"duplicate clickable calculator button id: {component_id!r}"
+            )
+        centers[component_id] = attributes_center(attributes, component_id)
+    if not centers:
+        raise RuntimeError("no clickable calculator buttons found")
+    return dict(sorted(centers.items()))
 
 
 def calculator_result(layout: dict) -> str:
@@ -235,9 +264,8 @@ def click_calculation(hdc: str, target: str, centers: dict, log) -> None:
         logged_shell(hdc, target, f"uitest uiInput click {x} {y}", log)
 
 
-def run_uitest(hdc: str, target: str, log_path: Path, start_app: bool = True) -> None:
-    if start_app:
-        start_calculator(hdc, target, log_path)
+def run_uitest(hdc: str, target: str, log_path: Path) -> None:
+    start_calculator(hdc, target, log_path)
     identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
     try:
@@ -256,6 +284,39 @@ def run_uitest(hdc: str, target: str, log_path: Path, start_app: bool = True) ->
             raise RuntimeError(
                 f"unexpected calculator result: {actual!r}, expected {EXPECTED_RESULT!r}"
             )
+    finally:
+        hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
+
+
+def run_random_clicks(
+    hdc: str,
+    target: str,
+    log_path: Path,
+    profiler: subprocess.Popen,
+    seed: Optional[int] = None,
+) -> int:
+    identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
+    click_count = 0
+    try:
+        with log_path.open("a", encoding="utf-8") as log:
+            centers = calculator_button_centers(dump_layout(hdc, target, remote, log))
+            button_ids = tuple(centers)
+            actual_seed = secrets.randbits(64) if seed is None else seed
+            generator = random.Random(actual_seed)
+            log.write(f"random seed: {actual_seed}\n")
+            log.write(f"random buttons: {', '.join(button_ids)}\n")
+            log.flush()
+            try:
+                while profiler.poll() is None:
+                    component_id = generator.choice(button_ids)
+                    x, y = centers[component_id]
+                    logged_shell(hdc, target, f"uitest uiInput click {x} {y}", log)
+                    click_count += 1
+            finally:
+                log.write(f"random click count: {click_count}\n")
+                log.flush()
+        return click_count
     finally:
         hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
@@ -351,7 +412,15 @@ def main() -> int:
     failure = run_dir / "failure.png"
     remote = f"/data/local/tmp/native_heap_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.htrace"
 
-    start_calculator(hdc, target, uitest_log)
+    try:
+        run_uitest(hdc, target, uitest_log)
+    except Exception as error:
+        try:
+            capture_failure(hdc, target, failure)
+        except Exception:
+            pass
+        raise RuntimeError(f"calculator startup validation failed: {error}") from error
+
     ui_error: Optional[Exception] = None
     with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
         "wb"
@@ -366,7 +435,7 @@ def main() -> int:
         )
         wait_for_profiler(hdc, target, remote, profiler)
         try:
-            run_uitest(hdc, target, uitest_log, start_app=False)
+            run_random_clicks(hdc, target, uitest_log, profiler)
         except Exception as error:
             ui_error = error
             try:
