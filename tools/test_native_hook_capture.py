@@ -137,6 +137,29 @@ class NativeHookCaptureTest(unittest.TestCase):
         self.assertIn("random click count: 2", log_text)
 
     @patch.object(capture, "hdc_run")
+    @patch.object(capture, "logged_shell", side_effect=RuntimeError("click failed"))
+    @patch.object(capture, "dump_layout")
+    def test_random_click_failure_is_ignored_after_profiler_exits(
+        self, dump_layout: Mock, logged_shell: Mock, hdc_run: Mock
+    ) -> None:
+        del logged_shell, hdc_run
+        dump_layout.return_value = {
+            "children": [self.component("1", type="Button")]
+        }
+        profiler = Mock()
+        profiler.poll.side_effect = [None, 0]
+
+        with TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "uitest.log"
+            count = capture.run_random_clicks(
+                "hdc", "target", log_path, profiler, seed=1234
+            )
+            log_text = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(count, 0)
+        self.assertIn("random click count: 0", log_text)
+
+    @patch.object(capture, "hdc_run")
     def test_dump_layout_rejects_invalid_json(self, hdc_run: Mock) -> None:
         hdc_run.side_effect = [
             CompletedProcess([], 0, "saved", ""),

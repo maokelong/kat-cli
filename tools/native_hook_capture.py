@@ -311,7 +311,14 @@ def run_random_clicks(
                 while profiler.poll() is None:
                     component_id = generator.choice(button_ids)
                     x, y = centers[component_id]
-                    logged_shell(hdc, target, f"uitest uiInput click {x} {y}", log)
+                    try:
+                        logged_shell(
+                            hdc, target, f"uitest uiInput click {x} {y}", log
+                        )
+                    except RuntimeError:
+                        if profiler.poll() is not None:
+                            break
+                        raise
                     click_count += 1
             finally:
                 log.write(f"random click count: {click_count}\n")
