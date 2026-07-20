@@ -3,23 +3,17 @@
 //! 当前切片开放 Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
 //! Trace Streamer 入口只服务预发布机制联调，不形成兼容承诺，并将在第一次正式发布前删除。
 
-mod arrow_table;
 mod dataset;
 mod dataset_writer;
-mod domains;
+mod decode;
 mod formats;
-mod ftrace_event_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
-}
 mod json;
 mod materializer;
 mod mmap;
-mod native_hook_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
-}
+mod payload_value;
 mod query;
 mod record;
-mod sinks;
+mod relational;
 mod trace_streamer;
 
 use std::{
@@ -46,6 +40,20 @@ pub use trace_streamer::{
     ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
 };
 
+#[doc(hidden)]
+pub mod relational_for_tests {
+    pub fn descriptor_root_names() -> Vec<String> {
+        crate::relational::descriptor::descriptor_root_names()
+    }
+
+    pub fn expansion_plan_table_names(root_messages: &[&str]) -> Vec<String> {
+        crate::relational::plan::expansion_plan_for_roots(root_messages)
+            .into_iter()
+            .map(|item| item.output_table)
+            .collect()
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) mod proto {
     pub(crate) mod kat {
@@ -55,6 +63,30 @@ pub(crate) mod proto {
 
         pub(crate) mod native_hook {
             include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
+        }
+
+        pub(crate) mod cpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.cpu_data.rs"));
+        }
+
+        pub(crate) mod memory_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.memory_data.rs"));
+        }
+
+        pub(crate) mod process_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.process_data.rs"));
+        }
+
+        pub(crate) mod diskio_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.diskio_data.rs"));
+        }
+
+        pub(crate) mod network_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.network_data.rs"));
+        }
+
+        pub(crate) mod gpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.gpu_data.rs"));
         }
     }
 
@@ -214,13 +246,11 @@ fn scan_table_candidates(root: &Path) -> Result<Vec<(String, PathBuf)>, DatasetI
 
 pub(crate) fn valid_table_name(name: &str) -> bool {
     let valid = !name.is_empty()
-        && name.split('_').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        })
-        && name.as_bytes()[0].is_ascii_lowercase();
+        && name.as_bytes()[0].is_ascii_lowercase()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        && name.as_bytes()[name.len() - 1].is_ascii_alphanumeric();
     valid && !is_windows_device_name(name)
 }
 

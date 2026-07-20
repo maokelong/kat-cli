@@ -3,21 +3,13 @@
 mod file;
 pub(crate) mod profiler;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-};
+use std::{collections::BTreeSet, path::Path};
 
 use anyhow::{Result, bail};
 use log::debug;
 
 use crate::{
-    domains::{
-        ftrace::FTRACE_PLUGIN_DECODER,
-        native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
-    },
-    mmap::with_mapped_file,
-    record::TraceRecordSink,
+    decode::profiler::profiler_plugin_decoders, mmap::with_mapped_file, record::TraceRecordSink,
 };
 
 use file::{
@@ -31,20 +23,11 @@ use profiler::{
 pub(crate) struct HitraceDecodeReport {
     pub(crate) unsupported_plugins: BTreeSet<String>,
     pub(crate) unsupported_section_types: BTreeSet<u32>,
-    pub(crate) clock_domains: BTreeMap<String, String>,
-    pub(crate) clock_snapshots: Vec<ClockSnapshot>,
 }
 
 #[derive(Debug)]
 pub(crate) struct HitraceDecodeFailure {
     pub(crate) source: anyhow::Error,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ClockSnapshot {
-    pub(crate) snapshot_id: u64,
-    pub(crate) clock_domain: String,
-    pub(crate) clock_value: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -55,11 +38,6 @@ pub(crate) struct UnsupportedHitraceContent {
 }
 
 type UnsupportedContentObserver<'a> = dyn FnMut(&UnsupportedHitraceContent) -> Result<()> + 'a;
-
-pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
-    debug!("decoding hitrace format from {}", path.display());
-    with_mapped_file(path, |bytes| decode_bytes(bytes, sink))
-}
 
 pub(crate) fn decode_file_with_report(
     path: &Path,
@@ -77,14 +55,6 @@ pub(crate) fn decode_file_with_report(
     }
 }
 
-fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    if !has_profiler_header(bytes) {
-        bail!("invalid hitrace file: missing OHOSPROF header");
-    }
-
-    decode_sections(bytes, sink)
-}
-
 fn decode_bytes_with_report(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
@@ -96,10 +66,6 @@ fn decode_bytes_with_report(
     }
 
     decode_sections_with_report(bytes, sink, report, observe_unsupported)
-}
-
-fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    decode_sections_inner(bytes, sink, None, None)
 }
 
 fn decode_sections_with_report(
@@ -118,22 +84,11 @@ fn decode_sections_inner(
     mut observe_unsupported: Option<&mut UnsupportedContentObserver<'_>>,
 ) -> Result<()> {
     let mut offset = 0usize;
-    let decoder_specs = [
-        FTRACE_PLUGIN_DECODER,
-        NATIVE_HOOK_PLUGIN_DECODER,
-        HOOK_DAEMON_PLUGIN_DECODER,
-    ];
-    let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
+    let mut plugin_registry = PluginPayloadRegistry::new(profiler_plugin_decoders());
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
         offset = section.end;
-
-        if section.start == 0
-            && let Some(report) = report.as_deref_mut()
-        {
-            add_header_clock_facts(bytes, report)?;
-        }
 
         if section.header.data_type != HIPROFILER_PROTOBUF_BIN {
             let unsupported = UnsupportedHitraceContent {
@@ -193,29 +148,4 @@ fn decode_sections_inner(
     }
 
     plugin_registry.finish(sink)
-}
-
-fn add_header_clock_facts(bytes: &[u8], report: &mut HitraceDecodeReport) -> Result<()> {
-    const HEADER_CLOCKS: [(&str, &str, usize); 6] = [
-        ("boottime", "boottime", 60),
-        ("realtime", "realtime", 68),
-        ("realtime_coarse", "realtime_coarse", 76),
-        ("monotonic", "monotonic", 84),
-        ("monotonic_coarse", "monotonic_coarse", 92),
-        ("monotonic_raw", "monotonic_raw", 100),
-    ];
-
-    for (domain, clock_type, offset) in HEADER_CLOCKS {
-        let end = offset + std::mem::size_of::<u64>();
-        let value = u64::from_le_bytes(bytes[offset..end].try_into()?);
-        report
-            .clock_domains
-            .insert(domain.to_owned(), clock_type.to_owned());
-        report.clock_snapshots.push(ClockSnapshot {
-            snapshot_id: 0,
-            clock_domain: domain.to_owned(),
-            clock_value: value,
-        });
-    }
-    Ok(())
 }

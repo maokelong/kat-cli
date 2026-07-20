@@ -9,34 +9,43 @@ use datafusion::{
 };
 use log::debug;
 use serde_json::Value;
+use tempfile::TempDir;
 
 use crate::{
-    arrow_table::{ArrowTable, ArrowTableSet},
-    dataset::register_dataset_tables,
-    formats::{hitrace, langfuse},
-    json::batches_to_json,
-    sinks::arrow::ArrowSink,
+    dataset::register_dataset_tables, formats::langfuse, json::batches_to_json,
+    materialize_hitrace_dataset,
 };
 
 pub struct TraceDatasource {
     ctx: SessionContext,
+    _temp_dataset: Option<TempDir>,
 }
 
 impl TraceDatasource {
     pub fn from_hitrace(path: impl AsRef<Path>) -> Result<Self> {
-        let ctx = SessionContext::new();
-        let mut sink = ArrowSink::new()?;
-        hitrace::decode_file(path.as_ref(), &mut sink)?;
-        register_dataset(&ctx, sink.finish()?)?;
+        let path = path.as_ref();
+        let temp_dataset =
+            tempfile::tempdir().context("failed to create hitrace query workspace")?;
+        let dataset_path = temp_dataset.path().join("dataset");
 
-        Ok(Self { ctx })
+        futures::executor::block_on(materialize_hitrace_dataset(path, &dataset_path))?;
+        let ctx = SessionContext::new();
+        futures::executor::block_on(register_dataset_tables(&ctx, &dataset_path))?;
+
+        Ok(Self {
+            ctx,
+            _temp_dataset: Some(temp_dataset),
+        })
     }
 
     pub async fn from_dataset(path: impl AsRef<Path>) -> Result<Self> {
         let ctx = SessionContext::new();
         register_dataset_tables(&ctx, path.as_ref()).await?;
 
-        Ok(Self { ctx })
+        Ok(Self {
+            ctx,
+            _temp_dataset: None,
+        })
     }
 
     pub async fn from_langfuse_legacy(
@@ -50,7 +59,10 @@ impl TraceDatasource {
             register_materialized_jsonl_gz(&ctx, table.name, table.path).await?;
         }
 
-        Ok(Self { ctx })
+        Ok(Self {
+            ctx,
+            _temp_dataset: None,
+        })
     }
 
     pub async fn query_json(&self, sql: &str) -> Result<Value> {
@@ -61,27 +73,6 @@ impl TraceDatasource {
 
         batches_to_json(&batches)
     }
-}
-
-fn register_dataset(ctx: &SessionContext, dataset: ArrowTableSet) -> Result<()> {
-    for table in dataset.tables {
-        register_table(ctx, table)?;
-    }
-
-    Ok(())
-}
-
-fn register_table(ctx: &SessionContext, table: ArrowTable) -> Result<()> {
-    let schema = table
-        .batches
-        .first()
-        .with_context(|| format!("datasource table {} is missing batches", table.name))?
-        .schema();
-    let mem_table = MemTable::try_new(schema, vec![table.batches])?;
-    ctx.register_table(table.name, Arc::new(mem_table))?;
-    debug!("registered datasource table: {}", table.name);
-
-    Ok(())
 }
 
 async fn register_materialized_jsonl_gz(

@@ -5,14 +5,11 @@ mod registry;
 
 use anyhow::{Context, Result};
 
-use crate::{
-    proto::ProfilerPluginData,
-    record::{TraceRecord, TraceRecordSink},
-};
+use crate::{proto::ProfilerPluginData, record::TraceRecordSink};
 
 pub(crate) use envelope::{PluginEnvelope, PluginEnvelopeKind};
 pub(crate) use payload::decode_payload;
-pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
+pub(crate) use registry::{PluginDecoder, PluginPayloadRegistry};
 
 use framing::for_each_profiler_envelope_frame;
 
@@ -39,16 +36,10 @@ pub(crate) fn decode_plugin_section_body_with_observer(
     mut observer: impl FnMut(&ProfilerPluginData, bool, usize) -> Result<()>,
 ) -> Result<()> {
     for_each_profiler_envelope_frame(section_body, |message, frame_offset| {
-        {
-            let envelope =
-                PluginEnvelope::from_profiler_plugin_data(&message, section_start + frame_offset);
-            let known = registry.dispatch(&envelope, sink)?;
-            observer(&message, known, frame_offset)?;
-        }
-        sink.push(TraceRecord::ProfilerPluginData(message))
-            .with_context(|| {
-                format!("failed to append profiler section at byte {section_start} to trace sink")
-            })?;
+        let envelope =
+            PluginEnvelope::from_profiler_plugin_data(&message, section_start + frame_offset);
+        let known = registry.dispatch(&envelope, sink)?;
+        observer(&message, known, frame_offset)?;
         Ok(())
     })
     .with_context(|| format!("failed to parse profiler section at byte {section_start}"))

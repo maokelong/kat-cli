@@ -54,6 +54,15 @@ impl DatasetWriteTarget {
         self.protected_paths.push(path.into());
         self
     }
+
+    pub(crate) fn prepare_for_relational_write(self) -> Result<PathBuf, DatasetWriteError> {
+        let root = prepare_target(&self)?;
+        fs::remove_dir(&root).map_err(|source| DatasetWriteError::RemoveTargetEntry {
+            path: root.clone(),
+            source,
+        })?;
+        Ok(root)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

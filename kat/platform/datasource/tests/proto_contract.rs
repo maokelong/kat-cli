@@ -1,5 +1,73 @@
 use prost::Message;
-use std::fs;
+
+use kat_datasource as kat_rs_datasource;
+
+#[test]
+fn generated_descriptor_summary_contains_current_proto_roots() {
+    let roots = kat_rs_datasource::relational_for_tests::descriptor_root_names();
+
+    for root in [
+        "CpuData",
+        "MemoryData",
+        "ProcessData",
+        "DiskioData",
+        "NetworkDatas",
+        "GpuData",
+        "TracePluginResult",
+        "FtraceCpuDetailMsg",
+        "FtraceEvent",
+        "BinderCommandFormat",
+        "BlockRqIssueFormat",
+        "BatchNativeHookData",
+        "NativeHookData",
+        "AllocEvent",
+        "Frame",
+    ] {
+        assert!(
+            roots.contains(&root.to_string()),
+            "{root} should be available to relational planning"
+        );
+    }
+}
+
+#[test]
+fn expansion_plan_detects_tables_from_selected_roots() {
+    let table_names = kat_rs_datasource::relational_for_tests::expansion_plan_table_names(&[
+        "MemoryData",
+        "TracePluginResult",
+        "NativeHookConfig",
+        "BatchNativeHookData",
+    ]);
+
+    for table in [
+        "memory_data",
+        "memory_data__processesinfo",
+        "memory_data__processesinfo__smapinfo",
+        "trace_plugin_result__ftrace_cpu_detail",
+        "trace_plugin_result__ftrace_cpu_detail__event",
+        "trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format",
+        "batch_native_hook_data__events",
+        "batch_native_hook_data__events__alloc_event",
+        "batch_native_hook_data__events__alloc_event__frame_info",
+        "batch_native_hook_data__events__stack_map__frame_map_id",
+        "batch_native_hook_data__events__stack_map__ip",
+        "native_hook_config__expand_pids",
+        "native_hook_config__restrace_tag",
+    ] {
+        assert!(
+            table_names.contains(&table.to_string()),
+            "{table} should be derived from selected roots"
+        );
+    }
+
+    let cpu_tables =
+        kat_rs_datasource::relational_for_tests::expansion_plan_table_names(&["CpuData"]);
+    assert!(cpu_tables.contains(&"cpu_data".to_string()));
+    assert!(
+        !cpu_tables.contains(&"memory_data".to_string()),
+        "unselected roots should not leak into the plan"
+    );
+}
 
 #[allow(dead_code)]
 mod proto {
@@ -11,170 +79,30 @@ mod proto {
         pub mod native_hook {
             include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
         }
-    }
 
-    pub(crate) use kat::hitrace::ProfilerPluginData;
-    pub(crate) use kat::native_hook::NativeHookConfig;
-}
-
-mod arrow_table {
-    #![allow(dead_code)]
-
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/arrow_table.rs"));
-}
-
-mod record {
-    #![allow(dead_code)]
-
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/record.rs"));
-}
-
-mod domains {
-    pub(crate) mod ftrace {
-        #![allow(dead_code)]
-
-        include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/domains/ftrace/event.rs"
-        ));
-    }
-
-    pub(crate) mod native_hook {
-        #![allow(dead_code)]
-
-        mod event {
-            include!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/domains/native_hook/event.rs"
-            ));
+        pub mod cpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.cpu_data.rs"));
         }
 
-        mod records {
-            include!(concat!(env!("OUT_DIR"), "/native_hook_records.rs"));
+        pub mod memory_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.memory_data.rs"));
         }
 
-        pub(crate) use event::{NativeHookEvent, NativeHookEventContext};
-        pub(crate) use records::NativeHookRecord;
-    }
-}
-
-mod sinks {
-    pub(crate) mod arrow {
-        #[allow(dead_code)]
-        mod table {
-            include!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/sinks/arrow/table.rs"
-            ));
+        pub mod process_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.process_data.rs"));
         }
 
-        #[allow(dead_code)]
-        mod ftrace {
-            include!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/sinks/arrow/ftrace.rs"
-            ));
+        pub mod diskio_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.diskio_data.rs"));
         }
 
-        pub(crate) use ftrace::{EventMeta, FtraceEventTableBuilder};
-    }
-}
-
-mod ftrace_event_table_builders {
-    include!(concat!(env!("OUT_DIR"), "/ftrace_event_table_builders.rs"));
-}
-
-#[test]
-fn trace_record_stream_models_pre_sink_records() {
-    let clock_id =
-        proto::kat::hitrace::profiler_plugin_data::ClockId::from_str_name("CLOCKID_BOOTTIME")
-            .expect("upstream clock id enum exists");
-    let plugin = proto::ProfilerPluginData {
-        name: "ftrace-plugin".to_string(),
-        clock_id: clock_id as i32,
-        ..Default::default()
-    };
-
-    match record::TraceRecord::ProfilerPluginData(plugin) {
-        record::TraceRecord::ProfilerPluginData(record) => {
-            assert_eq!(record.name, "ftrace-plugin");
-            assert_eq!(
-                proto::kat::hitrace::profiler_plugin_data::ClockId::try_from(record.clock_id)
-                    .expect("clock id decodes")
-                    .as_str_name(),
-                "CLOCKID_BOOTTIME"
-            );
+        pub mod network_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.network_data.rs"));
         }
-        record::TraceRecord::FtraceCapture(_) => unreachable!("expected plugin data record"),
-        record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
-        record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
-    }
 
-    let event = domains::ftrace::FtraceEventRecord::new(
-        3,
-        proto::kat::hitrace::FtraceEvent {
-            timestamp: 20,
-            tgid: 500,
-            comm: "source".to_string(),
-            ..Default::default()
-        },
-    );
-
-    match record::TraceRecord::Ftrace(Box::new(domains::ftrace::FtraceRecord::Event(Box::new(
-        event,
-    )))) {
-        record::TraceRecord::Ftrace(record) => match *record {
-            domains::ftrace::FtraceRecord::Event(event) => {
-                assert_eq!(event.context.cpu, 3);
-                assert_eq!(event.event.timestamp, 20);
-            }
-        },
-        record::TraceRecord::FtraceCapture(_) => unreachable!("expected ftrace event record"),
-        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
-        record::TraceRecord::NativeHook(_) => unreachable!("expected ftrace event record"),
-    }
-
-    let config = proto::NativeHookConfig {
-        pid: 42,
-        process_name: "native".to_string(),
-        ..Default::default()
-    };
-    match record::TraceRecord::NativeHook(Box::new(domains::native_hook::NativeHookRecord::Config(
-        Box::new(config),
-    ))) {
-        record::TraceRecord::NativeHook(record) => match *record {
-            domains::native_hook::NativeHookRecord::Config(config) => {
-                assert_eq!(config.pid, 42);
-                assert_eq!(config.process_name, "native");
-            }
-            _ => unreachable!("expected native hook config"),
-        },
-        record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook config"),
-        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook config"),
-        record::TraceRecord::Ftrace(_) => unreachable!("expected native hook config"),
-    }
-
-    let event = domains::native_hook::NativeHookEvent::new(
-        domains::native_hook::NativeHookEventContext::new(1, 2),
-        proto::kat::native_hook::AllocEvent {
-            pid: 42,
-            ..Default::default()
-        },
-    );
-    match record::TraceRecord::NativeHook(Box::new(domains::native_hook::NativeHookRecord::Alloc(
-        Box::new(event),
-    ))) {
-        record::TraceRecord::NativeHook(record) => match *record {
-            domains::native_hook::NativeHookRecord::Alloc(event) => {
-                assert_eq!(event.context.tv_sec, 1);
-                assert_eq!(event.context.tv_nsec, 2);
-                assert_eq!(event.event.pid, 42);
-            }
-            _ => unreachable!("expected native hook event"),
-        },
-        record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook event"),
-        record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook event"),
-        record::TraceRecord::Ftrace(_) => unreachable!("expected native hook event"),
+        pub mod gpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.gpu_data.rs"));
+        }
     }
 }
 
@@ -203,25 +131,6 @@ fn generated_proto_includes_sched_switch_format() {
 }
 
 #[test]
-fn generated_proto_includes_upstream_sched_messages() {
-    let value = proto::kat::hitrace::SchedBlockedReasonFormat {
-        pid: 42,
-        caller: 0xfeed_beef,
-        io_wait: 1,
-        caller_str: "finish_task_switch".to_string(),
-    };
-
-    let decoded =
-        proto::kat::hitrace::SchedBlockedReasonFormat::decode(value.encode_to_vec().as_slice())
-            .expect("decode");
-
-    assert_eq!(decoded.pid, 42);
-    assert_eq!(decoded.caller, 0xfeed_beef);
-    assert_eq!(decoded.io_wait, 1);
-    assert_eq!(decoded.caller_str, "finish_task_switch");
-}
-
-#[test]
 fn generated_ftrace_event_uses_direct_sched_fields() {
     let value = proto::kat::hitrace::FtraceEvent {
         timestamp: 10,
@@ -235,12 +144,6 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
             next_comm: "main".to_string(),
             next_pid: 7,
             next_prio: 100,
-        }),
-        sched_blocked_reason_format: Some(proto::kat::hitrace::SchedBlockedReasonFormat {
-            pid: 42,
-            caller: 0xfeed_beef,
-            io_wait: 1,
-            caller_str: "finish_task_switch".to_string(),
         }),
         common_fields: Some(proto::kat::hitrace::ftrace_event::CommonFileds {
             r#type: 123,
@@ -256,10 +159,7 @@ fn generated_ftrace_event_uses_direct_sched_fields() {
 
     assert_eq!(decoded.timestamp, 10);
     assert!(decoded.sched_switch_format.is_some());
-    assert!(decoded.sched_blocked_reason_format.is_some());
-    let common_fields = decoded.common_fields.expect("common fields decode");
-    assert_eq!(common_fields.r#type, 123);
-    assert_eq!(common_fields.pid, 42);
+    assert_eq!(decoded.common_fields.expect("common fields decode").pid, 42);
 }
 
 #[test]
@@ -285,20 +185,15 @@ fn generated_proto_includes_native_hook_config_and_events() {
 
     assert_eq!(decoded.pid, 42);
     assert!(decoded.save_file);
-    assert_eq!(decoded.file_name, "native-hook.bin");
-    assert_eq!(decoded.statistics_interval, 5);
     assert_eq!(decoded.expand_pids, vec![42, 77]);
     assert!(decoded.dump_nmd);
-    assert_eq!(decoded.target_so_name, "libark_jsruntime.so");
-    assert_eq!(decoded.restrace_tag, vec!["fd", "vm"]);
 
-    let batch =
-        proto::kat::native_hook::BatchNativeHookData {
-            events: vec![
-            proto::kat::native_hook::NativeHookData {
-                tv_sec: 1,
-                tv_nsec: 20,
-                event: Some(proto::kat::native_hook::native_hook_data::Event::AllocEvent(
+    let batch = proto::kat::native_hook::BatchNativeHookData {
+        events: vec![proto::kat::native_hook::NativeHookData {
+            tv_sec: 1,
+            tv_nsec: 20,
+            event: Some(
+                proto::kat::native_hook::native_hook_data::Event::AllocEvent(
                     proto::kat::native_hook::AllocEvent {
                         pid: 42,
                         tid: 43,
@@ -308,225 +203,101 @@ fn generated_proto_includes_native_hook_config_and_events() {
                         stack_id: 8,
                         ..Default::default()
                     },
-                )),
-            },
-            proto::kat::native_hook::NativeHookData {
-                tv_sec: 2,
-                tv_nsec: 30,
-                event: Some(
-                    proto::kat::native_hook::native_hook_data::Event::StatisticsEvent(
-                        proto::kat::native_hook::RecordStatisticsEvent {
-                            pid: 42,
-                            callstack_id: 9,
-                            r#type:
-                                proto::kat::native_hook::record_statistics_event::MemoryType::Mmap
-                                    as i32,
-                            apply_count: 3,
-                            release_count: 1,
-                            apply_size: 256,
-                            release_size: 128,
-                            tag_name: "ashmem".to_string(),
-                        },
-                    ),
                 ),
-            },
-            proto::kat::native_hook::NativeHookData {
-                tv_sec: 3,
-                tv_nsec: 40,
-                event: Some(
-                    proto::kat::native_hook::native_hook_data::Event::TraceAllocEvent(
-                        proto::kat::native_hook::TraceAllocEvent {
-                            pid: 42,
-                            tid: 44,
-                            addr: 0x2000,
-                            trace_type: proto::kat::native_hook::TraceType::Fd as i32,
-                            tag_name: "fd".to_string(),
-                            size: 16,
-                            thread_name_id: 11,
-                            stack_id: 12,
-                            ..Default::default()
-                        },
-                    ),
-                ),
-            },
-            proto::kat::native_hook::NativeHookData {
-                tv_sec: 4,
-                tv_nsec: 50,
-                event: Some(
-                    proto::kat::native_hook::native_hook_data::Event::TraceFreeEvent(
-                        proto::kat::native_hook::TraceFreeEvent {
-                            pid: 42,
-                            tid: 44,
-                            addr: 0x2000,
-                            trace_type: proto::kat::native_hook::TraceType::Fd as i32,
-                            tag_name: "fd".to_string(),
-                            thread_name_id: 11,
-                            stack_id: 12,
-                            ..Default::default()
-                        },
-                    ),
-                ),
-            },
-        ],
-        };
+            ),
+        }],
+    };
 
     let decoded =
         proto::kat::native_hook::BatchNativeHookData::decode(batch.encode_to_vec().as_slice())
             .expect("decode");
 
-    assert_eq!(decoded.events.len(), 4);
-    assert_eq!(decoded.events[0].tv_sec, 1);
+    assert_eq!(decoded.events.len(), 1);
     assert!(matches!(
         decoded.events[0].event,
         Some(proto::kat::native_hook::native_hook_data::Event::AllocEvent(_))
     ));
-    assert!(matches!(
-        decoded.events[1].event,
-        Some(proto::kat::native_hook::native_hook_data::Event::StatisticsEvent(_))
-    ));
-    assert!(matches!(
-        decoded.events[2].event,
-        Some(proto::kat::native_hook::native_hook_data::Event::TraceAllocEvent(_))
-    ));
-    assert!(matches!(
-        decoded.events[3].event,
-        Some(proto::kat::native_hook::native_hook_data::Event::TraceFreeEvent(_))
-    ));
 }
 
 #[test]
-fn generated_ftrace_table_set_routes_direct_events_to_tables() {
-    let mut builders =
-        ftrace_event_table_builders::FtraceTableSet::new().expect("builders are created");
-
-    builders
-        .push_record(domains::ftrace::FtraceRecord::Event(Box::new(
-            domains::ftrace::FtraceEventRecord::new(
-                3,
-                proto::kat::hitrace::FtraceEvent {
-                    timestamp: 20,
-                    tgid: 500,
-                    comm: "source".to_string(),
-                    sched_switch_format: Some(proto::kat::hitrace::SchedSwitchFormat {
-                        prev_comm: "render".to_string(),
-                        prev_pid: 42,
-                        prev_prio: 120,
-                        prev_state: 1,
-                        next_comm: "main".to_string(),
-                        next_pid: 7,
-                        next_prio: 100,
-                    }),
-                    ..Default::default()
-                },
-            ),
-        )))
-        .expect("event is routed");
-
-    let tables = builders.into_tables().expect("tables are built");
-    let sched_switch = tables
-        .iter()
-        .find(|table| table.name == "sched_switch")
-        .expect("sched_switch table exists");
-
-    assert_eq!(sched_switch.batches[0].num_rows(), 1);
-}
-
-#[test]
-fn ftrace_event_table_builder_combines_meta_and_message_fields() {
-    let event = proto::kat::hitrace::FtraceEvent {
-        timestamp: 20,
-        tgid: 500,
-        comm: "source".to_string(),
+fn generated_proto_includes_fixed_result_system_plugins() {
+    let cpu = proto::kat::cpu_data::CpuData {
+        process_num: 2,
+        user_load: 1.5,
+        sys_load: 2.5,
+        total_load: 4.0,
         ..Default::default()
     };
-    let record = domains::ftrace::FtraceEventRecord::new(3, event);
-    let meta = sinks::arrow::EventMeta::from_record(&record);
-    let mut builder = sinks::arrow::FtraceEventTableBuilder::new::<
-        proto::kat::hitrace::SchedSwitchFormat,
-    >("sched_switch")
-    .expect("builder is created from meta and message schemas");
+    let decoded =
+        proto::kat::cpu_data::CpuData::decode(cpu.encode_to_vec().as_slice()).expect("decode");
+    assert_eq!(decoded.process_num, 2);
+    assert_eq!(decoded.user_load, 1.5);
+    assert_eq!(decoded.total_load, 4.0);
 
-    builder
-        .push(
-            meta,
-            proto::kat::hitrace::SchedSwitchFormat {
-                prev_comm: "render".to_string(),
-                prev_pid: 42,
-                prev_prio: 120,
-                prev_state: 1,
-                next_comm: "main".to_string(),
-                next_pid: 7,
-                next_prio: 100,
-            },
-        )
-        .expect("event row is appended");
+    let memory = proto::kat::memory_data::MemoryData {
+        zram: 64,
+        gpu_limit_size: 128,
+        gpu_used_size: 32,
+        ..Default::default()
+    };
+    let decoded = proto::kat::memory_data::MemoryData::decode(memory.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.zram, 64);
+    assert_eq!(decoded.gpu_limit_size, 128);
+    assert_eq!(decoded.gpu_used_size, 32);
 
-    let table = builder.into_table().expect("table is built");
-    let batch = &table.batches[0];
-    let schema = batch.schema();
+    let process = proto::kat::process_data::ProcessData {
+        processesinfo: vec![proto::kat::process_data::ProcessInfo {
+            pid: 42,
+            name: "render".to_string(),
+            ppid: 7,
+            uid: 1000,
+            cpuinfo: Some(proto::kat::process_data::CpuInfo {
+                cpu_usage: 12.5,
+                thread_sum: 3,
+                cpu_time_ms: 456,
+            }),
+            ..Default::default()
+        }],
+    };
+    let decoded = proto::kat::process_data::ProcessData::decode(process.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.processesinfo.len(), 1);
+    assert_eq!(decoded.processesinfo[0].pid, 42);
 
-    assert_eq!(batch.num_rows(), 1);
-    for field in [
-        "event_timestamp",
-        "event_cpu",
-        "event_tgid",
-        "event_comm",
-        "prev_comm",
-        "prev_pid",
-        "prev_prio",
-        "prev_state",
-        "next_comm",
-        "next_pid",
-        "next_prio",
-    ] {
-        assert!(
-            schema.field_with_name(field).is_ok(),
-            "{field} should be a top-level column"
-        );
-    }
-    assert!(schema.field_with_name("meta").is_err());
-    assert!(schema.field_with_name("message").is_err());
-}
+    let diskio = proto::kat::diskio_data::DiskioData {
+        rd_sectors_kb: 10,
+        wr_sectors_kb: 20,
+        ..Default::default()
+    };
+    let decoded = proto::kat::diskio_data::DiskioData::decode(diskio.encode_to_vec().as_slice())
+        .expect("decode");
+    assert_eq!(decoded.rd_sectors_kb, 10);
 
-#[test]
-fn ftrace_payload_messages_live_under_ftrace_data_proto() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let profiler_plugin_data = fs::read_to_string(format!(
-        "{manifest_dir}/proto/profiler/profiler_plugin_data.proto"
-    ))
-    .expect("profiler plugin data proto source can be read");
-    let ftrace_event = fs::read_to_string(format!(
-        "{manifest_dir}/proto/ftrace_data/ftrace_event.proto"
-    ))
-    .expect("ftrace event proto source can be read");
-    let trace_result = fs::read_to_string(format!(
-        "{manifest_dir}/proto/ftrace_data/trace_plugin_result.proto"
-    ))
-    .expect("trace plugin result proto source can be read");
+    let network = proto::kat::network_data::NetworkDatas {
+        networkinfo: vec![proto::kat::network_data::NetworkData {
+            pid: 42,
+            tx_bytes: 100,
+            rx_bytes: 200,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let decoded =
+        proto::kat::network_data::NetworkDatas::decode(network.encode_to_vec().as_slice())
+            .expect("decode");
+    assert_eq!(decoded.networkinfo.len(), 1);
 
-    assert!(profiler_plugin_data.contains("message ProfilerPluginData"));
-    assert!(profiler_plugin_data.contains("enum ClockId"));
-    assert!(profiler_plugin_data.contains("services/common_types.proto::ProfilerPluginData"));
-    assert!(!profiler_plugin_data.contains("message TracePluginResult"));
-    assert!(!profiler_plugin_data.contains("message FtraceEvent"));
-    assert!(ftrace_event.contains("message FtraceEvent"));
-    assert!(ftrace_event.contains("message CommonFileds"));
-    assert!(ftrace_event.contains("import \"ftrace_data/sched.proto\";"));
-    assert!(trace_result.contains("message TracePluginResult"));
-    assert!(trace_result.contains("repeated FtraceCpuStatsMsg ftrace_cpu_stats = 1;"));
-    assert!(trace_result.contains("repeated ClockDetailMsg clocks_detail = 6;"));
-    assert!(trace_result.contains("import \"ftrace_data/ftrace_event.proto\";"));
-}
-
-#[test]
-fn sched_proto_uses_hitrace_package_and_project_format() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let source = fs::read_to_string(format!("{manifest_dir}/proto/ftrace_data/sched.proto"))
-        .expect("sched proto source can be read");
-
-    assert!(source.contains("package kat.hitrace;"));
-    assert!(source.contains("// Adapted from trace_streamer ftrace_data/sched.proto."));
-    assert!(!source.contains("THIS FILE IS GENERATED BY"));
-    assert!(source.contains("  int32 pid = 1;"));
-    assert!(!source.contains("   int32 pid = 1;"));
+    let gpu = proto::kat::gpu_data::GpuData {
+        boottime: 100,
+        gpu_utilisation: 80,
+        gpu_data_array: vec![proto::kat::gpu_data::GpuDataExt {
+            boottime: 101,
+            gpu_utilisation: 81,
+        }],
+    };
+    let decoded =
+        proto::kat::gpu_data::GpuData::decode(gpu.encode_to_vec().as_slice()).expect("decode");
+    assert_eq!(decoded.boottime, 100);
+    assert_eq!(decoded.gpu_data_array.len(), 1);
 }

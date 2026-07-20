@@ -9,7 +9,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use parquet::file::reader::SerializedFileReader;
 use url::Url;
 
-use super::catalog::{DatasetCatalog, DatasetTable, DatasetTableKind};
+use super::catalog::{DatasetCatalog, DatasetTable};
 
 pub(crate) async fn register_dataset_tables(
     ctx: &SessionContext,
@@ -102,12 +102,12 @@ fn validate_catalog(
         if !names.insert(table.name.as_str()) {
             bail!("duplicate dataset table name: {}", table.name);
         }
-        validate_table_kind(table)?;
+        validate_table_format(table)?;
         let path = validate_table_path(table, dataset_path, &dataset_root)?;
         tables.push(ValidatedDatasetTable {
             name: table.name.clone(),
             relative_path: table.path.clone(),
-            kind: table.kind.as_str(),
+            kind: table_kind(table),
             path,
         });
     }
@@ -115,33 +115,21 @@ fn validate_catalog(
     Ok(tables)
 }
 
-fn validate_table_kind(table: &DatasetTable) -> Result<()> {
-    match table.kind {
-        DatasetTableKind::Source => {
-            if table.producer.is_some() {
-                bail!(
-                    "source dataset table {} must not declare producer",
-                    table.name
-                );
-            }
-        }
-        DatasetTableKind::Derived => {
-            let Some(producer) = &table.producer else {
-                bail!("derived dataset table {} must declare producer", table.name);
-            };
-            if producer.pack_ref.is_empty() {
-                bail!(
-                    "derived dataset table {} producer packRef must not be empty",
-                    table.name
-                );
-            }
-            if producer.transform_id.is_empty() {
-                bail!(
-                    "derived dataset table {} producer transformId must not be empty",
-                    table.name
-                );
-            }
-        }
+fn table_kind(table: &DatasetTable) -> &'static str {
+    if table.path.starts_with("derived/") {
+        "derived"
+    } else {
+        "source"
+    }
+}
+
+fn validate_table_format(table: &DatasetTable) -> Result<()> {
+    if table.format != "parquet" {
+        bail!(
+            "dataset table {} has unsupported format: {}",
+            table.name,
+            table.format
+        );
     }
 
     Ok(())

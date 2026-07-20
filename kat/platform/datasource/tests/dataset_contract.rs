@@ -1,14 +1,17 @@
 use arrow_array::{Int32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use flate2::{Compression, write::GzEncoder};
-use kat_datasource::{DatasetLocator, DatasetStore, DatasetWriteTarget};
+use kat_datasource as kat_rs_datasource;
+use kat_rs_datasource::{DatasetLocator, DatasetStore};
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use prost::Message;
+use prost::{Message, Oneof};
 use serde_json::json;
+#[cfg(any(target_os = "linux", target_os = "redox"))]
+use std::process::Command;
 use std::{
     env,
     fs::{self, File},
-    io::{self, Write},
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -173,7 +176,7 @@ async fn dataset_reader_rejects_legacy_version_and_table_metadata_fields() {
 }"#;
     fs::write(dataset_path.join("catalog.json"), json).expect("catalog is written");
 
-    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
         Ok(_) => panic!("legacy catalog table metadata should be rejected"),
         Err(error) => error,
     };
@@ -193,235 +196,11 @@ async fn hitrace_materialize_rejects_existing_target() {
     let target = root.path().join("default");
     fs::create_dir_all(&target).expect("target exists");
 
-    let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
+    let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
         .await
         .expect_err("existing target is rejected");
 
     assert!(error.to_string().contains("already exists"));
-}
-
-#[test]
-fn managed_hitrace_import_reuses_migrated_tables_and_reports_unknown_content() {
-    let root = tempdir().expect("tempdir");
-    let trace_path = root.path().join("capture.hitrace");
-    let target = root.path().join("dataset");
-    let mut bytes = profiler_section(vec![
-        TestProfilerPluginData {
-            name: "z-plugin".to_string(),
-            status: 0,
-            data: vec![1],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        },
-        TestProfilerPluginData {
-            name: "a-plugin_config".to_string(),
-            status: 0,
-            data: vec![2],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        },
-        TestProfilerPluginData {
-            name: "z-plugin".to_string(),
-            status: 0,
-            data: vec![3],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        },
-    ]);
-    bytes.extend(profiler_section_body(1000, Vec::new()));
-    bytes.extend(profiler_section_body(77, Vec::new()));
-    fs::write(&trace_path, bytes).expect("trace is written");
-
-    let mut unsupported_content = Vec::new();
-    let imported = kat_datasource::import_hitrace(
-        &trace_path,
-        DatasetWriteTarget::write_to_empty(&target),
-        |content| {
-            unsupported_content.push((
-                content.kind().to_owned(),
-                content.value().to_owned(),
-                content.byte_offset(),
-            ));
-            Ok(())
-        },
-    )
-    .expect("Hitrace import succeeds");
-
-    assert_eq!(imported.unsupported_plugins(), ["a-plugin", "z-plugin"]);
-    assert_eq!(imported.unsupported_section_types(), [77, 1000]);
-    assert_eq!(
-        unsupported_content
-            .iter()
-            .map(|(kind, value, _)| (kind.as_str(), value.as_str()))
-            .collect::<Vec<_>>(),
-        [
-            ("plugin", "z-plugin"),
-            ("plugin", "a-plugin"),
-            ("plugin", "z-plugin"),
-            ("section_type", "1000"),
-            ("section_type", "77"),
-        ]
-    );
-    assert!(
-        unsupported_content
-            .windows(2)
-            .all(|content| content[0].2 < content[1].2)
-    );
-    assert!(target.join(".kat-dataset").is_file());
-    let tables = kat_datasource::inspect_dataset(&target)
-        .expect("managed Dataset can be inspected")
-        .tables()
-        .iter()
-        .map(|table| table.name().to_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(tables, ["clock_domain", "clock_snapshot"]);
-}
-
-#[test]
-fn managed_hitrace_import_streams_repeated_unknown_occurrences_without_retaining_them() {
-    let root = tempdir().expect("tempdir");
-    let trace_path = root.path().join("many-unknown.hitrace");
-    let target = root.path().join("dataset");
-    let frames = (0..=8192)
-        .map(|index| TestProfilerPluginData {
-            name: "future-plugin".to_owned(),
-            status: 0,
-            data: vec![(index % 255) as u8],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        })
-        .collect();
-    fs::write(&trace_path, profiler_section(frames)).expect("trace is written");
-
-    let mut observed = 0;
-    let imported = kat_datasource::import_hitrace(
-        &trace_path,
-        DatasetWriteTarget::write_to_empty(&target),
-        |_| {
-            observed += 1;
-            Ok(())
-        },
-    )
-    .expect("unknown occurrences remain importable");
-
-    assert_eq!(observed, 8193);
-    assert_eq!(imported.unsupported_plugins(), ["future-plugin"]);
-}
-
-#[test]
-fn managed_hitrace_import_streams_unknown_occurrences_before_decode_failure() {
-    let root = tempdir().expect("tempdir");
-    let trace_path = root.path().join("partially-invalid.hitrace");
-    let mut bytes = profiler_section(vec![
-        TestProfilerPluginData {
-            name: "first-plugin".to_owned(),
-            status: 0,
-            data: vec![1],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        },
-        TestProfilerPluginData {
-            name: "second-plugin_config".to_owned(),
-            status: 0,
-            data: vec![2],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        },
-    ]);
-    bytes.extend_from_slice(b"truncated-section");
-    fs::write(&trace_path, bytes).expect("trace is written");
-
-    let mut observed = Vec::new();
-    kat_datasource::import_hitrace(
-        &trace_path,
-        DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
-        |content| {
-            observed.push(content.value().to_owned());
-            Ok(())
-        },
-    )
-    .expect_err("truncated capture is rejected");
-
-    assert_eq!(observed, ["first-plugin", "second-plugin"]);
-}
-
-#[test]
-fn unsupported_content_observer_failure_precedes_authorized_target_mutation() {
-    let root = tempdir().expect("tempdir");
-    let trace_path = root.path().join("capture.hitrace");
-    let target = root.path().join("dataset");
-    fs::write(
-        &trace_path,
-        profiler_section(vec![TestProfilerPluginData {
-            name: "future-plugin".to_owned(),
-            status: 0,
-            data: vec![1],
-            clock_id: 0,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: String::new(),
-            sample_interval: 0,
-        }]),
-    )
-    .expect("trace is written");
-    fs::create_dir(&target).expect("target exists");
-    fs::write(target.join("sentinel"), "unchanged").expect("sentinel is written");
-
-    let error = kat_datasource::import_hitrace(
-        &trace_path,
-        DatasetWriteTarget::permanently_replace_all_contents(&target),
-        |_| Err(io::Error::new(io::ErrorKind::WriteZero, "log is full")),
-    )
-    .expect_err("observer failure rejects the import");
-
-    assert!(matches!(
-        error,
-        kat_datasource::HitraceImportError::ObserveUnsupportedContent { .. }
-    ));
-    assert_eq!(
-        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
-        "unchanged"
-    );
-}
-
-#[test]
-fn invalid_hitrace_preserves_authorized_overwrite_target() {
-    let root = tempdir().expect("tempdir");
-    let trace_path = root.path().join("invalid.hitrace");
-    let target = root.path().join("dataset");
-    fs::write(&trace_path, b"not a Hitrace capture").expect("invalid trace is written");
-    fs::create_dir(&target).expect("target directory is created");
-    fs::write(target.join("sentinel"), "unchanged").expect("sentinel is written");
-
-    kat_datasource::import_hitrace(
-        &trace_path,
-        DatasetWriteTarget::permanently_replace_all_contents(&target),
-        |_| Ok(()),
-    )
-    .expect_err("invalid Hitrace is rejected");
-
-    assert_eq!(
-        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
-        "unchanged"
-    );
 }
 
 #[cfg(unix)]
@@ -434,7 +213,7 @@ async fn hitrace_materialize_rejects_broken_symlink_target() {
     std::os::unix::fs::symlink(root.path().join("missing"), &target)
         .expect("broken symlink target is created");
 
-    let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
+    let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
         .await
         .expect_err("broken symlink target is rejected");
 
@@ -456,7 +235,7 @@ async fn hitrace_materialize_rejects_invalid_target_paths() {
     ];
 
     for target in invalid_targets {
-        let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
+        let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
             .await
             .expect_err("invalid target is rejected");
 
@@ -475,17 +254,20 @@ async fn hitrace_dataset_queries_after_source_file_is_removed() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     fs::remove_file(&trace_path).expect("source is removed");
 
-    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
-        .query_json("select prev_comm, prev_pid, next_comm, next_pid from sched_switch")
+        .query_json(
+            "select prev_comm, prev_pid, next_comm, next_pid \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format",
+        )
         .await
         .expect("dataset query works");
 
@@ -501,13 +283,13 @@ async fn hitrace_dataset_queries_after_source_file_is_removed() {
 }
 
 #[tokio::test]
-async fn materialized_catalog_records_source_table_kind() {
+async fn materialized_catalog_records_only_table_path_and_format() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -532,12 +314,16 @@ async fn materialized_catalog_records_source_table_kind() {
         .as_array()
         .expect("catalog tables is an array")
         .iter()
-        .find(|table| table["name"] == "sched_switch")
+        .find(|table| {
+            table["name"] == "trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format"
+        })
         .expect("sched_switch table exists");
 
-    assert_eq!(sched_switch["path"], "tables/hitrace.sched_switch.parquet");
-    assert_eq!(sched_switch["kind"], "source");
-    assert!(sched_switch["producer"].is_null(), "{sched_switch:?}");
+    assert_eq!(
+        sched_switch["path"],
+        "tables/trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format.parquet"
+    );
+    assert_eq!(sched_switch["format"], "parquet");
     assert!(catalog["version"].is_null(), "{catalog:?}");
     assert_eq!(
         sched_switch
@@ -546,18 +332,193 @@ async fn materialized_catalog_records_source_table_kind() {
             .keys()
             .cloned()
             .collect::<Vec<_>>(),
-        vec!["kind".to_string(), "name".to_string(), "path".to_string()]
+        vec!["format".to_string(), "name".to_string(), "path".to_string()]
     );
 }
 
 #[tokio::test]
-async fn dataset_reader_rejects_source_table_with_producer() {
+async fn hitrace_materialize_writes_relational_tables_for_prototype_rules() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("relational.hitrace");
+    fs::write(&trace_path, relational_trace()).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+
+    let overview = datasource
+        .query_json("select zram, gpu_used_size from memory_data")
+        .await
+        .expect("memory overview query succeeds");
+    assert_eq!(overview, json!([{ "zram": 64u64, "gpu_used_size": 32u64 }]));
+
+    let source_indexes = datasource
+        .query_json(
+            "select 'memory' as table_name, source_index from memory_data \
+             union all \
+             select 'ftrace' as table_name, source_index from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format \
+             union all \
+             select 'native_hook' as table_name, source_index \
+             from batch_native_hook_data__events__alloc_event \
+             order by table_name",
+        )
+        .await
+        .expect("source index query succeeds");
+    assert_eq!(
+        source_indexes,
+        json!([
+            { "table_name": "ftrace", "source_index": 0u64 },
+            { "table_name": "memory", "source_index": 0u64 },
+            { "table_name": "native_hook", "source_index": 0u64 },
+        ])
+    );
+
+    let smaps = datasource
+        .query_json(
+            "select p.pid, s.path, s.rss \
+             from memory_data__processesinfo__smapinfo s \
+             join memory_data__processesinfo p \
+               on s.source_index = p.source_index \
+              and s.parent_index = p.row_index",
+        )
+        .await
+        .expect("memory smaps join query succeeds");
+    assert_eq!(
+        smaps,
+        json!([{ "pid": 42, "path": "/system/lib/libark.so", "rss": 512u64 }])
+    );
+
+    let ftrace = datasource
+        .query_json(
+            "select c.cpu as event_cpu, s.prev_comm, s.next_comm \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format s \
+             join trace_plugin_result__ftrace_cpu_detail__event e \
+               on s.source_index = e.source_index \
+              and s.parent_index = e.row_index \
+             join trace_plugin_result__ftrace_cpu_detail c \
+               on e.source_index = c.source_index \
+              and e.parent_index = c.row_index",
+        )
+        .await
+        .expect("ftrace event query succeeds");
+    assert_eq!(
+        ftrace,
+        json!([{ "event_cpu": 3, "prev_comm": "RenderThread", "next_comm": "main" }])
+    );
+
+    let alloc = datasource
+        .query_json(
+            "select pid, tid, addr, size \
+             from batch_native_hook_data__events__alloc_event",
+        )
+        .await
+        .expect("native hook alloc query succeeds");
+    assert_eq!(
+        alloc,
+        json!([{ "pid": 42, "tid": 43, "addr": 4096u64, "size": 64u64 }])
+    );
+
+    let frames = datasource
+        .query_json(
+            "select symbol_name, file_path \
+             from batch_native_hook_data__events__alloc_event__frame_info",
+        )
+        .await
+        .expect("native hook frame query succeeds");
+    assert_eq!(
+        frames,
+        json!([{ "symbol_name": "malloc", "file_path": "/system/lib/libc.so" }])
+    );
+}
+
+#[tokio::test]
+async fn hitrace_streaming_flush_keeps_row_indexes_and_parent_joins() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("streaming-flush.hitrace");
+    let event_count = (EXPECTED_MAX_DATASET_ROW_GROUP_ROWS + 3) as usize;
+    fs::write(&trace_path, streaming_flush_trace(event_count)).expect("trace is written");
+    let dataset_path = dir.path().join("dataset");
+
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+        .await
+        .expect("dataset is materialized");
+
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+        .await
+        .expect("dataset opens");
+
+    let event_stats = datasource
+        .query_json(
+            "select count(*) as row_count, \
+                    min(row_index) as min_row_index, \
+                    max(row_index) as max_row_index, \
+                    count(distinct row_index) as distinct_row_indexes \
+             from trace_plugin_result__ftrace_cpu_detail__event",
+        )
+        .await
+        .expect("event row indexes query succeeds");
+    assert_eq!(
+        event_stats,
+        json!([{
+            "row_count": event_count as u64,
+            "min_row_index": 0u64,
+            "max_row_index": (event_count - 1) as u64,
+            "distinct_row_indexes": event_count as u64,
+        }])
+    );
+
+    let joined_rows = datasource
+        .query_json(
+            "select count(*) as row_count \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format s \
+             join trace_plugin_result__ftrace_cpu_detail__event e \
+               on s.source_index = e.source_index \
+              and s.parent_index = e.row_index",
+        )
+        .await
+        .expect("flushed child rows still join parent events");
+    assert_eq!(joined_rows, json!([{ "row_count": event_count as u64 }]));
+}
+
+#[tokio::test]
+async fn from_hitrace_registers_relational_tables() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("relational.hitrace");
+    fs::write(&trace_path, relational_trace()).expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    fs::remove_file(&trace_path).expect("source can be removed after build");
+
+    let overview = datasource
+        .query_json("select zram, gpu_used_size from memory_data")
+        .await
+        .expect("memory overview query succeeds");
+    assert_eq!(overview, json!([{ "zram": 64u64, "gpu_used_size": 32u64 }]));
+
+    assert!(
+        datasource
+            .query_json("select count(*) from process_data_processesinfo")
+            .await
+            .is_err(),
+        "old fixed_result child table should not be registered"
+    );
+}
+
+#[tokio::test]
+async fn dataset_reader_rejects_unsupported_table_format() {
     let dir = tempdir().expect("tempdir");
     let trace_path = dir.path().join("sched-switch.hitrace");
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -568,99 +529,21 @@ async fn dataset_reader_rejects_source_table_with_producer() {
     {
       "name": "sched_switch",
       "path": "tables/hitrace.sched_switch.parquet",
-      "kind": "source",
-      "producer": {
-        "packRef": "openharmony-core-test",
-        "transformId": "thread_state_segments"
-      }
+      "format": "json"
     }
   ]
 }"#,
     )
     .expect("catalog is overwritten");
 
-    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
-        Ok(_) => panic!("source table with producer should be rejected"),
+    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+        Ok(_) => panic!("unsupported table format should be rejected"),
         Err(error) => error,
     };
 
     let message = format!("{error:#}");
     assert!(
-        message.contains("source dataset table sched_switch must not declare producer"),
-        "unexpected error: {message}"
-    );
-}
-
-#[tokio::test]
-async fn dataset_reader_rejects_derived_table_without_producer() {
-    let dir = tempdir().expect("tempdir");
-    let trace_path = dir.path().join("sched-switch.hitrace");
-    fs::write(&trace_path, encoded_trace()).expect("trace is written");
-    let dataset_path = dir.path().join("dataset");
-
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
-        .await
-        .expect("dataset is materialized");
-
-    fs::write(
-        dataset_path.join("catalog.json"),
-        r#"{
-  "tables": [
-    {
-      "name": "derived_sched_switch",
-      "path": "tables/hitrace.sched_switch.parquet",
-      "kind": "derived"
-    }
-  ]
-}"#,
-    )
-    .expect("catalog is overwritten");
-
-    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
-        Ok(_) => panic!("derived table without producer should be rejected"),
-        Err(error) => error,
-    };
-
-    let message = format!("{error:#}");
-    assert!(
-        message.contains("derived dataset table derived_sched_switch must declare producer"),
-        "unexpected error: {message}"
-    );
-}
-
-#[tokio::test]
-async fn dataset_reader_rejects_unknown_table_kind() {
-    let dir = tempdir().expect("tempdir");
-    let trace_path = dir.path().join("sched-switch.hitrace");
-    fs::write(&trace_path, encoded_trace()).expect("trace is written");
-    let dataset_path = dir.path().join("dataset");
-
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
-        .await
-        .expect("dataset is materialized");
-
-    fs::write(
-        dataset_path.join("catalog.json"),
-        r#"{
-  "tables": [
-    {
-      "name": "sched_switch",
-      "path": "tables/hitrace.sched_switch.parquet",
-      "kind": "temporary"
-    }
-  ]
-}"#,
-    )
-    .expect("catalog is overwritten");
-
-    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
-        Ok(_) => panic!("unknown table kind should be rejected"),
-        Err(error) => error,
-    };
-
-    let message = format!("{error:#}");
-    assert!(
-        message.contains("unknown variant") && message.contains("temporary"),
+        message.contains("dataset table sched_switch has unsupported format: json"),
         "unexpected error: {message}"
     );
 }
@@ -678,7 +561,7 @@ async fn langfuse_dataset_queries_after_source_files_are_removed() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_datasource::materialize_langfuse_legacy_dataset(
+    kat_rs_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,
@@ -689,7 +572,7 @@ async fn langfuse_dataset_queries_after_source_files_are_removed() {
     fs::remove_file(&observations_path).expect("observations source is removed");
     fs::remove_file(&traces_path).expect("traces source is removed");
 
-    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -720,7 +603,7 @@ async fn langfuse_dataset_writes_empty_object_columns_as_json_strings() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_datasource::materialize_langfuse_legacy_dataset(
+    kat_rs_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,
@@ -728,7 +611,7 @@ async fn langfuse_dataset_writes_empty_object_columns_as_json_strings() {
     .await
     .expect("dataset is materialized");
 
-    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -746,13 +629,13 @@ async fn derived_table_writer_adds_queryable_catalog_entry() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     let batch = derived_thread_batch();
 
-    kat_datasource::write_derived_dataset_table(
+    kat_rs_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -773,15 +656,22 @@ async fn derived_table_writer_adds_queryable_catalog_entry() {
         .find(|table| table["name"] == "derived_sched_threads")
         .expect("derived table exists");
 
-    assert_eq!(derived["kind"], "derived");
     assert_eq!(
         derived["path"],
         "derived/openharmony-core-test/thread_state_segments.derived_sched_threads.parquet"
     );
-    assert_eq!(derived["producer"]["packRef"], "openharmony-core-test");
-    assert_eq!(derived["producer"]["transformId"], "thread_state_segments");
+    assert_eq!(derived["format"], "parquet");
+    assert_eq!(
+        derived
+            .as_object()
+            .expect("derived catalog table is an object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["format".to_string(), "name".to_string(), "path".to_string()]
+    );
 
-    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -799,12 +689,12 @@ async fn derived_table_writer_rejects_duplicate_table_name() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     let batch = derived_thread_batch();
-    kat_datasource::write_derived_dataset_table(
+    kat_rs_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -814,7 +704,7 @@ async fn derived_table_writer_rejects_duplicate_table_name() {
     .await
     .expect("derived table is written");
 
-    let error = kat_datasource::write_derived_dataset_table(
+    let error = kat_rs_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -837,7 +727,7 @@ async fn derived_table_writer_rejects_path_unsafe_ids() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -868,7 +758,7 @@ async fn derived_table_writer_rejects_path_unsafe_ids() {
         ),
     ] {
         let batch = derived_thread_batch();
-        let error = kat_datasource::write_derived_dataset_table(
+        let error = kat_rs_datasource::write_derived_dataset_table(
             &dataset_path,
             logical_name,
             pack_ref,
@@ -900,7 +790,7 @@ async fn langfuse_dataset_splits_large_tables_into_bounded_row_groups() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_datasource::materialize_langfuse_legacy_dataset(
+    kat_rs_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,
@@ -992,6 +882,78 @@ struct TestSchedSwitchFormat {
     next_prio: i32,
 }
 
+#[derive(Clone, PartialEq, Message)]
+struct RelationalMemoryData {
+    #[prost(message, repeated, tag = "1")]
+    processesinfo: Vec<RelationalProcessMemoryInfo>,
+    #[prost(uint64, tag = "4")]
+    zram: u64,
+    #[prost(uint64, tag = "10")]
+    gpu_used_size: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalProcessMemoryInfo {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+    #[prost(message, repeated, tag = "12")]
+    smapinfo: Vec<RelationalSmapsInfo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalSmapsInfo {
+    #[prost(string, tag = "4")]
+    path: String,
+    #[prost(uint64, tag = "6")]
+    rss: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalBatchNativeHookData {
+    #[prost(message, repeated, tag = "1")]
+    events: Vec<RelationalNativeHookData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalNativeHookData {
+    #[prost(uint64, tag = "1")]
+    tv_sec: u64,
+    #[prost(uint64, tag = "2")]
+    tv_nsec: u64,
+    #[prost(oneof = "RelationalNativeHookEvent", tags = "3")]
+    event: Option<RelationalNativeHookEvent>,
+}
+
+#[derive(Clone, PartialEq, Oneof)]
+enum RelationalNativeHookEvent {
+    #[prost(message, tag = "3")]
+    AllocEvent(RelationalAllocEvent),
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalAllocEvent {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(int32, tag = "2")]
+    tid: i32,
+    #[prost(uint64, tag = "3")]
+    addr: u64,
+    #[prost(uint64, tag = "4")]
+    size: u64,
+    #[prost(message, repeated, tag = "5")]
+    frame_info: Vec<RelationalFrame>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelationalFrame {
+    #[prost(string, tag = "3")]
+    symbol_name: String,
+    #[prost(string, tag = "4")]
+    file_path: String,
+}
+
 fn encoded_trace() -> Vec<u8> {
     let payload = TestTracePluginResult {
         ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
@@ -1024,25 +986,168 @@ fn encoded_trace() -> Vec<u8> {
         version: "1.0".to_string(),
         sample_interval: 8,
     };
-    profiler_section(vec![plugin])
-}
-
-fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
     let mut body = Vec::new();
-    for plugin in plugins {
-        append_segment(&mut body, plugin);
-    }
+    append_segment(&mut body, plugin);
 
-    profiler_section_body(HIPROFILER_PROTOBUF_BIN, body)
-}
-
-fn profiler_section_body(data_type: u32, body: Vec<u8>) -> Vec<u8> {
     let mut bytes = vec![0; PROFILER_HEADER_SIZE];
     bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
     bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
-    bytes[56..60].copy_from_slice(&data_type.to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
     bytes.extend_from_slice(&body);
     bytes
+}
+
+fn relational_trace() -> Vec<u8> {
+    let mut body = Vec::new();
+    append_segment(
+        &mut body,
+        fixed_result_plugin(
+            "memory-plugin",
+            RelationalMemoryData {
+                zram: 64,
+                gpu_used_size: 32,
+                processesinfo: vec![RelationalProcessMemoryInfo {
+                    pid: 42,
+                    name: "render".to_string(),
+                    smapinfo: vec![RelationalSmapsInfo {
+                        path: "/system/lib/libark.so".to_string(),
+                        rss: 512,
+                    }],
+                }],
+            },
+        ),
+    );
+    append_segment(
+        &mut body,
+        TestProfilerPluginData {
+            name: "ftrace-plugin".to_string(),
+            status: 1,
+            data: TestTracePluginResult {
+                ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
+                    cpu: 3,
+                    event: vec![TestFtraceEvent {
+                        timestamp: 10,
+                        tgid: 500,
+                        comm: "switch_source".to_string(),
+                        sched_switch_format: Some(TestSchedSwitchFormat {
+                            prev_comm: "RenderThread".to_string(),
+                            prev_pid: 42,
+                            prev_prio: 120,
+                            prev_state: 1,
+                            next_comm: "main".to_string(),
+                            next_pid: 100,
+                            next_prio: 120,
+                        }),
+                    }],
+                    overwrite: 0,
+                }],
+            }
+            .encode_to_vec(),
+            clock_id: 2,
+            tv_sec: 10,
+            tv_nsec: 200,
+            version: "1.0".to_string(),
+            sample_interval: 16,
+        },
+    );
+    append_segment(
+        &mut body,
+        TestProfilerPluginData {
+            name: "nativehook".to_string(),
+            status: 1,
+            data: RelationalBatchNativeHookData {
+                events: vec![RelationalNativeHookData {
+                    tv_sec: 1,
+                    tv_nsec: 20,
+                    event: Some(RelationalNativeHookEvent::AllocEvent(
+                        RelationalAllocEvent {
+                            pid: 42,
+                            tid: 43,
+                            addr: 0x1000,
+                            size: 64,
+                            frame_info: vec![RelationalFrame {
+                                symbol_name: "malloc".to_string(),
+                                file_path: "/system/lib/libc.so".to_string(),
+                            }],
+                        },
+                    )),
+                }],
+            }
+            .encode_to_vec(),
+            clock_id: 2,
+            tv_sec: 10,
+            tv_nsec: 200,
+            version: "1.0".to_string(),
+            sample_interval: 10,
+        },
+    );
+
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    bytes.extend_from_slice(&body);
+    bytes
+}
+
+fn streaming_flush_trace(event_count: usize) -> Vec<u8> {
+    let events = (0..event_count)
+        .map(|index| TestFtraceEvent {
+            timestamp: index as u64,
+            tgid: 500,
+            comm: "switch_source".to_string(),
+            sched_switch_format: Some(TestSchedSwitchFormat {
+                prev_comm: "RenderThread".to_string(),
+                prev_pid: 42,
+                prev_prio: 120,
+                prev_state: 1,
+                next_comm: "main".to_string(),
+                next_pid: 100,
+                next_prio: 120,
+            }),
+        })
+        .collect();
+    let payload = TestTracePluginResult {
+        ftrace_cpu_detail: vec![TestFtraceCpuDetailMsg {
+            cpu: 3,
+            event: events,
+            overwrite: 0,
+        }],
+    }
+    .encode_to_vec();
+
+    let plugin = TestProfilerPluginData {
+        name: "ftrace-plugin".to_string(),
+        status: 1,
+        data: payload,
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
+    };
+
+    let mut body = Vec::new();
+    append_segment(&mut body, plugin);
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    bytes.extend_from_slice(&body);
+    bytes
+}
+
+fn fixed_result_plugin(name: &str, message: impl Message) -> TestProfilerPluginData {
+    TestProfilerPluginData {
+        name: name.to_string(),
+        status: 1,
+        data: message.encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
+    }
 }
 
 fn append_segment(bytes: &mut Vec<u8>, plugin: TestProfilerPluginData) {
