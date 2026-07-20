@@ -1,3 +1,9 @@
+//! `kat/platform` 新架构唯一的内部 Datasource 与 Dataset Storage 边界。
+//!
+//! 当前切片只开放只读 Dataset inspection，并未把 Dataset Storage 从后续内置 Datasource
+//! 中拆出。`crates/kat-rs-datasource` 属于旧应用代码；它不被 `kat/platform` 依赖，也不是
+//! 这一新架构边界的权威实现。
+
 use std::{
     collections::HashSet,
     ffi::OsStr,

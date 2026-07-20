@@ -86,6 +86,8 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
     assert!(operation_help.stderr.is_empty());
     assert!(!operation_help.stdout.starts_with(b"{"));
     let operation_help_text = String::from_utf8(operation_help.stdout).expect("UTF-8 help");
+    assert!(operation_help_text.contains("available PACKs or one KAT Dataset"));
+    assert!(operation_help_text.contains("managed KAT Dataset and its Parquet Schema"));
     assert!(operation_help_text.contains("validation order"));
     assert!(operation_help_text.contains("sorted by PACK name"));
 
@@ -341,9 +343,38 @@ fn closed_stdout_makes_the_real_process_fail() {
 }
 
 #[test]
+fn empty_dataset_can_be_inspected_without_skill_deployment() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let dataset = temporary.path().join("empty-dataset");
+    fs::create_dir(&dataset).expect("create Dataset directory");
+    fs::write(dataset.join(".kat-dataset"), []).expect("write Dataset marker");
+    let mut command = Command::new(cargo_kat());
+    command.arg("inspect").arg("--dataset").arg(&dataset);
+    #[cfg(not(windows))]
+    command
+        .env("XDG_DATA_HOME", temporary.path().join("xdg-data"))
+        .env("HOME", temporary.path().join("home"));
+
+    let output = command.output().expect("inspect empty Dataset");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(
+        response["result"]["path"],
+        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
+    );
+    assert_eq!(response["result"]["tables"], serde_json::json!([]));
+    assert!(response.get("log_path").is_none());
+    #[cfg(not(windows))]
+    assert!(!data_home(temporary.path()).exists());
+}
+
+#[test]
 fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (skill, binary) = stage_skill(temporary.path());
+    let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     let cwd = temporary.path().join("cwd");
     let dataset = cwd.join("relative-dataset");
     fs::create_dir_all(&dataset).unwrap();
@@ -361,7 +392,7 @@ fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
     command
         .current_dir(&cwd)
         .args(["inspect", "--dataset", "relative-dataset"]);
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("inspect Dataset");
 
@@ -385,6 +416,7 @@ fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
     );
     assert!(response.get("log_path").is_none());
     assert!(!skill.join("assets").join("packs").exists());
+    #[cfg(not(windows))]
     assert!(!data_home(temporary.path()).exists());
     assert_eq!(
         fs::read_to_string(dataset.join("notes.txt")).unwrap(),
@@ -395,12 +427,12 @@ fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
 #[test]
 fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (_skill, binary) = stage_skill(temporary.path());
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
     let dataset = temporary.path().join("invalid-dataset");
     fs::create_dir(&dataset).unwrap();
     let mut command = Command::new(&binary);
     command.arg("inspect").arg("--dataset").arg(&dataset);
-    configure_platform_directories(&mut command, temporary.path());
+    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("inspect invalid Dataset");
 
@@ -419,7 +451,7 @@ fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
         .arg("inspect")
         .arg("--dataset")
         .arg(&corrupt);
-    configure_platform_directories(&mut corrupt_command, temporary.path());
+    prepare_platform_data_home(&mut corrupt_command, temporary.path());
     let corrupt_output = corrupt_command.output().expect("inspect corrupt Dataset");
     assert_eq!(corrupt_output.status.code(), Some(1));
     let corrupt_response: serde_json::Value =

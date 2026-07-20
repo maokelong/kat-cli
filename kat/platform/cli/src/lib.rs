@@ -18,9 +18,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
-    /// Inspect the PACKs available to this KAT Skill.
+    /// Inspect available PACKs or one KAT Dataset.
     Inspect {
-        /// Inspect one KAT Dataset directory.
+        /// Inspect one managed KAT Dataset and its Parquet Schema.
         #[arg(long, value_name = "DIRECTORY", conflicts_with = "pack_directories")]
         dataset: Option<PathBuf>,
         #[arg(
@@ -129,7 +129,6 @@ struct DatasetColumnResult {
 }
 
 fn inspect_dataset(path: PathBuf) -> Result<InspectDatasetResult, InspectDatasetError> {
-    locate_skill_root().map_err(InspectDatasetError::SkillRoot)?;
     let inspection = kat_datasource::inspect_dataset(&path)
         .map_err(|source| InspectDatasetError::Inspection { source })?;
     let canonical_path = inspection
@@ -280,9 +279,6 @@ impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
 
 #[derive(Debug, Error, Diagnostic)]
 enum InspectDatasetError {
-    #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
-    SkillRoot(#[source] SkillRootError),
     #[error("Dataset inspection failed")]
     #[diagnostic(help("Provide a complete KAT Dataset directory and retry"))]
     Inspection {
