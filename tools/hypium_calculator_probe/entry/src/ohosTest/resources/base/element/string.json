@@ -1,0 +1,6 @@
+{
+  "string": [
+    { "name": "module_test_desc", "value": "Hypium calculator UI test" },
+    { "name": "TestAbility_label", "value": "Hypium Calculator Test" }
+  ]
+}
