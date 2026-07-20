@@ -3,6 +3,7 @@ members = [
     "crates/kat-rs-cli",
     "crates/kat-rs-daemon",
     "crates/kat-rs-datasource",
+    "crates/kat-rs-native-hook-symbolize-poc",
 ]
 resolver = "2"
 
@@ -16,6 +17,8 @@ anyhow = "1.0"
 arrow-array = "58.0.0"
 arrow-json = "58.0.0"
 arrow-schema = "58.0.0"
+blazesym = "0.2.5"
+calamine = "0.36.0"
 axum = "0.8"
 clap = { version = "4.5", features = ["derive"] }
 datafusion = { version = "53.1.0", default-features = false, features = ["sql", "compression", "parquet"] }
@@ -35,6 +38,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_arrow = { version = "0.14.1", features = ["arrow-58"] }
 serde_bytes = "0.11"
 serde_json = "1.0"
+rusqlite = { version = "0.37", features = ["bundled"] }
+rust_xlsxwriter = "0.90"
 tempfile = "3.10"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
@@ -43,3 +48,4 @@ tokio = { version = "1.45", features = ["macros", "rt-multi-thread", "sync", "ne
 utoipa = "5.5.0"
 url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
+walkdir = "2.5"
