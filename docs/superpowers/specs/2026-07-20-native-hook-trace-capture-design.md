@@ -19,7 +19,12 @@ Native Hook 分析需要一条可重复的真机采集路径。本切片使用 P
 
 采集入口只依赖应用场景的两个标识和两个行为：场景名称、目标进程 Bundle，以及“采集前准备”和“采集期间操作”。设备选择、hiprofiler 生命周期、Trace 拉取、SQLite 转换、失败截图和产物目录均留在通用采集流程内。
 
-当前提供 `calculator` adapter：准备阶段负责启动预装计算器并校验 `100 * 100 = 10000`，操作阶段负责动态发现安全按钮并随机点击到 profiler 退出。命令行通过 `--scenario` 选择 adapter，默认仍为 `calculator`，保持现有调用兼容。后续支持其他应用时，应新增该应用的 adapter 并注册场景，不复制或修改通用采集流程。
+当前提供两个 adapter：
+
+1. `calculator`：准备阶段负责启动预装计算器并校验 `100 * 100 = 10000`，操作阶段负责动态发现安全按钮并随机点击到 profiler 退出。
+2. `note`：准备阶段负责启动 `com.ohos.note/MainAbility`、确认进入 `pages/MyNoteHome`，并在搜索框内部动态计算左、中、右三个安全点；操作阶段使用这组进程内缓存坐标随机点击，不再依赖 Native Hook 期间可能失败的布局导出，也不发送返回键。菜单、新增笔记按钮和笔记条目不进入随机集合，不创建、编辑或删除笔记。
+
+命令行通过 `--scenario` 选择 adapter，默认仍为 `calculator`，保持现有调用兼容。后续支持其他应用时，应新增该应用的 adapter 并注册场景，不复制或修改通用采集流程。
 
 ## 原生 UiTest 穿刺
 
@@ -42,7 +47,7 @@ uitest uiInput click <x> <y>
 ## Python 采集入口
 
 ```text
-python tools/native_hook_capture.py [--scenario calculator] [--duration 秒] [--target 序列号] [--hdc 路径] [--trace-streamer 路径] [--output-root 目录]
+python tools/native_hook_capture.py [--scenario calculator|note] [--duration 秒] [--target 序列号] [--hdc 路径] [--trace-streamer 路径] [--output-root 目录]
 ```
 
 脚本只使用 Python 标准库，不需要额外 Python 依赖。`hdc` 和 `trace_streamer_windows.exe` 默认从 `PATH` 查找。省略 `--target` 时必须恰有一个 Connected 设备。`--scenario` 默认选择 `calculator`，hiprofiler 根据所选场景的 Bundle 确定目标进程，时长默认 30 秒。
@@ -87,10 +92,11 @@ git diff --check
 
 目标设备：`7001005458323933328a521c3c503800`，API 26，`uitest 7.0.0.1`。
 
-| 配置时长 | 数据库时间范围 | htrace 大小 | trace.db 大小 | native_hook 行数 | 结果 | 随机点击 |
-| --- | ---: | ---: | ---: | ---: | --- | ---: |
-| 30 秒 | 29.83 秒 | 42,669,350 B | 16,986,112 B | 182,324 | `10000` | 26 |
-| 60 秒 | 59.89 秒 | 50,121,912 B | 28,323,840 B | 362,378 | `10000` | 26 |
-| 120 秒 | 119.83 秒 | 58,813,446 B | 42,143,744 B | 572,425 | `10000` | 81 |
+| 场景 | 配置时长 | 数据库时间范围 | htrace 大小 | trace.db 大小 | native_hook 行数 | 结果 | 随机点击 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| `calculator` | 30 秒 | 29.83 秒 | 42,669,350 B | 16,986,112 B | 182,324 | `10000` | 26 |
+| `calculator` | 60 秒 | 59.89 秒 | 50,121,912 B | 28,323,840 B | 362,378 | `10000` | 26 |
+| `calculator` | 120 秒 | 119.83 秒 | 58,813,446 B | 42,143,744 B | 572,425 | `10000` | 81 |
+| `note` | 30 秒 | 28.20 秒 | 45,050,281 B | 29,716,480 B | 143,913 | 首页搜索框 | 14 |
 
-三次均将启动校验放在采集前，在采集窗口内动态识别 18 个按钮并持续随机点击，随后完成 trace_streamer 转换。随机种子、候选按钮和点击总数均写入 `uitest.log`。数据库 `trace_range` 与各自配置时长一致，未发生采集时长截断。
+四次均完成 trace_streamer 转换。`calculator` 在采集窗口内动态识别 18 个按钮；`note` 在采集前缓存三个搜索框安全点，采集期间不修改笔记数据。随机种子、候选操作和点击总数均写入 `uitest.log`。

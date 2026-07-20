@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Iterator, Optional, Protocol
 
 CALCULATOR_BUNDLE = "ohos.samples.distributedcalc"
+NOTE_BUNDLE = "com.ohos.note"
+NOTE_HOME_PAGE = "pages/MyNoteHome"
 CALCULATION_COMPONENTS = ("C", "1", "0", "0", "*", "1", "0", "0", "=")
 RESULT_COMPONENT = "expression"
 EXPECTED_RESULT = "10000"
@@ -169,7 +171,9 @@ def component_attributes(layout: dict, component_id: str) -> dict:
     return matches[0]
 
 
-def attributes_center(attributes: dict, component_id: str) -> tuple[int, int]:
+def attributes_bounds(
+    attributes: dict, component_id: str
+) -> tuple[int, int, int, int]:
     for name in ("visible", "enabled", "clickable"):
         if attributes.get(name) != "true":
             raise RuntimeError(f"component {component_id!r} is not {name}")
@@ -179,6 +183,11 @@ def attributes_center(attributes: dict, component_id: str) -> tuple[int, int]:
     left, top, right, bottom = map(int, match.groups())
     if right <= left or bottom <= top:
         raise RuntimeError(f"component {component_id!r} has empty bounds")
+    return left, top, right, bottom
+
+
+def attributes_center(attributes: dict, component_id: str) -> tuple[int, int]:
+    left, top, right, bottom = attributes_bounds(attributes, component_id)
     return (left + right) // 2, (top + bottom) // 2
 
 
@@ -208,6 +217,28 @@ def calculator_button_centers(layout: dict) -> dict[str, tuple[int, int]]:
     if not centers:
         raise RuntimeError("no clickable calculator buttons found")
     return dict(sorted(centers.items()))
+
+
+def note_action_centers(layout: dict) -> dict[str, tuple[int, int]]:
+    attributes = component_attributes(layout, "searchInput")
+    left, top, right, bottom = attributes_bounds(attributes, "searchInput")
+    width = right - left
+    y = (top + bottom) // 2
+    return {
+        "search:left": (left + width // 4, y),
+        "search:center": ((left + right) // 2, y),
+        "search:right": (right - width // 4, y),
+    }
+
+
+def note_home_is_visible(layout: dict) -> bool:
+    return any(
+        attributes.get("bundleName") == NOTE_BUNDLE
+        and attributes.get("pagePath") == NOTE_HOME_PAGE
+        for attributes in (
+            node.get("attributes", {}) for node in layout_nodes(layout)
+        )
+    )
 
 
 def calculator_result(layout: dict) -> str:
@@ -261,18 +292,36 @@ def wait_for_calculator_layout(hdc: str, target: str, remote: str, log) -> tuple
     raise RuntimeError(f"calculator page did not become ready: {last_error}")
 
 
+def wait_for_note_home_layout(
+    hdc: str, target: str, remote: str, log
+) -> tuple[dict, dict]:
+    deadline = time.monotonic() + 10
+    last_error: Optional[Exception] = None
+    while time.monotonic() < deadline:
+        try:
+            layout = dump_layout(hdc, target, NOTE_BUNDLE, remote, log)
+            if not note_home_is_visible(layout):
+                raise RuntimeError("note home page is not visible")
+            return layout, note_action_centers(layout)
+        except RuntimeError as error:
+            last_error = error
+            time.sleep(0.2)
+    raise RuntimeError(f"note home page did not become ready: {last_error}")
+
+
+def start_application(hdc: str, target: str, bundle: str, ability: str, log) -> None:
+    logged_shell(hdc, target, f"aa force-stop {bundle}", log)
+    logged_shell(hdc, target, f"aa start -b {bundle} -a {ability}", log)
+
+
 def start_calculator(hdc: str, target: str, log_path: Path) -> None:
     identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with log_path.open("w", encoding="utf-8") as log:
-            logged_shell(hdc, target, f"aa force-stop {CALCULATOR_BUNDLE}", log)
-            logged_shell(
-                hdc,
-                target,
-                f"aa start -b {CALCULATOR_BUNDLE} -a MainAbility",
-                log,
+            start_application(
+                hdc, target, CALCULATOR_BUNDLE, "MainAbility", log
             )
             wait_for_calculator_layout(hdc, target, remote, log)
     finally:
@@ -353,6 +402,57 @@ def exercise_calculator(
         hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
+def prepare_note(
+    hdc: str, target: str, log_path: Path
+) -> dict[str, tuple[int, int]]:
+    identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    remote = f"/data/local/tmp/note_{identifier}.json"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with log_path.open("w", encoding="utf-8") as log:
+            start_application(hdc, target, NOTE_BUNDLE, "MainAbility", log)
+            _, centers = wait_for_note_home_layout(hdc, target, remote, log)
+            log.write(f"note safe actions: {', '.join(centers)}\n")
+            return centers
+    finally:
+        hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
+
+
+def exercise_note(
+    hdc: str,
+    target: str,
+    log_path: Path,
+    profiler: subprocess.Popen,
+    centers: dict[str, tuple[int, int]],
+    seed: Optional[int] = None,
+) -> int:
+    click_count = 0
+    with log_path.open("a", encoding="utf-8") as log:
+        actual_seed = secrets.randbits(64) if seed is None else seed
+        generator = random.Random(actual_seed)
+        log.write(f"random seed: {actual_seed}\n")
+        log.flush()
+        try:
+            while profiler.poll() is None:
+                action_id = generator.choice(tuple(centers))
+                x, y = centers[action_id]
+                log.write(f"note random action: {action_id}\n")
+                try:
+                    logged_shell(
+                        hdc, target, f"uitest uiInput click {x} {y}", log
+                    )
+                except RuntimeError:
+                    if profiler.poll() is not None:
+                        break
+                    raise
+                click_count += 1
+                time.sleep(0.2)
+        finally:
+            log.write(f"random click count: {click_count}\n")
+            log.flush()
+    return click_count
+
+
 class CalculatorScenario:
     name = "calculator"
     bundle = CALCULATOR_BUNDLE
@@ -370,8 +470,31 @@ class CalculatorScenario:
         exercise_calculator(hdc, target, log_path, profiler)
 
 
+class NoteScenario:
+    name = "note"
+    bundle = NOTE_BUNDLE
+
+    def __init__(self) -> None:
+        self.centers: Optional[dict[str, tuple[int, int]]] = None
+
+    def prepare(self, hdc: str, target: str, log_path: Path) -> None:
+        self.centers = prepare_note(hdc, target, log_path)
+
+    def exercise(
+        self,
+        hdc: str,
+        target: str,
+        log_path: Path,
+        profiler: subprocess.Popen,
+    ) -> None:
+        if self.centers is None:
+            raise RuntimeError("note scenario was not prepared")
+        exercise_note(hdc, target, log_path, profiler, self.centers)
+
+
 SCENARIOS: dict[str, ApplicationScenario] = {
     CalculatorScenario.name: CalculatorScenario(),
+    NoteScenario.name: NoteScenario(),
 }
 
 
