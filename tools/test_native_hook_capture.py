@@ -52,6 +52,29 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         self.assertEqual(capture.calculator_result(layout), "10000")
 
+    def test_profiler_config_uses_selected_scenario_bundle(self) -> None:
+        config = capture.profiler_config("example.bundle")
+
+        self.assertIn('process_name: "example.bundle"', config)
+        self.assertNotIn(capture.CALCULATOR_BUNDLE, config)
+
+    @patch.object(capture, "prepare_calculator")
+    def test_calculator_scenario_delegates_prepare(self, prepare: Mock) -> None:
+        scenario = capture.CalculatorScenario()
+
+        scenario.prepare("hdc", "target", Path("log"))
+
+        prepare.assert_called_once_with("hdc", "target", Path("log"))
+
+    @patch.object(capture, "exercise_calculator")
+    def test_calculator_scenario_delegates_exercise(self, exercise: Mock) -> None:
+        scenario = capture.CalculatorScenario()
+        profiler = Mock()
+
+        scenario.exercise("hdc", "target", Path("log"), profiler)
+
+        exercise.assert_called_once_with("hdc", "target", Path("log"), profiler)
+
     def test_discovers_only_clickable_calculator_buttons(self) -> None:
         layout = {
             "children": [
@@ -116,7 +139,7 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         with TemporaryDirectory() as temporary:
             log_path = Path(temporary) / "uitest.log"
-            count = capture.run_random_clicks(
+            count = capture.exercise_calculator(
                 "hdc", "target", log_path, profiler, seed=1234
             )
             log_text = log_path.read_text(encoding="utf-8")
@@ -151,7 +174,7 @@ class NativeHookCaptureTest(unittest.TestCase):
 
         with TemporaryDirectory() as temporary:
             log_path = Path(temporary) / "uitest.log"
-            count = capture.run_random_clicks(
+            count = capture.exercise_calculator(
                 "hdc", "target", log_path, profiler, seed=1234
             )
             log_text = log_path.read_text(encoding="utf-8")
@@ -168,7 +191,9 @@ class NativeHookCaptureTest(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             with (Path(temporary) / "uitest.log").open("w", encoding="utf-8") as log:
                 with self.assertRaisesRegex(RuntimeError, "invalid layout JSON"):
-                    capture.dump_layout("hdc", "target", "/remote", log)
+                    capture.dump_layout(
+                        "hdc", "target", "example.bundle", "/remote", log
+                    )
 
     def test_selects_only_connected_targets(self) -> None:
         output = """
