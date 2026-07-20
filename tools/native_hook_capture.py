@@ -15,13 +15,28 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Protocol
 
-BUNDLE = "ohos.samples.distributedcalc"
+CALCULATOR_BUNDLE = "ohos.samples.distributedcalc"
 CALCULATION_COMPONENTS = ("C", "1", "0", "0", "*", "1", "0", "0", "=")
 RESULT_COMPONENT = "expression"
 EXPECTED_RESULT = "10000"
 BOUNDS = re.compile(r"^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$")
+
+
+class ApplicationScenario(Protocol):
+    name: str
+    bundle: str
+
+    def prepare(self, hdc: str, target: str, log_path: Path) -> None: ...
+
+    def exercise(
+        self,
+        hdc: str,
+        target: str,
+        log_path: Path,
+        profiler: subprocess.Popen,
+    ) -> None: ...
 
 
 def arguments() -> argparse.Namespace:
@@ -31,6 +46,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--hdc")
     parser.add_argument("--trace-streamer")
     parser.add_argument("--output-root", type=Path, default=Path("target/trace"))
+    parser.add_argument("--scenario", choices=SCENARIOS, default="calculator")
     args = parser.parse_args()
     if args.duration <= 0:
         parser.error("--duration must be greater than zero")
@@ -90,7 +106,7 @@ def run_directory(root: Path) -> Path:
     raise RuntimeError("cannot allocate a unique run directory")
 
 
-def profiler_config() -> str:
+def profiler_config(process_name: str) -> str:
     return f'''request_id: 1
 session_config {{ buffers {{ pages: 131072 }} }}
 plugin_configs {{
@@ -99,7 +115,7 @@ plugin_configs {{
   config_data {{
     save_file: false
     smb_pages: 16384
-    process_name: "{BUNDLE}"
+    process_name: "{process_name}"
     string_compressed: true
     fp_unwind: false
     blocked: true
@@ -117,14 +133,14 @@ plugin_configs {{
 
 @contextmanager
 def remote_profiler_config(
-    hdc: str, target: str, run_dir: Path
+    hdc: str, target: str, run_dir: Path, process_name: str
 ) -> Iterator[str]:
     identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     local = run_dir / "hiprofiler.config"
     remote = f"/data/local/tmp/hiprofiler_{identifier}.config"
     sent = False
     try:
-        local.write_text(profiler_config(), encoding="utf-8")
+        local.write_text(profiler_config(process_name), encoding="utf-8")
         hdc_run(hdc, target, "file", "send", str(local), remote)
         sent = True
         yield remote
@@ -208,11 +224,11 @@ def logged_shell(hdc: str, target: str, command: str, log) -> None:
         raise RuntimeError(f"device command failed with code {result.returncode}: {command}")
 
 
-def dump_layout(hdc: str, target: str, remote: str, log) -> dict:
+def dump_layout(hdc: str, target: str, bundle: str, remote: str, log) -> dict:
     logged_shell(
         hdc,
         target,
-        f"uitest dumpLayout -p {remote} -b {BUNDLE}",
+        f"uitest dumpLayout -p {remote} -b {bundle}",
         log,
     )
     result = hdc_run(
@@ -233,7 +249,7 @@ def wait_for_calculator_layout(hdc: str, target: str, remote: str, log) -> tuple
     last_error: Optional[Exception] = None
     while time.monotonic() < deadline:
         try:
-            layout = dump_layout(hdc, target, remote, log)
+            layout = dump_layout(hdc, target, CALCULATOR_BUNDLE, remote, log)
             centers = {
                 component_id: component_center(layout, component_id)
                 for component_id in dict.fromkeys(CALCULATION_COMPONENTS)
@@ -251,8 +267,13 @@ def start_calculator(hdc: str, target: str, log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with log_path.open("w", encoding="utf-8") as log:
-            logged_shell(hdc, target, f"aa force-stop {BUNDLE}", log)
-            logged_shell(hdc, target, f"aa start -b {BUNDLE} -a MainAbility", log)
+            logged_shell(hdc, target, f"aa force-stop {CALCULATOR_BUNDLE}", log)
+            logged_shell(
+                hdc,
+                target,
+                f"aa start -b {CALCULATOR_BUNDLE} -a MainAbility",
+                log,
+            )
             wait_for_calculator_layout(hdc, target, remote, log)
     finally:
         hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
@@ -264,7 +285,7 @@ def click_calculation(hdc: str, target: str, centers: dict, log) -> None:
         logged_shell(hdc, target, f"uitest uiInput click {x} {y}", log)
 
 
-def run_uitest(hdc: str, target: str, log_path: Path) -> None:
+def prepare_calculator(hdc: str, target: str, log_path: Path) -> None:
     start_calculator(hdc, target, log_path)
     identifier = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     remote = f"/data/local/tmp/distributedcalc_{identifier}.json"
@@ -276,7 +297,9 @@ def run_uitest(hdc: str, target: str, log_path: Path) -> None:
             deadline = time.monotonic() + 3
             actual = ""
             while time.monotonic() < deadline:
-                actual = calculator_result(dump_layout(hdc, target, remote, log))
+                actual = calculator_result(
+                    dump_layout(hdc, target, CALCULATOR_BUNDLE, remote, log)
+                )
                 if actual == EXPECTED_RESULT:
                     log.write(f"calculator result: {actual}\n")
                     return
@@ -288,7 +311,7 @@ def run_uitest(hdc: str, target: str, log_path: Path) -> None:
         hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
 
 
-def run_random_clicks(
+def exercise_calculator(
     hdc: str,
     target: str,
     log_path: Path,
@@ -300,7 +323,9 @@ def run_random_clicks(
     click_count = 0
     try:
         with log_path.open("a", encoding="utf-8") as log:
-            centers = calculator_button_centers(dump_layout(hdc, target, remote, log))
+            centers = calculator_button_centers(
+                dump_layout(hdc, target, CALCULATOR_BUNDLE, remote, log)
+            )
             button_ids = tuple(centers)
             actual_seed = secrets.randbits(64) if seed is None else seed
             generator = random.Random(actual_seed)
@@ -326,6 +351,28 @@ def run_random_clicks(
         return click_count
     finally:
         hdc_run(hdc, target, "shell", "rm", "-f", remote, check=False)
+
+
+class CalculatorScenario:
+    name = "calculator"
+    bundle = CALCULATOR_BUNDLE
+
+    def prepare(self, hdc: str, target: str, log_path: Path) -> None:
+        prepare_calculator(hdc, target, log_path)
+
+    def exercise(
+        self,
+        hdc: str,
+        target: str,
+        log_path: Path,
+        profiler: subprocess.Popen,
+    ) -> None:
+        exercise_calculator(hdc, target, log_path, profiler)
+
+
+SCENARIOS: dict[str, ApplicationScenario] = {
+    CalculatorScenario.name: CalculatorScenario(),
+}
 
 
 def capture_failure(hdc: str, target: str, local_path: Path) -> None:
@@ -406,6 +453,7 @@ def convert_trace(
 
 def main() -> int:
     args = arguments()
+    scenario = SCENARIOS[args.scenario]
     hdc = executable(args.hdc, "hdc")
     streamer = executable(args.trace_streamer, "trace_streamer_windows.exe")
     target = select_target(hdc, args.target)
@@ -420,18 +468,20 @@ def main() -> int:
     remote = f"/data/local/tmp/native_heap_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.htrace"
 
     try:
-        run_uitest(hdc, target, uitest_log)
+        scenario.prepare(hdc, target, uitest_log)
     except Exception as error:
         try:
             capture_failure(hdc, target, failure)
         except Exception:
             pass
-        raise RuntimeError(f"calculator startup validation failed: {error}") from error
+        raise RuntimeError(
+            f"{scenario.name} startup validation failed: {error}"
+        ) from error
 
     ui_error: Optional[Exception] = None
-    with remote_profiler_config(hdc, target, run_dir) as config, profiler_log.open(
-        "wb"
-    ) as log:
+    with remote_profiler_config(
+        hdc, target, run_dir, scenario.bundle
+    ) as config, profiler_log.open("wb") as log:
         profiler_command = (
             f"hiprofiler_cmd -c {config} -o {remote} -t {args.duration} -s -k"
         )
@@ -442,7 +492,7 @@ def main() -> int:
         )
         wait_for_profiler(hdc, target, remote, profiler)
         try:
-            run_random_clicks(hdc, target, uitest_log, profiler)
+            scenario.exercise(hdc, target, uitest_log, profiler)
         except Exception as error:
             ui_error = error
             try:
@@ -455,7 +505,7 @@ def main() -> int:
         if profiler.returncode != 0:
             raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
     if ui_error:
-        raise RuntimeError(f"calculator interaction failed: {ui_error}")
+        raise RuntimeError(f"{scenario.name} interaction failed: {ui_error}")
 
     hdc_run(hdc, target, "file", "recv", remote, str(trace))
     hdc_run(hdc, target, "shell", "rm", "-f", remote)

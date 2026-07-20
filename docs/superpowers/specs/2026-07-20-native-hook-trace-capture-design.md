@@ -13,6 +13,13 @@ Native Hook 分析需要一条可重复的真机采集路径。本切片使用 P
 3. 不创建、构建或安装业务 HAP、测试 HAP；直接操作设备已有的 `ohos.samples.distributedcalc`。
 4. 不依赖 Hypium Python Driver；当前 RK3568 镜像无法加载公开版 Hypium 的设备运行库。
 5. 不把穿刺扩展为完整的计算器功能测试。
+6. 本切片不实现未知应用的操作逻辑，不引入动态插件、外部场景配置文件或脚本加载机制。
+
+## 模块 seam
+
+采集入口只依赖应用场景的两个标识和两个行为：场景名称、目标进程 Bundle，以及“采集前准备”和“采集期间操作”。设备选择、hiprofiler 生命周期、Trace 拉取、SQLite 转换、失败截图和产物目录均留在通用采集流程内。
+
+当前提供 `calculator` adapter：准备阶段负责启动预装计算器并校验 `100 * 100 = 10000`，操作阶段负责动态发现安全按钮并随机点击到 profiler 退出。命令行通过 `--scenario` 选择 adapter，默认仍为 `calculator`，保持现有调用兼容。后续支持其他应用时，应新增该应用的 adapter 并注册场景，不复制或修改通用采集流程。
 
 ## 原生 UiTest 穿刺
 
@@ -35,10 +42,10 @@ uitest uiInput click <x> <y>
 ## Python 采集入口
 
 ```text
-python tools/native_hook_capture.py [--duration 秒] [--target 序列号] [--hdc 路径] [--trace-streamer 路径] [--output-root 目录]
+python tools/native_hook_capture.py [--scenario calculator] [--duration 秒] [--target 序列号] [--hdc 路径] [--trace-streamer 路径] [--output-root 目录]
 ```
 
-脚本只使用 Python 标准库，不需要额外 Python 依赖。`hdc` 和 `trace_streamer_windows.exe` 默认从 `PATH` 查找。省略 `--target` 时必须恰有一个 Connected 设备。hiprofiler 配置内置，目标进程固定为 `ohos.samples.distributedcalc`，时长默认 30 秒。
+脚本只使用 Python 标准库，不需要额外 Python 依赖。`hdc` 和 `trace_streamer_windows.exe` 默认从 `PATH` 查找。省略 `--target` 时必须恰有一个 Connected 设备。`--scenario` 默认选择 `calculator`，hiprofiler 根据所选场景的 Bundle 确定目标进程，时长默认 30 秒。
 
 脚本先启动计算器并完成 `100 * 100 = 10000` 启动校验，再启动 profiler，避免 Native Hook 连接期间的进程启动和校验命令阻塞占用采集窗口。profiler 启动后最多轮询 10 秒，要求进程仍在运行且远端 trace 已存在并大于零，随后立即进入随机负载。随机点击以 profiler 进程退出为唯一正常结束条件。只有 profiler 正常退出且启动校验通过时，才拉取 trace 并调用 trace_streamer。
 
@@ -82,7 +89,7 @@ git diff --check
 
 | 配置时长 | 数据库时间范围 | htrace 大小 | trace.db 大小 | native_hook 行数 | 结果 | 随机点击 |
 | --- | ---: | ---: | ---: | ---: | --- | ---: |
-| 30 秒 | 29.82 秒 | 41,518,565 B | 15,286,272 B | 154,102 | `10000` | 10 |
+| 30 秒 | 29.83 秒 | 42,669,350 B | 16,986,112 B | 182,324 | `10000` | 26 |
 | 60 秒 | 59.89 秒 | 50,121,912 B | 28,323,840 B | 362,378 | `10000` | 26 |
 | 120 秒 | 119.83 秒 | 58,813,446 B | 42,143,744 B | 572,425 | `10000` | 81 |
 
