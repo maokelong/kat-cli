@@ -1,2 +1,7 @@
 /target
+__pycache__/
+/tools/hypium_calculator_probe/.hvigor/
+/tools/hypium_calculator_probe/entry/build/
+/tools/hypium_calculator_probe/local.properties
+/tools/hypium_calculator_probe/oh_modules/
 .worktrees/
