@@ -76,12 +76,9 @@ pub async fn write_derived_dataset_table(
         .with_context(|| format!("failed to close derived Parquet table {logical_name}"))?;
 
     let relative_path = format!("derived/{pack_ref}/{parquet_file_name}");
-    catalog.tables.push(DatasetTable::derived(
-        logical_name,
-        relative_path,
-        pack_ref,
-        transform_id,
-    ));
+    catalog
+        .tables
+        .push(DatasetTable::parquet(logical_name, relative_path));
     write_json(&dataset_path.join("catalog.json"), &catalog)?;
 
     let ctx = SessionContext::new();
@@ -221,7 +218,7 @@ impl DatasetTableWriter {
             .close()
             .with_context(|| format!("failed to close Parquet table {logical_name}"))?;
 
-        Ok(DatasetTable::source(logical_name, relative_path))
+        Ok(DatasetTable::parquet(logical_name, relative_path))
     }
 }
 

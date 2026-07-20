@@ -26,29 +26,13 @@ pub(crate) trait PluginDecoder {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct PluginDecoderSpec {
-    new_decoder: fn() -> Box<dyn PluginDecoder>,
-}
-
-impl PluginDecoderSpec {
-    pub(crate) const fn new(new_decoder: fn() -> Box<dyn PluginDecoder>) -> Self {
-        Self { new_decoder }
-    }
-}
-
 pub(crate) struct PluginPayloadRegistry {
     decoders: Vec<Box<dyn PluginDecoder>>,
 }
 
 impl PluginPayloadRegistry {
-    pub(crate) fn new(specs: &[PluginDecoderSpec]) -> Self {
-        Self {
-            decoders: specs
-                .iter()
-                .map(|spec| (spec.new_decoder)())
-                .collect::<Vec<_>>(),
-        }
+    pub(crate) fn new(decoders: Vec<Box<dyn PluginDecoder>>) -> Self {
+        Self { decoders }
     }
 
     pub(crate) fn dispatch(

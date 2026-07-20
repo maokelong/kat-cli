@@ -9,12 +9,7 @@ use anyhow::{Result, bail};
 use log::debug;
 
 use crate::{
-    domains::{
-        ftrace::FTRACE_PLUGIN_DECODER,
-        native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
-    },
-    mmap::with_mapped_file,
-    record::TraceRecordSink,
+    decode::profiler::profiler_plugin_decoders, mmap::with_mapped_file, record::TraceRecordSink,
 };
 
 use file::{HIPROFILER_PROTOBUF_BIN, has_profiler_header, read_profiler_section};
@@ -35,12 +30,7 @@ fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
     let mut offset = 0usize;
-    let decoder_specs = [
-        FTRACE_PLUGIN_DECODER,
-        NATIVE_HOOK_PLUGIN_DECODER,
-        HOOK_DAEMON_PLUGIN_DECODER,
-    ];
-    let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
+    let mut plugin_registry = PluginPayloadRegistry::new(profiler_plugin_decoders());
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;

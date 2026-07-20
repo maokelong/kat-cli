@@ -21,20 +21,21 @@ async fn build_releases_mmap_and_queries_hitrace_as_json() {
 
     let rows = datasource
         .query_json(
-            "select count(*) as count, max(sample_interval) as max_sample_interval \
-             from profiler_plugin_data",
+            "select prev_comm, prev_pid, next_comm, next_pid \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format",
         )
         .await
         .expect("query succeeds");
 
-    assert_eq!(rows, json!([{ "count": 2, "max_sample_interval": 16 }]));
-
-    let data_rows = datasource
-        .query_json("select data from profiler_plugin_data where name = 'ftrace-plugin_config'")
-        .await
-        .expect("binary query succeeds");
-
-    assert_eq!(data_rows, json!([{ "data": "010203" }]));
+    assert_eq!(
+        rows,
+        json!([{
+            "prev_comm": "RenderThread",
+            "prev_pid": 42,
+            "next_comm": "com.tencent.mm",
+            "next_pid": 100,
+        }])
+    );
 }
 
 #[test]
@@ -63,7 +64,7 @@ fn build_rejects_profiler_envelope_frames_without_hitrace_header() {
     };
 
     assert!(
-        error.to_string().contains("missing OHOSPROF header"),
+        format!("{error:#}").contains("missing OHOSPROF header"),
         "{error:#}"
     );
 }
@@ -82,9 +83,7 @@ fn build_rejects_overflowing_section_length_without_panic() {
     };
 
     assert!(
-        error
-            .to_string()
-            .contains("invalid profiler section length"),
+        format!("{error:#}").contains("invalid profiler section length"),
         "{error:#}"
     );
 }
@@ -94,22 +93,13 @@ async fn build_skips_unsupported_profiler_sections() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("unsupported-section.hitrace");
     let mut bytes = profiler_section_body(99, vec![1, 2, 3]);
-    bytes.extend_from_slice(&profiler_section(vec![TestProfilerPluginData {
-        name: "ftrace-plugin".to_string(),
-        status: 1,
-        data: empty_trace_plugin_result(),
-        clock_id: 2,
-        tv_sec: 10,
-        tv_nsec: 200,
-        version: "1.0".to_string(),
-        sample_interval: 16,
-    }]));
+    bytes.extend_from_slice(&profiler_section(vec![ftrace_plugin_with_sched_switch()]));
     fs::write(&trace_path, bytes).expect("trace is written");
 
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let rows = datasource
-        .query_json("select count(*) as count from profiler_plugin_data")
+        .query_json("select count(*) as count from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format")
         .await
         .expect("query succeeds");
 
@@ -124,12 +114,13 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
 
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
-    let rows = datasource
-        .query_json("select count(*) as count from profiler_plugin_data")
-        .await
-        .expect("empty profiler_plugin_data table can be queried");
-
-    assert_eq!(rows, json!([{ "count": 0 }]));
+    assert!(
+        datasource
+            .query_json("select count(*) as count from profiler_plugin_data")
+            .await
+            .is_err(),
+        "old raw profiler table should not be registered"
+    );
 }
 
 #[tokio::test]
@@ -166,23 +157,20 @@ async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
-    let raw_rows = datasource
-        .query_json("select name, data from profiler_plugin_data order by name")
-        .await
-        .expect("raw profiler table is queryable");
-    assert_eq!(
-        raw_rows,
-        json!([
-            { "name": "ftrace-plugin_config", "data": "010203" },
-            { "name": "unknown-plugin", "data": "090909" }
-        ])
+    assert!(
+        datasource
+            .query_json("select name, data from profiler_plugin_data order by name")
+            .await
+            .is_err(),
+        "old raw profiler table should not be registered"
     );
-
-    let direct_rows = datasource
-        .query_json("select count(*) as count from sched_switch")
-        .await
-        .expect("direct table remains queryable");
-    assert_eq!(direct_rows, json!([{ "count": 0 }]));
+    assert!(
+        datasource
+            .query_json("select count(*) as count from sched_switch")
+            .await
+            .is_err(),
+        "old direct sched_switch table should not be registered"
+    );
 }
 
 #[tokio::test]
@@ -198,7 +186,10 @@ async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let rows = datasource
-        .query_json("select prev_comm, prev_pid, next_comm, next_pid from sched_switch limit 10")
+        .query_json(
+            "select prev_comm, prev_pid, next_comm, next_pid \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format limit 10",
+        )
         .await
         .expect("query succeeds");
 
@@ -228,63 +219,35 @@ async fn query_extracts_direct_sched_event_tables() {
 
     let rows = datasource
         .query_json(
-            "select event_timestamp, event_cpu, event_comm, pid, caller, io_wait, caller_str \
-             from sched_blocked_reason",
+            "select e.timestamp as event_timestamp, c.cpu as event_cpu, e.comm as event_comm, \
+                    s.prev_comm, s.next_comm \
+             from trace_plugin_result__ftrace_cpu_detail__event__sched_switch_format s \
+             join trace_plugin_result__ftrace_cpu_detail__event e \
+               on s.source_index = e.source_index \
+              and s.parent_index = e.row_index \
+             join trace_plugin_result__ftrace_cpu_detail c \
+               on e.source_index = c.source_index \
+              and e.parent_index = c.row_index",
         )
         .await
-        .expect("sched_blocked_reason query succeeds");
+        .expect("sched_switch prototype table query succeeds");
     assert_eq!(
         rows,
         json!([{
-            "event_timestamp": 20,
+            "event_timestamp": 10u64,
             "event_cpu": 3,
-            "event_comm": "blocked_source",
-            "pid": 42,
-            "caller": 3735928559u64,
-            "io_wait": 1,
-            "caller_str": "finish_task_switch",
+            "event_comm": "switch_source",
+            "prev_comm": "RenderThread",
+            "next_comm": "main",
         }])
     );
-
-    let rows = datasource
-        .query_json("select event_timestamp, event_cpu, comm, pid from sched_kthread_stop")
-        .await
-        .expect("sched_kthread_stop query succeeds");
-    assert_eq!(
-        rows,
-        json!([{
-            "event_timestamp": 25,
-            "event_cpu": 3,
-            "comm": "worker",
-            "pid": 77,
-        }])
+    assert!(
+        datasource
+            .query_json("select count(*) as count from sched_blocked_reason")
+            .await
+            .is_err(),
+        "old non-prototype ftrace table should not be registered"
     );
-
-    let rows = datasource
-        .query_json(
-            "select event_timestamp, event_cpu, comm, pid, prio, orig_cpu, dest_cpu \
-             from sched_migrate_task",
-        )
-        .await
-        .expect("sched_migrate_task query succeeds");
-    assert_eq!(
-        rows,
-        json!([{
-            "event_timestamp": 30,
-            "event_cpu": 3,
-            "comm": "RenderThread",
-            "pid": 42,
-            "prio": 120,
-            "orig_cpu": 1,
-            "dest_cpu": 3,
-        }])
-    );
-
-    let rows = datasource
-        .query_json("select count(*) as count from sched_process_exec")
-        .await
-        .expect("empty sched_process_exec query succeeds");
-    assert_eq!(rows, json!([{ "count": 0 }]));
 }
 
 #[tokio::test]
@@ -303,43 +266,16 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
-    let config_rows = datasource
-        .query_json(
-            "select pid, process_name, statistics_interval, sample_interval, dump_nmd, target_so_name \
-             from native_hook_config",
-        )
-        .await
-        .expect("native_hook_config query succeeds");
-    assert_eq!(
-        config_rows,
-        json!([{
-            "pid": 42,
-            "process_name": "render",
-            "statistics_interval": 5,
-            "sample_interval": 10,
-            "dump_nmd": true,
-            "target_so_name": "libark_jsruntime.so",
-        }])
-    );
-
-    let config_tag_rows = datasource
-        .query_json("select restrace_tag from native_hook_config")
-        .await
-        .expect("native_hook_config repeated string field is queryable");
-    assert_eq!(config_tag_rows, json!([{ "restrace_tag": ["fd", "vm"] }]));
-
     let alloc_rows = datasource
         .query_json(
-            "select tv_sec, tv_nsec, pid, tid, addr, size, thread_name_id, stack_id \
-             from native_hook_alloc",
+            "select pid, tid, addr, size, thread_name_id, stack_id \
+             from batch_native_hook_data__events__alloc_event",
         )
         .await
         .expect("native_hook_alloc query succeeds");
     assert_eq!(
         alloc_rows,
         json!([{
-            "tv_sec": 1u64,
-            "tv_nsec": 20u64,
             "pid": 42,
             "tid": 43,
             "addr": 4096u64,
@@ -348,111 +284,124 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
             "stack_id": 8,
         }])
     );
-    assert!(
-        datasource
-            .query_json("select event_ts from native_hook_alloc")
-            .await
-            .is_err(),
-        "native_hook_alloc should not expose derived event_ts"
-    );
-    assert!(
-        datasource
-            .query_json("select event_index from native_hook_alloc")
-            .await
-            .is_err(),
-        "native_hook_alloc should not expose derived event_index"
-    );
 
-    let statistic_rows = datasource
-        .query_json(
-            "select tv_sec, tv_nsec, pid, callstack_id, \"type\", apply_count, tag_name \
-             from native_hook_statistics",
-        )
+    let expanded_pids = datasource
+        .query_json("select value from native_hook_config__expand_pids order by row_index")
         .await
-        .expect("native_hook_statistics query succeeds");
+        .expect("repeated int config field is expanded");
+    assert_eq!(expanded_pids, json!([{ "value": 42 }, { "value": 77 }]));
+
+    let restrace_tags = datasource
+        .query_json("select value from native_hook_config__restrace_tag order by row_index")
+        .await
+        .expect("repeated string config field is expanded");
+    assert_eq!(restrace_tags, json!([{ "value": "fd" }, { "value": "vm" }]));
+
+    let event_rows = datasource
+        .query_json("select event from batch_native_hook_data__events order by row_index")
+        .await
+        .expect("oneof parent table records selected variant name");
     assert_eq!(
-        statistic_rows,
-        json!([{
-            "tv_sec": 2u64,
-            "tv_nsec": 30u64,
-            "pid": 42,
-            "callstack_id": 9,
-            "type": 1,
-            "apply_count": 3u64,
-            "tag_name": "ashmem",
-        }])
+        event_rows,
+        json!([
+            { "event": "alloc_event" },
+            { "event": "statistics_event" },
+            { "event": "trace_alloc_event" },
+            { "event": "trace_free_event" },
+            { "event": "maps_info" },
+            { "event": "symbol_tab" },
+            { "event": "stack_map" },
+        ])
     );
 
     let trace_alloc_rows = datasource
         .query_json(
-            "select tv_sec, tv_nsec, pid, tid, addr, trace_type, tag_name, size, \
-             thread_name_id, stack_id from native_hook_trace_alloc",
+            "select trace_type, trace_type_name \
+             from batch_native_hook_data__events__trace_alloc_event",
         )
         .await
-        .expect("native_hook_trace_alloc query succeeds");
+        .expect("enum field exposes raw value and name");
     assert_eq!(
         trace_alloc_rows,
-        json!([{
-            "tv_sec": 3u64,
-            "tv_nsec": 40u64,
-            "pid": 42,
-            "tid": 44,
-            "addr": 8192u64,
-            "trace_type": 0,
-            "tag_name": "fd",
-            "size": 16u64,
-            "thread_name_id": 11,
-            "stack_id": 12,
-        }])
+        json!([{ "trace_type": 0, "trace_type_name": "FD" }])
     );
 
-    let trace_free_rows = datasource
+    let statistics_rows = datasource
         .query_json(
-            "select tv_sec, tv_nsec, pid, tid, addr, trace_type, tag_name, \
-             thread_name_id, stack_id from native_hook_trace_free",
+            "select type as memory_type, type_name \
+             from batch_native_hook_data__events__statistics_event",
         )
         .await
-        .expect("native_hook_trace_free query succeeds");
+        .expect("nested enum field exposes raw value and name");
     assert_eq!(
-        trace_free_rows,
-        json!([{
-            "tv_sec": 4u64,
-            "tv_nsec": 50u64,
-            "pid": 42,
-            "tid": 44,
-            "addr": 8192u64,
-            "trace_type": 0,
-            "tag_name": "fd",
-            "thread_name_id": 11,
-            "stack_id": 12,
-        }])
+        statistics_rows,
+        json!([{ "memory_type": 1, "type_name": "MMAP" }])
     );
 
-    let maps_info_rows = datasource
+    let symbol_rows = datasource
         .query_json(
-            "select tv_sec, tv_nsec, pid, start, \"end\", \"offset\", file_path_id \
-             from native_hook_maps_info",
+            "select sym_table, str_table \
+             from batch_native_hook_data__events__symbol_tab",
         )
         .await
-        .expect("native_hook_maps_info query succeeds");
+        .expect("bytes fields are exposed as binary columns");
     assert_eq!(
-        maps_info_rows,
-        json!([{
-            "tv_sec": 5u64,
-            "tv_nsec": 60u64,
-            "pid": 42,
-            "start": 12_288u64,
-            "end": 16_384u64,
-            "offset": 128u64,
-            "file_path_id": 9,
-        }])
+        symbol_rows,
+        json!([{ "sym_table": "010203", "str_table": "0405" }])
     );
 
-    let raw_rows = datasource
-        .query_json("select count(*) as count from profiler_plugin_data where name = 'nativehook'")
+    let frame_map_ids = datasource
+        .query_json(
+            "select value \
+             from batch_native_hook_data__events__stack_map__frame_map_id \
+             order by row_index",
+        )
         .await
-        .expect("raw nativehook envelope remains queryable");
-    assert_eq!(raw_rows, json!([{ "count": 1 }]));
+        .expect("nested repeated uint64 field is expanded");
+    assert_eq!(
+        frame_map_ids,
+        json!([{ "value": 10u64 }, { "value": 11u64 }])
+    );
+
+    assert!(
+        datasource
+            .query_json("select event_ts from batch_native_hook_data__events__alloc_event")
+            .await
+            .is_err(),
+        "native hook alloc should not expose derived event_ts"
+    );
+    assert!(
+        datasource
+            .query_json("select count(*) from native_hook_alloc")
+            .await
+            .is_err(),
+        "old native_hook_alloc table should not be registered"
+    );
+}
+
+#[tokio::test]
+async fn query_extracts_fixed_result_system_plugin_direct_tables() {
+    let dir = tempdir().expect("tempdir is created");
+    let trace_path = dir.path().join("fixed-result.hitrace");
+    fs::write(&trace_path, profiler_section(fixed_result_system_plugins()))
+        .expect("trace is written");
+
+    let datasource =
+        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+
+    let rows = datasource
+        .query_json("select zram, gpu_used_size from memory_data")
+        .await
+        .expect("memory_data query succeeds");
+    assert_eq!(rows, json!([{ "zram": 64u64, "gpu_used_size": 32u64 }]));
+
+    assert!(
+        datasource
+            .query_json("select count(*) from process_data_processesinfo")
+            .await
+            .is_err(),
+        "old fixed_result child table should not be registered"
+    );
 }
 
 #[tokio::test]
@@ -463,24 +412,6 @@ async fn query_json_converts_scalar_result_types() {
 
     let datasource =
         kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
-    let empty_table_rows = datasource
-        .query_json("select count(*) as count from profiler_plugin_data")
-        .await
-        .expect("empty profiler_plugin_data table can be queried");
-    assert_eq!(empty_table_rows, json!([{ "count": 0 }]));
-
-    let empty_native_hook_rows = datasource
-        .query_json("select count(*) as count from native_hook_alloc")
-        .await
-        .expect("empty native_hook_alloc table can be queried");
-    assert_eq!(empty_native_hook_rows, json!([{ "count": 0 }]));
-
-    let empty_native_hook_symbol_rows = datasource
-        .query_json("select count(*) as count from native_hook_symbol_table")
-        .await
-        .expect("empty native_hook_symbol_table table can be queried");
-    assert_eq!(empty_native_hook_symbol_rows, json!([{ "count": 0 }]));
-
     let rows = datasource
         .query_json(
             "select true as flag, \
@@ -513,16 +444,7 @@ fn encoded_trace() -> Vec<u8> {
         version: "1.0".to_string(),
         sample_interval: 8,
     }]);
-    bytes.extend_from_slice(&profiler_section(vec![TestProfilerPluginData {
-        name: "ftrace-plugin".to_string(),
-        status: 1,
-        data: empty_trace_plugin_result(),
-        clock_id: 2,
-        tv_sec: 10,
-        tv_nsec: 200,
-        version: "1.0".to_string(),
-        sample_interval: 16,
-    }]));
+    bytes.extend_from_slice(&profiler_section(vec![ftrace_plugin_with_sched_switch()]));
     bytes
 }
 
@@ -605,6 +527,10 @@ enum TestNativeHookEvent {
     AllocEvent(TestAllocEvent),
     #[prost(message, tag = "11")]
     MapsInfo(TestMapsInfo),
+    #[prost(message, tag = "12")]
+    SymbolTab(TestSymbolTable),
+    #[prost(message, tag = "14")]
+    StackMap(TestStackMap),
     #[prost(message, tag = "15")]
     StatisticsEvent(TestRecordStatisticsEvent),
     #[prost(message, tag = "16")]
@@ -625,6 +551,36 @@ struct TestMapsInfo {
     offset: u64,
     #[prost(uint32, tag = "5")]
     file_path_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestSymbolTable {
+    #[prost(uint32, tag = "1")]
+    file_path_id: u32,
+    #[prost(uint64, tag = "2")]
+    text_exec_vaddr: u64,
+    #[prost(uint64, tag = "3")]
+    text_exec_vaddr_file_offset: u64,
+    #[prost(uint32, tag = "4")]
+    sym_entry_size: u32,
+    #[prost(bytes = "vec", tag = "5")]
+    sym_table: Vec<u8>,
+    #[prost(bytes = "vec", tag = "6")]
+    str_table: Vec<u8>,
+    #[prost(int32, tag = "7")]
+    pid: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestStackMap {
+    #[prost(uint32, tag = "1")]
+    id: u32,
+    #[prost(uint64, repeated, tag = "2")]
+    frame_map_id: Vec<u64>,
+    #[prost(uint64, repeated, tag = "3")]
+    ip: Vec<u64>,
+    #[prost(int32, tag = "4")]
+    pid: i32,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -699,6 +655,116 @@ struct TestTraceFreeEvent {
     thread_name_id: u32,
     #[prost(uint32, tag = "8")]
     stack_id: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestCpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_process_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestCpuData {
+    #[prost(int64, tag = "3")]
+    process_num: i64,
+    #[prost(double, tag = "4")]
+    user_load: f64,
+    #[prost(double, tag = "5")]
+    sys_load: f64,
+    #[prost(double, tag = "6")]
+    total_load: f64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestMemoryConfig {
+    #[prost(bool, tag = "2")]
+    report_sysmem_mem_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestMemoryData {
+    #[prost(uint64, tag = "4")]
+    zram: u64,
+    #[prost(uint64, tag = "10")]
+    gpu_used_size: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessConfig {
+    #[prost(bool, tag = "1")]
+    report_process_tree: bool,
+    #[prost(bool, tag = "2")]
+    report_cpu: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessData {
+    #[prost(message, repeated, tag = "1")]
+    processesinfo: Vec<TestProcessInfo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestProcessInfo {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestDiskioConfig {
+    #[prost(int32, tag = "2")]
+    report_io_stats: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestDiskioData {
+    #[prost(int64, tag = "4")]
+    rd_sectors_kb: i64,
+    #[prost(int64, tag = "5")]
+    wr_sectors_kb: i64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkConfig {
+    #[prost(int32, tag = "3")]
+    single_pid: i32,
+    #[prost(string, tag = "4")]
+    startup_process_name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkDatas {
+    #[prost(message, repeated, tag = "1")]
+    networkinfo: Vec<TestNetworkData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestNetworkData {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(uint64, tag = "4")]
+    tx_bytes: u64,
+    #[prost(uint64, tag = "5")]
+    rx_bytes: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestGpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_gpu_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct TestGpuData {
+    #[prost(uint64, tag = "1")]
+    boottime: u64,
+    #[prost(uint64, tag = "2")]
+    gpu_utilisation: u64,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -1083,6 +1149,29 @@ fn native_hook_plugin_with_events() -> TestProfilerPluginData {
                         file_path_id: 9,
                     })),
                 },
+                TestNativeHookData {
+                    tv_sec: 6,
+                    tv_nsec: 70,
+                    event: Some(TestNativeHookEvent::SymbolTab(TestSymbolTable {
+                        file_path_id: 9,
+                        text_exec_vaddr: 0x5000,
+                        text_exec_vaddr_file_offset: 0x40,
+                        sym_entry_size: 16,
+                        sym_table: vec![1, 2, 3],
+                        str_table: vec![4, 5],
+                        pid: 42,
+                    })),
+                },
+                TestNativeHookData {
+                    tv_sec: 7,
+                    tv_nsec: 80,
+                    event: Some(TestNativeHookEvent::StackMap(TestStackMap {
+                        id: 99,
+                        frame_map_id: vec![10, 11],
+                        ip: vec![0x100, 0x200],
+                        pid: 42,
+                    })),
+                },
             ],
         }
         .encode_to_vec(),
@@ -1094,11 +1183,109 @@ fn native_hook_plugin_with_events() -> TestProfilerPluginData {
     }
 }
 
-fn empty_trace_plugin_result() -> Vec<u8> {
-    TestTracePluginResult {
-        ftrace_cpu_detail: Vec::new(),
+fn fixed_result_system_plugins() -> Vec<TestProfilerPluginData> {
+    vec![
+        fixed_result_plugin(
+            "cpu-plugin_config",
+            TestCpuConfig {
+                pid: 42,
+                report_process_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "cpu-plugin",
+            TestCpuData {
+                process_num: 2,
+                user_load: 1.5,
+                sys_load: 2.5,
+                total_load: 4.0,
+            },
+        ),
+        fixed_result_plugin(
+            "memory-plugin_config",
+            TestMemoryConfig {
+                report_sysmem_mem_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "memory-plugin",
+            TestMemoryData {
+                zram: 64,
+                gpu_used_size: 32,
+            },
+        ),
+        fixed_result_plugin(
+            "process-plugin_config",
+            TestProcessConfig {
+                report_process_tree: true,
+                report_cpu: true,
+            },
+        ),
+        fixed_result_plugin(
+            "process-plugin",
+            TestProcessData {
+                processesinfo: vec![TestProcessInfo {
+                    pid: 42,
+                    name: "render".to_string(),
+                }],
+            },
+        ),
+        fixed_result_plugin(
+            "diskio-plugin_config",
+            TestDiskioConfig { report_io_stats: 2 },
+        ),
+        fixed_result_plugin(
+            "diskio-plugin",
+            TestDiskioData {
+                rd_sectors_kb: 10,
+                wr_sectors_kb: 20,
+            },
+        ),
+        fixed_result_plugin(
+            "network-plugin_config",
+            TestNetworkConfig {
+                single_pid: 42,
+                startup_process_name: "render".to_string(),
+            },
+        ),
+        fixed_result_plugin(
+            "network-plugin",
+            TestNetworkDatas {
+                networkinfo: vec![TestNetworkData {
+                    pid: 42,
+                    tx_bytes: 100,
+                    rx_bytes: 200,
+                }],
+            },
+        ),
+        fixed_result_plugin(
+            "gpu-plugin_config",
+            TestGpuConfig {
+                pid: 42,
+                report_gpu_info: true,
+            },
+        ),
+        fixed_result_plugin(
+            "gpu-plugin",
+            TestGpuData {
+                boottime: 100,
+                gpu_utilisation: 80,
+            },
+        ),
+    ]
+}
+
+fn fixed_result_plugin(name: &str, message: impl Message) -> TestProfilerPluginData {
+    TestProfilerPluginData {
+        name: name.to_string(),
+        status: 1,
+        data: message.encode_to_vec(),
+        clock_id: 2,
+        tv_sec: 10,
+        tv_nsec: 200,
+        version: "1.0".to_string(),
+        sample_interval: 16,
     }
-    .encode_to_vec()
 }
 
 fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {

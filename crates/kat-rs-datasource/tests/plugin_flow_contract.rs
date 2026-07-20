@@ -17,18 +17,10 @@ mod proto {
     pub(crate) use kat::hitrace::ProfilerPluginData;
 }
 
-mod domains {
-    pub(crate) mod ftrace {
-        #[allow(dead_code)]
-        pub(crate) enum FtraceRecord {}
+mod payload_value {
+    #![allow(dead_code)]
 
-        #[allow(dead_code)]
-        pub(crate) struct FtraceEventRecord;
-    }
-
-    pub(crate) mod native_hook {
-        pub(crate) enum NativeHookRecord {}
-    }
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/payload_value.rs"));
 }
 
 mod record {
@@ -58,7 +50,7 @@ mod profiler {
         ));
     }
 
-    pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
+    pub(crate) use registry::{PluginDecoder, PluginPayloadRegistry};
 }
 
 struct RecordingSink;
@@ -112,10 +104,6 @@ impl profiler::PluginDecoder for RecordingDecoder {
     }
 }
 
-fn new_recording_decoder() -> Box<dyn profiler::PluginDecoder> {
-    Box::new(RecordingDecoder)
-}
-
 fn plugin_message(name: &str) -> proto::ProfilerPluginData {
     proto::ProfilerPluginData {
         name: name.to_string(),
@@ -126,8 +114,8 @@ fn plugin_message(name: &str) -> proto::ProfilerPluginData {
 #[test]
 fn registry_dispatches_config_data_and_finish_to_matching_decoder() {
     EVENTS.with(|events| events.borrow_mut().clear());
-    let specs = [profiler::PluginDecoderSpec::new(new_recording_decoder)];
-    let mut registry = profiler::PluginPayloadRegistry::new(&specs);
+    let decoders: Vec<Box<dyn profiler::PluginDecoder>> = vec![Box::new(RecordingDecoder)];
+    let mut registry = profiler::PluginPayloadRegistry::new(decoders);
     let mut sink = RecordingSink;
 
     let config = plugin_message("demo-plugin_config");
