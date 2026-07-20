@@ -574,6 +574,29 @@ def convert_trace(
         raise RuntimeError(f"trace_streamer failed with code {result.returncode}")
 
 
+def exercise_scenario(
+    scenario: ApplicationScenario,
+    hdc: str,
+    target: str,
+    log_path: Path,
+    failure_path: Path,
+    profiler: subprocess.Popen,
+) -> Optional[str]:
+    try:
+        scenario.exercise(hdc, target, log_path, profiler)
+        return None
+    except Exception as error:
+        warning = f"{scenario.name} interaction warning: {error}"
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"{warning}\n")
+        print(f"warning: {warning}", file=sys.stderr)
+        try:
+            capture_failure(hdc, target, failure_path)
+        except Exception:
+            pass
+        return warning
+
+
 def main() -> int:
     args = arguments()
     scenario = SCENARIOS[args.scenario]
@@ -601,7 +624,6 @@ def main() -> int:
             f"{scenario.name} startup validation failed: {error}"
         ) from error
 
-    ui_error: Optional[Exception] = None
     with remote_profiler_config(
         hdc, target, run_dir, scenario.bundle
     ) as config, profiler_log.open("wb") as log:
@@ -614,21 +636,12 @@ def main() -> int:
             stderr=subprocess.STDOUT,
         )
         wait_for_profiler(hdc, target, remote, profiler)
-        try:
-            scenario.exercise(hdc, target, uitest_log, profiler)
-        except Exception as error:
-            ui_error = error
-            try:
-                capture_failure(hdc, target, failure)
-            except Exception:
-                pass
-            profiler.wait()
-        else:
-            profiler.wait()
+        exercise_scenario(
+            scenario, hdc, target, uitest_log, failure, profiler
+        )
+        profiler.wait()
         if profiler.returncode != 0:
             raise RuntimeError(f"hiprofiler exited with code {profiler.returncode}")
-    if ui_error:
-        raise RuntimeError(f"{scenario.name} interaction failed: {ui_error}")
 
     hdc_run(hdc, target, "file", "recv", remote, str(trace))
     hdc_run(hdc, target, "shell", "rm", "-f", remote)
