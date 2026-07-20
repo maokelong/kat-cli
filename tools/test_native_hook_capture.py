@@ -350,6 +350,33 @@ offline-serial USB Offline localhost hdc
                     "trace_streamer", trace, database, root / "streamer.log"
                 )
 
+    @patch.object(capture, "capture_failure")
+    def test_scenario_interaction_failure_is_only_a_warning(
+        self, capture_failure: Mock
+    ) -> None:
+        scenario = Mock()
+        scenario.name = "example"
+        scenario.exercise.side_effect = RuntimeError("click failed")
+        profiler = Mock()
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            log_path = root / "uitest.log"
+            log_path.write_text("", encoding="utf-8")
+            warning = capture.exercise_scenario(
+                scenario,
+                "hdc",
+                "target",
+                log_path,
+                root / "failure.png",
+                profiler,
+            )
+            log_text = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(warning, "example interaction warning: click failed")
+        self.assertIn(warning, log_text)
+        capture_failure.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

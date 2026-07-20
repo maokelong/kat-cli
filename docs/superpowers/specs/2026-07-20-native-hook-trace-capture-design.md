@@ -1,10 +1,10 @@
-# Native Hook 计算器 Trace 采集设计
+# Native Hook 应用 Trace 采集设计
 
 关联 Issue：[#152](https://github.com/maokelong/kat-rs/issues/152)
 
 ## 背景与目标
 
-Native Hook 分析需要一条可重复的真机采集路径。本切片使用 Python 编排系统自带的 UiTest 命令，控制预装的分布式计算器，在 hiprofiler 采集期间执行 `100 * 100 = 10000`，并保存 trace、SQLite 数据库和可复核日志。
+Native Hook 分析需要一条可重复的真机采集路径。本切片使用 Python 编排系统自带的 UiTest 命令，启动目标应用并在 hiprofiler 采集期间产生轻量 UI 负载，核心产物是可供后续符号转换使用的 trace。SQLite 数据库仅作为当前串联、验证符号转换流程的胶水产物。
 
 ## 不做什么
 
@@ -12,7 +12,7 @@ Native Hook 分析需要一条可重复的真机采集路径。本切片使用 P
 2. 不使用 hmdriver2，不硬编码屏幕坐标。
 3. 不创建、构建或安装业务 HAP、测试 HAP；直接操作设备已有的 `ohos.samples.distributedcalc`。
 4. 不依赖 Hypium Python Driver；当前 RK3568 镜像无法加载公开版 Hypium 的设备运行库。
-5. 不把穿刺扩展为完整的计算器功能测试。
+5. 不把应用操作扩展为功能正确性测试；除场景显式声明的启动准备外，随机负载是否完成不决定 Trace 成败。
 6. 本切片不实现未知应用的操作逻辑，不引入动态插件、外部场景配置文件或脚本加载机制。
 
 ## 模块 seam
@@ -52,7 +52,7 @@ python tools/native_hook_capture.py [--scenario calculator|note] [--duration 秒
 
 脚本只使用 Python 标准库，不需要额外 Python 依赖。`hdc` 和 `trace_streamer_windows.exe` 默认从 `PATH` 查找。省略 `--target` 时必须恰有一个 Connected 设备。`--scenario` 默认选择 `calculator`，hiprofiler 根据所选场景的 Bundle 确定目标进程，时长默认 30 秒。
 
-脚本先启动计算器并完成 `100 * 100 = 10000` 启动校验，再启动 profiler，避免 Native Hook 连接期间的进程启动和校验命令阻塞占用采集窗口。profiler 启动后最多轮询 10 秒，要求进程仍在运行且远端 trace 已存在并大于零，随后立即进入随机负载。随机点击以 profiler 进程退出为唯一正常结束条件。只有 profiler 正常退出且启动校验通过时，才拉取 trace 并调用 trace_streamer。
+脚本先执行所选场景的必要准备：启动目标应用，并完成该场景显式要求的页面或结果校验；准备失败意味着目标进程不可采集，属于致命错误。随后启动 profiler，最多轮询 10 秒，要求进程仍在运行且远端 trace 已存在并大于零，再执行随机负载。采集期间的随机操作只是制造负载，失败时写入告警但不否定本次 Trace；profiler 正常退出后仍拉取 trace 并调用 trace_streamer。
 
 ## 运行产物与错误
 
@@ -64,14 +64,13 @@ trace.db
 hiprofiler.log
 uitest.log
 trace-streamer.log
-failure.png        # 仅 UiTest 或 UI 异常时尽力生成
 ```
 
-远端布局和 trace 使用唯一临时文件名并在结束时清理。异常时保留已有本地产物；截图失败不得覆盖原始错误。布局命令失败、JSON 无效、组件缺失或重复、边界无效、结果不为 `10000` 均为致命错误。随机点击命令失败时，仅当 profiler 已同时退出才视为正常结束，否则仍为致命错误。trace_streamer 非零退出、数据库缺失或数据库为空同样为致命错误。
+远端布局和 trace 使用唯一临时文件名，不会与后续采集冲突。成功拉取 trace 后删除远端文件；失败运行允许保留远端 trace，代价只是占用设备空间。截图仅在设备支持时尽力生成，不属于验收产物，也不得覆盖原始错误。场景准备阶段的布局、组件或结果校验失败为致命错误；采集阶段的随机操作失败只记录告警。trace_streamer 和 SQLite/Excel 是串联 Trace 与符号转换的验证胶水，不按生产级数据管道完善。
 
 ## 验收与验证
 
-1. Python 单元测试覆盖设备选择、布局遍历、组件唯一性、边界解析、启动点击顺序、随机按钮筛选、随机负载结束条件、结果判定、profiler 就绪和转换错误边界。
+1. Python 单元测试覆盖设备选择、布局遍历、组件唯一性、边界解析、启动点击顺序、随机按钮筛选、随机负载结束条件、结果判定和 profiler 就绪边界。
 2. 在 API 26、`uitest 7.0.0.1` 的 RK3568 真机上直接控制预装计算器，不安装额外 HAP。
 3. 真机先完成计算器启动校验，再验证 profiler 采集期间持续随机点击；完成 30 秒、60 秒和 120 秒采集、拉取 trace 并转换 SQLite。
 4. 提交前运行：
@@ -84,7 +83,7 @@ git diff --check
 
 ## 最小交付切片
 
-1. 提供直接控制预装计算器的原生 UiTest Python 逻辑。
+1. 提供计算器和备忘录两个应用场景，验证场景 adapter 能为目标进程制造轻量负载。
 2. 提供 Python Native Hook 采集与 trace_streamer 转换入口。
 3. 给出自动化测试和真机验证证据。
 
@@ -99,4 +98,4 @@ git diff --check
 | `calculator` | 120 秒 | 119.83 秒 | 58,813,446 B | 42,143,744 B | 572,425 | `10000` | 81 |
 | `note` | 30 秒 | 28.20 秒 | 45,050,281 B | 29,716,480 B | 143,913 | 首页搜索框 | 14 |
 
-四次均完成 trace_streamer 转换。`calculator` 在采集窗口内动态识别 18 个按钮；`note` 在采集前缓存三个搜索框安全点，采集期间不修改笔记数据。随机种子、候选操作和点击总数均写入 `uitest.log`。
+四次均完成 trace_streamer 转换。`calculator` 在采集窗口内动态识别 18 个按钮；`note` 在采集前缓存三个搜索框安全点，采集期间不修改笔记数据。备忘录数据库的 143,913 条 `native_hook` 记录全部关联 `process.name=com.ohos.note`。随机种子、候选操作和点击总数均写入 `uitest.log`。
