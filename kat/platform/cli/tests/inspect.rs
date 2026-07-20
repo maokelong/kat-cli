@@ -101,6 +101,10 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
 fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
@@ -166,10 +170,8 @@ fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
 
 #[test]
 fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
     let mut command = Command::new(cargo_kat());
     command.arg("inspect");
-    prepare_platform_data_home(&mut command, temporary.path());
 
     let output = command.output().expect("run unstaged kat inspect");
 
@@ -188,6 +190,10 @@ fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
 fn formed_operation_failure_is_one_json_response_and_readable_diagnostic() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
@@ -213,6 +219,76 @@ fn formed_operation_failure_is_one_json_response_and_readable_diagnostic() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
+fn duplicate_pack_names_report_conflict_specific_help() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    let first = temporary.path().join("first-pack");
+    let second = temporary.path().join("second-pack");
+    write_pack(&first, "duplicate", "First description");
+    write_pack(&second, "duplicate", "Second description");
+    let mut command = Command::new(binary);
+    command
+        .arg("inspect")
+        .arg("--pack-dir")
+        .arg(&first)
+        .arg("--pack-dir")
+        .arg(&second);
+    prepare_platform_data_home(&mut command, temporary.path());
+
+    let output = command.output().expect("run duplicate PACK inspection");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).expect("failure JSON");
+    assert_eq!(response["status"], "failure");
+    assert_eq!(
+        response["error"]["help"],
+        "Remove one conflicting PACK or give the PACKs distinct names, then retry"
+    );
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostic.contains("Remove one conflicting PACK"));
+    assert!(diagnostic.contains("distinct names"));
+    assert!(response.get("result").is_none());
+    assert!(response.get("log_path").is_none());
+}
+
+#[test]
+fn invalid_default_pack_search_path_reports_search_specific_help() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (skill, binary) = stage_minimum_skill_layout(temporary.path());
+    let assets = skill.join("assets");
+    fs::create_dir_all(&assets).expect("create Skill assets directory");
+    fs::write(assets.join("packs"), "not a directory")
+        .expect("create invalid default PACK search path");
+    let mut command = Command::new(binary);
+    command.arg("inspect");
+
+    let output = command
+        .output()
+        .expect("run invalid default PACK search inspection");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).expect("failure JSON");
+    assert_eq!(response["status"], "failure");
+    assert_eq!(
+        response["error"]["help"],
+        "Make the default PACK search path a readable directory or remove it, then retry"
+    );
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostic.contains("default PACK search path"));
+    assert!(diagnostic.contains("readable directory"));
+    assert!(response.get("result").is_none());
+    assert!(response.get("log_path").is_none());
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
 fn absent_default_directories_are_an_empty_result_and_are_not_created() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
@@ -233,6 +309,10 @@ fn absent_default_directories_are_an_empty_result_and_are_not_created() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
 fn closed_stdout_makes_the_real_process_fail() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());

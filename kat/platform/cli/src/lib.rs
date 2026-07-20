@@ -56,7 +56,7 @@ pub fn run() -> ExitCode {
         Operation::Inspect { pack_directories } => {
             let prepared = match inspect_packs(pack_directories) {
                 Ok(result) => response::prepare_success(result),
-                Err(error) => response::prepare_operation_failure(miette::Report::new(error)),
+                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
             };
             response::publish(prepared)
         }
@@ -71,7 +71,7 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     })
-    .map_err(|source| InspectPacksError::Discovery { source })?;
+    .map_err(InspectPacksError::from)?;
 
     Ok(InspectPacksResult {
         packs: discovered.iter().map(project_pack).collect(),
@@ -178,6 +178,36 @@ enum InspectPacksError {
         #[source]
         source: pack_discovery::PackDiscoveryError,
     },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help(
+        "Make the default PACK search path a readable directory or remove it, then retry"
+    ))]
+    DefaultPackSearchPath {
+        #[source]
+        source: pack_discovery::PackDiscoveryError,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
+    DuplicatePackName {
+        #[source]
+        source: pack_discovery::PackDiscoveryError,
+    },
+}
+
+impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
+    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
+        match source {
+            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
+                Self::DuplicatePackName { source }
+            }
+            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
+                Self::DefaultPackSearchPath { source }
+            }
+            source => Self::Discovery { source },
+        }
+    }
 }
 
 #[cfg(test)]
