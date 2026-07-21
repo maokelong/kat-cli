@@ -189,7 +189,7 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
                 return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
             }
             if nonempty {
-                clear_directory(&canonical)?;
+                clear_existing_target(&canonical)?;
             }
             Ok(canonical)
         }
@@ -217,6 +217,37 @@ fn canonical_unicode(path: &Path) -> Result<PathBuf, DatasetWriteError> {
         return Err(DatasetWriteError::NonUnicodeTarget { path: canonical });
     }
     Ok(canonical)
+}
+
+fn clear_existing_target(root: &Path) -> Result<(), DatasetWriteError> {
+    clear_existing_target_with(root, clear_directory)
+}
+
+fn clear_existing_target_with(
+    root: &Path,
+    clear: impl FnOnce(&Path) -> Result<(), DatasetWriteError>,
+) -> Result<(), DatasetWriteError> {
+    // 覆盖一旦开始便先撤销识别标记，使后续破坏式失败只留下不可识别候选。
+    invalidate_marker(root)?;
+    clear(root)
+}
+
+fn invalidate_marker(root: &Path) -> Result<(), DatasetWriteError> {
+    let marker = root.join(MARKER);
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            fs::remove_file(&marker).map_err(|source| DatasetWriteError::RemoveTargetEntry {
+                path: marker,
+                source,
+            })
+        }
+        Ok(_) => Ok(()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(DatasetWriteError::InspectTargetEntry {
+            path: marker,
+            source,
+        }),
+    }
 }
 
 fn clear_directory(root: &Path) -> Result<(), DatasetWriteError> {
@@ -391,5 +422,39 @@ mod tests {
             Err(DatasetWriteError::PublishMarker { .. })
         ));
         assert!(!target.join(MARKER).is_file());
+    }
+
+    #[test]
+    fn partial_overwrite_cleanup_does_not_leave_a_recognizable_dataset() {
+        let temp = tempdir().unwrap();
+        let target = temp.path().join("dataset");
+        let mut writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            true,
+        )]));
+        writer
+            .begin_table("facts", schema)
+            .unwrap()
+            .finish()
+            .unwrap();
+        writer.finish().unwrap();
+        assert!(crate::inspect_dataset(&target).is_ok());
+
+        let failure = clear_existing_target_with(&target, |root| {
+            fs::remove_dir_all(root.join("tables")).unwrap();
+            Err(DatasetWriteError::RemoveTargetEntry {
+                path: root.join("blocked-entry"),
+                source: io::Error::new(io::ErrorKind::PermissionDenied, "injected cleanup failure"),
+            })
+        });
+
+        assert!(matches!(
+            failure,
+            Err(DatasetWriteError::RemoveTargetEntry { .. })
+        ));
+        assert!(!target.join(MARKER).exists());
+        assert!(crate::inspect_dataset(&target).is_err());
     }
 }
