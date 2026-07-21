@@ -39,7 +39,7 @@ pub(crate) struct HitraceDecodeReport {
 #[derive(Debug)]
 pub(crate) struct HitraceDecodeFailure {
     pub(crate) source: anyhow::Error,
-    pub(crate) report: HitraceDecodeReport,
+    pub(crate) report: Box<HitraceDecodeReport>,
 }
 
 #[derive(Clone, Debug)]
@@ -72,7 +72,10 @@ pub(crate) fn decode_file_with_report(
     });
     match result {
         Ok(()) => Ok(report),
-        Err(source) => Err(HitraceDecodeFailure { source, report }),
+        Err(source) => Err(HitraceDecodeFailure {
+            source,
+            report: Box::new(report),
+        }),
     }
 }
 
