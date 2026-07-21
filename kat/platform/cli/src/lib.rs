@@ -194,20 +194,24 @@ fn import_hitrace(
     {
         return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
     }
-    if let Err(source) = writeln!(log.file, "status: success") {
-        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-    }
     let path = match imported.path().to_str() {
         Some(path) => path.to_owned(),
         None => {
-            return finish_hitrace_failure(
-                log,
-                ImportHitraceError::NonUnicodeDataset {
-                    path: imported.path().to_path_buf(),
-                },
-            );
+            let error = ImportHitraceError::NonUnicodeDataset {
+                path: imported.path().to_path_buf(),
+            };
+            if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+                return finish_hitrace_failure(
+                    log,
+                    ImportHitraceError::WriteOperationLog { source },
+                );
+            }
+            return finish_hitrace_failure(log, error);
         }
     };
+    if let Err(source) = writeln!(log.file, "status: success") {
+        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
+    }
     let result = ImportHitraceResult {
         path,
         unsupported_plugins: imported.unsupported_plugins().to_vec(),
