@@ -5,10 +5,33 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+arrow-array.workspace = true
+arrow-json.workspace = true
 arrow-schema.workspace = true
+datafusion.workspace = true
+directories.workspace = true
 dunce.workspace = true
+futures.workspace = true
+log.workspace = true
+memmap2.workspace = true
 parquet.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_arrow.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+prost-types.workspace = true
+protoc-bin-vendored.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 tempfile.workspace = true
+tokio.workspace = true

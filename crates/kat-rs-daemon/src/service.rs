@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use kat_rs_datasource::TraceDatasource;
+use kat_datasource::TraceDatasource;
 use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::sync::Semaphore;
