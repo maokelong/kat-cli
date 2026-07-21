@@ -125,19 +125,28 @@ fn stage_skill(root: &Path) -> PathBuf {
 }
 
 fn command(binary: &Path, root: &Path) -> Command {
-    let mut command = Command::new(binary);
-    command
-        .env("XDG_DATA_HOME", root.join("xdg-data"))
-        .env("HOME", root.join("home"))
-        .env("APPDATA", root.join("app-data"))
-        .env("LOCALAPPDATA", root.join("local-app-data"))
-        .env("USERPROFILE", root.join("profile"));
+    #[cfg(not(windows))]
+    let command = {
+        let mut command = Command::new(binary);
+        command
+            .env("XDG_DATA_HOME", root.join("xdg-data"))
+            .env("HOME", root.join("home"));
+        command
+    };
+    #[cfg(windows)]
+    let command = {
+        let _ = root;
+        Command::new(binary)
+    };
     command
 }
 
 fn data_home(root: &Path) -> PathBuf {
     if cfg!(windows) {
-        root.join("app-data").join("KAT").join("data")
+        directories::ProjectDirs::from("", "", "KAT")
+            .expect("Windows runner has a standard user data directory")
+            .data_dir()
+            .to_path_buf()
     } else {
         root.join("xdg-data").join("kat")
     }
@@ -275,6 +284,10 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
+)]
 fn default_target_is_uuid_v7_under_data_home_and_is_inspectable() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());

@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-kat-rs-datasource = { path = "../kat-rs-datasource" }
+kat-datasource = { path = "../../kat/platform/datasource" }
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true

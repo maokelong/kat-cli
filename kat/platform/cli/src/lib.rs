@@ -25,15 +25,15 @@ struct Cli {
 enum Operation {
     /// Import one source into a complete KAT Dataset.
     Import(ImportArgs),
-    /// Inspect the PACKs available to this KAT Skill.
+    /// Inspect available PACKs or one KAT Dataset.
     Inspect {
-        /// Inspect one KAT Dataset directory.
+        /// Inspect one managed KAT Dataset and its Parquet Schema.
         #[arg(long, value_name = "DIRECTORY", conflicts_with = "pack_directories")]
         dataset: Option<PathBuf>,
         #[arg(
             long = "pack-dir",
             value_name = "DIRECTORY",
-            help = "Add a PACK directory for this command. The directory must directly contain pack.toml. Repeat to add more PACKs."
+            help = "Add an exact PACK candidate directory containing pack.toml. Repetition preserves validation order; results remain sorted by PACK name."
         )]
         pack_directories: Vec<PathBuf>,
     },
@@ -163,10 +163,12 @@ fn import_hitrace(
         }
         return finish_hitrace_failure(log, error);
     }
-    let imported = match kat_datasource::import_hitrace(
-        &trace,
-        kat_datasource::DatasetWriteTarget::new(target, overwrite),
-    ) {
+    let target = if overwrite {
+        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
+    } else {
+        kat_datasource::DatasetWriteTarget::write_to_empty(target)
+    };
+    let imported = match kat_datasource::import_hitrace(&trace, target) {
         Ok(imported) => imported,
         Err(source) => {
             let error = ImportHitraceError::Import { source };
@@ -413,11 +415,13 @@ fn import_trace_streamer(
             .join("datasets")
             .join(uuid::Uuid::now_v7().to_string()),
     };
-    let imported = kat_datasource::import_trace_streamer(
-        &database,
-        kat_datasource::DatasetWriteTarget::new(target, overwrite),
-    )
-    .map_err(|source| ImportTraceStreamerError::Import { source })?;
+    let target = if overwrite {
+        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
+    } else {
+        kat_datasource::DatasetWriteTarget::write_to_empty(target)
+    };
+    let imported = kat_datasource::import_deprecated_trace_streamer(&database, target)
+        .map_err(|source| ImportTraceStreamerError::Import { source })?;
     let path = imported
         .path()
         .to_str()
@@ -436,7 +440,7 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     })
-    .map_err(|source| InspectPacksError::Discovery { source })?;
+    .map_err(InspectPacksError::from)?;
 
     Ok(InspectPacksResult {
         packs: discovered.iter().map(project_pack).collect(),
@@ -444,14 +448,8 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
 }
 
 fn locate_data_home() -> Option<PathBuf> {
-    if let Some(project_dirs) = directories::ProjectDirs::from("", "", "KAT") {
-        return Some(project_dirs.data_dir().to_path_buf());
-    }
-    #[cfg(windows)]
-    if let Some(app_data) = std::env::var_os("APPDATA") {
-        return Some(PathBuf::from(app_data).join("KAT").join("data"));
-    }
-    None
+    directories::ProjectDirs::from("", "", "KAT")
+        .map(|project_dirs| project_dirs.data_dir().to_path_buf())
 }
 
 fn project_pack(pack: &DiscoveredPack) -> PackResult {
@@ -484,7 +482,6 @@ struct DatasetColumnResult {
 }
 
 fn inspect_dataset(path: PathBuf) -> Result<InspectDatasetResult, InspectDatasetError> {
-    locate_skill_root().map_err(InspectDatasetError::SkillRoot)?;
     let inspection = kat_datasource::inspect_dataset(&path)
         .map_err(|source| InspectDatasetError::Inspection { source })?;
     let canonical_path = inspection
@@ -584,14 +581,16 @@ enum SkillRootError {
 #[derive(Debug, Error, Diagnostic)]
 enum InspectPacksError {
     #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    #[diagnostic(help(
+        "Run kat from <skill>/scripts/targets/<target> with a regular <skill>/SKILL.md marker"
+    ))]
     SkillRoot(
         #[from]
         #[source]
         SkillRootError,
     ),
     #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
+    #[diagnostic(help("Run KAT on Linux or Windows with a platform standard user data directory"))]
     DataHomeUnavailable,
     #[error("PACK discovery failed")]
     #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
@@ -599,13 +598,40 @@ enum InspectPacksError {
         #[source]
         source: pack_discovery::PackDiscoveryError,
     },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help(
+        "Make the default PACK search path a readable directory or remove it, then retry"
+    ))]
+    DefaultPackSearchPath {
+        #[source]
+        source: pack_discovery::PackDiscoveryError,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
+    DuplicatePackName {
+        #[source]
+        source: pack_discovery::PackDiscoveryError,
+    },
+}
+
+impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
+    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
+        match source {
+            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
+                Self::DuplicatePackName { source }
+            }
+            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
+                Self::DefaultPackSearchPath { source }
+            }
+            source => Self::Discovery { source },
+        }
+    }
 }
 
 #[derive(Debug, Error, Diagnostic)]
 enum InspectDatasetError {
-    #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
-    SkillRoot(#[source] SkillRootError),
     #[error("Dataset inspection failed")]
     #[diagnostic(help("Provide a complete KAT Dataset directory and retry"))]
     Inspection {

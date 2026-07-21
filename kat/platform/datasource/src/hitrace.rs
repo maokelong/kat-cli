@@ -1249,7 +1249,7 @@ mod tests {
         fs::write(&source, bytes).unwrap();
         let imported = import_hitrace(
             &source,
-            DatasetWriteTarget::new(temp.path().join("dataset"), false),
+            DatasetWriteTarget::write_to_empty(temp.path().join("dataset")),
         )
         .unwrap();
         (temp, imported)
@@ -1420,7 +1420,11 @@ mod tests {
             fs::write(target.join("sentinel"), "unchanged").unwrap();
 
             let error =
-                import_hitrace(&source, DatasetWriteTarget::new(&target, true)).unwrap_err();
+                import_hitrace(
+                    &source,
+                    DatasetWriteTarget::permanently_replace_all_contents(&target),
+                )
+                .unwrap_err();
 
             assert!(error.to_string().contains(expected), "{error}");
             assert_eq!(
@@ -1582,7 +1586,7 @@ mod tests {
 
         let imported = import_hitrace(
             &source,
-            DatasetWriteTarget::new(temp.path().join("dataset"), false),
+            DatasetWriteTarget::write_to_empty(temp.path().join("dataset")),
         )
         .unwrap();
 

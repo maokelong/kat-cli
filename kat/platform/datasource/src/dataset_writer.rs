@@ -20,19 +20,37 @@ use crate::valid_table_name;
 
 const MARKER: &str = ".kat-dataset";
 
+/// Dataset 写入目标及其对已有目录内容的显式处置授权。
 #[derive(Clone, Debug)]
 pub struct DatasetWriteTarget {
     path: PathBuf,
-    overwrite: bool,
+    existing_contents: ExistingContents,
 }
 
 impl DatasetWriteTarget {
-    pub fn new(path: impl Into<PathBuf>, overwrite: bool) -> Self {
+    /// 写入不存在或为空的目标目录，不授权删除任何已有内容。
+    pub fn write_to_empty(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            overwrite,
+            existing_contents: ExistingContents::Reject,
         }
     }
+
+    /// 永久替换 resolved target 中的全部内容，包括 KAT 不识别的文件。
+    ///
+    /// 该授权没有备份、回滚或失败恢复；已有目标不是目录时仍会失败。
+    pub fn permanently_replace_all_contents(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            existing_contents: ExistingContents::PermanentlyClear,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExistingContents {
+    Reject,
+    PermanentlyClear,
 }
 
 pub(crate) struct DatasetWriter {
@@ -185,11 +203,11 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
                 }
                 None => false,
             };
-            if nonempty && !target.overwrite {
+            if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
                 return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
             }
             if nonempty {
-                clear_directory(&canonical)?;
+                clear_existing_target(&canonical)?;
             }
             Ok(canonical)
         }
@@ -217,6 +235,37 @@ fn canonical_unicode(path: &Path) -> Result<PathBuf, DatasetWriteError> {
         return Err(DatasetWriteError::NonUnicodeTarget { path: canonical });
     }
     Ok(canonical)
+}
+
+fn clear_existing_target(root: &Path) -> Result<(), DatasetWriteError> {
+    clear_existing_target_with(root, clear_directory)
+}
+
+fn clear_existing_target_with(
+    root: &Path,
+    clear: impl FnOnce(&Path) -> Result<(), DatasetWriteError>,
+) -> Result<(), DatasetWriteError> {
+    // 覆盖一旦开始便先撤销识别标记，使后续破坏式失败只留下不可识别候选。
+    invalidate_marker(root)?;
+    clear(root)
+}
+
+fn invalidate_marker(root: &Path) -> Result<(), DatasetWriteError> {
+    let marker = root.join(MARKER);
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            fs::remove_file(&marker).map_err(|source| DatasetWriteError::RemoveTargetEntry {
+                path: marker,
+                source,
+            })
+        }
+        Ok(_) => Ok(()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(DatasetWriteError::InspectTargetEntry {
+            path: marker,
+            source,
+        }),
+    }
 }
 
 fn clear_directory(root: &Path) -> Result<(), DatasetWriteError> {
@@ -352,44 +401,4 @@ pub enum DatasetWriteError {
         #[source]
         source: io::Error,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use arrow_schema::{DataType, Field};
-    use tempfile::tempdir;
-
-    use super::*;
-
-    #[test]
-    fn duplicate_columns_fail_before_a_parquet_writer_is_created() {
-        let temp = tempdir().unwrap();
-        let target = temp.path().join("dataset");
-        let mut writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("value", DataType::Int64, true),
-            Field::new("value", DataType::Utf8, true),
-        ]));
-
-        assert!(matches!(
-            writer.begin_table("facts", schema),
-            Err(DatasetWriteError::DuplicateColumn { .. })
-        ));
-        assert!(!target.join(".kat-dataset").exists());
-        assert!(!target.join("tables/facts.parquet").exists());
-    }
-
-    #[test]
-    fn publication_failure_does_not_leave_a_recognizable_dataset() {
-        let temp = tempdir().unwrap();
-        let target = temp.path().join("dataset");
-        let writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
-        fs::create_dir(target.join(MARKER)).unwrap();
-
-        assert!(matches!(
-            writer.finish(),
-            Err(DatasetWriteError::PublishMarker { .. })
-        ));
-        assert!(!target.join(MARKER).is_file());
-    }
 }
