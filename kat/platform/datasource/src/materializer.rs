@@ -28,6 +28,7 @@ use crate::{
     dataset_writer::{DatasetWriteTarget, DatasetWriter as ManagedDatasetWriter},
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
     formats::{hitrace, langfuse},
+    proto::kat::hitrace::FtraceCpuStatsMsg,
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
@@ -245,9 +246,8 @@ struct ClockSnapshot {
 struct LongTermHitraceSink {
     switches: Option<SwitchSpool>,
     clock_snapshots: Vec<ClockSnapshot>,
-    reported_clocks: BTreeSet<FtraceClock>,
-    detail_cpus: BTreeSet<u32>,
-    end_stats: Option<HashSet<u32>>,
+    capture_stats: Vec<FtraceCpuStatsMsg>,
+    cpu_details: Vec<(u32, u64)>,
     next_snapshot_id: u64,
     last_switch: HashMap<u32, CpuSwitchState>,
 }
@@ -263,9 +263,8 @@ impl LongTermHitraceSink {
         Self {
             switches: None,
             clock_snapshots: Vec::new(),
-            reported_clocks: BTreeSet::new(),
-            detail_cpus: BTreeSet::new(),
-            end_stats: None,
+            capture_stats: Vec::new(),
+            cpu_details: Vec::new(),
             next_snapshot_id: 1,
             last_switch: HashMap::new(),
         }
@@ -274,42 +273,7 @@ impl LongTermHitraceSink {
     fn push_capture(&mut self, record: FtraceCaptureRecord) -> Result<()> {
         match record {
             FtraceCaptureRecord::CpuStats(stats) => {
-                if !matches!(stats.status, 0 | 1) {
-                    bail!("invalid ftrace stats status {}", stats.status);
-                }
-                if !stats.trace_clock.trim().is_empty() {
-                    self.reported_clocks
-                        .insert(FtraceClock::parse(&stats.trace_clock)?);
-                }
-                if stats.status == 1 {
-                    if self.end_stats.is_some() {
-                        bail!("duplicate ftrace TRACE_END statistics");
-                    }
-                    let mut end_stats = HashSet::new();
-                    for cpu_stats in stats.per_cpu_stats {
-                        let cpu = u32::try_from(cpu_stats.cpu).with_context(|| {
-                            format!(
-                                "ftrace CPU id {} cannot be represented as UInt32",
-                                cpu_stats.cpu
-                            )
-                        })?;
-                        if !end_stats.insert(cpu) {
-                            bail!("duplicate ftrace TRACE_END statistics for CPU {cpu}");
-                        }
-                        if cpu_stats.overrun != 0
-                            || cpu_stats.commit_overrun != 0
-                            || cpu_stats.dropped_events != 0
-                        {
-                            bail!(
-                                "ftrace capture lost events on CPU {cpu}: overrun={}, commit_overrun={}, dropped_events={}",
-                                cpu_stats.overrun,
-                                cpu_stats.commit_overrun,
-                                cpu_stats.dropped_events
-                            );
-                        }
-                    }
-                    self.end_stats = Some(end_stats);
-                }
+                self.capture_stats.push(stats);
             }
             FtraceCaptureRecord::ClockSnapshot(clocks) => {
                 let snapshot_id = self.next_snapshot_id;
@@ -346,10 +310,7 @@ impl LongTermHitraceSink {
                 }
             }
             FtraceCaptureRecord::CpuDetail { cpu, overwrite } => {
-                self.detail_cpus.insert(cpu);
-                if overwrite != 0 {
-                    bail!("ftrace page overwrite is nonzero on CPU {cpu}: {overwrite}");
-                }
+                self.cpu_details.push((cpu, overwrite));
             }
         }
         Ok(())
@@ -411,32 +372,7 @@ impl LongTermHitraceSink {
     }
 
     fn finish(self, report: hitrace::HitraceDecodeReport) -> Result<DecodedLongTermHitrace> {
-        let ftrace_clock = match (self.switches.is_some(), self.reported_clocks.len()) {
-            (true, 0) => bail!("Hitrace sched_switch data has no ftrace clock"),
-            (_, count) if count > 1 => {
-                let clocks = self
-                    .reported_clocks
-                    .iter()
-                    .map(|clock| clock.label)
-                    .collect::<Vec<_>>();
-                bail!("Hitrace reports conflicting ftrace clocks: {clocks:?}");
-            }
-            (_, 1) => self.reported_clocks.first().copied(),
-            (false, 0) => None,
-            _ => unreachable!(),
-        };
-
-        if self.switches.is_some() {
-            let end_stats = self
-                .end_stats
-                .as_ref()
-                .context("Hitrace sched_switch data has no TRACE_END statistics")?;
-            for cpu in &self.detail_cpus {
-                if !end_stats.contains(cpu) {
-                    bail!("Hitrace TRACE_END statistics are missing CPU {cpu}");
-                }
-            }
-        }
+        let ftrace_clock = self.validate_supported_ftrace_capture()?;
 
         let mut clock_domains = report.clock_domains;
         if let Some(clock) = ftrace_clock {
@@ -474,6 +410,77 @@ impl LongTermHitraceSink {
                 })
                 .collect(),
         })
+    }
+
+    fn validate_supported_ftrace_capture(&self) -> Result<Option<FtraceClock>> {
+        if self.switches.is_none() {
+            return Ok(None);
+        }
+
+        let mut reported_clocks = BTreeSet::new();
+        let mut end_stats = None;
+        for stats in &self.capture_stats {
+            if !matches!(stats.status, 0 | 1) {
+                bail!("invalid ftrace stats status {}", stats.status);
+            }
+            if !stats.trace_clock.trim().is_empty() {
+                reported_clocks.insert(FtraceClock::parse(&stats.trace_clock)?);
+            }
+            if stats.status != 1 {
+                continue;
+            }
+            if end_stats.is_some() {
+                bail!("duplicate ftrace TRACE_END statistics");
+            }
+            let mut cpus = HashSet::new();
+            for cpu_stats in &stats.per_cpu_stats {
+                let cpu = u32::try_from(cpu_stats.cpu).with_context(|| {
+                    format!(
+                        "ftrace CPU id {} cannot be represented as UInt32",
+                        cpu_stats.cpu
+                    )
+                })?;
+                if !cpus.insert(cpu) {
+                    bail!("duplicate ftrace TRACE_END statistics for CPU {cpu}");
+                }
+                if cpu_stats.overrun != 0
+                    || cpu_stats.commit_overrun != 0
+                    || cpu_stats.dropped_events != 0
+                {
+                    bail!(
+                        "ftrace capture lost events on CPU {cpu}: overrun={}, commit_overrun={}, dropped_events={}",
+                        cpu_stats.overrun,
+                        cpu_stats.commit_overrun,
+                        cpu_stats.dropped_events
+                    );
+                }
+            }
+            end_stats = Some(cpus);
+        }
+
+        let ftrace_clock = match reported_clocks.len() {
+            0 => bail!("Hitrace sched_switch data has no ftrace clock"),
+            count if count > 1 => {
+                let clocks = reported_clocks
+                    .iter()
+                    .map(|clock| clock.label)
+                    .collect::<Vec<_>>();
+                bail!("Hitrace reports conflicting ftrace clocks: {clocks:?}");
+            }
+            1 => reported_clocks.first().copied(),
+            _ => unreachable!(),
+        };
+        let end_stats =
+            end_stats.context("Hitrace sched_switch data has no TRACE_END statistics")?;
+        for (cpu, overwrite) in &self.cpu_details {
+            if *overwrite != 0 {
+                bail!("ftrace page overwrite is nonzero on CPU {cpu}: {overwrite}");
+            }
+            if !end_stats.contains(cpu) {
+                bail!("Hitrace TRACE_END statistics are missing CPU {cpu}");
+            }
+        }
+        Ok(ftrace_clock)
     }
 }
 

@@ -365,6 +365,45 @@ fn every_loss_evidence_rejects_the_complete_import() {
 }
 
 #[test]
+fn capture_damage_is_irrelevant_without_supported_ftrace_events() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let dataset = root.path().join("dataset");
+    let mut result = complete_result("boot", vec![detail(0, Vec::new())]);
+    result.stats[1].per_cpu[0].overrun = 1;
+    result.details[0].overwrite = 1;
+    let mut duplicate_end = result.stats[1].clone();
+    duplicate_end.trace_clock = "local".to_owned();
+    result.stats.push(duplicate_end);
+    write_fixture(&source, result);
+
+    kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
+        .expect("capture metadata is ignored when no supported ftrace event exists");
+    let tables = kat_datasource::inspect_dataset(&dataset)
+        .expect("Dataset is inspectable")
+        .tables()
+        .iter()
+        .map(|table| table.name().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(tables, ["clock_domain", "clock_snapshot"]);
+}
+
+#[test]
+fn trace_end_statistics_may_cover_cpus_without_detail_pages() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let mut result = complete_result("boot", vec![detail(0, vec![switch(1, 0, 1)])]);
+    result.stats[1].per_cpu.push(cpu_stats(1));
+    write_fixture(&source, result);
+
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+    )
+    .expect("TRACE_END CPU statistics cover details; additional CPUs are accepted");
+}
+
+#[test]
 fn capture_requires_one_complete_end_snapshot_and_one_clock() {
     let cases = [
         {
