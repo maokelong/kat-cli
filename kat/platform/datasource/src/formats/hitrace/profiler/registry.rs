@@ -55,19 +55,21 @@ impl PluginPayloadRegistry {
         &mut self,
         envelope: &PluginEnvelope<'_>,
         sink: &mut dyn TraceRecordSink,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let Some(decoder) = self
             .decoders
             .iter_mut()
             .find(|decoder| decoder.plugin_name() == envelope.plugin_name)
         else {
-            return Ok(());
+            return Ok(false);
         };
 
         match envelope.kind {
             PluginEnvelopeKind::Config => decoder.configure(envelope, sink),
             PluginEnvelopeKind::Data => decoder.decode_data(envelope, sink),
-        }
+        }?;
+
+        Ok(true)
     }
 
     pub(crate) fn finish(&mut self, sink: &mut dyn TraceRecordSink) -> Result<()> {

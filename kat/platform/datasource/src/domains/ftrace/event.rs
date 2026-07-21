@@ -1,4 +1,11 @@
-use crate::proto::kat::hitrace::FtraceEvent;
+use crate::proto::kat::hitrace::{ClockDetailMsg, FtraceCpuStatsMsg, FtraceEvent};
+
+#[derive(Clone, Debug)]
+pub(crate) enum FtraceCaptureRecord {
+    CpuStats(FtraceCpuStatsMsg),
+    ClockSnapshot(Vec<ClockDetailMsg>),
+    CpuDetail { cpu: u32, overwrite: u64 },
+}
 
 #[derive(Clone, Debug)]
 pub(crate) enum FtraceRecord {

@@ -31,6 +31,8 @@ mod record {
 
 mod domains {
     pub(crate) mod ftrace {
+        #![allow(dead_code)]
+
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/domains/ftrace/event.rs"
@@ -103,6 +105,7 @@ fn trace_record_stream_models_pre_sink_records() {
                 "CLOCKID_BOOTTIME"
             );
         }
+        record::TraceRecord::FtraceCapture(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
     }
@@ -126,6 +129,7 @@ fn trace_record_stream_models_pre_sink_records() {
                 assert_eq!(event.event.timestamp, 20);
             }
         },
+        record::TraceRecord::FtraceCapture(_) => unreachable!("expected ftrace event record"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected ftrace event record"),
     }
@@ -145,6 +149,7 @@ fn trace_record_stream_models_pre_sink_records() {
             }
             _ => unreachable!("expected native hook config"),
         },
+        record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook config"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook config"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook config"),
     }
@@ -167,6 +172,7 @@ fn trace_record_stream_models_pre_sink_records() {
             }
             _ => unreachable!("expected native hook event"),
         },
+        record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook event"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook event"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook event"),
     }

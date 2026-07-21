@@ -58,6 +58,7 @@ impl TraceRecordSink for ArrowSink {
             TraceRecord::ProfilerPluginData(message) => {
                 self.profiler_table.push(message)?;
             }
+            TraceRecord::FtraceCapture(_) => {}
             TraceRecord::Ftrace(record) => self.event_tables.push_record(*record)?,
             TraceRecord::NativeHook(record) => self.native_hook_tables.push_record(*record)?,
         }

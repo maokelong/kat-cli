@@ -96,12 +96,20 @@ fn hitrace(path: &Path) {
         data: result.encode_to_vec(),
     }
     .encode_to_vec();
+    fs::write(path, profiler_section(0, &[frame])).unwrap();
+}
+
+fn profiler_section(data_type: u32, frames: &[Vec<u8>]) -> Vec<u8> {
+    let body_length = frames.iter().map(|frame| 4 + frame.len()).sum::<usize>();
     let mut bytes = vec![0; HEADER_SIZE];
     bytes[0..8].copy_from_slice(&HEADER_MAGIC.to_le_bytes());
-    bytes[8..16].copy_from_slice(&((HEADER_SIZE + 4 + frame.len()) as u64).to_le_bytes());
-    bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&frame);
-    fs::write(path, bytes).unwrap();
+    bytes[8..16].copy_from_slice(&((HEADER_SIZE + body_length) as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&data_type.to_le_bytes());
+    for frame in frames {
+        bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(frame);
+    }
+    bytes
 }
 
 fn cargo_kat() -> PathBuf {
@@ -280,6 +288,85 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
             .map(|table| table["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
         ["clock_domain", "clock_snapshot", "sched_switch"]
+    );
+}
+
+#[test]
+fn hitrace_import_reports_sorted_unknown_plugins_and_sections() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.htrace");
+    let dataset = temp.path().join("dataset");
+    let frames = [
+        Envelope {
+            name: "z-plugin".to_owned(),
+            data: vec![1],
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: "a-plugin_config".to_owned(),
+            data: vec![2],
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: "z-plugin".to_owned(),
+            data: vec![3],
+        }
+        .encode_to_vec(),
+    ];
+    let mut bytes = profiler_section(0, &frames);
+    bytes.extend(profiler_section(1000, &[]));
+    bytes.extend(profiler_section(77, &[]));
+    fs::write(&source, bytes).unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["result"]["unsupported_plugins"],
+        serde_json::json!(["a-plugin", "z-plugin"])
+    );
+    assert_eq!(
+        response["result"]["unsupported_section_types"],
+        serde_json::json!([77, 1000])
+    );
+}
+
+#[test]
+fn invalid_hitrace_does_not_mutate_authorized_overwrite_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("invalid.htrace");
+    let dataset = temp.path().join("dataset");
+    fs::write(&source, b"not a Hitrace capture").unwrap();
+    fs::create_dir(&dataset).unwrap();
+    fs::write(dataset.join("sentinel"), "unchanged").unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .arg("--overwrite-dataset")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        fs::read_to_string(dataset.join("sentinel")).unwrap(),
+        "unchanged"
     );
 }
 

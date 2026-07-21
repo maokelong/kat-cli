@@ -20,6 +20,9 @@ mod proto {
 mod domains {
     pub(crate) mod ftrace {
         #[allow(dead_code)]
+        pub(crate) enum FtraceCaptureRecord {}
+
+        #[allow(dead_code)]
         pub(crate) enum FtraceRecord {}
 
         #[allow(dead_code)]
