@@ -1,8 +1,9 @@
 //! `kat/platform` 新架构唯一的内部 Datasource 与 Dataset Storage 边界。
 //!
-//! 当前切片只开放只读 Dataset inspection，并未把 Dataset Storage 从后续内置 Datasource
-//! 中拆出。`crates/kat-rs-datasource` 属于旧应用代码；它不被 `kat/platform` 依赖，也不是
-//! 这一新架构边界的权威实现。
+//! 当前切片开放 Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
+//! Trace Streamer 入口只服务预发布机制联调，不形成兼容承诺，并将在第一次正式发布前删除。
+//! `crates/kat-rs-datasource` 属于旧应用代码；它不被 `kat/platform` 依赖，也不是这一新架构
+//! 边界的权威实现。
 
 use std::{
     collections::HashSet,
@@ -18,7 +19,9 @@ mod dataset_writer;
 mod trace_streamer;
 
 pub use dataset_writer::DatasetWriteTarget;
-pub use trace_streamer::{ImportedDataset, TraceStreamerImportError, import_trace_streamer};
+pub use trace_streamer::{
+    ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
+};
 
 pub struct DatasetInspection {
     path: PathBuf,

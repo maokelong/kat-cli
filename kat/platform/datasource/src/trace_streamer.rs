@@ -28,7 +28,13 @@ impl ImportedDataset {
     }
 }
 
-pub fn import_trace_streamer(
+/// 通过 Deprecated Trace Streamer SQLite 表界面验证预发布 Data Import 机制。
+///
+/// 该入口不提供长期兼容承诺，并将在第一次正式发布前删除。目标覆盖开始前只检查
+/// relation 定义与读取语句的列形状；数据行读取和 cell 转换发生在目标被破坏式清空之后，
+/// 因而失败不会恢复旧内容。每个 relation 通过独立、无排序的读取语句物化，不保证来源
+/// 行序稳定，也不保证多个 relation 来自同一个读取快照。
+pub fn import_deprecated_trace_streamer(
     database: &Path,
     target: DatasetWriteTarget,
 ) -> Result<ImportedDataset, TraceStreamerImportError> {
@@ -51,7 +57,7 @@ pub fn import_trace_streamer(
     if relations.is_empty() {
         return Err(TraceStreamerImportError::NoRelations);
     }
-    preflight_reads(&connection, &relations)?;
+    validate_relation_read_shapes(&connection, &relations)?;
     let mut writer =
         DatasetWriter::begin(target).map_err(TraceStreamerImportError::WriteDataset)?;
     for relation in relations {
@@ -173,7 +179,7 @@ fn discover_relation(
     Ok(Relation { name, columns })
 }
 
-fn preflight_reads(
+fn validate_relation_read_shapes(
     connection: &Connection,
     relations: &[Relation],
 ) -> Result<(), TraceStreamerImportError> {
@@ -323,23 +329,19 @@ impl Builders {
                         row: row_number,
                         source,
                     })?;
-            let accepted = match (builder, value) {
+            match (builder, value) {
                 (Builder::Integer(builder), ValueRef::Null) => {
                     builder.append_null();
-                    Ok(())
                 }
                 (Builder::Integer(builder), ValueRef::Integer(value)) => {
                     builder.append_value(value);
-                    Ok(())
                 }
                 (Builder::Real(builder), ValueRef::Null) => {
                     builder.append_null();
-                    Ok(())
                 }
                 (Builder::Real(builder), ValueRef::Integer(value)) => {
                     if let Some(value) = exact_f64(value) {
                         builder.append_value(value);
-                        Ok(())
                     } else {
                         return Err(TraceStreamerImportError::LossyRealCell {
                             relation: relation.name.clone(),
@@ -351,29 +353,37 @@ impl Builders {
                 }
                 (Builder::Real(builder), ValueRef::Real(value)) if value.is_finite() => {
                     builder.append_value(value);
-                    Ok(())
+                }
+                (Builder::Real(_), ValueRef::Real(value)) => {
+                    return Err(TraceStreamerImportError::NonFiniteRealCell {
+                        relation: relation.name.clone(),
+                        column: column.name.clone(),
+                        row: row_number,
+                        value,
+                    });
                 }
                 (Builder::Text(builder), ValueRef::Null) => {
                     builder.append_null();
-                    Ok(())
                 }
-                (Builder::Text(builder), ValueRef::Text(value)) => match std::str::from_utf8(value)
-                {
-                    Ok(value) => {
-                        builder.append_value(value);
-                        Ok(())
-                    }
-                    Err(_) => Err(()),
-                },
-                _ => Err(()),
-            };
-            if accepted.is_err() {
-                return Err(TraceStreamerImportError::ConvertCell {
-                    relation: relation.name.clone(),
-                    column: column.name.clone(),
-                    row: row_number,
-                    storage_class: sqlite_storage_class(value),
-                });
+                (Builder::Text(builder), ValueRef::Text(value)) => {
+                    let value = std::str::from_utf8(value).map_err(|source| {
+                        TraceStreamerImportError::InvalidUtf8TextCell {
+                            relation: relation.name.clone(),
+                            column: column.name.clone(),
+                            row: row_number,
+                            source,
+                        }
+                    })?;
+                    builder.append_value(value);
+                }
+                _ => {
+                    return Err(TraceStreamerImportError::ConvertCell {
+                        relation: relation.name.clone(),
+                        column: column.name.clone(),
+                        row: row_number,
+                        storage_class: sqlite_storage_class(value),
+                    });
+                }
             }
         }
         Ok(())
@@ -521,6 +531,23 @@ pub enum TraceStreamerImportError {
         column: String,
         row: u64,
         value: i64,
+    },
+    #[error(
+        "cannot convert SQLite cell {relation}.{column} at row {row}: REAL {value} is not finite"
+    )]
+    NonFiniteRealCell {
+        relation: String,
+        column: String,
+        row: u64,
+        value: f64,
+    },
+    #[error("cannot decode SQLite TEXT cell {relation}.{column} at row {row} as UTF-8")]
+    InvalidUtf8TextCell {
+        relation: String,
+        column: String,
+        row: u64,
+        #[source]
+        source: std::str::Utf8Error,
     },
     #[error("failed to build an Arrow batch from a Trace Streamer relation")]
     BuildBatch(#[source] arrow_schema::ArrowError),

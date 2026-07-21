@@ -20,19 +20,37 @@ use crate::valid_table_name;
 
 const MARKER: &str = ".kat-dataset";
 
+/// Dataset 写入目标及其对已有目录内容的显式处置授权。
 #[derive(Clone, Debug)]
 pub struct DatasetWriteTarget {
     path: PathBuf,
-    overwrite: bool,
+    existing_contents: ExistingContents,
 }
 
 impl DatasetWriteTarget {
-    pub fn new(path: impl Into<PathBuf>, overwrite: bool) -> Self {
+    /// 写入不存在或为空的目标目录，不授权删除任何已有内容。
+    pub fn write_to_empty(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            overwrite,
+            existing_contents: ExistingContents::Reject,
         }
     }
+
+    /// 永久替换 resolved target 中的全部内容，包括 KAT 不识别的文件。
+    ///
+    /// 该授权没有备份、回滚或失败恢复；已有目标不是目录时仍会失败。
+    pub fn permanently_replace_all_contents(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            existing_contents: ExistingContents::PermanentlyClear,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExistingContents {
+    Reject,
+    PermanentlyClear,
 }
 
 pub(crate) struct DatasetWriter {
@@ -185,7 +203,7 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
                 }
                 None => false,
             };
-            if nonempty && !target.overwrite {
+            if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
                 return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
             }
             if nonempty {
@@ -396,7 +414,7 @@ mod tests {
     fn duplicate_columns_fail_before_a_parquet_writer_is_created() {
         let temp = tempdir().unwrap();
         let target = temp.path().join("dataset");
-        let mut writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
+        let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(&target)).unwrap();
         let schema = Arc::new(Schema::new(vec![
             Field::new("value", DataType::Int64, true),
             Field::new("value", DataType::Utf8, true),
@@ -414,7 +432,7 @@ mod tests {
     fn publication_failure_does_not_leave_a_recognizable_dataset() {
         let temp = tempdir().unwrap();
         let target = temp.path().join("dataset");
-        let writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
+        let writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(&target)).unwrap();
         fs::create_dir(target.join(MARKER)).unwrap();
 
         assert!(matches!(
@@ -428,7 +446,7 @@ mod tests {
     fn partial_overwrite_cleanup_does_not_leave_a_recognizable_dataset() {
         let temp = tempdir().unwrap();
         let target = temp.path().join("dataset");
-        let mut writer = DatasetWriter::begin(DatasetWriteTarget::new(&target, false)).unwrap();
+        let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(&target)).unwrap();
         let schema = Arc::new(Schema::new(vec![Field::new(
             "value",
             DataType::Int64,

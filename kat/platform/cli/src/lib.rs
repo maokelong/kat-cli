@@ -141,11 +141,13 @@ fn import_trace_streamer(
             .join("datasets")
             .join(uuid::Uuid::now_v7().to_string()),
     };
-    let imported = kat_datasource::import_trace_streamer(
-        &database,
-        kat_datasource::DatasetWriteTarget::new(target, overwrite),
-    )
-    .map_err(|source| ImportTraceStreamerError::Import { source })?;
+    let target = if overwrite {
+        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
+    } else {
+        kat_datasource::DatasetWriteTarget::write_to_empty(target)
+    };
+    let imported = kat_datasource::import_deprecated_trace_streamer(&database, target)
+        .map_err(|source| ImportTraceStreamerError::Import { source })?;
     let path = imported
         .path()
         .to_str()

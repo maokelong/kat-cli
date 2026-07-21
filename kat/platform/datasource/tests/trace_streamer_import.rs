@@ -1,7 +1,9 @@
 use std::{fs, fs::File, path::Path};
 
 use arrow_array::{Array, Float64Array, Int64Array, RecordBatch, StringArray};
-use kat_datasource::{DatasetWriteTarget, import_trace_streamer, inspect_dataset};
+use kat_datasource::{
+    DatasetWriteTarget, TraceStreamerImportError, import_deprecated_trace_streamer, inspect_dataset,
+};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rusqlite::Connection;
 use tempfile::tempdir;
@@ -30,7 +32,8 @@ fn imports_tables_views_empty_relations_and_strict_types() {
     let dataset = temp.path().join("dataset");
 
     let imported =
-        import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, false)).unwrap();
+        import_deprecated_trace_streamer(&database, DatasetWriteTarget::write_to_empty(&dataset))
+            .unwrap();
 
     assert_eq!(imported.path(), dunce::canonicalize(&dataset).unwrap());
     let inspection = inspect_dataset(&dataset).unwrap();
@@ -109,17 +112,22 @@ fn overwrite_replaces_all_old_contents() {
     fs::write(dataset.join("unrecognized"), b"old").unwrap();
 
     let without_permission =
-        import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, false)).unwrap_err();
+        import_deprecated_trace_streamer(&database, DatasetWriteTarget::write_to_empty(&dataset))
+            .unwrap_err();
     assert!(error_chain(&without_permission).contains("not empty"));
     assert!(dataset.join("unrecognized").exists());
 
-    import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, true)).unwrap();
+    import_deprecated_trace_streamer(
+        &database,
+        DatasetWriteTarget::permanently_replace_all_contents(&dataset),
+    )
+    .unwrap();
     assert!(!dataset.join("unrecognized").exists());
     assert!(dataset.join("tables/current.parquet").is_file());
 }
 
 #[test]
-fn empty_database_and_invalid_relation_preflight_preserve_existing_target() {
+fn empty_database_and_invalid_relation_shape_preserve_existing_target() {
     let temp = tempdir().unwrap();
     let dataset = temp.path().join("dataset");
     fs::create_dir(&dataset).unwrap();
@@ -139,7 +147,13 @@ fn empty_database_and_invalid_relation_preflight_preserve_existing_target() {
         let database = temp.path().join(name);
         create_database(&database, schema);
 
-        assert!(import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, true)).is_err());
+        assert!(
+            import_deprecated_trace_streamer(
+                &database,
+                DatasetWriteTarget::permanently_replace_all_contents(&dataset),
+            )
+            .is_err()
+        );
         assert_eq!(
             fs::read_to_string(dataset.join("sentinel")).unwrap(),
             "old Dataset"
@@ -157,9 +171,9 @@ fn non_system_sqlite_prefix_is_materialized_exactly() {
         "CREATE TABLE sqlitex_user (value INTEGER);",
     );
     let prefixed_dataset = temp.path().join("prefixed-dataset");
-    import_trace_streamer(
+    import_deprecated_trace_streamer(
         &prefixed_database,
-        DatasetWriteTarget::new(&prefixed_dataset, false),
+        DatasetWriteTarget::write_to_empty(&prefixed_dataset),
     )
     .unwrap();
     assert_eq!(
@@ -170,27 +184,34 @@ fn non_system_sqlite_prefix_is_materialized_exactly() {
 
 #[test]
 fn unsupported_schema_or_cell_aborts_without_marker() {
+    enum ExpectedFailure {
+        UnsupportedDeclaredType,
+        NonFiniteReal,
+        InvalidUtf8Text,
+        StorageClassMismatch,
+    }
+
     for (schema, expected) in [
         (
             "CREATE TABLE bad (value BLOB);",
-            "unsupported SQLite declared type",
+            ExpectedFailure::UnsupportedDeclaredType,
         ),
         (
             "CREATE TABLE bad (value VARCHAR);",
-            "unsupported SQLite declared type",
+            ExpectedFailure::UnsupportedDeclaredType,
         ),
         (
             "CREATE TABLE bad (value REAL); INSERT INTO bad VALUES (9e999);",
-            "cannot convert SQLite cell",
+            ExpectedFailure::NonFiniteReal,
         ),
         (
             "CREATE TABLE bad (value TEXT); INSERT INTO bad VALUES (CAST(X'80' AS TEXT));",
-            "cannot convert SQLite cell",
+            ExpectedFailure::InvalidUtf8Text,
         ),
         (
             "CREATE TABLE a_good (value INTEGER); INSERT INTO a_good VALUES (1); \
              CREATE TABLE z_bad (value INTEGER); INSERT INTO z_bad VALUES ('not-an-integer');",
-            "cannot convert SQLite cell",
+            ExpectedFailure::StorageClassMismatch,
         ),
     ] {
         let temp = tempdir().unwrap();
@@ -198,10 +219,48 @@ fn unsupported_schema_or_cell_aborts_without_marker() {
         create_database(&database, schema);
         let dataset = temp.path().join("dataset");
 
-        let error =
-            import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, false)).unwrap_err();
+        let error = import_deprecated_trace_streamer(
+            &database,
+            DatasetWriteTarget::write_to_empty(&dataset),
+        )
+        .unwrap_err();
 
-        assert!(error.to_string().contains(expected), "unexpected: {error}");
+        match expected {
+            ExpectedFailure::UnsupportedDeclaredType => assert!(matches!(
+                error,
+                TraceStreamerImportError::UnsupportedDeclaredType { .. }
+            )),
+            ExpectedFailure::NonFiniteReal => assert!(matches!(
+                error,
+                TraceStreamerImportError::NonFiniteRealCell {
+                    relation,
+                    column,
+                    row: 1,
+                    value,
+                } if relation == "bad" && column == "value" && value.is_infinite()
+            )),
+            ExpectedFailure::InvalidUtf8Text => assert!(matches!(
+                error,
+                TraceStreamerImportError::InvalidUtf8TextCell {
+                    relation,
+                    column,
+                    row: 1,
+                    source,
+                } if relation == "bad"
+                    && column == "value"
+                    && source.valid_up_to() == 0
+                    && source.error_len() == Some(1)
+            )),
+            ExpectedFailure::StorageClassMismatch => assert!(matches!(
+                error,
+                TraceStreamerImportError::ConvertCell {
+                    relation,
+                    column,
+                    row: 1,
+                    storage_class: "TEXT",
+                } if relation == "z_bad" && column == "value"
+            )),
+        }
         assert!(!dataset.join(".kat-dataset").exists());
         assert!(inspect_dataset(&dataset).is_err());
         if schema.contains("a_good") {
@@ -238,7 +297,11 @@ fn duplicate_columns_and_relation_failure_abort_without_marker() {
         let dataset = temp.path().join("dataset");
 
         assert!(
-            import_trace_streamer(&database, DatasetWriteTarget::new(&dataset, false),).is_err()
+            import_deprecated_trace_streamer(
+                &database,
+                DatasetWriteTarget::write_to_empty(&dataset),
+            )
+            .is_err()
         );
         assert!(!dataset.join(".kat-dataset").exists());
     }
