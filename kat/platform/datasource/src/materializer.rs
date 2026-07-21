@@ -44,7 +44,7 @@ pub struct ImportedHitrace {
     unsupported_content: Vec<UnsupportedHitraceContent>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UnsupportedHitraceContent {
     kind: &'static str,
     value: String,
@@ -52,8 +52,12 @@ pub struct UnsupportedHitraceContent {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct HitraceImportError(#[from] anyhow::Error);
+#[error("{source}")]
+pub struct HitraceImportError {
+    #[source]
+    source: anyhow::Error,
+    unsupported_content: Vec<UnsupportedHitraceContent>,
+}
 
 impl ImportedHitrace {
     pub fn path(&self) -> &Path {
@@ -87,40 +91,85 @@ impl UnsupportedHitraceContent {
     }
 }
 
+impl HitraceImportError {
+    fn new(source: anyhow::Error, unsupported_content: Vec<UnsupportedHitraceContent>) -> Self {
+        Self {
+            source,
+            unsupported_content,
+        }
+    }
+
+    pub fn unsupported_content(&self) -> &[UnsupportedHitraceContent] {
+        &self.unsupported_content
+    }
+}
+
 pub fn import_hitrace(
     path: impl AsRef<Path>,
     target: DatasetWriteTarget,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    import_hitrace_inner(path.as_ref(), target).map_err(Into::into)
+    import_hitrace_inner(path.as_ref(), target)
 }
 
-fn import_hitrace_inner(path: &Path, target: DatasetWriteTarget) -> Result<ImportedHitrace> {
+fn import_hitrace_inner(
+    path: &Path,
+    target: DatasetWriteTarget,
+) -> std::result::Result<ImportedHitrace, HitraceImportError> {
     // 先让迁移后的 Hitrace format/domain pipeline 完成解析与完整性校验，再授权覆盖目标。
     let mut sink = LongTermHitraceSink::new();
-    let report = hitrace::decode_file_with_report(path, &mut sink)
-        .with_context(|| format!("failed to decode hitrace file: {}", path.display()))?;
-    let decoded = sink.finish(report)?;
+    let report = match hitrace::decode_file_with_report(path, &mut sink) {
+        Ok(report) => report,
+        Err(failure) => {
+            return Err(HitraceImportError::new(
+                failure
+                    .source
+                    .context(format!("failed to decode hitrace file: {}", path.display())),
+                convert_unsupported_content(&failure.report.unsupported_content),
+            ));
+        }
+    };
+    let observed_unsupported = convert_unsupported_content(&report.unsupported_content);
+    let decoded = sink
+        .finish(report)
+        .map_err(|source| HitraceImportError::new(source, observed_unsupported.clone()))?;
+    let observed_unsupported = decoded.unsupported_content.clone();
 
-    let mut writer = ManagedDatasetWriter::begin(target)?;
-    write_clock_domains(&mut writer, &decoded.clock_domains)?;
-    write_clock_snapshots(&mut writer, &decoded.clock_snapshots)?;
-    if let Some(switches) = decoded.switches {
-        write_sched_switches(
-            &mut writer,
-            switches.into_reader()?,
-            decoded
-                .ftrace_clock
-                .expect("switches require a validated clock"),
-        )?;
-    }
-    let path = writer.finish()?;
+    (|| -> Result<ImportedHitrace> {
+        let mut writer = ManagedDatasetWriter::begin(target)?;
+        write_clock_domains(&mut writer, &decoded.clock_domains)?;
+        write_clock_snapshots(&mut writer, &decoded.clock_snapshots)?;
+        if let Some(switches) = decoded.switches {
+            write_sched_switches(
+                &mut writer,
+                switches.into_reader()?,
+                decoded
+                    .ftrace_clock
+                    .expect("switches require a validated clock"),
+            )?;
+        }
+        let path = writer.finish()?;
 
-    Ok(ImportedHitrace {
-        path,
-        unsupported_plugins: decoded.unsupported_plugins,
-        unsupported_section_types: decoded.unsupported_section_types,
-        unsupported_content: decoded.unsupported_content,
-    })
+        Ok(ImportedHitrace {
+            path,
+            unsupported_plugins: decoded.unsupported_plugins,
+            unsupported_section_types: decoded.unsupported_section_types,
+            unsupported_content: decoded.unsupported_content,
+        })
+    })()
+    .map_err(|source| HitraceImportError::new(source, observed_unsupported))
+}
+
+fn convert_unsupported_content(
+    content: &[hitrace::UnsupportedHitraceContent],
+) -> Vec<UnsupportedHitraceContent> {
+    content
+        .iter()
+        .map(|content| UnsupportedHitraceContent {
+            kind: content.kind,
+            value: content.value.clone(),
+            byte_offset: content.byte_offset,
+        })
+        .collect()
 }
 
 struct DecodedLongTermHitrace {

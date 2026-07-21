@@ -171,6 +171,14 @@ fn import_hitrace(
     let imported = match kat_datasource::import_hitrace(&trace, target) {
         Ok(imported) => imported,
         Err(source) => {
+            if let Err(source) =
+                write_unsupported_hitrace_content(&mut log.file, source.unsupported_content())
+            {
+                return finish_hitrace_failure(
+                    log,
+                    ImportHitraceError::WriteOperationLog { source },
+                );
+            }
             let error = ImportHitraceError::Import { source };
             if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
                 return finish_hitrace_failure(
@@ -181,16 +189,10 @@ fn import_hitrace(
             return finish_hitrace_failure(log, error);
         }
     };
-    for unsupported in imported.unsupported_content() {
-        if let Err(source) = writeln!(
-            log.file,
-            "unsupported {} {:?} at byte {}",
-            unsupported.kind(),
-            unsupported.value(),
-            unsupported.byte_offset()
-        ) {
-            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-        }
+    if let Err(source) =
+        write_unsupported_hitrace_content(&mut log.file, imported.unsupported_content())
+    {
+        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
     }
     if let Err(source) = writeln!(log.file, "status: success") {
         return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
@@ -215,6 +217,22 @@ fn import_hitrace(
         Ok(log_path) => response::prepare_success_with_log(result, Some(log_path)),
         Err(error) => operation_log_failure(error),
     }
+}
+
+fn write_unsupported_hitrace_content(
+    log: &mut File,
+    content: &[kat_datasource::UnsupportedHitraceContent],
+) -> io::Result<()> {
+    for unsupported in content {
+        writeln!(
+            log,
+            "unsupported {} {:?} at byte {}",
+            unsupported.kind(),
+            unsupported.value(),
+            unsupported.byte_offset()
+        )?;
+    }
+    Ok(())
 }
 
 fn finish_hitrace_failure(

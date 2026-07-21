@@ -36,6 +36,12 @@ pub(crate) struct HitraceDecodeReport {
     pub(crate) clock_snapshots: Vec<ClockSnapshot>,
 }
 
+#[derive(Debug)]
+pub(crate) struct HitraceDecodeFailure {
+    pub(crate) source: anyhow::Error,
+    pub(crate) report: HitraceDecodeReport,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ClockSnapshot {
     pub(crate) snapshot_id: u64,
@@ -58,13 +64,16 @@ pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Resul
 pub(crate) fn decode_file_with_report(
     path: &Path,
     sink: &mut impl TraceRecordSink,
-) -> Result<HitraceDecodeReport> {
+) -> std::result::Result<HitraceDecodeReport, HitraceDecodeFailure> {
     debug!("decoding hitrace format from {}", path.display());
     let mut report = HitraceDecodeReport::default();
-    with_mapped_file(path, |bytes| {
+    let result = with_mapped_file(path, |bytes| {
         decode_bytes_with_report(bytes, sink, &mut report)
-    })?;
-    Ok(report)
+    });
+    match result {
+        Ok(()) => Ok(report),
+        Err(source) => Err(HitraceDecodeFailure { source, report }),
+    }
 }
 
 fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {

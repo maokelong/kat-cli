@@ -371,6 +371,38 @@ fn invalid_hitrace_does_not_mutate_authorized_overwrite_target() {
 }
 
 #[test]
+fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("partially-invalid.htrace");
+    let dataset = temp.path().join("dataset");
+    let unknown = Envelope {
+        name: "future-plugin".to_owned(),
+        data: vec![1],
+    }
+    .encode_to_vec();
+    let mut bytes = profiler_section(0, &[unknown]);
+    bytes.extend_from_slice(b"truncated-section");
+    fs::write(&source, bytes).unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("unsupported plugin \"future-plugin\" at byte "));
+    assert!(log.contains("status: failure"));
+    assert!(!dataset.exists());
+}
+
+#[test]
 #[cfg_attr(
     windows,
     ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
