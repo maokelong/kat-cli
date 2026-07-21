@@ -1,0 +1,21 @@
+[package]
+name = "kat-rs-native-hook-symbolize-poc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "kat-native-hook-symbolize"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+blazesym.workspace = true
+clap.workspace = true
+rusqlite.workspace = true
+rust_xlsxwriter.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+calamine.workspace = true
+tempfile.workspace = true
