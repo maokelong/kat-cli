@@ -15,7 +15,7 @@ async fn build_releases_mmap_and_queries_hitrace_as_json() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     fs::remove_file(&trace_path).expect("trace file can be removed after build");
 
@@ -57,7 +57,7 @@ fn build_rejects_profiler_envelope_frames_without_hitrace_header() {
     );
     fs::write(&trace_path, bytes).expect("trace is written");
 
-    let result = kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path);
+    let result = kat_datasource::TraceDatasource::from_hitrace(&trace_path);
     let Err(error) = result else {
         panic!("frame-only input is rejected");
     };
@@ -76,7 +76,7 @@ fn build_rejects_overflowing_section_length_without_panic() {
     bytes.extend_from_slice(&overflowing_section_header());
     fs::write(&trace_path, bytes).expect("trace is written");
 
-    let result = kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path);
+    let result = kat_datasource::TraceDatasource::from_hitrace(&trace_path);
     let Err(error) = result else {
         panic!("overflowing section length is rejected");
     };
@@ -107,7 +107,7 @@ async fn build_skips_unsupported_profiler_sections() {
     fs::write(&trace_path, bytes).expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let rows = datasource
         .query_json("select count(*) as count from profiler_plugin_data")
         .await
@@ -123,7 +123,7 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
     fs::write(&trace_path, profiler_section_body(99, vec![1, 2, 3])).expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let rows = datasource
         .query_json("select count(*) as count from profiler_plugin_data")
         .await
@@ -164,7 +164,7 @@ async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
     .expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     let raw_rows = datasource
         .query_json("select name, data from profiler_plugin_data order by name")
@@ -196,7 +196,7 @@ async fn query_extracts_sched_switch_from_ftrace_plugin_result() {
     .expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let rows = datasource
         .query_json("select prev_comm, prev_pid, next_comm, next_pid from sched_switch limit 10")
         .await
@@ -224,7 +224,7 @@ async fn query_extracts_direct_sched_event_tables() {
     .expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     let rows = datasource
         .query_json(
@@ -301,7 +301,7 @@ async fn query_extracts_native_hook_config_and_direct_tables() {
     .expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
 
     let config_rows = datasource
         .query_json(
@@ -462,7 +462,7 @@ async fn query_json_converts_scalar_result_types() {
     fs::write(&trace_path, profiler_section(Vec::new())).expect("trace is written");
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
+        kat_datasource::TraceDatasource::from_hitrace(&trace_path).expect("datasource builds");
     let empty_table_rows = datasource
         .query_json("select count(*) as count from profiler_plugin_data")
         .await

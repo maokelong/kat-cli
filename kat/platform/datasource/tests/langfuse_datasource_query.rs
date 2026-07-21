@@ -25,7 +25,7 @@ async fn registers_legacy_langfuse_jsonl_gz_tables_for_sql_queries() {
     );
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
+        kat_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
             .await
             .expect("datasource builds");
 
@@ -68,7 +68,7 @@ async fn build_materializes_legacy_langfuse_tables_without_source_files() {
     );
 
     let datasource =
-        kat_rs_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
+        kat_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
             .await
             .expect("datasource builds");
 
@@ -100,7 +100,7 @@ async fn rejects_invalid_langfuse_jsonl_gz_without_parse_error_table() {
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
     let result =
-        kat_rs_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
+        kat_datasource::TraceDatasource::from_langfuse_legacy(&observations_path, &traces_path)
             .await;
     let Err(error) = result else {
         panic!("bad gzip is rejected");

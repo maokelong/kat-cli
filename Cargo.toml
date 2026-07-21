@@ -2,7 +2,6 @@
 members = [
     "crates/kat-rs-cli",
     "crates/kat-rs-daemon",
-    "crates/kat-rs-datasource",
     "kat/platform/cli",
     "kat/platform/datasource",
 ]

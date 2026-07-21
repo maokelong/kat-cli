@@ -541,7 +541,7 @@ async fn dataset_create_materializes_langfuse_fixture_and_can_query_without_sour
     fs::remove_file(&fixture.observations_path).expect("observations source is removed");
     fs::remove_file(&fixture.traces_path).expect("traces source is removed");
 
-    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens after source files are removed");
     let rows = datasource
