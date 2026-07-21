@@ -60,6 +60,28 @@ outer+0x27 (/full/path/outer.cpp:50) => middle_inline (/full/path/middle.h:80) =
 
 内联链按外到内展开，只有主符号带偏移，不输出列号。缺少 DWARF 时退化为基本符号；demangle 失败时保留原始符号名。同一 ELF 和地址在单次调用内去重。
 
+## `get_symbols` 处理流程
+
+```mermaid
+flowchart TD
+    A["输入地址列表"]
+    B["解析地址并应用 SO 名称映射"]
+    C{"符号目录索引是否已建立？"}
+    D["扫描符号目录并建立 SO 路径索引"]
+    E["查找对应符号文件"]
+    F["按 SO 分组，相同地址去重"]
+    G["每个 SO 批量转换符号"]
+    H["按原始顺序回填结果"]
+    I["返回符号结果和缺失 SO 列表"]
+
+    A --> B --> C
+    C -- "否" --> D --> E
+    C -- "是" --> E
+    E --> F --> G --> H --> I
+```
+
+目录索引在 `SymbolResolver::get_symbols` 首次遇到合法地址时建立，而不是在创建 `SymbolResolver` 时建立。相同 SO 的地址会集中批量转换，相同地址在单次调用内只解析一次。
+
 ## SQLite 与 Excel
 
 Rust CLI：
