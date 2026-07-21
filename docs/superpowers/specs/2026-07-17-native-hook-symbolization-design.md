@@ -1,10 +1,22 @@
+---
+status: draft
+---
+
 # Native Hook 符号化设计
 
 关联 Issue：[#152](https://github.com/maokelong/kat-rs/issues/152)
 
 ## 背景与目标
 
-Native Hook trace 中的调用帧可能只包含 `/system/lib/ndk/libffrt.so+0x74825` 一类模块相对虚拟地址。本切片使用本地未裁剪 ELF 把地址转换为稳定、可读的函数符号，并提供 trace_streamer SQLite 到 Excel 的分析入口。
+Native Hook trace 中的调用帧可能只包含 `/system/lib/ndk/libffrt.so+0x74825` 一类模块相对虚拟地址。本切片使用本地未裁剪 ELF 把地址转换为稳定、可读的函数符号。另附一个 trace_streamer SQLite 到 Excel 的临时验证适配器，用于证明“真实 trace 地址 → 符号”链路可用。
+
+## 架构归属与决策关系
+
+1. Rust 符号化接口只消费 `MODULE+0xHEX` 字符串、本地 ELF 和显式名称映射，不读取 KAT Dataset，也不创建、命名或规范化 Trace facts。因此它不改变 ADR 0024 规定的 Hitrace Datasource facts 所有权。
+2. 地址到 ELF 函数、源码位置和内联信息的转换属于二进制元数据解析，不定义跨 PACK 的 Trace 分析语义。crate 的公开 Rust 接口只供仓库内 Rust 调用方复用，不是 KAT Skill、PACK Authoring API 或 `kat.trace` 公共 Interface，因而不是 ADR 0049 所述分析能力晋升。若以后把符号化结果提升为 Dataset facts、`kat.trace` 能力或面向 PACK 的公共接口，需要重新按对应 ADR 评审所有权和晋升条件。
+3. `kat-native-hook-symbolize` 只适配当前验证使用的 TraceStreamer SQLite。它不是 Datasource、Data Import、KAT 用户入口或长期数据产品，不承诺跨 TraceStreamer 版本的数据库兼容性，也不承诺 Excel 列和分页命名的长期兼容性；正式 Hitrace Native Hook facts 可直接支撑验证后，应删除该适配器而不是把过渡 Schema 固化为新的事实入口。
+4. 2026-06-17 Native Hook 分层设计排除符号化和 TraceStreamer derived tables，是对当时 Datasource 接入切片的边界。本切片是相邻的后续验证切片：不修改 `domains/native_hook`、Arrow sink 或 direct/raw tables，只在 Data Import 之外读取外部 TraceStreamer 验证数据库，因此保持原有分层决定。
+5. ADR 0050 约束 Trace 分析的 Perfetto 领域语义；本切片不实现调度分析或新的 Trace 关系。这里使用 TraceStreamer 仅代表临时输入格式，不把其 derived Schema 定义为 KAT 语义基线。
 
 ## 不做什么
 
@@ -12,6 +24,7 @@ Native Hook trace 中的调用帧可能只包含 `/system/lib/ndk/libffrt.so+0x7
 2. 不提供 C/C++ FFI，也不保留 PoC 的 JSONL/单 ELF 命令面。
 3. 不实现全局单例或跨进程持久化缓存；需要复用时由调用方显式持有 `SymbolResolver`。
 4. 不跟随目录符号链接或 junction，不承担历史运行目录的迁移和恢复。
+5. 不创建 KAT Dataset facts，不发布 `kat.trace` 分析能力，也不把 SQLite/Excel 验证适配器作为 KAT 公共产品面。
 
 ## 符号化契约
 
@@ -96,7 +109,9 @@ flowchart TD
 
 目录索引在 `SymbolResolver::get_symbols` 首次遇到合法地址时建立，而不是在创建 `SymbolResolver` 时建立。相同 SO 的地址会集中批量转换，相同地址在单次调用内只解析一次。
 
-## SQLite 与 Excel
+## SQLite 与 Excel 验证适配器
+
+该适配器只支持当前验证数据库中使用的 `native_hook_frame` 和 `data_dict` 表，以及查询涉及的 `id`、`callchain_id`、`depth`、`symbol_id`、`file_id`、`vaddr`、`data` 列。输入缺少这些表或列时直接返回 SQLite 错误；不提供 TraceStreamer schema 版本探测、迁移或兼容层。
 
 Rust CLI：
 
@@ -133,5 +148,5 @@ git diff --check
 ## 最小交付切片
 
 1. 收敛 Rust 符号化接口及测试。
-2. 增加 SQLite 到 Excel CLI 及测试。
+2. 增加临时 SQLite 到 Excel 验证适配器及测试。
 3. 给出实际符号目录和 trace 数据的验证证据。

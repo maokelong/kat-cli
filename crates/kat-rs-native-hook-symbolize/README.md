@@ -1,8 +1,12 @@
 # Native Hook 符号化
 
-该 crate 提供 Native Hook 模块相对地址的批量符号化 Rust 接口。附带的 CLI 可读取 trace_streamer SQLite，并把符号化结果导出为 Excel；无法解析的输入保持原样。
+该 crate 提供 Native Hook 模块相对地址的批量符号化 Rust 接口。核心接口只消费地址字符串、本地 ELF 和显式名称映射，不读取 KAT Dataset，也不创建 Trace facts 或定义 `kat.trace` 分析语义；无法解析的输入保持原样。
+
+附带的 CLI 是临时验证适配器，用于读取当前验证使用的 trace_streamer SQLite，并把符号化结果导出为 Excel。它不是 Datasource、KAT 用户入口或长期数据产品，不承诺跨 TraceStreamer 版本的数据库兼容性，也不承诺 Excel 格式的长期兼容性。
 
 生成的 CLI 二进制名为 `kat-native-hook-symbolize`。
+
+验证数据库必须包含 `native_hook_frame`、`data_dict`，以及当前查询使用的 `id`、`callchain_id`、`depth`、`symbol_id`、`file_id`、`vaddr`、`data` 列；缺少时命令直接返回 SQLite 错误，不执行 schema 探测或迁移。
 
 ```powershell
 cargo run -p kat-rs-native-hook-symbolize --release -- `
