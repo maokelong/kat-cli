@@ -1,7 +1,7 @@
 use arrow_array::{Int32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use flate2::{Compression, write::GzEncoder};
-use kat_rs_datasource::{DatasetLocator, DatasetStore};
+use kat_datasource::{DatasetLocator, DatasetStore};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use prost::Message;
 use serde_json::json;
@@ -173,7 +173,7 @@ async fn dataset_reader_rejects_legacy_version_and_table_metadata_fields() {
 }"#;
     fs::write(dataset_path.join("catalog.json"), json).expect("catalog is written");
 
-    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
         Ok(_) => panic!("legacy catalog table metadata should be rejected"),
         Err(error) => error,
     };
@@ -193,7 +193,7 @@ async fn hitrace_materialize_rejects_existing_target() {
     let target = root.path().join("default");
     fs::create_dir_all(&target).expect("target exists");
 
-    let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
+    let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
         .await
         .expect_err("existing target is rejected");
 
@@ -210,7 +210,7 @@ async fn hitrace_materialize_rejects_broken_symlink_target() {
     std::os::unix::fs::symlink(root.path().join("missing"), &target)
         .expect("broken symlink target is created");
 
-    let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
+    let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
         .await
         .expect_err("broken symlink target is rejected");
 
@@ -232,7 +232,7 @@ async fn hitrace_materialize_rejects_invalid_target_paths() {
     ];
 
     for target in invalid_targets {
-        let error = kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &target)
+        let error = kat_datasource::materialize_hitrace_dataset(&trace_path, &target)
             .await
             .expect_err("invalid target is rejected");
 
@@ -251,13 +251,13 @@ async fn hitrace_dataset_queries_after_source_file_is_removed() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     fs::remove_file(&trace_path).expect("source is removed");
 
-    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -283,7 +283,7 @@ async fn materialized_catalog_records_source_table_kind() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -333,7 +333,7 @@ async fn dataset_reader_rejects_source_table_with_producer() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -355,7 +355,7 @@ async fn dataset_reader_rejects_source_table_with_producer() {
     )
     .expect("catalog is overwritten");
 
-    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
         Ok(_) => panic!("source table with producer should be rejected"),
         Err(error) => error,
     };
@@ -374,7 +374,7 @@ async fn dataset_reader_rejects_derived_table_without_producer() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -392,7 +392,7 @@ async fn dataset_reader_rejects_derived_table_without_producer() {
     )
     .expect("catalog is overwritten");
 
-    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
         Ok(_) => panic!("derived table without producer should be rejected"),
         Err(error) => error,
     };
@@ -411,7 +411,7 @@ async fn dataset_reader_rejects_unknown_table_kind() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -429,7 +429,7 @@ async fn dataset_reader_rejects_unknown_table_kind() {
     )
     .expect("catalog is overwritten");
 
-    let error = match kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path).await {
+    let error = match kat_datasource::TraceDatasource::from_dataset(&dataset_path).await {
         Ok(_) => panic!("unknown table kind should be rejected"),
         Err(error) => error,
     };
@@ -454,7 +454,7 @@ async fn langfuse_dataset_queries_after_source_files_are_removed() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_rs_datasource::materialize_langfuse_legacy_dataset(
+    kat_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,
@@ -465,7 +465,7 @@ async fn langfuse_dataset_queries_after_source_files_are_removed() {
     fs::remove_file(&observations_path).expect("observations source is removed");
     fs::remove_file(&traces_path).expect("traces source is removed");
 
-    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -496,7 +496,7 @@ async fn langfuse_dataset_writes_empty_object_columns_as_json_strings() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_rs_datasource::materialize_langfuse_legacy_dataset(
+    kat_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,
@@ -504,7 +504,7 @@ async fn langfuse_dataset_writes_empty_object_columns_as_json_strings() {
     .await
     .expect("dataset is materialized");
 
-    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -522,13 +522,13 @@ async fn derived_table_writer_adds_queryable_catalog_entry() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     let batch = derived_thread_batch();
 
-    kat_rs_datasource::write_derived_dataset_table(
+    kat_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -557,7 +557,7 @@ async fn derived_table_writer_adds_queryable_catalog_entry() {
     assert_eq!(derived["producer"]["packRef"], "openharmony-core-test");
     assert_eq!(derived["producer"]["transformId"], "thread_state_segments");
 
-    let datasource = kat_rs_datasource::TraceDatasource::from_dataset(&dataset_path)
+    let datasource = kat_datasource::TraceDatasource::from_dataset(&dataset_path)
         .await
         .expect("dataset opens");
     let rows = datasource
@@ -575,12 +575,12 @@ async fn derived_table_writer_rejects_duplicate_table_name() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
     let batch = derived_thread_batch();
-    kat_rs_datasource::write_derived_dataset_table(
+    kat_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -590,7 +590,7 @@ async fn derived_table_writer_rejects_duplicate_table_name() {
     .await
     .expect("derived table is written");
 
-    let error = kat_rs_datasource::write_derived_dataset_table(
+    let error = kat_datasource::write_derived_dataset_table(
         &dataset_path,
         "derived_sched_threads",
         "openharmony-core-test",
@@ -613,7 +613,7 @@ async fn derived_table_writer_rejects_path_unsafe_ids() {
     fs::write(&trace_path, encoded_trace()).expect("trace is written");
     let dataset_path = dir.path().join("dataset");
 
-    kat_rs_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
+    kat_datasource::materialize_hitrace_dataset(&trace_path, &dataset_path)
         .await
         .expect("dataset is materialized");
 
@@ -644,7 +644,7 @@ async fn derived_table_writer_rejects_path_unsafe_ids() {
         ),
     ] {
         let batch = derived_thread_batch();
-        let error = kat_rs_datasource::write_derived_dataset_table(
+        let error = kat_datasource::write_derived_dataset_table(
             &dataset_path,
             logical_name,
             pack_ref,
@@ -676,7 +676,7 @@ async fn langfuse_dataset_splits_large_tables_into_bounded_row_groups() {
     );
     write_jsonl_gz(&traces_path, &[r#"{"id":"trace-1","name":"chat request"}"#]);
 
-    kat_rs_datasource::materialize_langfuse_legacy_dataset(
+    kat_datasource::materialize_langfuse_legacy_dataset(
         &observations_path,
         &traces_path,
         &dataset_path,

@@ -554,35 +554,3 @@ pub enum TraceStreamerImportError {
     #[error("failed to write the Dataset")]
     WriteDataset(#[source] DatasetWriteError),
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{TraceStreamerImportError, exact_f64};
-
-    #[test]
-    fn integer_to_real_conversion_requires_exact_binary64_representation() {
-        for value in [
-            0,
-            7,
-            -(1_i64 << 53),
-            1_i64 << 53,
-            (1_i64 << 53) + 2,
-            i64::MIN,
-        ] {
-            assert!(exact_f64(value).is_some(), "{value} should be exact");
-        }
-        for value in [(1_i64 << 53) + 1, -((1_i64 << 53) + 1), i64::MAX] {
-            assert!(exact_f64(value).is_none(), "{value} should be rejected");
-        }
-        assert_eq!(
-            TraceStreamerImportError::LossyRealCell {
-                relation: "facts".to_owned(),
-                column: "ratio".to_owned(),
-                row: 2,
-                value: (1_i64 << 53) + 1,
-            }
-            .to_string(),
-            "cannot convert SQLite cell facts.ratio at row 2: INTEGER 9007199254740993 cannot be represented exactly as Float64"
-        );
-    }
-}

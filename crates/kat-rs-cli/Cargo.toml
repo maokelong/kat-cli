@@ -13,7 +13,7 @@ anyhow.workspace = true
 clap.workspace = true
 env_logger.workspace = true
 kat-rs-daemon = { path = "../kat-rs-daemon" }
-kat-rs-datasource = { path = "../kat-rs-datasource" }
+kat-datasource = { path = "../../kat/platform/datasource" }
 log.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

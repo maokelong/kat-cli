@@ -9,6 +9,20 @@ use rusqlite::Connection;
 use tempfile::tempdir;
 
 #[test]
+fn lossy_real_cell_error_reports_the_exact_integer() {
+    assert_eq!(
+        TraceStreamerImportError::LossyRealCell {
+            relation: "facts".to_owned(),
+            column: "ratio".to_owned(),
+            row: 2,
+            value: (1_i64 << 53) + 1,
+        }
+        .to_string(),
+        "cannot convert SQLite cell facts.ratio at row 2: INTEGER 9007199254740993 cannot be represented exactly as Float64"
+    );
+}
+
+#[test]
 fn imports_tables_views_empty_relations_and_strict_types() {
     let temp = tempdir().unwrap();
     let database = temp.path().join("trace-streamer.db");
@@ -124,6 +138,39 @@ fn overwrite_replaces_all_old_contents() {
     .unwrap();
     assert!(!dataset.join("unrecognized").exists());
     assert!(dataset.join("tables/current.parquet").is_file());
+}
+
+#[cfg(windows)]
+#[test]
+fn partial_overwrite_failure_invalidates_the_dataset_marker() {
+    use std::{fs::OpenOptions, os::windows::fs::OpenOptionsExt};
+
+    let temp = tempdir().unwrap();
+    let database = temp.path().join("source.db");
+    create_database(
+        &database,
+        "CREATE TABLE current (value INTEGER); INSERT INTO current VALUES (1);",
+    );
+    let dataset = temp.path().join("dataset");
+    import_deprecated_trace_streamer(&database, DatasetWriteTarget::write_to_empty(&dataset))
+        .unwrap();
+    let blocked = dataset.join("blocked-entry");
+    fs::write(&blocked, "cannot delete while open").unwrap();
+    let _locked = OpenOptions::new()
+        .read(true)
+        .share_mode(0x0000_0001 | 0x0000_0002)
+        .open(blocked)
+        .unwrap();
+
+    let failure = import_deprecated_trace_streamer(
+        &database,
+        DatasetWriteTarget::permanently_replace_all_contents(&dataset),
+    )
+    .unwrap_err();
+
+    assert!(matches!(failure, TraceStreamerImportError::WriteDataset(_)));
+    assert!(!dataset.join(".kat-dataset").exists());
+    assert!(inspect_dataset(&dataset).is_err());
 }
 
 #[test]
