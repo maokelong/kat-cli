@@ -14,6 +14,8 @@ class RuntimeProcessTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
+        self.runtime_cwd = self.root / "unrelated-runtime-cwd"
+        self.runtime_cwd.mkdir()
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -26,6 +28,7 @@ class RuntimeProcessTest(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
+                "-I",
                 "-B",
                 "-X",
                 "utf8",
@@ -41,7 +44,12 @@ class RuntimeProcessTest(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
-            env={**os.environ, "NO_COLOR": "1"},
+            cwd=self.runtime_cwd,
+            env={
+                **os.environ,
+                "NO_COLOR": "1",
+                "PYTHONPATH": str(self.root / "must-not-import"),
+            },
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 

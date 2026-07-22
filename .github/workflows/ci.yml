@@ -36,5 +36,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install Workflow Host wheel
+        run: python -m pip install --disable-pip-version-check ./kat/platform/workflow
+
       - name: Check
         run: cargo check --locked
+
+      - name: Test Workflow Host
+        run: python -I -B -m unittest discover -s kat/platform/workflow/tests
