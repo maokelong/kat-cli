@@ -51,6 +51,10 @@ impl OperationLog {
         self.finish_with(File::flush)
     }
 
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     pub(crate) fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError> {
         self.file
             .write_all(bytes)

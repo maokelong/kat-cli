@@ -96,12 +96,20 @@ fn hitrace(path: &Path) {
         data: result.encode_to_vec(),
     }
     .encode_to_vec();
+    fs::write(path, profiler_section(0, &[frame])).unwrap();
+}
+
+fn profiler_section(data_type: u32, frames: &[Vec<u8>]) -> Vec<u8> {
+    let body_length = frames.iter().map(|frame| 4 + frame.len()).sum::<usize>();
     let mut bytes = vec![0; HEADER_SIZE];
     bytes[0..8].copy_from_slice(&HEADER_MAGIC.to_le_bytes());
-    bytes[8..16].copy_from_slice(&((HEADER_SIZE + 4 + frame.len()) as u64).to_le_bytes());
-    bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&frame);
-    fs::write(path, bytes).unwrap();
+    bytes[8..16].copy_from_slice(&((HEADER_SIZE + body_length) as u64).to_le_bytes());
+    bytes[56..60].copy_from_slice(&data_type.to_le_bytes());
+    for frame in frames {
+        bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(frame);
+    }
+    bytes
 }
 
 fn cargo_kat() -> PathBuf {
@@ -125,19 +133,28 @@ fn stage_skill(root: &Path) -> PathBuf {
 }
 
 fn command(binary: &Path, root: &Path) -> Command {
-    let mut command = Command::new(binary);
-    command
-        .env("XDG_DATA_HOME", root.join("xdg-data"))
-        .env("HOME", root.join("home"))
-        .env("APPDATA", root.join("app-data"))
-        .env("LOCALAPPDATA", root.join("local-app-data"))
-        .env("USERPROFILE", root.join("profile"));
+    #[cfg(not(windows))]
+    let command = {
+        let mut command = Command::new(binary);
+        command
+            .env("XDG_DATA_HOME", root.join("xdg-data"))
+            .env("HOME", root.join("home"));
+        command
+    };
+    #[cfg(windows)]
+    let command = {
+        let _ = root;
+        Command::new(binary)
+    };
     command
 }
 
 fn data_home(root: &Path) -> PathBuf {
     if cfg!(windows) {
-        root.join("app-data").join("KAT").join("data")
+        directories::ProjectDirs::from("", "", "KAT")
+            .expect("Windows runner has a standard user data directory")
+            .data_dir()
+            .to_path_buf()
     } else {
         root.join("xdg-data").join("kat")
     }
@@ -275,6 +292,160 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
 }
 
 #[test]
+fn hitrace_import_reports_sorted_unknown_plugins_and_sections() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.htrace");
+    let dataset = temp.path().join("dataset");
+    let frames = [
+        Envelope {
+            name: "z-plugin".to_owned(),
+            data: vec![1],
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: "a-plugin_config".to_owned(),
+            data: vec![2],
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: "z-plugin".to_owned(),
+            data: vec![3],
+        }
+        .encode_to_vec(),
+    ];
+    let mut bytes = profiler_section(0, &frames);
+    bytes.extend(profiler_section(1000, &[]));
+    bytes.extend(profiler_section(77, &[]));
+    fs::write(&source, bytes).unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["result"]["unsupported_plugins"],
+        serde_json::json!(["a-plugin", "z-plugin"])
+    );
+    assert_eq!(
+        response["result"]["unsupported_section_types"],
+        serde_json::json!([77, 1000])
+    );
+}
+
+#[test]
+fn invalid_hitrace_does_not_mutate_authorized_overwrite_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("invalid.htrace");
+    let dataset = temp.path().join("dataset");
+    fs::write(&source, b"not a Hitrace capture").unwrap();
+    fs::create_dir(&dataset).unwrap();
+    fs::write(dataset.join("sentinel"), "unchanged").unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .arg("--overwrite-dataset")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        fs::read_to_string(dataset.join("sentinel")).unwrap(),
+        "unchanged"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn hitrace_overwrite_rejects_target_that_contains_current_operation_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.htrace");
+    let dataset = data_home(temp.path());
+    hitrace(&source);
+    fs::create_dir_all(&dataset).unwrap();
+    fs::write(dataset.join(".kat-dataset"), "").unwrap();
+    fs::write(dataset.join("sentinel"), "unchanged").unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .arg("--overwrite-dataset")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    let log = PathBuf::from(response["log_path"].as_str().unwrap());
+    assert!(log.starts_with(dataset.join("logs")));
+    assert!(log.is_file());
+    assert!(
+        fs::read_to_string(&log)
+            .unwrap()
+            .contains("status: failure")
+    );
+    assert!(dataset.join(".kat-dataset").is_file());
+    assert_eq!(
+        fs::read_to_string(dataset.join("sentinel")).unwrap(),
+        "unchanged"
+    );
+}
+
+#[test]
+fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("partially-invalid.htrace");
+    let dataset = temp.path().join("dataset");
+    let unknown = Envelope {
+        name: "future-plugin".to_owned(),
+        data: vec![1],
+    }
+    .encode_to_vec();
+    let mut bytes = profiler_section(0, &[unknown]);
+    bytes.extend_from_slice(b"truncated-section");
+    fs::write(&source, bytes).unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("unsupported plugin \"future-plugin\" at byte "));
+    assert!(log.contains("status: failure"));
+    assert!(!dataset.exists());
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
+)]
 fn default_target_is_uuid_v7_under_data_home_and_is_inspectable() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());

@@ -380,7 +380,7 @@ flowchart LR
 | --- | --- |
 | `kat-rs-cli` | Clap runtime 入口、日志初始化、server 启停、OpenAPI 输出 |
 | `kat-rs-daemon` | loopback Axum server、REST DTO、datasource registry、identity 与并发加载协调 |
-| `kat-rs-datasource` | 输入适配、领域解码、Arrow 物化、DataFusion catalog/query |
+| `kat-datasource` | 输入适配、领域解码、Arrow 物化、Dataset Storage 与 DataFusion catalog/query |
 
 ### `.htrace` 分层边界
 

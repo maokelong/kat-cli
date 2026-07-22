@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Agent"
+  short_description: "用隔离子代理评议 PR、设计与 Grill 推荐答案"
+  default_prompt: "使用 $review-agent 评议当前 PR，并给出五星金字塔报告。"
+
+policy:
+  allow_implicit_invocation: false

@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use kat_rs_datasource::{
+use kat_datasource::{
     DatasetLocator, DatasetStore, TraceDatasource, inspect_dataset_tables,
     materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
 };

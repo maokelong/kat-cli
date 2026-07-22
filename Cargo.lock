@@ -2124,56 +2124,6 @@ dependencies = [
 name = "kat-datasource"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
- "arrow-schema",
- "dunce",
- "parquet",
- "prost",
- "rusqlite",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "kat-rs-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger",
- "flate2",
- "kat-rs-daemon",
- "kat-rs-datasource",
- "log",
- "prost",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "kat-rs-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "flate2",
- "kat-rs-datasource",
- "serde",
- "serde_json",
- "tempfile",
- "time",
- "tokio",
- "tower",
- "tower-http",
- "utoipa",
- "uuid",
-]
-
-[[package]]
-name = "kat-rs-datasource"
-version = "0.1.0"
-dependencies = [
  "anyhow",
  "arrow-array",
  "arrow-json",
@@ -2190,13 +2140,51 @@ dependencies = [
  "prost-build",
  "prost-types",
  "protoc-bin-vendored",
+ "rusqlite",
  "serde",
  "serde_arrow",
  "serde_bytes",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "kat-rs-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "flate2",
+ "kat-datasource",
+ "kat-rs-daemon",
+ "log",
+ "prost",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "kat-rs-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "flate2",
+ "kat-datasource",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http",
+ "utoipa",
  "uuid",
 ]
 
