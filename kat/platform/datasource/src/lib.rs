@@ -1,7 +1,11 @@
 //! KAT 唯一的内部 Datasource 与 Dataset Storage package。
+//!
+//! 当前切片开放 Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
+//! Trace Streamer 入口只服务预发布机制联调，不形成兼容承诺，并将在第一次正式发布前删除。
 
 mod arrow_table;
 mod dataset;
+mod dataset_writer;
 mod domains;
 mod formats;
 mod ftrace_event_table_builders {
@@ -16,6 +20,7 @@ mod native_hook_table_builders {
 mod query;
 mod record;
 mod sinks;
+mod trace_streamer;
 
 use std::{
     collections::HashSet,
@@ -31,8 +36,12 @@ pub use dataset::{
     DatasetLocator, DatasetResolution, DatasetStore, DatasetTableInfo, inspect_dataset_tables,
     write_derived_dataset_table,
 };
+pub use dataset_writer::DatasetWriteTarget;
 pub use materializer::{materialize_hitrace_dataset, materialize_langfuse_legacy_dataset};
 pub use query::TraceDatasource;
+pub use trace_streamer::{
+    ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
+};
 
 #[allow(dead_code)]
 pub(crate) mod proto {
@@ -200,7 +209,7 @@ fn scan_table_candidates(root: &Path) -> Result<Vec<(String, PathBuf)>, DatasetI
     Ok(candidates)
 }
 
-fn valid_table_name(name: &str) -> bool {
+pub(crate) fn valid_table_name(name: &str) -> bool {
     let valid = !name.is_empty()
         && name.split('_').all(|segment| {
             !segment.is_empty()
