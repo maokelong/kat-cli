@@ -25,6 +25,7 @@ const MARKER: &str = ".kat-dataset";
 pub struct DatasetWriteTarget {
     path: PathBuf,
     existing_contents: ExistingContents,
+    protected_paths: Vec<PathBuf>,
 }
 
 impl DatasetWriteTarget {
@@ -33,6 +34,7 @@ impl DatasetWriteTarget {
         Self {
             path: path.into(),
             existing_contents: ExistingContents::Reject,
+            protected_paths: Vec::new(),
         }
     }
 
@@ -43,7 +45,14 @@ impl DatasetWriteTarget {
         Self {
             path: path.into(),
             existing_contents: ExistingContents::PermanentlyClear,
+            protected_paths: Vec::new(),
         }
+    }
+
+    /// 拒绝会把指定路径包含在永久清空范围内的写入目标。
+    pub fn protect_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.protected_paths.push(path.into());
+        self
     }
 }
 
@@ -188,6 +197,7 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
                 });
             }
             let canonical = canonical_unicode(&target.path)?;
+            protect_paths_from_clear(target, &canonical)?;
             let mut entries =
                 fs::read_dir(&canonical).map_err(|source| DatasetWriteError::ReadTarget {
                     path: canonical.clone(),
@@ -223,6 +233,30 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
             source,
         }),
     }
+}
+
+fn protect_paths_from_clear(
+    target: &DatasetWriteTarget,
+    canonical_target: &Path,
+) -> Result<(), DatasetWriteError> {
+    if !matches!(target.existing_contents, ExistingContents::PermanentlyClear) {
+        return Ok(());
+    }
+    for path in &target.protected_paths {
+        let protected = dunce::canonicalize(path).map_err(|source| {
+            DatasetWriteError::CanonicalizeProtectedPath {
+                path: path.clone(),
+                source,
+            }
+        })?;
+        if protected.starts_with(canonical_target) {
+            return Err(DatasetWriteError::ProtectedPathInsideTarget {
+                target: canonical_target.to_path_buf(),
+                protected,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn canonical_unicode(path: &Path) -> Result<PathBuf, DatasetWriteError> {
@@ -313,6 +347,14 @@ pub enum DatasetWriteError {
     },
     #[error("Dataset target cannot be represented as native Unicode: {path:?}")]
     NonUnicodeTarget { path: PathBuf },
+    #[error("failed to resolve protected path {path}")]
+    CanonicalizeProtectedPath {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Dataset target {target} would permanently delete protected path {protected}")]
+    ProtectedPathInsideTarget { target: PathBuf, protected: PathBuf },
     #[error("failed to read Dataset target {path}")]
     ReadTarget {
         path: PathBuf,

@@ -1,7 +1,12 @@
 mod pack_discovery;
 mod response;
 
-use std::{fs, io, path::PathBuf, process::ExitCode};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use clap::{Args, Parser, Subcommand};
 use miette::Diagnostic;
@@ -48,6 +53,12 @@ struct ImportArgs {
 
 #[derive(Subcommand)]
 enum Datasource {
+    /// Import a HiProfiler Hitrace capture as normalized long-term source facts.
+    Hitrace {
+        /// Read the Hitrace capture at this path.
+        #[arg(long, value_name = "PATH")]
+        trace: PathBuf,
+    },
     /// Deprecated: pre-release validation only. Its table interface is unstable and it must be removed before the first formal release.
     TraceStreamer {
         /// Read the Trace Streamer SQLite database at this path.
@@ -83,6 +94,11 @@ pub fn run() -> ExitCode {
         Operation::Import(ImportArgs {
             dataset,
             overwrite_dataset,
+            datasource: Datasource::Hitrace { trace },
+        }) => response::publish(import_hitrace(trace, dataset, overwrite_dataset)),
+        Operation::Import(ImportArgs {
+            dataset,
+            overwrite_dataset,
             datasource: Datasource::TraceStreamer { database },
         }) => {
             let prepared = match import_trace_streamer(database, dataset, overwrite_dataset) {
@@ -112,6 +128,276 @@ pub fn run() -> ExitCode {
             response::publish(prepared)
         }
     }
+}
+
+#[derive(Serialize)]
+struct ImportHitraceResult {
+    path: String,
+    unsupported_plugins: Vec<String>,
+    unsupported_section_types: Vec<u32>,
+}
+
+fn import_hitrace(
+    trace: PathBuf,
+    dataset: Option<PathBuf>,
+    overwrite: bool,
+) -> response::PreparedResponse<ImportHitraceResult> {
+    let Some(data_home) = locate_data_home() else {
+        return response::prepare_cli_failure(miette::Report::new(
+            ImportHitraceError::DataHomeUnavailable,
+        ));
+    };
+    let target = dataset.unwrap_or_else(|| {
+        data_home
+            .join("datasets")
+            .join(uuid::Uuid::now_v7().to_string())
+    });
+    let mut log = match OperationLog::create(&data_home, &trace, &target) {
+        Ok(log) => log,
+        Err(error) => return operation_log_failure(error),
+    };
+    if let Err(source) = locate_skill_root() {
+        let error = ImportHitraceError::SkillRoot(source);
+        if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
+        }
+        return finish_hitrace_failure(log, error);
+    }
+    let target = if overwrite {
+        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
+    } else {
+        kat_datasource::DatasetWriteTarget::write_to_empty(target)
+    }
+    .protect_path(&log.path);
+    let imported = match kat_datasource::import_hitrace(&trace, target, |content| {
+        write_unsupported_hitrace_content(&mut log.file, content)
+    }) {
+        Ok(imported) => imported,
+        Err(kat_datasource::HitraceImportError::ObserveUnsupportedContent { source }) => {
+            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
+        }
+        Err(source) => {
+            let error = ImportHitraceError::Import { source };
+            if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+                return finish_hitrace_failure(
+                    log,
+                    ImportHitraceError::WriteOperationLog { source },
+                );
+            }
+            return finish_hitrace_failure(log, error);
+        }
+    };
+    let path = match imported.path().to_str() {
+        Some(path) => path.to_owned(),
+        None => {
+            let error = ImportHitraceError::NonUnicodeDataset {
+                path: imported.path().to_path_buf(),
+            };
+            if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+                return finish_hitrace_failure(
+                    log,
+                    ImportHitraceError::WriteOperationLog { source },
+                );
+            }
+            return finish_hitrace_failure(log, error);
+        }
+    };
+    if let Err(source) = writeln!(log.file, "status: success") {
+        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
+    }
+    let result = ImportHitraceResult {
+        path,
+        unsupported_plugins: imported.unsupported_plugins().to_vec(),
+        unsupported_section_types: imported.unsupported_section_types().to_vec(),
+    };
+    match log.finish() {
+        Ok(log_path) => response::prepare_success_with_log(result, Some(log_path)),
+        Err(error) => operation_log_failure(error),
+    }
+}
+
+fn write_unsupported_hitrace_content(
+    log: &mut File,
+    unsupported: &kat_datasource::UnsupportedHitraceContent,
+) -> io::Result<()> {
+    writeln!(
+        log,
+        "unsupported {} {:?} at byte {}",
+        unsupported.kind(),
+        unsupported.value(),
+        unsupported.byte_offset()
+    )
+}
+
+fn finish_hitrace_failure(
+    log: OperationLog,
+    error: ImportHitraceError,
+) -> response::PreparedResponse<ImportHitraceResult> {
+    let report = miette::Report::new(error);
+    match log.finish() {
+        Ok(log_path) => response::prepare_cli_failure_with_log(report, Some(log_path)),
+        Err(log_error) => operation_log_failure(log_error),
+    }
+}
+
+fn operation_log_failure(
+    error: OperationLogError,
+) -> response::PreparedResponse<ImportHitraceResult> {
+    let log_path = error.readable_path();
+    let error = if log_path.is_some() {
+        ImportHitraceError::IncompleteOperationLog(error)
+    } else {
+        ImportHitraceError::OperationLog(error)
+    };
+    response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
+}
+
+#[derive(Debug)]
+struct OperationLog {
+    path: PathBuf,
+    file: File,
+}
+
+impl OperationLog {
+    fn create(data_home: &Path, trace: &Path, target: &Path) -> Result<Self, OperationLogError> {
+        Self::create_with(data_home, |file| {
+            writeln!(
+                file,
+                "operation: kat import hitrace\ntrace: {trace:?}\ndataset: {target:?}"
+            )
+        })
+    }
+
+    fn create_with(
+        data_home: &Path,
+        write_header: impl FnOnce(&mut File) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
+        let directory = data_home.join("logs");
+        fs::create_dir_all(&directory).map_err(|source| OperationLogError::CreateDirectory {
+            path: directory.clone(),
+            source,
+        })?;
+        let path = directory.join(format!("import-{}.log", uuid::Uuid::now_v7()));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|source| OperationLogError::Create {
+                path: path.clone(),
+                source,
+            })?;
+        write_header(&mut file).map_err(|source| OperationLogError::Write {
+            path: path.clone(),
+            source,
+        })?;
+        Ok(Self { path, file })
+    }
+
+    fn finish(self) -> Result<String, OperationLogError> {
+        self.finish_with(File::flush)
+    }
+
+    fn finish_with(
+        mut self,
+        flush: impl FnOnce(&mut File) -> io::Result<()>,
+    ) -> Result<String, OperationLogError> {
+        flush(&mut self.file).map_err(|source| OperationLogError::Flush {
+            path: self.path.clone(),
+            source,
+        })?;
+        drop(self.file);
+        let path =
+            dunce::canonicalize(&self.path).map_err(|source| OperationLogError::Canonicalize {
+                path: self.path.clone(),
+                source,
+            })?;
+        path.to_str()
+            .map(str::to_owned)
+            .ok_or(OperationLogError::NonUnicode { path })
+    }
+}
+
+#[derive(Debug, Error)]
+enum OperationLogError {
+    #[error("failed to create Operation log directory {path}")]
+    CreateDirectory {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to create Operation log {path}")]
+    Create {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to write Operation log {path}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to flush Operation log {path}")]
+    Flush {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to resolve Operation log {path}")]
+    Canonicalize {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Operation log path cannot be represented as native Unicode: {path:?}")]
+    NonUnicode { path: PathBuf },
+}
+
+impl OperationLogError {
+    fn readable_path(&self) -> Option<String> {
+        let path = match self {
+            Self::Write { path, .. }
+            | Self::Flush { path, .. }
+            | Self::Canonicalize { path, .. }
+            | Self::NonUnicode { path } => path,
+            Self::CreateDirectory { .. } | Self::Create { .. } => return None,
+        };
+        if !fs::metadata(path).ok()?.is_file() || File::open(path).is_err() {
+            return None;
+        }
+        dunce::canonicalize(path).ok()?.to_str().map(str::to_owned)
+    }
+}
+
+#[derive(Debug, Error, Diagnostic)]
+enum ImportHitraceError {
+    #[error("KAT Skill is unavailable")]
+    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    SkillRoot(#[source] SkillRootError),
+    #[error("KAT Data Home is unavailable on this platform")]
+    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
+    DataHomeUnavailable,
+    #[error("Hitrace Import Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Import"))]
+    OperationLog(#[source] OperationLogError),
+    #[error("Hitrace Import Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog(#[source] OperationLogError),
+    #[error("Hitrace Import failed")]
+    #[diagnostic(help("Correct the capture or Dataset target and retry the complete Import"))]
+    Import {
+        #[source]
+        source: kat_datasource::HitraceImportError,
+    },
+    #[error("Hitrace Import Operation log is incomplete because a write failed")]
+    WriteOperationLog {
+        #[source]
+        source: io::Error,
+    },
+    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodeDataset { path: PathBuf },
 }
 
 #[derive(Serialize)]
@@ -460,6 +746,18 @@ mod tests {
         ] {
             assert!(Cli::try_parse_from(arguments).is_ok());
         }
+        assert!(
+            Cli::try_parse_from([
+                "kat",
+                "import",
+                "hitrace",
+                "--trace",
+                "capture.htrace",
+                "--dataset",
+                "target",
+            ])
+            .is_ok()
+        );
     }
 
     #[test]
@@ -475,5 +773,32 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn operation_log_fault_seams_distinguish_partial_files_from_create_failures() {
+        let temp = tempfile::tempdir().unwrap();
+        let write_error = OperationLog::create_with(temp.path(), |_| {
+            Err(io::Error::other("injected header write failure"))
+        })
+        .unwrap_err();
+        assert!(matches!(write_error, OperationLogError::Write { .. }));
+        assert!(write_error.readable_path().is_some());
+
+        let log =
+            OperationLog::create_with(temp.path(), |file| file.write_all(b"partial\n")).unwrap();
+        let flush_error = log
+            .finish_with(|_| Err(io::Error::other("injected flush failure")))
+            .unwrap_err();
+        assert!(matches!(flush_error, OperationLogError::Flush { .. }));
+        assert!(flush_error.readable_path().is_some());
+
+        let unrelated = temp.path().join("unrelated.log");
+        fs::write(&unrelated, "not this operation").unwrap();
+        let create_error = OperationLogError::Create {
+            path: unrelated,
+            source: io::Error::new(io::ErrorKind::AlreadyExists, "injected create failure"),
+        };
+        assert!(create_error.readable_path().is_none());
     }
 }

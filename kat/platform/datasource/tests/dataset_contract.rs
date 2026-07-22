@@ -1,14 +1,14 @@
 use arrow_array::{Int32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use flate2::{Compression, write::GzEncoder};
-use kat_datasource::{DatasetLocator, DatasetStore};
+use kat_datasource::{DatasetLocator, DatasetStore, DatasetWriteTarget};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use prost::Message;
 use serde_json::json;
 use std::{
     env,
     fs::{self, File},
-    io::Write,
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -198,6 +198,230 @@ async fn hitrace_materialize_rejects_existing_target() {
         .expect_err("existing target is rejected");
 
     assert!(error.to_string().contains("already exists"));
+}
+
+#[test]
+fn managed_hitrace_import_reuses_migrated_tables_and_reports_unknown_content() {
+    let root = tempdir().expect("tempdir");
+    let trace_path = root.path().join("capture.hitrace");
+    let target = root.path().join("dataset");
+    let mut bytes = profiler_section(vec![
+        TestProfilerPluginData {
+            name: "z-plugin".to_string(),
+            status: 0,
+            data: vec![1],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        },
+        TestProfilerPluginData {
+            name: "a-plugin_config".to_string(),
+            status: 0,
+            data: vec![2],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        },
+        TestProfilerPluginData {
+            name: "z-plugin".to_string(),
+            status: 0,
+            data: vec![3],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        },
+    ]);
+    bytes.extend(profiler_section_body(1000, Vec::new()));
+    bytes.extend(profiler_section_body(77, Vec::new()));
+    fs::write(&trace_path, bytes).expect("trace is written");
+
+    let mut unsupported_content = Vec::new();
+    let imported = kat_datasource::import_hitrace(
+        &trace_path,
+        DatasetWriteTarget::write_to_empty(&target),
+        |content| {
+            unsupported_content.push((
+                content.kind().to_owned(),
+                content.value().to_owned(),
+                content.byte_offset(),
+            ));
+            Ok(())
+        },
+    )
+    .expect("Hitrace import succeeds");
+
+    assert_eq!(imported.unsupported_plugins(), ["a-plugin", "z-plugin"]);
+    assert_eq!(imported.unsupported_section_types(), [77, 1000]);
+    assert_eq!(
+        unsupported_content
+            .iter()
+            .map(|(kind, value, _)| (kind.as_str(), value.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("plugin", "z-plugin"),
+            ("plugin", "a-plugin"),
+            ("plugin", "z-plugin"),
+            ("section_type", "1000"),
+            ("section_type", "77"),
+        ]
+    );
+    assert!(
+        unsupported_content
+            .windows(2)
+            .all(|content| content[0].2 < content[1].2)
+    );
+    assert!(target.join(".kat-dataset").is_file());
+    let tables = kat_datasource::inspect_dataset(&target)
+        .expect("managed Dataset can be inspected")
+        .tables()
+        .iter()
+        .map(|table| table.name().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(tables, ["clock_domain", "clock_snapshot"]);
+}
+
+#[test]
+fn managed_hitrace_import_streams_repeated_unknown_occurrences_without_retaining_them() {
+    let root = tempdir().expect("tempdir");
+    let trace_path = root.path().join("many-unknown.hitrace");
+    let target = root.path().join("dataset");
+    let frames = (0..=8192)
+        .map(|index| TestProfilerPluginData {
+            name: "future-plugin".to_owned(),
+            status: 0,
+            data: vec![(index % 255) as u8],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        })
+        .collect();
+    fs::write(&trace_path, profiler_section(frames)).expect("trace is written");
+
+    let mut observed = 0;
+    let imported = kat_datasource::import_hitrace(
+        &trace_path,
+        DatasetWriteTarget::write_to_empty(&target),
+        |_| {
+            observed += 1;
+            Ok(())
+        },
+    )
+    .expect("unknown occurrences remain importable");
+
+    assert_eq!(observed, 8193);
+    assert_eq!(imported.unsupported_plugins(), ["future-plugin"]);
+}
+
+#[test]
+fn managed_hitrace_import_streams_unknown_occurrences_before_decode_failure() {
+    let root = tempdir().expect("tempdir");
+    let trace_path = root.path().join("partially-invalid.hitrace");
+    let mut bytes = profiler_section(vec![
+        TestProfilerPluginData {
+            name: "first-plugin".to_owned(),
+            status: 0,
+            data: vec![1],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        },
+        TestProfilerPluginData {
+            name: "second-plugin_config".to_owned(),
+            status: 0,
+            data: vec![2],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        },
+    ]);
+    bytes.extend_from_slice(b"truncated-section");
+    fs::write(&trace_path, bytes).expect("trace is written");
+
+    let mut observed = Vec::new();
+    kat_datasource::import_hitrace(
+        &trace_path,
+        DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+        |content| {
+            observed.push(content.value().to_owned());
+            Ok(())
+        },
+    )
+    .expect_err("truncated capture is rejected");
+
+    assert_eq!(observed, ["first-plugin", "second-plugin"]);
+}
+
+#[test]
+fn unsupported_content_observer_failure_precedes_authorized_target_mutation() {
+    let root = tempdir().expect("tempdir");
+    let trace_path = root.path().join("capture.hitrace");
+    let target = root.path().join("dataset");
+    fs::write(
+        &trace_path,
+        profiler_section(vec![TestProfilerPluginData {
+            name: "future-plugin".to_owned(),
+            status: 0,
+            data: vec![1],
+            clock_id: 0,
+            tv_sec: 0,
+            tv_nsec: 0,
+            version: String::new(),
+            sample_interval: 0,
+        }]),
+    )
+    .expect("trace is written");
+    fs::create_dir(&target).expect("target exists");
+    fs::write(target.join("sentinel"), "unchanged").expect("sentinel is written");
+
+    let error = kat_datasource::import_hitrace(
+        &trace_path,
+        DatasetWriteTarget::permanently_replace_all_contents(&target),
+        |_| Err(io::Error::new(io::ErrorKind::WriteZero, "log is full")),
+    )
+    .expect_err("observer failure rejects the import");
+
+    assert!(matches!(
+        error,
+        kat_datasource::HitraceImportError::ObserveUnsupportedContent { .. }
+    ));
+    assert_eq!(
+        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
+        "unchanged"
+    );
+}
+
+#[test]
+fn invalid_hitrace_preserves_authorized_overwrite_target() {
+    let root = tempdir().expect("tempdir");
+    let trace_path = root.path().join("invalid.hitrace");
+    let target = root.path().join("dataset");
+    fs::write(&trace_path, b"not a Hitrace capture").expect("invalid trace is written");
+    fs::create_dir(&target).expect("target directory is created");
+    fs::write(target.join("sentinel"), "unchanged").expect("sentinel is written");
+
+    kat_datasource::import_hitrace(
+        &trace_path,
+        DatasetWriteTarget::permanently_replace_all_contents(&target),
+        |_| Ok(()),
+    )
+    .expect_err("invalid Hitrace is rejected");
+
+    assert_eq!(
+        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
+        "unchanged"
+    );
 }
 
 #[cfg(unix)]
@@ -800,13 +1024,23 @@ fn encoded_trace() -> Vec<u8> {
         version: "1.0".to_string(),
         sample_interval: 8,
     };
-    let mut body = Vec::new();
-    append_segment(&mut body, plugin);
+    profiler_section(vec![plugin])
+}
 
+fn profiler_section(plugins: Vec<TestProfilerPluginData>) -> Vec<u8> {
+    let mut body = Vec::new();
+    for plugin in plugins {
+        append_segment(&mut body, plugin);
+    }
+
+    profiler_section_body(HIPROFILER_PROTOBUF_BIN, body)
+}
+
+fn profiler_section_body(data_type: u32, body: Vec<u8>) -> Vec<u8> {
     let mut bytes = vec![0; PROFILER_HEADER_SIZE];
     bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
     bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
-    bytes[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    bytes[56..60].copy_from_slice(&data_type.to_le_bytes());
     bytes.extend_from_slice(&body);
     bytes
 }

@@ -7,7 +7,7 @@ const FRAME_LENGTH_SIZE: usize = 4;
 
 pub(crate) fn for_each_profiler_envelope_frame<F>(bytes: &[u8], mut visitor: F) -> Result<()>
 where
-    F: FnMut(ProfilerPluginData) -> Result<()>,
+    F: FnMut(ProfilerPluginData, usize) -> Result<()>,
 {
     let mut offset = 0usize;
 
@@ -26,7 +26,7 @@ where
         let message = ProfilerPluginData::decode(frame).map_err(|source| {
             anyhow::anyhow!("failed to decode profiler envelope frame at byte {offset}: {source}")
         })?;
-        visitor(message)?;
+        visitor(message, offset)?;
         offset += len;
     }
 

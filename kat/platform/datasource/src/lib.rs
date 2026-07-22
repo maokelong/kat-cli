@@ -37,7 +37,10 @@ pub use dataset::{
     write_derived_dataset_table,
 };
 pub use dataset_writer::DatasetWriteTarget;
-pub use materializer::{materialize_hitrace_dataset, materialize_langfuse_legacy_dataset};
+pub use materializer::{
+    HitraceImportError, ImportedHitrace, UnsupportedHitraceContent, import_hitrace,
+    materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
+};
 pub use query::TraceDatasource;
 pub use trace_streamer::{
     ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,

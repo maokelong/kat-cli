@@ -2098,6 +2098,7 @@ dependencies = [
  "dunce",
  "kat-datasource",
  "miette",
+ "prost",
  "rusqlite",
  "serde",
  "serde_json",

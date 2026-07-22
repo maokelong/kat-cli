@@ -12,8 +12,16 @@ pub(super) struct PreparedResponse<P> {
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum KatResponse<P> {
-    Success { result: P },
-    Failure { error: KatDiagnostic },
+    Success {
+        result: P,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        log_path: Option<String>,
+    },
+    Failure {
+        error: KatDiagnostic,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        log_path: Option<String>,
+    },
 }
 
 #[derive(Serialize)]
@@ -43,14 +51,28 @@ struct DiagnosticPosition {
 struct RenderedDiagnostic(String);
 
 pub(super) fn prepare_success<P>(result: P) -> PreparedResponse<P> {
+    prepare_success_with_log(result, None)
+}
+
+pub(super) fn prepare_success_with_log<P>(
+    result: P,
+    log_path: Option<String>,
+) -> PreparedResponse<P> {
     PreparedResponse {
-        response: KatResponse::Success { result },
+        response: KatResponse::Success { result, log_path },
         rendered_diagnostic: None,
         exit_code: ExitCode::SUCCESS,
     }
 }
 
 pub(super) fn prepare_cli_failure<P>(report: miette::Report) -> PreparedResponse<P> {
+    prepare_cli_failure_with_log(report, None)
+}
+
+pub(super) fn prepare_cli_failure_with_log<P>(
+    report: miette::Report,
+    log_path: Option<String>,
+) -> PreparedResponse<P> {
     let diagnostic: &dyn Diagnostic = report.as_ref();
     let message = diagnostic.to_string();
     let help = diagnostic
@@ -77,6 +99,7 @@ pub(super) fn prepare_cli_failure<P>(report: miette::Report) -> PreparedResponse
                 help,
                 location,
             },
+            log_path,
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
@@ -265,6 +288,32 @@ mod tests {
                 .unwrap()
                 .contains("operation failed")
         );
+    }
+
+    #[test]
+    fn operation_log_path_is_a_top_level_success_or_failure_field() {
+        for (prepared, expected_status) in [
+            (
+                prepare_success_with_log(vec!["value"], Some("log.txt".to_owned())),
+                "success",
+            ),
+            (
+                prepare_cli_failure_with_log(
+                    miette!("operation failed"),
+                    Some("log.txt".to_owned()),
+                ),
+                "failure",
+            ),
+        ] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+
+            publish_to(prepared, &mut stdout, &mut stderr);
+
+            let response: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+            assert_eq!(response["status"], expected_status);
+            assert_eq!(response["log_path"], "log.txt");
+        }
     }
 
     #[test]
