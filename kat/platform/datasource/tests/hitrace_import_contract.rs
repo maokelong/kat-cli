@@ -433,6 +433,101 @@ fn clock_and_thread_continuity_damage_fail_before_target_mutation() {
 }
 
 #[test]
+fn protected_path_inside_overwrite_target_fails_before_any_mutation() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let dataset = root.path().join("dataset");
+    let protected = dataset.join("logs/operation.log");
+    write_fixture(
+        &source,
+        complete_result("boot", vec![detail(0, vec![switch(1, 0, 1)])]),
+    );
+    fs::create_dir_all(protected.parent().unwrap()).expect("target exists");
+    fs::write(dataset.join(".kat-dataset"), "").expect("marker exists");
+    fs::write(dataset.join("sentinel"), "unchanged").expect("sentinel exists");
+    fs::write(&protected, "operation evidence").expect("protected file exists");
+
+    let error = kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::permanently_replace_all_contents(&dataset).protect_path(&protected),
+        |_| Ok(()),
+    )
+    .expect_err("overlapping protected path is rejected");
+
+    assert!(error.to_string().contains("protected path"), "{error:?}");
+    assert!(dataset.join(".kat-dataset").is_file());
+    assert_eq!(
+        fs::read_to_string(dataset.join("sentinel")).expect("sentinel remains"),
+        "unchanged"
+    );
+    assert_eq!(
+        fs::read_to_string(&protected).expect("protected evidence remains"),
+        "operation evidence"
+    );
+}
+
+#[test]
+fn protected_sibling_does_not_block_authorized_overwrite() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let dataset = root.path().join("dataset");
+    let protected = root.path().join("operation.log");
+    write_fixture(
+        &source,
+        complete_result("boot", vec![detail(0, vec![switch(1, 0, 1)])]),
+    );
+    fs::create_dir(&dataset).expect("target exists");
+    fs::write(dataset.join("sentinel"), "replace me").expect("sentinel exists");
+    fs::write(&protected, "operation evidence").expect("protected file exists");
+
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::permanently_replace_all_contents(&dataset).protect_path(&protected),
+        |_| Ok(()),
+    )
+    .expect("sibling protected path is outside the target");
+
+    assert!(!dataset.join("sentinel").exists());
+    assert_eq!(
+        fs::read_to_string(&protected).expect("protected evidence remains"),
+        "operation evidence"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn protected_path_check_resolves_symlinked_overwrite_target() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let real_dataset = root.path().join("real-dataset");
+    let linked_dataset = root.path().join("linked-dataset");
+    let protected = real_dataset.join("logs/operation.log");
+    write_fixture(
+        &source,
+        complete_result("boot", vec![detail(0, vec![switch(1, 0, 1)])]),
+    );
+    fs::create_dir_all(protected.parent().unwrap()).expect("target exists");
+    fs::write(real_dataset.join(".kat-dataset"), "").expect("marker exists");
+    fs::write(real_dataset.join("sentinel"), "unchanged").expect("sentinel exists");
+    fs::write(&protected, "operation evidence").expect("protected file exists");
+    std::os::unix::fs::symlink(&real_dataset, &linked_dataset).expect("target symlink exists");
+
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::permanently_replace_all_contents(&linked_dataset)
+            .protect_path(&protected),
+        |_| Ok(()),
+    )
+    .expect_err("canonical target contains the protected path");
+
+    assert!(real_dataset.join(".kat-dataset").is_file());
+    assert_eq!(
+        fs::read_to_string(real_dataset.join("sentinel")).expect("sentinel remains"),
+        "unchanged"
+    );
+}
+
+#[test]
 fn every_loss_evidence_rejects_the_complete_import() {
     for counter in ["overrun", "commit_overrun", "dropped_events", "overwrite"] {
         let root = tempdir().expect("tempdir");

@@ -167,7 +167,8 @@ fn import_hitrace(
         kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
     } else {
         kat_datasource::DatasetWriteTarget::write_to_empty(target)
-    };
+    }
+    .protect_path(&log.path);
     let imported = match kat_datasource::import_hitrace(&trace, target, |content| {
         write_unsupported_hitrace_content(&mut log.file, content)
     }) {

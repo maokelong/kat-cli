@@ -370,6 +370,45 @@ fn invalid_hitrace_does_not_mutate_authorized_overwrite_target() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn hitrace_overwrite_rejects_target_that_contains_current_operation_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.htrace");
+    let dataset = data_home(temp.path());
+    hitrace(&source);
+    fs::create_dir_all(&dataset).unwrap();
+    fs::write(dataset.join(".kat-dataset"), "").unwrap();
+    fs::write(dataset.join("sentinel"), "unchanged").unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "hitrace", "--trace"])
+        .arg(&source)
+        .arg("--dataset")
+        .arg(&dataset)
+        .arg("--overwrite-dataset")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    let log = PathBuf::from(response["log_path"].as_str().unwrap());
+    assert!(log.starts_with(dataset.join("logs")));
+    assert!(log.is_file());
+    assert!(
+        fs::read_to_string(&log)
+            .unwrap()
+            .contains("status: failure")
+    );
+    assert!(dataset.join(".kat-dataset").is_file());
+    assert_eq!(
+        fs::read_to_string(dataset.join("sentinel")).unwrap(),
+        "unchanged"
+    );
+}
+
 #[test]
 fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
     let temp = tempfile::tempdir().unwrap();
