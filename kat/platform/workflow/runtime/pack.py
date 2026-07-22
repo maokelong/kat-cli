@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import heapq
 import importlib
 import importlib.machinery
 import importlib.util
@@ -167,33 +168,50 @@ def _workflow_entries(root: Path) -> list[tuple[Path, tuple[str, ...]]]:
             return []
         if not directory.is_dir():
             raise ValueError("PACK workflows path must be a directory")
-        pending = [directory]
+        pending: list[tuple[str, Path, bool, bool]] = []
         entries: list[tuple[Path, tuple[str, ...]]] = []
+        _enqueue_children(directory, directory, pending)
         while pending:
-            current = pending.pop()
-            children = sorted(os.scandir(current), key=lambda entry: entry.name)
-            for child in children:
-                path = Path(child.path)
-                if child.is_dir(follow_symlinks=False):
-                    pending.append(path)
-                    continue
-                if not child.is_file(follow_symlinks=False) or path.suffix != ".py":
-                    continue
-                relative = path.relative_to(directory)
-                if path.name == "__init__.py":
-                    raise ValueError(f"Workflow initializer is not allowed: {(Path('workflows') / relative).as_posix()}")
-                segments = (*relative.parts[:-1], path.stem)
-                for segment in segments:
-                    if not segment.isidentifier() or keyword.iskeyword(segment):
-                        raise ValueError(f"invalid Workflow module segment {segment!r} in {(Path('workflows') / relative).as_posix()}")
-                resolved = path.resolve(strict=True)
-                if not resolved.is_relative_to(root) or not resolved.is_file():
-                    raise ValueError(f"Workflow entry is not an ordinary PACK file: {(Path('workflows') / relative).as_posix()}")
-                entries.append((resolved, segments))
+            _, path, is_directory, is_file = heapq.heappop(pending)
+            if is_directory:
+                _enqueue_children(directory, path, pending)
+                continue
+            if not is_file or path.suffix != ".py":
+                continue
+            relative = path.relative_to(directory)
+            if path.name == "__init__.py":
+                raise ValueError(f"Workflow initializer is not allowed: {(Path('workflows') / relative).as_posix()}")
+            segments = (*relative.parts[:-1], path.stem)
+            for segment in segments:
+                if not segment.isidentifier() or keyword.iskeyword(segment):
+                    raise ValueError(f"invalid Workflow module segment {segment!r} in {(Path('workflows') / relative).as_posix()}")
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(root) or not resolved.is_file():
+                raise ValueError(f"Workflow entry is not an ordinary PACK file: {(Path('workflows') / relative).as_posix()}")
+            entries.append((resolved, segments))
     except OSError as error:
         raise OSError(f"failed to scan PACK workflows directory {directory}") from error
     entries.sort(key=lambda item: item[0].relative_to(root).as_posix())
     return entries
+
+
+def _enqueue_children(
+    root: Path,
+    directory: Path,
+    pending: list[tuple[str, Path, bool, bool]],
+) -> None:
+    for child in sorted(os.scandir(directory), key=lambda entry: entry.name):
+        path = Path(child.path)
+        relative = path.relative_to(root).as_posix()
+        heapq.heappush(
+            pending,
+            (
+                relative,
+                path,
+                child.is_dir(follow_symlinks=False),
+                child.is_file(follow_symlinks=False),
+            ),
+        )
 
 
 def _validate_module_conflicts(entries: list[tuple[Path, tuple[str, ...]]]) -> None:

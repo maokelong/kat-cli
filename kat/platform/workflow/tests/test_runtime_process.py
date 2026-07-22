@@ -270,6 +270,25 @@ def other(ctx: Context):
                 self.assertEqual(response["status"], "failure")
                 self.assertNotIn("result", response)
 
+    def test_declarative_entry_errors_follow_portable_relative_path_order(self) -> None:
+        pack = self.root / "ordered-errors"
+        for directory in ("z", "a"):
+            initializer = pack / "workflows" / directory / "__init__.py"
+            initializer.parent.mkdir(parents=True)
+            initializer.write_text("raise AssertionError('must not import')\n", encoding="utf-8")
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "ordered-errors",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure")
+        self.assertIn("workflows/a/__init__.py", response["error"]["causes"][0])
+
     def test_empty_exception_chain_does_not_invent_a_cause(self) -> None:
         pack = self.root / "empty-exception"
         (pack / "workflows").mkdir(parents=True)
