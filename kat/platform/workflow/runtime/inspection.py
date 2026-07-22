@@ -81,7 +81,11 @@ def inspect_declared_workflow(function: typing.Callable[..., Any]) -> dict[str, 
 
 
 def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWorkflow:
-    if not inspect.isfunction(function) or function.__qualname__ != function.__name__:
+    if (
+        not inspect.isfunction(function)
+        or function.__name__ == "<lambda>"
+        or function.__qualname__ != function.__name__
+    ):
         raise ValueError("Workflow must be a module-top-level function")
     if inspect.iscoroutinefunction(function) or inspect.isgeneratorfunction(function) or inspect.isasyncgenfunction(function):
         raise ValueError("Workflow must be a plain synchronous function")

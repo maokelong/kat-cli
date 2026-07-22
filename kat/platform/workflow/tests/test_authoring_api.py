@@ -62,6 +62,14 @@ mutable_tables.append("sched_slice")
 mutable_descriptions["value"] = "Mutated"
 
 
+lambda_workflow = lambda ctx: None
+lambda_workflow.__annotations__ = {"ctx": kat.Context}
+lambda_workflow.__doc__ = "A lambda is not a declared Workflow function."
+lambda_workflow = kat.workflow(
+    name="lambda-workflow", title="Lambda", required_tables=[]
+)(lambda_workflow)
+
+
 @kat.workflow(
     name="asynchronous",
     title="Asynchronous",
@@ -199,6 +207,7 @@ class AuthoringApiTest(unittest.TestCase):
 
     def test_invalid_workflow_shapes_fail_during_inspection(self) -> None:
         for function in [
+            lambda_workflow,
             asynchronous,
             missing_parameter_description,
             required_bool,
