@@ -372,9 +372,7 @@ fn capture_damage_is_irrelevant_without_supported_ftrace_events() {
     let mut result = complete_result("boot", vec![detail(0, Vec::new())]);
     result.stats[1].per_cpu[0].overrun = 1;
     result.details[0].overwrite = 1;
-    let mut duplicate_end = result.stats[1].clone();
-    duplicate_end.trace_clock = "local".to_owned();
-    result.stats.push(duplicate_end);
+    result.stats.push(result.stats[1].clone());
     write_fixture(&source, result);
 
     kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
@@ -386,6 +384,54 @@ fn capture_damage_is_irrelevant_without_supported_ftrace_events() {
         .map(|table| table.name().to_owned())
         .collect::<Vec<_>>();
     assert_eq!(tables, ["clock_domain", "clock_snapshot"]);
+}
+
+#[test]
+fn reported_ftrace_clock_is_validated_without_supported_events() {
+    let cases = [
+        {
+            let mut result = complete_result("boot", vec![detail(0, Vec::new())]);
+            result.stats[1].trace_clock = "future".to_owned();
+            (result, "unsupported Hitrace trace clock")
+        },
+        {
+            let mut result = complete_result("boot", vec![detail(0, Vec::new())]);
+            result.stats[1].trace_clock = "local".to_owned();
+            (result, "conflicting ftrace clocks")
+        },
+    ];
+
+    for (result, expected) in cases {
+        let root = tempdir().expect("tempdir");
+        let source = root.path().join("capture.htrace");
+        let dataset = root.path().join("dataset");
+        write_fixture(&source, result);
+
+        let error =
+            kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
+                .expect_err("invalid reported clock is rejected");
+        let message = format!("{error:?}");
+        assert!(message.contains(expected), "{expected}: {message}");
+        assert!(
+            !dataset.exists(),
+            "invalid clock must not publish a Dataset"
+        );
+    }
+}
+
+#[test]
+fn missing_ftrace_clock_is_allowed_without_supported_events() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("capture.htrace");
+    let mut result = complete_result("", vec![detail(0, Vec::new())]);
+    result.stats.push(result.stats[1].clone());
+    write_fixture(&source, result);
+
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+    )
+    .expect("ftrace clock is optional when no supported event exists");
 }
 
 #[test]

@@ -372,7 +372,7 @@ impl LongTermHitraceSink {
     }
 
     fn finish(self, report: hitrace::HitraceDecodeReport) -> Result<DecodedLongTermHitrace> {
-        let ftrace_clock = self.validate_supported_ftrace_capture()?;
+        let ftrace_clock = self.validate_ftrace_capture()?;
 
         let mut clock_domains = report.clock_domains;
         if let Some(clock) = ftrace_clock {
@@ -412,19 +412,34 @@ impl LongTermHitraceSink {
         })
     }
 
-    fn validate_supported_ftrace_capture(&self) -> Result<Option<FtraceClock>> {
+    fn validate_ftrace_capture(&self) -> Result<Option<FtraceClock>> {
+        let mut reported_clocks = BTreeSet::new();
+        for stats in &self.capture_stats {
+            if !stats.trace_clock.trim().is_empty() {
+                reported_clocks.insert(FtraceClock::parse(&stats.trace_clock)?);
+            }
+        }
+        let ftrace_clock = match reported_clocks.len() {
+            0 => None,
+            count if count > 1 => {
+                let clocks = reported_clocks
+                    .iter()
+                    .map(|clock| clock.label)
+                    .collect::<Vec<_>>();
+                bail!("Hitrace reports conflicting ftrace clocks: {clocks:?}");
+            }
+            1 => reported_clocks.first().copied(),
+            _ => unreachable!(),
+        };
         if self.switches.is_none() {
             return Ok(None);
         }
+        let ftrace_clock = ftrace_clock.context("Hitrace sched_switch data has no ftrace clock")?;
 
-        let mut reported_clocks = BTreeSet::new();
         let mut end_stats = None;
         for stats in &self.capture_stats {
             if !matches!(stats.status, 0 | 1) {
                 bail!("invalid ftrace stats status {}", stats.status);
-            }
-            if !stats.trace_clock.trim().is_empty() {
-                reported_clocks.insert(FtraceClock::parse(&stats.trace_clock)?);
             }
             if stats.status != 1 {
                 continue;
@@ -458,18 +473,6 @@ impl LongTermHitraceSink {
             end_stats = Some(cpus);
         }
 
-        let ftrace_clock = match reported_clocks.len() {
-            0 => bail!("Hitrace sched_switch data has no ftrace clock"),
-            count if count > 1 => {
-                let clocks = reported_clocks
-                    .iter()
-                    .map(|clock| clock.label)
-                    .collect::<Vec<_>>();
-                bail!("Hitrace reports conflicting ftrace clocks: {clocks:?}");
-            }
-            1 => reported_clocks.first().copied(),
-            _ => unreachable!(),
-        };
         let end_stats =
             end_stats.context("Hitrace sched_switch data has no TRACE_END statistics")?;
         for (cpu, overwrite) in &self.cpu_details {
@@ -480,7 +483,7 @@ impl LongTermHitraceSink {
                 bail!("Hitrace TRACE_END statistics are missing CPU {cpu}");
             }
         }
-        Ok(ftrace_clock)
+        Ok(Some(ftrace_clock))
     }
 }
 
