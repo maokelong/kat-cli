@@ -168,17 +168,14 @@ fn import_hitrace(
     } else {
         kat_datasource::DatasetWriteTarget::write_to_empty(target)
     };
-    let imported = match kat_datasource::import_hitrace(&trace, target) {
+    let imported = match kat_datasource::import_hitrace(&trace, target, |content| {
+        write_unsupported_hitrace_content(&mut log.file, content)
+    }) {
         Ok(imported) => imported,
+        Err(kat_datasource::HitraceImportError::ObserveUnsupportedContent { source }) => {
+            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
+        }
         Err(source) => {
-            if let Err(source) =
-                write_unsupported_hitrace_content(&mut log.file, source.unsupported_content())
-            {
-                return finish_hitrace_failure(
-                    log,
-                    ImportHitraceError::WriteOperationLog { source },
-                );
-            }
             let error = ImportHitraceError::Import { source };
             if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
                 return finish_hitrace_failure(
@@ -189,11 +186,6 @@ fn import_hitrace(
             return finish_hitrace_failure(log, error);
         }
     };
-    if let Err(source) =
-        write_unsupported_hitrace_content(&mut log.file, imported.unsupported_content())
-    {
-        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-    }
     let path = match imported.path().to_str() {
         Some(path) => path.to_owned(),
         None => {
@@ -225,18 +217,15 @@ fn import_hitrace(
 
 fn write_unsupported_hitrace_content(
     log: &mut File,
-    content: &[kat_datasource::UnsupportedHitraceContent],
+    unsupported: &kat_datasource::UnsupportedHitraceContent,
 ) -> io::Result<()> {
-    for unsupported in content {
-        writeln!(
-            log,
-            "unsupported {} {:?} at byte {}",
-            unsupported.kind(),
-            unsupported.value(),
-            unsupported.byte_offset()
-        )?;
-    }
-    Ok(())
+    writeln!(
+        log,
+        "unsupported {} {:?} at byte {}",
+        unsupported.kind(),
+        unsupported.value(),
+        unsupported.byte_offset()
+    )
 }
 
 fn finish_hitrace_failure(

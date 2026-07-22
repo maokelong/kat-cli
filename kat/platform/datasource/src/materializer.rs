@@ -1,12 +1,12 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::File,
-    io::{Seek, SeekFrom},
+    io::{self, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use arrow_array::{
     Array, ArrayRef, Int32Array, RecordBatch, StringArray, StructArray, UInt32Array, UInt64Array,
     builder::LargeStringBuilder,
@@ -42,7 +42,6 @@ pub struct ImportedHitrace {
     path: PathBuf,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
-    unsupported_content: Vec<UnsupportedHitraceContent>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,11 +52,17 @@ pub struct UnsupportedHitraceContent {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{source}")]
-pub struct HitraceImportError {
-    #[source]
-    source: anyhow::Error,
-    unsupported_content: Vec<UnsupportedHitraceContent>,
+pub enum HitraceImportError {
+    #[error("{source}")]
+    Import {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("failed to report unsupported Hitrace content")]
+    ObserveUnsupportedContent {
+        #[source]
+        source: io::Error,
+    },
 }
 
 impl ImportedHitrace {
@@ -71,10 +76,6 @@ impl ImportedHitrace {
 
     pub fn unsupported_section_types(&self) -> &[u32] {
         &self.unsupported_section_types
-    }
-
-    pub fn unsupported_content(&self) -> &[UnsupportedHitraceContent] {
-        &self.unsupported_content
     }
 }
 
@@ -93,52 +94,68 @@ impl UnsupportedHitraceContent {
 }
 
 impl HitraceImportError {
-    fn new(source: anyhow::Error, unsupported_content: Vec<UnsupportedHitraceContent>) -> Self {
-        Self {
-            source,
-            unsupported_content,
-        }
-    }
-
-    pub fn unsupported_content(&self) -> &[UnsupportedHitraceContent] {
-        &self.unsupported_content
+    fn import(source: anyhow::Error) -> Self {
+        Self::Import { source }
     }
 }
 
 pub fn import_hitrace(
     path: impl AsRef<Path>,
     target: DatasetWriteTarget,
+    mut observe_unsupported: impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    import_hitrace_inner(path.as_ref(), target)
+    import_hitrace_inner(path.as_ref(), target, &mut observe_unsupported)
 }
 
 fn import_hitrace_inner(
     path: &Path,
     target: DatasetWriteTarget,
+    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
     // 先让迁移后的 Hitrace format/domain pipeline 完成解析与完整性校验，再授权覆盖目标。
     let mut sink = LongTermHitraceSink::new();
-    let report = match hitrace::decode_file_with_report(path, &mut sink) {
+    let mut observer_failure = None;
+    let decoded_report = {
+        let mut observe = |content: &hitrace::UnsupportedHitraceContent| {
+            let content = UnsupportedHitraceContent {
+                kind: content.kind,
+                value: content.value.clone(),
+                byte_offset: content.byte_offset,
+            };
+            if let Err(source) = observe_unsupported(&content) {
+                observer_failure = Some(source);
+                bail!("unsupported Hitrace content observer failed");
+            }
+            Ok(())
+        };
+        hitrace::decode_file_with_report(path, &mut sink, &mut observe)
+    };
+    if let Some(source) = observer_failure {
+        return Err(HitraceImportError::ObserveUnsupportedContent { source });
+    }
+    let report = match decoded_report {
         Ok(report) => report,
         Err(failure) => {
-            return Err(HitraceImportError::new(
-                failure
-                    .source
-                    .context(format!("failed to decode hitrace file: {}", path.display())),
-                convert_unsupported_content(&failure.report.unsupported_content),
-            ));
+            return Err(HitraceImportError::import(failure.source.context(format!(
+                "failed to decode hitrace file: {}",
+                path.display()
+            ))));
         }
     };
-    let observed_unsupported = convert_unsupported_content(&report.unsupported_content);
-    let decoded = sink
-        .finish(report)
-        .map_err(|source| HitraceImportError::new(source, observed_unsupported.clone()))?;
-    let observed_unsupported = decoded.unsupported_content.clone();
+    let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
 
     (|| -> Result<ImportedHitrace> {
         let mut writer = ManagedDatasetWriter::begin(target)?;
         write_clock_domains(&mut writer, &decoded.clock_domains)?;
-        write_clock_snapshots(&mut writer, &decoded.clock_snapshots)?;
+        let clock_snapshots = decoded
+            .clock_snapshots
+            .map(ClockSnapshotSpool::into_reader)
+            .transpose()?;
+        write_clock_snapshots(
+            &mut writer,
+            &decoded.header_clock_snapshots,
+            clock_snapshots,
+        )?;
         if let Some(switches) = decoded.switches {
             write_sched_switches(
                 &mut writer,
@@ -154,33 +171,19 @@ fn import_hitrace_inner(
             path,
             unsupported_plugins: decoded.unsupported_plugins,
             unsupported_section_types: decoded.unsupported_section_types,
-            unsupported_content: decoded.unsupported_content,
         })
     })()
-    .map_err(|source| HitraceImportError::new(source, observed_unsupported))
-}
-
-fn convert_unsupported_content(
-    content: &[hitrace::UnsupportedHitraceContent],
-) -> Vec<UnsupportedHitraceContent> {
-    content
-        .iter()
-        .map(|content| UnsupportedHitraceContent {
-            kind: content.kind,
-            value: content.value.clone(),
-            byte_offset: content.byte_offset,
-        })
-        .collect()
+    .map_err(HitraceImportError::import)
 }
 
 struct DecodedLongTermHitrace {
     switches: Option<SwitchSpool>,
-    clock_snapshots: Vec<ClockSnapshot>,
+    clock_snapshots: Option<ClockSnapshotSpool>,
+    header_clock_snapshots: Vec<ClockSnapshot>,
     clock_domains: BTreeMap<String, String>,
     ftrace_clock: Option<FtraceClock>,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
-    unsupported_content: Vec<UnsupportedHitraceContent>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -245,9 +248,14 @@ struct ClockSnapshot {
 
 struct LongTermHitraceSink {
     switches: Option<SwitchSpool>,
-    clock_snapshots: Vec<ClockSnapshot>,
-    capture_stats: Vec<FtraceCpuStatsMsg>,
-    cpu_details: Vec<(u32, u64)>,
+    clock_snapshots: Option<ClockSnapshotSpool>,
+    reported_clocks: BTreeSet<FtraceClock>,
+    first_clock_error: Option<anyhow::Error>,
+    capture_integrity_error: Option<anyhow::Error>,
+    end_stats_cpus: Option<HashSet<u32>>,
+    detail_cpus: HashMap<u32, u64>,
+    first_nonzero_overwrite: Option<(u64, u32, u64)>,
+    next_detail_sequence: u64,
     next_snapshot_id: u64,
     last_switch: HashMap<u32, CpuSwitchState>,
 }
@@ -262,9 +270,14 @@ impl LongTermHitraceSink {
     fn new() -> Self {
         Self {
             switches: None,
-            clock_snapshots: Vec::new(),
-            capture_stats: Vec::new(),
-            cpu_details: Vec::new(),
+            clock_snapshots: None,
+            reported_clocks: BTreeSet::new(),
+            first_clock_error: None,
+            capture_integrity_error: None,
+            end_stats_cpus: None,
+            detail_cpus: HashMap::new(),
+            first_nonzero_overwrite: None,
+            next_detail_sequence: 0,
             next_snapshot_id: 1,
             last_switch: HashMap::new(),
         }
@@ -273,7 +286,7 @@ impl LongTermHitraceSink {
     fn push_capture(&mut self, record: FtraceCaptureRecord) -> Result<()> {
         match record {
             FtraceCaptureRecord::CpuStats(stats) => {
-                self.capture_stats.push(stats);
+                self.push_capture_stats(stats);
             }
             FtraceCaptureRecord::ClockSnapshot(clocks) => {
                 let snapshot_id = self.next_snapshot_id;
@@ -302,18 +315,95 @@ impl LongTermHitraceSink {
                         .with_context(|| {
                             format!("clock snapshot {snapshot_id} overflows UInt64 for domain {domain:?}")
                         })?;
-                    self.clock_snapshots.push(ClockSnapshot {
-                        snapshot_id,
-                        clock_domain: domain.to_owned(),
-                        clock_value,
-                    });
+                    if self.clock_snapshots.is_none() {
+                        self.clock_snapshots = Some(ClockSnapshotSpool::new()?);
+                    }
+                    self.clock_snapshots
+                        .as_mut()
+                        .expect("clock snapshot spool is initialized")
+                        .push(ClockSnapshot {
+                            snapshot_id,
+                            clock_domain: domain.to_owned(),
+                            clock_value,
+                        })?;
                 }
             }
             FtraceCaptureRecord::CpuDetail { cpu, overwrite } => {
-                self.cpu_details.push((cpu, overwrite));
+                let sequence = self.next_detail_sequence;
+                self.next_detail_sequence = self
+                    .next_detail_sequence
+                    .checked_add(1)
+                    .context("Hitrace CPU detail sequence overflows")?;
+                self.detail_cpus.entry(cpu).or_insert(sequence);
+                if overwrite != 0 && self.first_nonzero_overwrite.is_none() {
+                    self.first_nonzero_overwrite = Some((sequence, cpu, overwrite));
+                }
             }
         }
         Ok(())
+    }
+
+    fn push_capture_stats(&mut self, stats: FtraceCpuStatsMsg) {
+        if !stats.trace_clock.trim().is_empty() {
+            match FtraceClock::parse(&stats.trace_clock) {
+                Ok(clock) => {
+                    self.reported_clocks.insert(clock);
+                }
+                Err(source) if self.first_clock_error.is_none() => {
+                    self.first_clock_error = Some(source);
+                }
+                Err(_) => {}
+            }
+        }
+
+        if self.capture_integrity_error.is_some() {
+            return;
+        }
+        if !matches!(stats.status, 0 | 1) {
+            self.capture_integrity_error =
+                Some(anyhow!("invalid ftrace stats status {}", stats.status));
+            return;
+        }
+        if stats.status != 1 {
+            return;
+        }
+        if self.end_stats_cpus.is_some() {
+            self.capture_integrity_error = Some(anyhow!("duplicate ftrace TRACE_END statistics"));
+            return;
+        }
+
+        let mut cpus = HashSet::new();
+        for cpu_stats in &stats.per_cpu_stats {
+            let cpu = match u32::try_from(cpu_stats.cpu) {
+                Ok(cpu) => cpu,
+                Err(_) => {
+                    self.capture_integrity_error = Some(anyhow!(
+                        "ftrace CPU id {} cannot be represented as UInt32",
+                        cpu_stats.cpu
+                    ));
+                    return;
+                }
+            };
+            if !cpus.insert(cpu) {
+                self.capture_integrity_error = Some(anyhow!(
+                    "duplicate ftrace TRACE_END statistics for CPU {cpu}"
+                ));
+                return;
+            }
+            if cpu_stats.overrun != 0
+                || cpu_stats.commit_overrun != 0
+                || cpu_stats.dropped_events != 0
+            {
+                self.capture_integrity_error = Some(anyhow!(
+                    "ftrace capture lost events on CPU {cpu}: overrun={}, commit_overrun={}, dropped_events={}",
+                    cpu_stats.overrun,
+                    cpu_stats.commit_overrun,
+                    cpu_stats.dropped_events
+                ));
+                return;
+            }
+        }
+        self.end_stats_cpus = Some(cpus);
     }
 
     fn push_ftrace(&mut self, record: FtraceRecord) -> Result<()> {
@@ -371,7 +461,7 @@ impl LongTermHitraceSink {
             })
     }
 
-    fn finish(self, report: hitrace::HitraceDecodeReport) -> Result<DecodedLongTermHitrace> {
+    fn finish(mut self, report: hitrace::HitraceDecodeReport) -> Result<DecodedLongTermHitrace> {
         let ftrace_clock = self.validate_ftrace_capture()?;
 
         let mut clock_domains = report.clock_domains;
@@ -382,7 +472,7 @@ impl LongTermHitraceSink {
                     .or_insert_with(|| clock.clock_type.to_owned());
             }
         }
-        let mut clock_snapshots = report
+        let header_clock_snapshots = report
             .clock_snapshots
             .into_iter()
             .map(|snapshot| ClockSnapshot {
@@ -391,97 +481,65 @@ impl LongTermHitraceSink {
                 clock_value: snapshot.clock_value,
             })
             .collect::<Vec<_>>();
-        clock_snapshots.extend(self.clock_snapshots);
 
         Ok(DecodedLongTermHitrace {
             switches: self.switches,
-            clock_snapshots,
+            clock_snapshots: self.clock_snapshots,
+            header_clock_snapshots,
             clock_domains,
             ftrace_clock,
             unsupported_plugins: report.unsupported_plugins.into_iter().collect(),
             unsupported_section_types: report.unsupported_section_types.into_iter().collect(),
-            unsupported_content: report
-                .unsupported_content
-                .into_iter()
-                .map(|content| UnsupportedHitraceContent {
-                    kind: content.kind,
-                    value: content.value,
-                    byte_offset: content.byte_offset,
-                })
-                .collect(),
         })
     }
 
-    fn validate_ftrace_capture(&self) -> Result<Option<FtraceClock>> {
-        let mut reported_clocks = BTreeSet::new();
-        for stats in &self.capture_stats {
-            if !stats.trace_clock.trim().is_empty() {
-                reported_clocks.insert(FtraceClock::parse(&stats.trace_clock)?);
-            }
+    fn validate_ftrace_capture(&mut self) -> Result<Option<FtraceClock>> {
+        if let Some(source) = self.first_clock_error.take() {
+            return Err(source);
         }
-        let ftrace_clock = match reported_clocks.len() {
+        let ftrace_clock = match self.reported_clocks.len() {
             0 => None,
             count if count > 1 => {
-                let clocks = reported_clocks
+                let clocks = self
+                    .reported_clocks
                     .iter()
                     .map(|clock| clock.label)
                     .collect::<Vec<_>>();
                 bail!("Hitrace reports conflicting ftrace clocks: {clocks:?}");
             }
-            1 => reported_clocks.first().copied(),
+            1 => self.reported_clocks.first().copied(),
             _ => unreachable!(),
         };
         if self.switches.is_none() {
             return Ok(None);
         }
         let ftrace_clock = ftrace_clock.context("Hitrace sched_switch data has no ftrace clock")?;
-
-        let mut end_stats = None;
-        for stats in &self.capture_stats {
-            if !matches!(stats.status, 0 | 1) {
-                bail!("invalid ftrace stats status {}", stats.status);
-            }
-            if stats.status != 1 {
-                continue;
-            }
-            if end_stats.is_some() {
-                bail!("duplicate ftrace TRACE_END statistics");
-            }
-            let mut cpus = HashSet::new();
-            for cpu_stats in &stats.per_cpu_stats {
-                let cpu = u32::try_from(cpu_stats.cpu).with_context(|| {
-                    format!(
-                        "ftrace CPU id {} cannot be represented as UInt32",
-                        cpu_stats.cpu
-                    )
-                })?;
-                if !cpus.insert(cpu) {
-                    bail!("duplicate ftrace TRACE_END statistics for CPU {cpu}");
-                }
-                if cpu_stats.overrun != 0
-                    || cpu_stats.commit_overrun != 0
-                    || cpu_stats.dropped_events != 0
-                {
-                    bail!(
-                        "ftrace capture lost events on CPU {cpu}: overrun={}, commit_overrun={}, dropped_events={}",
-                        cpu_stats.overrun,
-                        cpu_stats.commit_overrun,
-                        cpu_stats.dropped_events
-                    );
-                }
-            }
-            end_stats = Some(cpus);
+        if let Some(source) = self.capture_integrity_error.take() {
+            return Err(source);
         }
-
-        let end_stats =
-            end_stats.context("Hitrace sched_switch data has no TRACE_END statistics")?;
-        for (cpu, overwrite) in &self.cpu_details {
-            if *overwrite != 0 {
+        let end_stats = self
+            .end_stats_cpus
+            .as_ref()
+            .context("Hitrace sched_switch data has no TRACE_END statistics")?;
+        let first_missing_cpu = self
+            .detail_cpus
+            .iter()
+            .filter(|(cpu, _)| !end_stats.contains(cpu))
+            .min_by_key(|(_, sequence)| *sequence)
+            .map(|(cpu, sequence)| (*sequence, *cpu));
+        match (self.first_nonzero_overwrite, first_missing_cpu) {
+            (Some((sequence, cpu, overwrite)), Some((missing_sequence, _)))
+                if sequence <= missing_sequence =>
+            {
                 bail!("ftrace page overwrite is nonzero on CPU {cpu}: {overwrite}");
             }
-            if !end_stats.contains(cpu) {
+            (_, Some((_, cpu))) => {
                 bail!("Hitrace TRACE_END statistics are missing CPU {cpu}");
             }
+            (Some((_, cpu, overwrite)), None) => {
+                bail!("ftrace page overwrite is nonzero on CPU {cpu}: {overwrite}");
+            }
+            (None, None) => {}
         }
         Ok(Some(ftrace_clock))
     }
@@ -506,6 +564,55 @@ fn snapshot_clock_domain(id: i32) -> Result<&'static str> {
         5 => Ok("monotonic_coarse"),
         6 => Ok("monotonic_raw"),
         id => bail!("unsupported Hitrace snapshot clock id {id}"),
+    }
+}
+
+struct ClockSnapshotSpool {
+    writer: ArrowWriter<File>,
+    rows: Vec<ClockSnapshot>,
+}
+
+impl ClockSnapshotSpool {
+    fn new() -> Result<Self> {
+        let file = tempfile::tempfile().context("failed to create bounded clock snapshot spool")?;
+        Ok(Self {
+            writer: ArrowWriter::try_new(file, clock_snapshot_schema(), None)
+                .context("failed to open clock snapshot Parquet spool")?,
+            rows: Vec::with_capacity(HITRACE_IMPORT_BATCH_ROWS),
+        })
+    }
+
+    fn push(&mut self, row: ClockSnapshot) -> Result<()> {
+        self.rows.push(row);
+        if self.rows.len() >= HITRACE_IMPORT_BATCH_ROWS {
+            self.flush_rows()?;
+        }
+        Ok(())
+    }
+
+    fn flush_rows(&mut self) -> Result<()> {
+        if self.rows.is_empty() {
+            return Ok(());
+        }
+        let rows = std::mem::take(&mut self.rows);
+        self.writer
+            .write(&clock_snapshot_batch(&rows)?)
+            .context("failed to write clock snapshot Parquet spool")
+    }
+
+    fn into_reader(mut self) -> Result<ParquetRecordBatchReader> {
+        self.flush_rows()?;
+        let mut file = self
+            .writer
+            .into_inner()
+            .context("failed to finish clock snapshot Parquet spool")?;
+        file.seek(SeekFrom::Start(0))
+            .context("failed to rewind clock snapshot spool")?;
+        ParquetRecordBatchReaderBuilder::try_new(file)
+            .context("failed to read clock snapshot Parquet spool metadata")?
+            .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
+            .build()
+            .context("failed to open clock snapshot Parquet spool reader")
     }
 }
 
@@ -614,6 +721,31 @@ fn sched_switch_schema() -> Arc<Schema> {
     Arc::new(Schema::new(fields))
 }
 
+fn clock_snapshot_schema() -> Arc<Schema> {
+    Arc::new(Schema::new(vec![
+        Field::new("snapshot_id", DataType::UInt64, false),
+        Field::new("clock_domain", DataType::Utf8, false),
+        Field::new("clock_value", DataType::UInt64, false),
+    ]))
+}
+
+fn clock_snapshot_batch(rows: &[ClockSnapshot]) -> Result<RecordBatch> {
+    Ok(RecordBatch::try_new(
+        clock_snapshot_schema(),
+        vec![
+            Arc::new(UInt64Array::from_iter_values(
+                rows.iter().map(|row| row.snapshot_id),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                rows.iter().map(|row| row.clock_domain.as_str()),
+            )),
+            Arc::new(UInt64Array::from_iter_values(
+                rows.iter().map(|row| row.clock_value),
+            )),
+        ],
+    )?)
+}
+
 fn write_clock_domains(
     writer: &mut ManagedDatasetWriter,
     domains: &BTreeMap<String, String>,
@@ -639,30 +771,18 @@ fn write_clock_domains(
 
 fn write_clock_snapshots(
     writer: &mut ManagedDatasetWriter,
-    snapshots: &[ClockSnapshot],
+    header_snapshots: &[ClockSnapshot],
+    mut snapshots: Option<ParquetRecordBatchReader>,
 ) -> Result<()> {
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("snapshot_id", DataType::UInt64, false),
-        Field::new("clock_domain", DataType::Utf8, false),
-        Field::new("clock_value", DataType::UInt64, false),
-    ]));
+    let schema = clock_snapshot_schema();
     let mut table = writer.begin_table("clock_snapshot", Arc::clone(&schema))?;
-    for rows in snapshots.chunks(HITRACE_IMPORT_BATCH_ROWS) {
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![
-                Arc::new(UInt64Array::from_iter_values(
-                    rows.iter().map(|row| row.snapshot_id),
-                )),
-                Arc::new(StringArray::from_iter_values(
-                    rows.iter().map(|row| row.clock_domain.as_str()),
-                )),
-                Arc::new(UInt64Array::from_iter_values(
-                    rows.iter().map(|row| row.clock_value),
-                )),
-            ],
-        )?;
-        table.write(&batch)?;
+    for rows in header_snapshots.chunks(HITRACE_IMPORT_BATCH_ROWS) {
+        table.write(&clock_snapshot_batch(rows)?)?;
+    }
+    if let Some(snapshots) = snapshots.as_mut() {
+        for batch in snapshots {
+            table.write(&batch.context("failed to read clock snapshot Parquet spool")?)?;
+        }
     }
     table.finish()?;
     Ok(())

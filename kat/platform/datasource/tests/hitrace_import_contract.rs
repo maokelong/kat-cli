@@ -146,19 +146,34 @@ fn complete_result(clock: &str, details: Vec<Detail>) -> TraceResult {
 }
 
 fn fixture(result: TraceResult) -> Vec<u8> {
-    let envelope = Envelope {
-        name: "ftrace-plugin".to_owned(),
-        data: result.encode_to_vec(),
-    }
-    .encode_to_vec();
+    fixture_results([result])
+}
+
+fn fixture_results(results: impl IntoIterator<Item = TraceResult>) -> Vec<u8> {
+    let envelopes = results
+        .into_iter()
+        .map(|result| {
+            Envelope {
+                name: "ftrace-plugin".to_owned(),
+                data: result.encode_to_vec(),
+            }
+            .encode_to_vec()
+        })
+        .collect::<Vec<_>>();
+    let body_length = envelopes
+        .iter()
+        .map(|envelope| 4 + envelope.len())
+        .sum::<usize>();
     let mut bytes = vec![0; HEADER_SIZE];
     bytes[0..8].copy_from_slice(&HEADER_MAGIC.to_le_bytes());
-    bytes[8..16].copy_from_slice(&((HEADER_SIZE + 4 + envelope.len()) as u64).to_le_bytes());
+    bytes[8..16].copy_from_slice(&((HEADER_SIZE + body_length) as u64).to_le_bytes());
     for (offset, value) in [60, 68, 76, 84, 92, 100].into_iter().zip(1_u64..=6) {
         bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
     }
-    bytes.extend_from_slice(&(envelope.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&envelope);
+    for envelope in envelopes {
+        bytes.extend_from_slice(&(envelope.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&envelope);
+    }
     bytes
 }
 
@@ -196,8 +211,12 @@ fn import_publishes_long_term_clock_and_switch_facts_in_source_order() {
     ];
     write_fixture(&source, result);
 
-    kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
-        .expect("complete capture imports");
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .expect("complete capture imports");
     let tables = kat_datasource::inspect_dataset(&dataset)
         .expect("Dataset is inspectable")
         .tables()
@@ -286,8 +305,12 @@ fn import_batches_switches_without_deriving_sequence_from_parquet_order() {
     }
     write_fixture(&source, complete_result("boot", vec![detail(3, events)]));
 
-    kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
-        .expect("capture imports");
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .expect("capture imports");
     let batches = batches(&dataset.join("tables/sched_switch.parquet"));
     assert_eq!(
         batches.iter().map(|batch| batch.num_rows()).sum::<usize>(),
@@ -301,6 +324,78 @@ fn import_batches_switches_without_deriving_sequence_from_parquet_order() {
         .downcast_ref::<UInt64Array>()
         .unwrap();
     assert_eq!(sequences.value(sequences.len() - 1), 8192);
+}
+
+#[test]
+fn import_batches_clock_snapshots_without_changing_source_order() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("clock-snapshots.htrace");
+    let dataset = root.path().join("dataset");
+    let results = (0_u32..=8192).map(|value| TraceResult {
+        stats: Vec::new(),
+        details: Vec::new(),
+        clocks: vec![ClockDetail {
+            id: 1,
+            time: Some(TimeSpec {
+                seconds: value,
+                nanoseconds: value,
+            }),
+        }],
+    });
+    fs::write(&source, fixture_results(results)).expect("trace is written");
+
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .expect("clock snapshots import");
+
+    let batches = batches(&dataset.join("tables/clock_snapshot.parquet"));
+    assert!(batches.len() >= 2, "clock snapshots cross a batch boundary");
+    let rows = batches
+        .iter()
+        .flat_map(|batch| {
+            let ids = batch
+                .column_by_name("snapshot_id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap();
+            let domains = batch
+                .column_by_name("clock_domain")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let values = batch
+                .column_by_name("clock_value")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap();
+            (0..batch.num_rows())
+                .map(|row| {
+                    (
+                        ids.value(row),
+                        domains.value(row).to_owned(),
+                        values.value(row),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 6 + 8193);
+    assert!(
+        rows[..6]
+            .iter()
+            .all(|(snapshot_id, _, _)| *snapshot_id == 0)
+    );
+    assert_eq!(rows[6], (1, "boottime".to_owned(), 0));
+    assert_eq!(
+        rows.last(),
+        Some(&(8193, "boottime".to_owned(), 8_192_000_008_192))
+    );
 }
 
 #[test]
@@ -325,6 +420,7 @@ fn clock_and_thread_continuity_damage_fail_before_target_mutation() {
         let error = kat_datasource::import_hitrace(
             &source,
             DatasetWriteTarget::permanently_replace_all_contents(&dataset),
+            |_| Ok(()),
         )
         .expect_err("damaged capture is rejected");
         let message = format!("{error:?}");
@@ -352,9 +448,12 @@ fn every_loss_evidence_rejects_the_complete_import() {
         }
         write_fixture(&source, result);
 
-        let error =
-            kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
-                .expect_err("loss evidence is rejected");
+        let error = kat_datasource::import_hitrace(
+            &source,
+            DatasetWriteTarget::write_to_empty(&dataset),
+            |_| Ok(()),
+        )
+        .expect_err("loss evidence is rejected");
         let message = format!("{error:?}");
         assert!(message.contains(counter), "{counter}: {message}");
         assert!(
@@ -375,8 +474,12 @@ fn capture_damage_is_irrelevant_without_supported_ftrace_events() {
     result.stats.push(result.stats[1].clone());
     write_fixture(&source, result);
 
-    kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
-        .expect("capture metadata is ignored when no supported ftrace event exists");
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .expect("capture metadata is ignored when no supported ftrace event exists");
     let tables = kat_datasource::inspect_dataset(&dataset)
         .expect("Dataset is inspectable")
         .tables()
@@ -407,9 +510,12 @@ fn reported_ftrace_clock_is_validated_without_supported_events() {
         let dataset = root.path().join("dataset");
         write_fixture(&source, result);
 
-        let error =
-            kat_datasource::import_hitrace(&source, DatasetWriteTarget::write_to_empty(&dataset))
-                .expect_err("invalid reported clock is rejected");
+        let error = kat_datasource::import_hitrace(
+            &source,
+            DatasetWriteTarget::write_to_empty(&dataset),
+            |_| Ok(()),
+        )
+        .expect_err("invalid reported clock is rejected");
         let message = format!("{error:?}");
         assert!(message.contains(expected), "{expected}: {message}");
         assert!(
@@ -430,6 +536,7 @@ fn missing_ftrace_clock_is_allowed_without_supported_events() {
     kat_datasource::import_hitrace(
         &source,
         DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+        |_| Ok(()),
     )
     .expect("ftrace clock is optional when no supported event exists");
 }
@@ -445,6 +552,7 @@ fn trace_end_statistics_may_cover_cpus_without_detail_pages() {
     kat_datasource::import_hitrace(
         &source,
         DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+        |_| Ok(()),
     )
     .expect("TRACE_END CPU statistics cover details; additional CPUs are accepted");
 }
@@ -484,6 +592,7 @@ fn capture_requires_one_complete_end_snapshot_and_one_clock() {
         let error = kat_datasource::import_hitrace(
             &source,
             DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+            |_| Ok(()),
         )
         .expect_err("incomplete capture is rejected");
         let message = format!("{error:?}");
@@ -504,6 +613,7 @@ fn trace_start_loss_counters_are_not_used_as_the_capture_baseline() {
     kat_datasource::import_hitrace(
         &source,
         DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+        |_| Ok(()),
     )
     .expect("TRACE_START counters are ignored");
 }
@@ -519,6 +629,7 @@ fn real_openharmony_capture_smoke() {
     let imported = kat_datasource::import_hitrace(
         &source,
         DatasetWriteTarget::write_to_empty(root.path().join("dataset")),
+        |_| Ok(()),
     )
     .expect("real OpenHarmony capture imports");
 

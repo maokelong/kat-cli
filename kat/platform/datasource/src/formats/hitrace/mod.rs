@@ -31,7 +31,6 @@ use profiler::{
 pub(crate) struct HitraceDecodeReport {
     pub(crate) unsupported_plugins: BTreeSet<String>,
     pub(crate) unsupported_section_types: BTreeSet<u32>,
-    pub(crate) unsupported_content: Vec<UnsupportedHitraceContent>,
     pub(crate) clock_domains: BTreeMap<String, String>,
     pub(crate) clock_snapshots: Vec<ClockSnapshot>,
 }
@@ -39,7 +38,6 @@ pub(crate) struct HitraceDecodeReport {
 #[derive(Debug)]
 pub(crate) struct HitraceDecodeFailure {
     pub(crate) source: anyhow::Error,
-    pub(crate) report: Box<HitraceDecodeReport>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +54,8 @@ pub(crate) struct UnsupportedHitraceContent {
     pub(crate) byte_offset: usize,
 }
 
+type UnsupportedContentObserver<'a> = dyn FnMut(&UnsupportedHitraceContent) -> Result<()> + 'a;
+
 pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
     debug!("decoding hitrace format from {}", path.display());
     with_mapped_file(path, |bytes| decode_bytes(bytes, sink))
@@ -64,18 +64,16 @@ pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Resul
 pub(crate) fn decode_file_with_report(
     path: &Path,
     sink: &mut impl TraceRecordSink,
+    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> std::result::Result<HitraceDecodeReport, HitraceDecodeFailure> {
     debug!("decoding hitrace format from {}", path.display());
     let mut report = HitraceDecodeReport::default();
     let result = with_mapped_file(path, |bytes| {
-        decode_bytes_with_report(bytes, sink, &mut report)
+        decode_bytes_with_report(bytes, sink, &mut report, observe_unsupported)
     });
     match result {
         Ok(()) => Ok(report),
-        Err(source) => Err(HitraceDecodeFailure {
-            source,
-            report: Box::new(report),
-        }),
+        Err(source) => Err(HitraceDecodeFailure { source }),
     }
 }
 
@@ -91,30 +89,33 @@ fn decode_bytes_with_report(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
+    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> Result<()> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
 
-    decode_sections_with_report(bytes, sink, report)
+    decode_sections_with_report(bytes, sink, report, observe_unsupported)
 }
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    decode_sections_inner(bytes, sink, None)
+    decode_sections_inner(bytes, sink, None, None)
 }
 
 fn decode_sections_with_report(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
+    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> Result<()> {
-    decode_sections_inner(bytes, sink, Some(report))
+    decode_sections_inner(bytes, sink, Some(report), Some(observe_unsupported))
 }
 
 fn decode_sections_inner(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     mut report: Option<&mut HitraceDecodeReport>,
+    mut observe_unsupported: Option<&mut UnsupportedContentObserver<'_>>,
 ) -> Result<()> {
     let mut offset = 0usize;
     let decoder_specs = [
@@ -135,15 +136,18 @@ fn decode_sections_inner(
         }
 
         if section.header.data_type != HIPROFILER_PROTOBUF_BIN {
+            let unsupported = UnsupportedHitraceContent {
+                kind: "section_type",
+                value: section.header.data_type.to_string(),
+                byte_offset: section.start,
+            };
+            if let Some(observer) = observe_unsupported.as_deref_mut() {
+                observer(&unsupported)?;
+            }
             if let Some(report) = report.as_deref_mut() {
                 report
                     .unsupported_section_types
                     .insert(section.header.data_type);
-                report.unsupported_content.push(UnsupportedHitraceContent {
-                    kind: "section_type",
-                    value: section.header.data_type.to_string(),
-                    byte_offset: section.start,
-                });
             }
             debug!(
                 "skip unsupported profiler section data_type={} section_len={}",
@@ -165,12 +169,15 @@ fn decode_sections_inner(
                             .name
                             .strip_suffix("_config")
                             .unwrap_or(message.name.as_str());
-                        report.unsupported_plugins.insert(plugin.to_owned());
-                        report.unsupported_content.push(UnsupportedHitraceContent {
+                        let unsupported = UnsupportedHitraceContent {
                             kind: "plugin",
                             value: plugin.to_owned(),
                             byte_offset: section_body_start + frame_offset,
-                        });
+                        };
+                        if let Some(observer) = observe_unsupported.as_deref_mut() {
+                            observer(&unsupported)?;
+                        }
+                        report.unsupported_plugins.insert(plugin.to_owned());
                     }
                     Ok(())
                 },
