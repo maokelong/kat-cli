@@ -169,8 +169,8 @@ struct InspectPackRequest<'a> {
 
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-enum RuntimeResponse {
-    Success { result: InspectPackResult },
+enum RuntimeResponse<R> {
+    Success { result: R },
     Failure { error: KatDiagnostic },
 }
 
@@ -184,7 +184,7 @@ fn exchange(
     pack_name: &str,
     pack_path: &Path,
     log: &mut OperationLog,
-) -> Result<RuntimeResponse, ExchangeError> {
+) -> Result<RuntimeResponse<InspectPackResult>, ExchangeError> {
     let pack_path_text = pack_path
         .to_str()
         .ok_or_else(|| RuntimeFailure::NonUnicodePackPath(pack_path.to_path_buf()))?;
@@ -767,11 +767,11 @@ mod tests {
     #[test]
     fn strict_response_rejects_unknown_fields_and_incomplete_parameter_contracts() {
         let unknown = br#"{"status":"success","result":{"workflows":[],"extra":true}}"#;
-        assert!(serde_json::from_slice::<RuntimeResponse>(unknown).is_err());
+        assert!(serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(unknown).is_err());
 
         let response = br#"{"status":"success","result":{"workflows":[{"name":"a","title":"A","description":"A","required_tables":[],"parameters":[{"name":"flag","option":"--flag","type":"boolean","required":false,"description":"Flag","default":false}]}]}}"#;
         let RuntimeResponse::Success { result } =
-            serde_json::from_slice::<RuntimeResponse>(response).unwrap()
+            serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(response).unwrap()
         else {
             panic!("expected success response");
         };
@@ -783,7 +783,7 @@ mod tests {
                 "result": {"workflows": [workflow]}
             });
             let RuntimeResponse::Success { result } =
-                serde_json::from_value::<RuntimeResponse>(response).unwrap()
+                serde_json::from_value::<RuntimeResponse<InspectPackResult>>(response).unwrap()
             else {
                 panic!("expected success response");
             };

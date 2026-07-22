@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import dataclass
 import heapq
 import importlib
 import importlib.machinery
@@ -17,7 +18,12 @@ from kat._workflow import _registration_count, _registrations_since
 from .inspection import compile_declared_workflow
 
 
-def inspect_pack(pack_name: str, pack_path: str) -> dict[str, object]:
+@dataclass(frozen=True)
+class InspectPackResult:
+    workflows: list[dict[str, object]]
+
+
+def inspect_pack(pack_name: str, pack_path: str) -> InspectPackResult:
     if not isinstance(pack_name, str) or not pack_name:
         raise ValueError("PACK name must be a non-empty string")
     if not isinstance(pack_path, str):
@@ -56,7 +62,7 @@ def inspect_pack(pack_name: str, pack_path: str) -> dict[str, object]:
         names.add(name)
         workflows.append(compiled.interface)
     workflows.sort(key=lambda workflow: workflow["name"])
-    return {"workflows": workflows}
+    return InspectPackResult(workflows=workflows)
 
 
 def _import_entry(module_name: str, entry_module_names: set[str]) -> ModuleType:

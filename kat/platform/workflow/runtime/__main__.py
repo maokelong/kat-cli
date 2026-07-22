@@ -1,12 +1,46 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NotRequired, TypedDict
 
-from .pack import inspect_pack
+from .pack import InspectPackResult, inspect_pack
+
+
+class DiagnosticPosition(TypedDict):
+    line: int
+    column: int
+
+
+class DiagnosticLocation(TypedDict):
+    source: str
+    start: DiagnosticPosition
+    end: DiagnosticPosition
+
+
+class RuntimeDiagnostic(TypedDict):
+    message: str
+    help: str
+    causes: NotRequired[list[str]]
+    location: NotRequired[DiagnosticLocation]
+
+
+@dataclass(frozen=True)
+class RuntimeSuccess[R]:
+    status: Literal["success"] = field(init=False, default="success")
+    result: R
+
+
+@dataclass(frozen=True)
+class RuntimeFailure:
+    status: Literal["failure"] = field(init=False, default="failure")
+    error: RuntimeDiagnostic
+
+
+type InspectPackRuntimeResponse = RuntimeSuccess[InspectPackResult] | RuntimeFailure
 
 
 def main() -> int:
@@ -20,9 +54,9 @@ def main() -> int:
         request = _read_request(Path(arguments.request))
         pack_path = Path(request["pack_path"])
         result = inspect_pack(request["pack_name"], request["pack_path"])
-        response: dict[str, object] = {"status": "success", "result": result}
+        response: InspectPackRuntimeResponse = RuntimeSuccess(result=result)
     except Exception as error:
-        response = {"status": "failure", "error": _diagnostic(error, pack_path)}
+        response = RuntimeFailure(error=_diagnostic(error, pack_path))
     _write_response(response_path, response)
     return 0
 
@@ -42,7 +76,7 @@ def _read_request(path: Path) -> dict[str, str]:
     return request
 
 
-def _diagnostic(error: Exception, pack_path: Path | None) -> dict[str, object]:
+def _diagnostic(error: Exception, pack_path: Path | None) -> RuntimeDiagnostic:
     causes: list[str] = []
     current: BaseException | None = error
     while current is not None:
@@ -50,7 +84,7 @@ def _diagnostic(error: Exception, pack_path: Path | None) -> dict[str, object]:
         if rendered:
             causes.append(rendered)
         current = current.__cause__ or current.__context__
-    diagnostic: dict[str, object] = {
+    diagnostic: RuntimeDiagnostic = {
         "message": "PACK inspection failed",
         "help": "Correct the PACK production Interface and retry inspection",
     }
@@ -64,7 +98,7 @@ def _diagnostic(error: Exception, pack_path: Path | None) -> dict[str, object]:
 
 def _syntax_error_location(
     error: Exception, pack_path: Path | None
-) -> dict[str, object] | None:
+) -> DiagnosticLocation | None:
     if not isinstance(error, SyntaxError) or pack_path is None or error.filename is None:
         return None
     positions = (error.lineno, error.offset, error.end_lineno, error.end_offset)
@@ -85,9 +119,9 @@ def _syntax_error_location(
     }
 
 
-def _write_response(path: Path, response: dict[str, object]) -> None:
+def _write_response(path: Path, response: InspectPackRuntimeResponse) -> None:
     with path.open("x", encoding="utf-8", newline="\n") as file:
-        json.dump(response, file, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        json.dump(asdict(response), file, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
         file.write("\n")
         file.flush()
         os.fsync(file.fileno())
