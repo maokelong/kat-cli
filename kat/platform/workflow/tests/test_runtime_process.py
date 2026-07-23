@@ -128,7 +128,7 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         with mock.patch.object(
             Path,
-            "stat",
+            "lstat",
             side_effect=PermissionError("workflow directory state is unavailable"),
         ):
             with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
