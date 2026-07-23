@@ -235,6 +235,10 @@ class AuthoringApiTest(unittest.TestCase):
             "Boolean parameters require a default",
             "optional parameters must default to None",
             "required_tables",
+            "[a-z0-9]+(?:-[a-z0-9]+)*",
+            "[a-z][a-z0-9]*(?:_[a-z0-9]+)*",
+            "known explicit UTC offset",
+            "Successful decoration alone does not mean the production Interface is valid",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, documentation)

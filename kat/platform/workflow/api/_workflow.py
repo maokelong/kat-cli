@@ -35,6 +35,12 @@ def workflow(
 ) -> Callable[[F], F]:
     """Declare a module-top-level synchronous KAT Workflow.
 
+    ``name`` must match ``[a-z0-9]+(?:-[a-z0-9]+)*``. Each
+    ``required_tables`` item must match
+    ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not be a reserved Windows
+    device name. ``title`` and every parameter description must remain
+    non-empty after trimming outer whitespace.
+
     The decorated function must have a non-empty docstring, start with
     ``ctx: kat.Context``, and give every remaining parameter exactly one
     description through ``parameters``. Supported parameter annotations are
@@ -45,8 +51,16 @@ def workflow(
     default, while optional parameters must default to None. Inspection
     validates and converts defaults using their CLI types.
 
-    ``required_tables`` names the Dataset tables the Workflow needs. ``name``
-    is its stable machine name and ``title`` is its human-readable label.
+    Duration inputs use a non-negative decimal followed by one of ``ns``,
+    ``us``, ``ms``, ``s``, ``min``, or ``h``. Wall-clock inputs use RFC 3339
+    with ``Z`` or a known explicit UTC offset, at most nine fractional digits,
+    and never the unknown offset ``-00:00``.
+
+    Applying the decorator validates its argument shapes, title, parameter
+    descriptions, and Required table names. PACK inspection then validates
+    the Workflow name, callable, docstring, complete signature, annotations,
+    description mapping, and converted defaults. Successful decoration alone
+    does not mean the production Interface is valid.
     """
     if type(name) is not str:
         raise TypeError("Workflow name must be a string")
