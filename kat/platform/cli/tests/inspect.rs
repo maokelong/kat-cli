@@ -2,7 +2,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant},
 };
 
 use base64::Engine;
@@ -41,7 +40,7 @@ fn stage_fake_python_host(binary: &Path) {
     fs::write(
         &source,
         r#"
-use std::{env, fs, io::{self, Write}, process, thread, time::Duration};
+use std::{env, fs, io::{self, Write}, process};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -61,9 +60,6 @@ fn main() {
     }
     io::stdout().write_all(b"\x1b[31mruntime stdout\x1b[0m\r\ninvalid: \xff\r").unwrap();
     io::stderr().write_all(b"runtime stderr\r\n").unwrap();
-    if let Ok(milliseconds) = env::var("KAT_FAKE_RUNTIME_WAIT_AFTER_OUTPUT_MS") {
-        thread::sleep(Duration::from_millis(milliseconds.parse().unwrap()));
-    }
     fs::write(&arguments[10], env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap()).unwrap();
     process::exit(env::var("KAT_FAKE_RUNTIME_EXIT").unwrap_or_else(|_| "0".to_owned()).parse().unwrap());
 }
@@ -226,7 +222,7 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
     assert!(log.contains("runtime stdout\n"));
     assert!(log.contains("runtime stderr\n"));
     assert!(log.contains("invalid UTF-8 in Runtime stdout was replaced"));
-    assert!(log.contains('�'));
+    assert!(log.contains('\u{FFFD}'));
     assert!(log.contains("status: success\n"));
     assert_eq!(
         fs::read_to_string(pack.join("pack.toml")).unwrap(),
@@ -352,20 +348,6 @@ fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
     assert!(invalid_response.get("result").is_none());
     assert!(invalid_response.get("log_path").is_some());
 
-    let mut semantic = targeted_inspect_command(&binary, temporary.path(), &pack);
-    semantic.env(
-        "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"success","result":{"workflows":[{"name":"bad","title":"Bad","description":"Bad","required_tables":[],"parameters":[{"name":"flag","option":"--flag","negative_option":"--no-flag","type":"boolean","required":false,"description":"Flag","default":null}]}]}}"#,
-    );
-    let semantic = semantic.output().expect("run invalid Runtime semantics");
-    assert_eq!(semantic.status.code(), Some(1));
-    let semantic_response: serde_json::Value = serde_json::from_slice(&semantic.stdout).unwrap();
-    assert_eq!(
-        semantic_response["error"]["message"],
-        "PACK inspection Runtime failed"
-    );
-    assert!(semantic_response.get("result").is_none());
-
     let mut nonzero = targeted_inspect_command(&binary, temporary.path(), &pack);
     nonzero.env("KAT_FAKE_RUNTIME_EXIT", "7");
     let nonzero = nonzero.output().expect("run nonzero Runtime");
@@ -380,7 +362,7 @@ fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
     let mut failure = targeted_inspect_command(&binary, temporary.path(), &pack);
     failure.env(
         "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"failure","failure_owner":"pack","error":{"message":"PACK declaration is invalid","causes":["missing docstring"],"help":"Add a docstring"}}"#,
+        r#"{"status":"failure","error":{"message":"PACK declaration is invalid","causes":["missing docstring"],"help":"Add a docstring"}}"#,
     );
     let failure = failure.output().expect("run legal Runtime failure");
     assert_eq!(failure.status.code(), Some(1));
@@ -513,74 +495,6 @@ fn targeted_pack_log_header_escapes_untrusted_pack_name() {
 }
 
 #[test]
-fn targeted_pack_log_write_and_flush_faults_replace_runtime_success() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    stage_fake_python_host(&binary);
-    let pack = temporary.path().join("external-checkout");
-    write_pack(&pack, "alpha", "External PACK");
-
-    let mut write_fault = targeted_inspect_command(&binary, temporary.path(), &pack);
-    write_fault
-        .env("KAT_TEST_OPERATION_LOG_FAULT", "write:2")
-        .env("KAT_FAKE_RUNTIME_WAIT_AFTER_OUTPUT_MS", "30000");
-    let started = Instant::now();
-    let write_output = write_fault.output().expect("inject log write failure");
-    assert!(started.elapsed() < Duration::from_secs(20));
-    assert_eq!(write_output.status.code(), Some(1));
-    let write_response: serde_json::Value = serde_json::from_slice(&write_output.stdout).unwrap();
-    assert_eq!(
-        write_response["error"]["message"],
-        "PACK inspection Operation log is incomplete"
-    );
-    assert!(
-        write_response["error"]["causes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|cause| cause
-                .as_str()
-                .unwrap()
-                .contains("injected test write failure"))
-    );
-    assert!(write_response.get("result").is_none());
-    assert!(
-        String::from_utf8_lossy(&write_output.stderr)
-            .contains("PACK inspection Operation log is incomplete")
-    );
-    let write_log = fs::read_to_string(write_response["log_path"].as_str().unwrap()).unwrap();
-    assert!(write_log.contains("path:"));
-
-    let mut flush_fault = targeted_inspect_command(&binary, temporary.path(), &pack);
-    flush_fault.env("KAT_TEST_OPERATION_LOG_FAULT", "flush");
-    let flush_output = flush_fault.output().expect("inject log flush failure");
-    assert_eq!(flush_output.status.code(), Some(1));
-    let flush_response: serde_json::Value = serde_json::from_slice(&flush_output.stdout).unwrap();
-    assert_eq!(
-        flush_response["error"]["message"],
-        "PACK inspection Operation log is incomplete"
-    );
-    assert!(
-        flush_response["error"]["causes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|cause| cause
-                .as_str()
-                .unwrap()
-                .contains("injected test flush failure"))
-    );
-    assert!(flush_response.get("result").is_none());
-    assert!(
-        String::from_utf8_lossy(&flush_output.stderr)
-            .contains("PACK inspection Operation log is incomplete")
-    );
-    let flush_log = fs::read_to_string(flush_response["log_path"].as_str().unwrap()).unwrap();
-    assert!(flush_log.contains("runtime stdout\n"));
-    assert!(flush_log.contains("status: success\n"));
-}
-
-#[test]
 fn help_and_parse_failures_do_not_require_a_skill_layout() {
     let help = Command::new(cargo_kat())
         .arg("--help")
@@ -705,8 +619,6 @@ fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
     assert!(diagnostic.contains("<skill>/scripts/targets/<target>"));
     assert!(diagnostic.contains("regular <skill>/"));
     assert!(diagnostic.contains("SKILL.md marker"));
-    #[cfg(not(windows))]
-    assert!(!data_home(temporary.path()).exists());
 }
 
 #[test]

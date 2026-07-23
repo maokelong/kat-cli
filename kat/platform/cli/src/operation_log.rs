@@ -10,17 +10,6 @@ use thiserror::Error;
 pub(crate) struct OperationLog {
     path: PathBuf,
     file: File,
-    #[cfg(debug_assertions)]
-    test_fault: Option<TestFault>,
-    #[cfg(debug_assertions)]
-    append_count: usize,
-}
-
-#[cfg(debug_assertions)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TestFault {
-    WriteOnAppend(usize),
-    Flush,
 }
 
 impl OperationLog {
@@ -55,21 +44,10 @@ impl OperationLog {
             path: path.clone(),
             source,
         })?;
-        Ok(Self {
-            path,
-            file,
-            #[cfg(debug_assertions)]
-            test_fault: TestFault::from_environment(),
-            #[cfg(debug_assertions)]
-            append_count: 0,
-        })
+        Ok(Self { path, file })
     }
 
     pub(crate) fn finish(self) -> Result<String, OperationLogError> {
-        #[cfg(debug_assertions)]
-        if self.test_fault == Some(TestFault::Flush) {
-            return self.finish_with(|_| Err(io::Error::other("injected test flush failure")));
-        }
         self.finish_with(File::flush)
     }
 
@@ -78,16 +56,6 @@ impl OperationLog {
     }
 
     pub(crate) fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError> {
-        #[cfg(debug_assertions)]
-        {
-            self.append_count += 1;
-            if self.test_fault == Some(TestFault::WriteOnAppend(self.append_count)) {
-                return Err(OperationLogError::Write {
-                    path: self.path.clone(),
-                    source: io::Error::other("injected test write failure"),
-                });
-            }
-        }
         self.file
             .write_all(bytes)
             .map_err(|source| OperationLogError::Write {
@@ -113,22 +81,6 @@ impl OperationLog {
         path.to_str()
             .map(str::to_owned)
             .ok_or(OperationLogError::NonUnicode { path })
-    }
-}
-
-#[cfg(debug_assertions)]
-impl TestFault {
-    fn from_environment() -> Option<Self> {
-        let value = std::env::var("KAT_TEST_OPERATION_LOG_FAULT").ok()?;
-        if value == "flush" {
-            return Some(Self::Flush);
-        }
-        value
-            .strip_prefix("write:")?
-            .parse::<usize>()
-            .ok()
-            .filter(|append| *append > 0)
-            .map(Self::WriteOnAppend)
     }
 }
 

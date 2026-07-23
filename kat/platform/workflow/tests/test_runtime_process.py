@@ -184,7 +184,6 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "failure")
-        self.assertEqual(response["failure_owner"], "pack")
         self.assertEqual(response["error"]["message"], "PACK inspection failed")
         self.assertNotIn("location", response["error"])
 
@@ -208,7 +207,6 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "failure")
-        self.assertEqual(response["failure_owner"], "pack")
         self.assertEqual(response["error"]["message"], "PACK inspection failed")
         self.assertNotIn("location", response["error"])
 
@@ -264,13 +262,12 @@ def analyze(ctx: Context, *, limit: int = 10):
                 completed, response = self.run_runtime(request)
                 self.assertEqual(completed.returncode, 0)
                 self.assertEqual(response["status"], "failure")
-                self.assertEqual(response["failure_owner"], "runtime_request")
                 self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
                 self.assertEqual(
                     response["error"]["help"],
                     "Use a compatible KAT CLI and Runtime deployment",
                 )
-                self.assertEqual(set(response), {"status", "failure_owner", "error"})
+                self.assertEqual(set(response), {"status", "error"})
                 self.assertEqual(set(response["error"]), {"message", "causes", "help"})
 
         pack = self.write_pack()
@@ -285,7 +282,6 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure")
-        self.assertEqual(response["failure_owner"], "pack")
         self.assertNotIn("result", response)
         self.assertTrue(response["error"]["causes"])
 
@@ -344,39 +340,6 @@ def other(ctx: Context):
                 },
             ),
             (
-                "entry-import-constant",
-                {
-                    "workflows/a.py": """from kat import Context, workflow
-SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"A.\"\"\"
-""",
-                    "workflows/b.py": """from kat import Context, workflow
-from kat.pack.workflows.a import SHARED
-@workflow(name='b', title=SHARED, required_tables=[])
-def other(ctx: Context):
-    \"\"\"B.\"\"\"
-""",
-                },
-            ),
-            (
-                "entry-import-root-binding",
-                {
-                    "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"A.\"\"\"
-""",
-                    "workflows/b.py": """from kat import Context, workflow
-import kat.pack.workflows.a
-@workflow(name='b', title='B', required_tables=[])
-def other(ctx: Context):
-    \"\"\"B.\"\"\"
-""",
-                },
-            ),
-            (
                 "entry-import-dynamic-discarded",
                 {
                     "workflows/a.py": """from kat import Context, workflow
@@ -388,68 +351,6 @@ def analyze(ctx: Context):
 from kat import Context, workflow
 importlib.import_module('kat.pack.workflows.a')
 @workflow(name='b', title='B', required_tables=[])
-def other(ctx: Context):
-    \"\"\"B.\"\"\"
-""",
-                },
-            ),
-            (
-                "entry-import-importlib-dunder",
-                {
-                    "workflows/a.py": """from kat import Context, workflow
-SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"A.\"\"\"
-""",
-                    "workflows/b.py": """import importlib
-from kat import Context, workflow
-title = importlib.__import__('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
-@workflow(name='b', title=title, required_tables=[])
-def other(ctx: Context):
-    \"\"\"B.\"\"\"
-""",
-                },
-            ),
-            (
-                "entry-import-cached-builtins-dunder",
-                {
-                    "helpers/cached.py": """import builtins
-import_entry = builtins.__import__
-""",
-                    "workflows/a.py": """from kat import Context, workflow
-from kat.pack.helpers import cached
-SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"A.\"\"\"
-""",
-                    "workflows/b.py": """from kat import Context, workflow
-from kat.pack.helpers import cached
-title = cached.import_entry('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
-@workflow(name='b', title=title, required_tables=[])
-def other(ctx: Context):
-    \"\"\"B.\"\"\"
-""",
-                },
-            ),
-            (
-                "entry-import-cached-importlib-dunder",
-                {
-                    "helpers/cached.py": """import importlib
-import_entry = importlib.__import__
-""",
-                    "workflows/a.py": """from kat import Context, workflow
-from kat.pack.helpers import cached
-SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"A.\"\"\"
-""",
-                    "workflows/b.py": """from kat import Context, workflow
-from kat.pack.helpers import cached
-title = cached.import_entry('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
-@workflow(name='b', title=title, required_tables=[])
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -546,7 +447,6 @@ def other(ctx: Context):
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure")
-        self.assertEqual(response["failure_owner"], "pack")
         self.assertEqual(set(response["error"]), {"message", "help"})
 
     def test_pack_exception_chain_is_safe_bounded_and_respects_suppression(self) -> None:
@@ -653,45 +553,6 @@ def analyze(ctx: Context, value: str = invalid_default):
                 )
                 self.assertEqual(response["status"], "failure")
                 self.assertEqual(response["error"]["message"], "PACK inspection failed")
-
-    def test_entry_import_scan_does_not_execute_author_module_metadata(self) -> None:
-        cases = {
-            "runtime-error": "raise RuntimeError('dynamic module access')",
-            "system-exit": "raise SystemExit('dynamic module access')",
-            "unhashable": "return []",
-        }
-        for name, module_behavior in cases.items():
-            with self.subTest(name=name):
-                pack = self.root / f"module-metadata-{name}"
-                (pack / "workflows").mkdir(parents=True)
-                (pack / "workflows" / "entry.py").write_text(
-                    f"""from kat import Context, workflow
-class MetadataProxy:
-    def __getattribute__(self, attribute):
-        if attribute == '__module__':
-            {module_behavior}
-        return object.__getattribute__(self, attribute)
-proxy = MetadataProxy()
-@workflow(name='metadata', title='Metadata', required_tables=[])
-def analyze(ctx: Context):
-    \"\"\"Inspect metadata safely.\"\"\"
-""",
-                    encoding="utf-8",
-                )
-
-                completed, response = self.run_runtime(
-                    {
-                        "operation": "inspect_pack",
-                        "pack_name": f"module-metadata-{name}",
-                        "pack_path": str(pack.resolve()),
-                    }
-                )
-
-                self.assertEqual(
-                    completed.returncode, 0, completed.stderr.decode(errors="replace")
-                )
-                self.assertEqual(response["status"], "success")
-                self.assertEqual(response["result"]["workflows"][0]["name"], "metadata")
 
     def test_unexpected_runtime_error_exits_without_a_pack_failure_response(self) -> None:
         request_path = self.root / "request.json"

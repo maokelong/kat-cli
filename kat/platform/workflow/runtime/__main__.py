@@ -37,7 +37,6 @@ class RuntimeSuccess[R]:
 @dataclass(frozen=True)
 class RuntimeFailure:
     status: Literal["failure"] = field(init=False, default="failure")
-    failure_owner: Literal["runtime_request", "pack"]
     error: RuntimeDiagnostic
 
 
@@ -64,7 +63,6 @@ def main() -> int:
         request = _read_request(Path(arguments.request))
     except RuntimeRequestError as error:
         response: InspectPackRuntimeResponse = RuntimeFailure(
-            failure_owner="runtime_request",
             error=_diagnostic(
                 error,
                 None,
@@ -78,7 +76,6 @@ def main() -> int:
             result = inspect_pack(request.pack_name, request.pack_path)
         except PackInspectionError as error:
             response = RuntimeFailure(
-                failure_owner="pack",
                 error=_diagnostic(
                     error,
                     pack_path,

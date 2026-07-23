@@ -238,11 +238,7 @@ fn inspect_target_pack(
             project_inspected_pack(pack, workflows),
             Some(log_path),
         ),
-        Ok(workflow_runtime::InspectPackOutcome::PackFailure {
-            diagnostic,
-            log_path,
-        }) => response::prepare_runtime_failure(diagnostic, log_path),
-        Ok(workflow_runtime::InspectPackOutcome::RuntimeRequestFailure {
+        Ok(workflow_runtime::InspectPackOutcome::Failure {
             diagnostic,
             log_path,
         }) => response::prepare_runtime_failure(diagnostic, log_path),

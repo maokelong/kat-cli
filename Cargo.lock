@@ -2109,13 +2109,11 @@ dependencies = [
  "kat-datasource",
  "miette",
  "prost",
- "regex",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
- "time",
  "toml",
  "uuid",
 ]

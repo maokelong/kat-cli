@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import builtins
 from dataclasses import dataclass
 import heapq
 import importlib
 import importlib.machinery
-import importlib.util
 import inspect
 import keyword
 import os
@@ -29,60 +27,6 @@ class PackInspectionError(Exception):
     """A failure owned by the selected PACK production Interface."""
 
 
-class _EntryImportGuard:
-    def __init__(self, entry_module_names: set[str]) -> None:
-        self._entry_module_names = entry_module_names
-        self._active_entry: str | None = None
-        self._original_import = builtins.__import__
-        self._original_importlib_import = importlib.__import__
-        self._original_import_module = importlib.import_module
-
-    def import_entry(self, module_name: str) -> ModuleType:
-        if self._active_entry is not None:
-            raise RuntimeError("Workflow entry import is already active")
-        other_entries = self._entry_module_names - {module_name}
-        hidden_entries = _hide_loaded_entries(other_entries)
-        self._active_entry = module_name
-        builtins.__import__ = self._guarded_import
-        importlib.__import__ = self._guarded_import
-        importlib.import_module = self._guarded_import_module
-        try:
-            return self._original_import_module(module_name)
-        finally:
-            builtins.__import__ = self._original_import
-            importlib.__import__ = self._original_importlib_import
-            importlib.import_module = self._original_import_module
-            self._active_entry = None
-            for parent, attribute, entry in hidden_entries:
-                setattr(parent, attribute, entry)
-
-    def _guarded_import(
-        self,
-        name: str,
-        globals: dict[str, object] | None = None,
-        locals: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] | None = (),
-        level: int = 0,
-    ) -> ModuleType:
-        requested = _requested_module_names(name, globals, fromlist, level)
-        self._reject_other_entry(requested)
-        return self._original_import(name, globals, locals, fromlist, level)
-
-    def _guarded_import_module(self, name: str, package: str | None = None) -> ModuleType:
-        requested = importlib.util.resolve_name(name, package) if name.startswith(".") else name
-        self._reject_other_entry({requested})
-        return self._original_import_module(name, package)
-
-    def _reject_other_entry(self, requested: set[str]) -> None:
-        if self._active_entry is None:
-            return
-        _reject_other_entry(
-            self._active_entry,
-            self._entry_module_names - {self._active_entry},
-            requested,
-        )
-
-
 def inspect_pack(pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
     """Inspect the production Workflows of one selected PACK.
 
@@ -101,14 +45,14 @@ def inspect_pack(pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
     entry_module_names = {
         ".".join(("kat", "pack", "workflows", *segments)) for _, segments in entries
     }
-    import_guard = _EntryImportGuard(entry_module_names)
     workflows: list[WorkflowInterface] = []
     names: set[str] = set()
     for source, segments in entries:
         module_name = ".".join(("kat", "pack", "workflows", *segments))
+        _clear_other_entries(entry_module_names, module_name)
         before = _registration_count()
         try:
-            module = import_guard.import_entry(module_name)
+            module = importlib.import_module(module_name)
         except (Exception, SystemExit) as error:
             raise PackInspectionError from error
         try:
@@ -124,10 +68,6 @@ def inspect_pack(pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
             raise PackInspectionError(
                 f"Workflow entry {source.relative_to(root).as_posix()} loaded from an unexpected module path"
             )
-        try:
-            _reject_entry_imports(module, module_name, entry_module_names)
-        except ValueError as error:
-            raise PackInspectionError from error
         registrations = _registrations_since(before)
         registration = registrations[0] if len(registrations) == 1 else None
         registration_module = (
@@ -152,79 +92,17 @@ def inspect_pack(pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
     workflows.sort(key=lambda workflow: workflow["name"])
     return InspectPackRuntimeResult(workflows=workflows)
 
-def _hide_loaded_entries(
-    other_entries: set[str],
-) -> list[tuple[ModuleType, str, ModuleType]]:
-    hidden: list[tuple[ModuleType, str, ModuleType]] = []
-    for entry_name in other_entries:
+def _clear_other_entries(entry_names: set[str], current: str) -> None:
+    for entry_name in entry_names - {current}:
         parent_name, attribute = entry_name.rsplit(".", 1)
         parent = sys.modules.get(parent_name)
-        entry = sys.modules.get(entry_name)
+        entry = sys.modules.pop(entry_name, None)
         if (
             isinstance(parent, ModuleType)
             and isinstance(entry, ModuleType)
             and getattr(parent, attribute, None) is entry
         ):
-            hidden.append((parent, attribute, entry))
             delattr(parent, attribute)
-    return hidden
-
-
-def _reject_other_entry(
-    module_name: str, other_entries: set[str], requested: set[str]
-) -> None:
-    for candidate in requested:
-        if candidate != "kat.pack.workflows" and not candidate.startswith(
-            "kat.pack.workflows."
-        ):
-            continue
-        if any(
-            candidate == entry or entry.startswith(candidate + ".")
-            for entry in other_entries
-        ):
-            raise ImportError(f"Workflow entry {module_name} imports another Workflow entry")
-
-
-def _requested_module_names(
-    name: str,
-    globals: dict[str, object] | None,
-    fromlist: tuple[str, ...] | None,
-    level: int,
-) -> set[str]:
-    try:
-        if level:
-            package = None if globals is None else globals.get("__package__")
-            if type(package) is not str or not package:
-                return set()
-            base = importlib.util.resolve_name("." * level + name, package)
-        else:
-            base = name
-    except (ImportError, ValueError):
-        return set()
-    requested = {base}
-    requested.update(
-        f"{base}.{member}"
-        for member in fromlist or ()
-        if type(member) is str and member and member != "*"
-    )
-    return requested
-
-
-def _reject_entry_imports(
-    module: ModuleType, module_name: str, entry_module_names: set[str]
-) -> None:
-    for value in vars(module).values():
-        if inspect.isfunction(value):
-            imported_module = object.__getattribute__(value, "__module__")
-        else:
-            attribute = "__name__" if isinstance(value, ModuleType) else "__module__"
-            imported_module = inspect.getattr_static(value, attribute, None)
-        if type(imported_module) is not str:
-            continue
-        if imported_module in entry_module_names and imported_module != module_name:
-            raise ValueError(
-                f"Workflow entry {module_name} imports another Workflow entry {imported_module}"
-            )
 
 
 def _workflow_entries(root: Path) -> list[tuple[Path, tuple[str, ...]]]:
