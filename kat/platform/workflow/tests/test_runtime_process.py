@@ -25,7 +25,15 @@ class RuntimeProcessTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def run_runtime(self, request: object) -> tuple[subprocess.CompletedProcess[bytes], dict[str, object]]:
+    def run_runtime(
+        self, request: object
+    ) -> tuple[subprocess.CompletedProcess[bytes], dict[str, object]]:
+        completed, response_path = self.run_runtime_process(request)
+        return completed, json.loads(response_path.read_text(encoding="utf-8"))
+
+    def run_runtime_process(
+        self, request: object
+    ) -> tuple[subprocess.CompletedProcess[bytes], Path]:
         token = uuid.uuid4().hex
         request_path = self.root / f"request-{token}.json"
         response_path = self.root / f"response-{token}.json"
@@ -56,7 +64,7 @@ class RuntimeProcessTest(unittest.TestCase):
                 "PYTHONPATH": str(self.root / "must-not-import"),
             },
         )
-        return completed, json.loads(response_path.read_text(encoding="utf-8"))
+        return completed, response_path
 
     def write_pack(self) -> Path:
         pack = self.root / "checkout-with-unrelated-name"
@@ -411,6 +419,40 @@ def other(ctx: Context):
                 self.assertEqual(response["status"], "failure")
                 self.assertNotIn("result", response)
 
+    def test_entry_worker_preserves_standard_module_cache(self) -> None:
+        pack = self.root / "standard-module-cache"
+        (pack / "helpers").mkdir(parents=True)
+        (pack / "workflows").mkdir()
+        (pack / "helpers" / "identity.py").write_text(
+            "value = object()\n", encoding="utf-8"
+        )
+        (pack / "workflows" / "cached.py").write_text(
+            """import importlib
+from kat import Context, workflow
+
+first = importlib.import_module("kat.pack.helpers.identity")
+second = importlib.import_module("kat.pack.helpers.identity")
+if first is not second or first.value is not second.value:
+    raise RuntimeError("standard module cache was not preserved")
+
+@workflow(name="cached", title="Cached", required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"Inspect the standard module cache.\"\"\"
+""",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "standard-module-cache",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success")
+
     def test_declarative_entry_errors_follow_portable_relative_path_order(self) -> None:
         pack = self.root / "ordered-errors"
         for directory in ("z", "a"):
@@ -587,6 +629,28 @@ def analyze(ctx: Context, value: str = invalid_default):
             runtime_main.main()
 
         self.assertFalse(response_path.exists())
+
+    def test_entry_worker_crash_exits_without_a_pack_failure_response(self) -> None:
+        pack = self.root / "worker-crash"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "crash.py").write_text(
+            "import os\nos._exit(17)\n", encoding="utf-8"
+        )
+
+        completed, response_path = self.run_runtime_process(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "worker-crash",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(response_path.exists())
+        self.assertIn(
+            "Workflow inspection worker exited without a result",
+            completed.stderr.decode(errors="replace"),
+        )
 
 
 if __name__ == "__main__":

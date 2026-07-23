@@ -5,27 +5,10 @@ from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
-from typing import Iterator, Literal, NotRequired, TypedDict
+from typing import Literal
 
+from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
 from .pack import InspectPackRuntimeResult, PackInspectionError, inspect_pack
-
-
-class DiagnosticPosition(TypedDict):
-    line: int
-    column: int
-
-
-class DiagnosticLocation(TypedDict):
-    source: str
-    start: DiagnosticPosition
-    end: DiagnosticPosition
-
-
-class RuntimeDiagnostic(TypedDict):
-    message: str
-    help: str
-    causes: NotRequired[list[str]]
-    location: NotRequired[DiagnosticLocation]
 
 
 @dataclass(frozen=True)
@@ -63,7 +46,7 @@ def main() -> int:
         request = _read_request(Path(arguments.request))
     except RuntimeRequestError as error:
         response: InspectPackRuntimeResponse = RuntimeFailure(
-            error=_diagnostic(
+            error=diagnostic_from_exception(
                 error,
                 None,
                 message="Runtime Request is invalid",
@@ -71,18 +54,10 @@ def main() -> int:
             )
         )
     else:
-        pack_path = request.pack_path
         try:
             result = inspect_pack(request.pack_name, request.pack_path)
         except PackInspectionError as error:
-            response = RuntimeFailure(
-                error=_diagnostic(
-                    error,
-                    pack_path,
-                    message="PACK inspection failed",
-                    help="Correct the PACK production Interface and retry inspection",
-                )
-            )
+            response = RuntimeFailure(error=error.diagnostic)
         else:
             response = RuntimeSuccess(result=result)
     _write_response(response_path, response)
@@ -122,78 +97,6 @@ def _read_request(path: Path) -> InspectPackRequest:
             "inspect_pack Runtime Request PACK path must identify its canonical directory"
         )
     return InspectPackRequest(pack_name=request["pack_name"], pack_path=pack_path)
-
-
-def _diagnostic(
-    error: Exception,
-    pack_path: Path | None,
-    *,
-    message: str,
-    help: str,
-) -> RuntimeDiagnostic:
-    causes: list[str] = []
-    for current in _exception_chain(error):
-        try:
-            rendered = str(current).strip()
-        except BaseException:
-            continue
-        if rendered:
-            causes.append(rendered)
-    diagnostic: RuntimeDiagnostic = {"message": message, "help": help}
-    if causes:
-        diagnostic["causes"] = causes
-    try:
-        location = _syntax_error_location(error, pack_path)
-    except BaseException:
-        location = None
-    if location is not None:
-        diagnostic["location"] = location
-    return diagnostic
-
-
-def _syntax_error_location(
-    error: Exception, pack_path: Path | None
-) -> DiagnosticLocation | None:
-    syntax_error = next(
-        (current for current in _exception_chain(error) if isinstance(current, SyntaxError)),
-        None,
-    )
-    if syntax_error is None or pack_path is None or syntax_error.filename is None:
-        return None
-    error = syntax_error
-    positions = (error.lineno, error.offset, error.end_lineno, error.end_offset)
-    if any(type(value) is not int or value <= 0 for value in positions):
-        return None
-    start_line, start_column, end_line, end_column = positions
-    if (end_line, end_column) < (start_line, start_column):
-        return None
-    try:
-        root = pack_path.resolve(strict=True)
-        relative = Path(error.filename).resolve(strict=True).relative_to(root)
-    except (OSError, ValueError):
-        return None
-    if relative == Path():
-        return None
-    return {
-        "source": relative.as_posix(),
-        "start": {"line": start_line, "column": start_column},
-        "end": {"line": end_line, "column": end_column},
-    }
-
-
-def _exception_chain(error: BaseException) -> Iterator[BaseException]:
-    seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        yield current
-        cause = BaseException.__cause__.__get__(current, BaseException)
-        if cause is not None:
-            current = cause
-        elif BaseException.__suppress_context__.__get__(current, BaseException):
-            current = None
-        else:
-            current = BaseException.__context__.__get__(current, BaseException)
 
 
 def _write_response(path: Path, response: InspectPackRuntimeResponse) -> None:
