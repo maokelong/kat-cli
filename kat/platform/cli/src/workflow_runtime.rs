@@ -1,128 +1,57 @@
 use std::{
-    collections::HashSet,
-    fs,
-    io::{self, Read},
+    fs, io,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::LazyLock,
-    sync::mpsc::{self, Sender},
-    thread,
+    process::{Command, Stdio},
 };
 
 use miette::Diagnostic;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use thiserror::Error;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     operation_log::{OperationLog, OperationLogError},
     response::KatDiagnostic,
-    text_projection::TextProjection,
+    text_projection::project_inline_text,
 };
 
+mod protocol;
+mod stream_capture;
+
+use protocol::{
+    InspectPackRuntimeResult, RuntimeFailureOwner, RuntimeResponse, validate_workflows,
+};
+pub(crate) use protocol::{ParameterDefault, Workflow};
+#[cfg(test)]
+use stream_capture::RuntimeLogSink;
+use stream_capture::capture_streams;
+
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
-static WORKFLOW_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\A[a-z0-9]+(?:-[a-z0-9]+)*\z").unwrap());
-static TABLE_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\A[a-z][a-z0-9]*(?:_[a-z0-9]+)*\z").unwrap());
-static DURATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\A(?<whole>[0-9]+)(?:\.(?<fraction>[0-9]{1,9}))?(?<unit>ns|us|ms|s|min|h)\z")
-        .unwrap()
-});
 
 pub(crate) enum InspectPackOutcome {
     Success {
         workflows: Vec<Workflow>,
         log_path: String,
     },
-    Failure {
+    PackFailure {
         diagnostic: KatDiagnostic,
         log_path: String,
     },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Workflow {
-    pub(crate) name: String,
-    pub(crate) title: String,
-    pub(crate) description: String,
-    pub(crate) required_tables: Vec<String>,
-    pub(crate) parameters: Vec<Parameter>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Parameter {
-    pub(crate) name: String,
-    pub(crate) option: String,
-    #[serde(rename = "type")]
-    pub(crate) parameter_type: String,
-    pub(crate) required: bool,
-    pub(crate) description: String,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    pub(crate) negative_option: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_optional_strings")]
-    pub(crate) choices: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "deserialize_default")]
-    pub(crate) default: ParameterDefault,
-}
-
-#[derive(Default)]
-pub(crate) enum ParameterDefault {
-    #[default]
-    Missing,
-    Value(serde_json::Value),
-}
-
-impl ParameterDefault {
-    pub(crate) fn is_missing(&self) -> bool {
-        matches!(self, Self::Missing)
-    }
-}
-
-impl Serialize for ParameterDefault {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Missing => serializer.serialize_none(),
-            Self::Value(value) => value.serialize(serializer),
-        }
-    }
-}
-
-fn deserialize_default<'de, D>(deserializer: D) -> Result<ParameterDefault, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde_json::Value::deserialize(deserializer).map(ParameterDefault::Value)
-}
-
-fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    String::deserialize(deserializer).map(Some)
-}
-
-fn deserialize_optional_strings<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Vec::<String>::deserialize(deserializer).map(Some)
+    RuntimeRequestFailure {
+        diagnostic: KatDiagnostic,
+        log_path: String,
+    },
 }
 
 pub(crate) fn inspect_pack(
     mut log: OperationLog,
     pack_name: &str,
     pack_path: &Path,
-) -> Result<InspectPackOutcome, InspectPackError> {
+) -> Result<InspectPackOutcome, InspectPackInfrastructureError> {
     let response = match exchange(pack_name, pack_path, &mut log) {
         Ok(response) => response,
-        Err(ExchangeError::Log(error)) => return Err(InspectPackError::operation_log(error)),
+        Err(ExchangeError::Log(error)) => {
+            return Err(InspectPackInfrastructureError::operation_log(error));
+        }
         Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
     };
     match response {
@@ -131,31 +60,46 @@ pub(crate) fn inspect_pack(
                 return Err(finish_runtime_error(log, error));
             }
             if let Err(source) = log.append(b"status: success\n") {
-                return Err(InspectPackError::operation_log(source));
+                return Err(InspectPackInfrastructureError::operation_log(source));
             }
-            let log_path = log.finish().map_err(InspectPackError::operation_log)?;
+            let log_path = log
+                .finish()
+                .map_err(InspectPackInfrastructureError::operation_log)?;
             Ok(InspectPackOutcome::Success {
                 workflows: result.workflows,
                 log_path,
             })
         }
-        RuntimeResponse::Failure { error } => {
+        RuntimeResponse::Failure {
+            failure_owner,
+            error,
+        } => {
             if !error.validate() {
                 return Err(finish_runtime_error(
                     log,
-                    RuntimeFailure::InvalidResponse(
+                    RuntimeInfrastructureError::InvalidResponse(
                         "Runtime Diagnostic contains empty or invalid fields".to_owned(),
                     ),
                 ));
             }
             if let Err(source) = log.append(b"status: failure\n") {
-                return Err(InspectPackError::operation_log(source));
+                return Err(InspectPackInfrastructureError::operation_log(source));
             }
-            let log_path = log.finish().map_err(InspectPackError::operation_log)?;
-            Ok(InspectPackOutcome::Failure {
-                diagnostic: error,
-                log_path,
-            })
+            let log_path = log
+                .finish()
+                .map_err(InspectPackInfrastructureError::operation_log)?;
+            match failure_owner {
+                RuntimeFailureOwner::Pack => Ok(InspectPackOutcome::PackFailure {
+                    diagnostic: error,
+                    log_path,
+                }),
+                RuntimeFailureOwner::RuntimeRequest => {
+                    Ok(InspectPackOutcome::RuntimeRequestFailure {
+                        diagnostic: error,
+                        log_path,
+                    })
+                }
+            }
         }
     }
 }
@@ -167,32 +111,20 @@ struct InspectPackRequest<'a> {
     pack_path: &'a str,
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-enum RuntimeResponse<R> {
-    Success { result: R },
-    Failure { error: KatDiagnostic },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InspectPackResult {
-    workflows: Vec<Workflow>,
-}
-
 fn exchange(
     pack_name: &str,
     pack_path: &Path,
     log: &mut OperationLog,
-) -> Result<RuntimeResponse<InspectPackResult>, ExchangeError> {
+) -> Result<RuntimeResponse<InspectPackRuntimeResult>, ExchangeError> {
     let pack_path_text = pack_path
         .to_str()
-        .ok_or_else(|| RuntimeFailure::NonUnicodePackPath(pack_path.to_path_buf()))?;
+        .ok_or_else(|| RuntimeInfrastructureError::NonUnicodePackPath(pack_path.to_path_buf()))?;
     let control = tempfile::Builder::new()
         .prefix("kat-inspect-pack-")
         .tempdir()
-        .map_err(RuntimeFailure::ControlDirectory)?;
-    let control_path = dunce::canonicalize(control.path()).map_err(RuntimeFailure::ControlPath)?;
+        .map_err(RuntimeInfrastructureError::ControlDirectory)?;
+    let control_path =
+        dunce::canonicalize(control.path()).map_err(RuntimeInfrastructureError::ControlPath)?;
     let request_path = control_path.join("request.json");
     let response_path = control_path.join("response.json");
     let request = serde_json::to_vec(&InspectPackRequest {
@@ -200,12 +132,12 @@ fn exchange(
         pack_name,
         pack_path: pack_path_text,
     })
-    .map_err(RuntimeFailure::EncodeRequest)?;
-    fs::write(&request_path, request).map_err(RuntimeFailure::WriteRequest)?;
+    .map_err(RuntimeInfrastructureError::EncodeRequest)?;
+    fs::write(&request_path, request).map_err(RuntimeInfrastructureError::WriteRequest)?;
 
     let python = bundled_python_path()?;
     if !python.is_file() {
-        return Err(RuntimeFailure::MissingHost(python).into());
+        return Err(RuntimeInfrastructureError::MissingHost(python).into());
     }
     let mut child = Command::new(&python)
         .args(["-I", "-B", "-X", "utf8", "-u", "-m", PRIVATE_RUNTIME_MODULE])
@@ -218,28 +150,31 @@ fn exchange(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|source| RuntimeFailure::StartHost { python, source })?;
+        .map_err(|source| RuntimeInfrastructureError::StartHost { python, source })?;
 
-    if let Err(error) = capture_streams(&mut child, log) {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error);
-    }
-    let status = child.wait().map_err(RuntimeFailure::WaitHost)?;
+    let status = match capture_streams(&mut child, log) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
     if !status.success() {
-        return Err(RuntimeFailure::HostExit(status.code()).into());
+        return Err(RuntimeInfrastructureError::HostExit(status.code()).into());
     }
-    let response = fs::read(&response_path).map_err(RuntimeFailure::ReadResponse)?;
+    let response = fs::read(&response_path).map_err(RuntimeInfrastructureError::ReadResponse)?;
     serde_json::from_slice(&response)
-        .map_err(RuntimeFailure::DecodeResponse)
+        .map_err(RuntimeInfrastructureError::DecodeResponse)
         .map_err(Into::into)
 }
 
-fn bundled_python_path() -> Result<PathBuf, RuntimeFailure> {
-    let executable = std::env::current_exe().map_err(RuntimeFailure::CurrentExecutable)?;
+fn bundled_python_path() -> Result<PathBuf, RuntimeInfrastructureError> {
+    let executable =
+        std::env::current_exe().map_err(RuntimeInfrastructureError::CurrentExecutable)?;
     let payload = executable
         .parent()
-        .ok_or_else(|| RuntimeFailure::InvalidPayload(executable.clone()))?;
+        .ok_or_else(|| RuntimeInfrastructureError::InvalidPayload(executable.clone()))?;
     #[cfg(windows)]
     let python = payload.join("python").join("python.exe");
     #[cfg(not(windows))]
@@ -247,389 +182,43 @@ fn bundled_python_path() -> Result<PathBuf, RuntimeFailure> {
     Ok(python)
 }
 
-#[derive(Clone, Copy)]
-enum Stream {
-    Stdout,
-    Stderr,
-}
-
-enum StreamEvent {
-    Bytes(Stream, Vec<u8>),
-    Error(Stream, io::Error),
-    Finished(Stream),
-}
-
-trait RuntimeLogSink {
-    fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError>;
-}
-
-impl RuntimeLogSink for OperationLog {
-    fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError> {
-        OperationLog::append(self, bytes)
-    }
-}
-
-fn capture_streams(child: &mut Child, log: &mut impl RuntimeLogSink) -> Result<(), ExchangeError> {
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(RuntimeFailure::MissingPipe("stdout"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or(RuntimeFailure::MissingPipe("stderr"))?;
-    let (sender, receiver) = mpsc::channel();
-    let stdout_thread = spawn_stream_reader(stdout, Stream::Stdout, sender.clone());
-    let stderr_thread = spawn_stream_reader(stderr, Stream::Stderr, sender);
-    let mut stdout_projection = TextProjection::new("stdout");
-    let mut stderr_projection = TextProjection::new("stderr");
-    let mut finished = 0;
-    while finished < 2 {
-        let event = receiver.recv().map_err(|_| RuntimeFailure::StreamChannel)?;
-        match event {
-            StreamEvent::Bytes(stream, bytes) => {
-                let projection = match stream {
-                    Stream::Stdout => &mut stdout_projection,
-                    Stream::Stderr => &mut stderr_projection,
-                };
-                let text = projection.push(&bytes);
-                if let Err(error) = log.append(text.as_bytes()) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(ExchangeError::Log(error));
-                }
-            }
-            StreamEvent::Error(stream, source) => {
-                let error = RuntimeFailure::ReadStream {
-                    stream: stream.name(),
-                    source,
-                };
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error.into());
-            }
-            StreamEvent::Finished(stream) => {
-                finished += 1;
-                let projection = match stream {
-                    Stream::Stdout => &mut stdout_projection,
-                    Stream::Stderr => &mut stderr_projection,
-                };
-                let text = projection.finish();
-                if let Err(error) = log.append(text.as_bytes()) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(ExchangeError::Log(error));
-                }
-            }
-        }
-    }
-    stdout_thread
-        .join()
-        .map_err(|_| RuntimeFailure::StreamThread("stdout"))?;
-    stderr_thread
-        .join()
-        .map_err(|_| RuntimeFailure::StreamThread("stderr"))?;
-    Ok(())
-}
-
-impl Stream {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Stdout => "stdout",
-            Self::Stderr => "stderr",
-        }
-    }
-}
-
-fn spawn_stream_reader(
-    mut reader: impl Read + Send + 'static,
-    stream: Stream,
-    sender: Sender<StreamEvent>,
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        let mut plain = strip_ansi::StripStream::new();
-        let mut buffer = [0_u8; 8192];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => {
-                    let mut stripped = Vec::with_capacity(count);
-                    plain.push(&buffer[..count], &mut stripped);
-                    if sender.send(StreamEvent::Bytes(stream, stripped)).is_err() {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    let _ = sender.send(StreamEvent::Error(stream, error));
-                    break;
-                }
-            }
-        }
-        plain.finish();
-        let _ = sender.send(StreamEvent::Finished(stream));
-    })
-}
-
-fn validate_workflows(workflows: &[Workflow]) -> Result<(), RuntimeFailure> {
-    let mut previous_name: Option<&str> = None;
-    for workflow in workflows {
-        if !WORKFLOW_NAME.is_match(&workflow.name) {
-            return invalid_response(format!("invalid Workflow name {:?}", workflow.name));
-        }
-        normalized_non_empty(&workflow.title, "Workflow title")?;
-        normalized_non_empty(&workflow.description, "Workflow description")?;
-        if previous_name.is_some_and(|previous| previous >= workflow.name.as_str()) {
-            return Err(RuntimeFailure::InvalidResponse(
-                "Workflow names must be strictly sorted and unique".to_owned(),
-            ));
-        }
-        previous_name = Some(&workflow.name);
-        if !strictly_sorted_unique(&workflow.required_tables) {
-            return Err(RuntimeFailure::InvalidResponse(
-                "Required tables must be strictly sorted and unique".to_owned(),
-            ));
-        }
-        for table in &workflow.required_tables {
-            if !valid_table_name(table) {
-                return invalid_response(format!("invalid Required table name {table:?}"));
-            }
-        }
-        let mut parameter_names = HashSet::new();
-        for parameter in &workflow.parameters {
-            if !parameter_names.insert(&parameter.name) {
-                return Err(RuntimeFailure::InvalidResponse(format!(
-                    "duplicate Workflow parameter {:?}",
-                    parameter.name
-                )));
-            }
-            validate_parameter(parameter)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_parameter(parameter: &Parameter) -> Result<(), RuntimeFailure> {
-    non_empty(&parameter.name, "parameter name")?;
-    normalized_non_empty(&parameter.description, "parameter description")?;
-    let expected_option = format!("--{}", parameter.name.replace('_', "-"));
-    if parameter.option != expected_option {
-        return invalid_response(format!(
-            "parameter {:?} must use option {expected_option:?}",
-            parameter.name
-        ));
-    }
-    let supported = [
-        "string",
-        "int64",
-        "float64",
-        "boolean",
-        "duration",
-        "wall_clock_timestamp",
-    ];
-    if !supported.contains(&parameter.parameter_type.as_str()) {
-        return Err(RuntimeFailure::InvalidResponse(format!(
-            "unsupported parameter type {:?}",
-            parameter.parameter_type
-        )));
-    }
-    if (parameter.parameter_type == "boolean") != parameter.negative_option.is_some() {
-        return Err(RuntimeFailure::InvalidResponse(
-            "only boolean parameters must contain negative_option".to_owned(),
-        ));
-    }
-    if let Some(negative_option) = &parameter.negative_option {
-        let expected_negative = format!("--no-{}", parameter.name.replace('_', "-"));
-        if negative_option != &expected_negative {
-            return invalid_response(format!(
-                "boolean parameter {:?} must use negative option {expected_negative:?}",
-                parameter.name
-            ));
-        }
-    }
-    if parameter.parameter_type == "boolean" && parameter.required {
-        return invalid_response("boolean parameters require a default".to_owned());
-    }
-    if let Some(choices) = &parameter.choices
-        && (parameter.parameter_type != "string"
-            || choices.is_empty()
-            || !strictly_sorted_unique(choices))
-    {
-        return Err(RuntimeFailure::InvalidResponse(
-            "choices must be a non-empty sorted unique string set".to_owned(),
-        ));
-    }
-    if parameter.required != parameter.default.is_missing() {
-        return Err(RuntimeFailure::InvalidResponse(
-            "required parameters omit default and optional parameters include it".to_owned(),
-        ));
-    }
-    if let ParameterDefault::Value(default) = &parameter.default {
-        let valid = match (parameter.parameter_type.as_str(), default) {
-            (parameter_type, serde_json::Value::Null) => parameter_type != "boolean",
-            ("boolean", serde_json::Value::Bool(_)) => true,
-            ("float64", serde_json::Value::Number(number)) => {
-                number.as_f64().is_some_and(f64::is_finite)
-            }
-            ("string", serde_json::Value::String(_)) => true,
-            ("duration", serde_json::Value::String(value)) => valid_duration(value),
-            ("wall_clock_timestamp", serde_json::Value::String(value)) => {
-                valid_wall_clock_timestamp(value)
-            }
-            ("int64", serde_json::Value::String(value)) => value
-                .parse::<i64>()
-                .is_ok_and(|parsed| parsed.to_string() == *value),
-            _ => false,
-        };
-        if !valid {
-            return Err(RuntimeFailure::InvalidResponse(
-                "parameter default does not match its public type".to_owned(),
-            ));
-        }
-        if let (Some(choices), serde_json::Value::String(value)) = (&parameter.choices, default)
-            && choices.binary_search(value).is_err()
-        {
-            return Err(RuntimeFailure::InvalidResponse(
-                "string Literal default must be one of its choices".to_owned(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn non_empty(value: &str, label: &str) -> Result<(), RuntimeFailure> {
-    if value.trim().is_empty() {
-        return Err(RuntimeFailure::InvalidResponse(format!(
-            "{label} must not be empty"
-        )));
-    }
-    Ok(())
-}
-
-fn normalized_non_empty(value: &str, label: &str) -> Result<(), RuntimeFailure> {
-    non_empty(value, label)?;
-    if value != value.trim() {
-        return invalid_response(format!("{label} must not contain outer whitespace"));
-    }
-    Ok(())
-}
-
-fn invalid_response<T>(message: String) -> Result<T, RuntimeFailure> {
-    Err(RuntimeFailure::InvalidResponse(message))
-}
-
-fn valid_table_name(value: &str) -> bool {
-    TABLE_NAME.is_match(value)
-        && !matches!(
-            value,
-            "con"
-                | "prn"
-                | "aux"
-                | "nul"
-                | "com1"
-                | "com2"
-                | "com3"
-                | "com4"
-                | "com5"
-                | "com6"
-                | "com7"
-                | "com8"
-                | "com9"
-                | "lpt1"
-                | "lpt2"
-                | "lpt3"
-                | "lpt4"
-                | "lpt5"
-                | "lpt6"
-                | "lpt7"
-                | "lpt8"
-                | "lpt9"
-        )
-}
-
-fn valid_duration(value: &str) -> bool {
-    let Some(captures) = DURATION.captures(value) else {
-        return false;
-    };
-    let whole_text = captures["whole"].trim_start_matches('0');
-    let whole = if whole_text.is_empty() {
-        0
-    } else {
-        let Some(whole) = whole_text.parse::<u128>().ok() else {
-            return false;
-        };
-        whole
-    };
-    let factor = match &captures["unit"] {
-        "ns" => 1_u128,
-        "us" => 1_000,
-        "ms" => 1_000_000,
-        "s" => 1_000_000_000,
-        "min" => 60_000_000_000,
-        "h" => 3_600_000_000_000,
-        _ => return false,
-    };
-    let Some(mut nanoseconds) = whole.checked_mul(factor) else {
-        return false;
-    };
-    if let Some(fraction) = captures.name("fraction") {
-        let denominator = 10_u128.pow(fraction.as_str().len() as u32);
-        let Some(scaled_fraction) = fraction
-            .as_str()
-            .parse::<u128>()
-            .ok()
-            .and_then(|fraction| fraction.checked_mul(factor))
-        else {
-            return false;
-        };
-        if scaled_fraction % denominator != 0 {
-            return false;
-        }
-        let Some(total) = nanoseconds.checked_add(scaled_fraction / denominator) else {
-            return false;
-        };
-        nanoseconds = total;
-    }
-    nanoseconds <= i64::MAX as u128
-}
-
-fn valid_wall_clock_timestamp(value: &str) -> bool {
-    OffsetDateTime::parse(value, &Rfc3339)
-        .ok()
-        .and_then(|timestamp| timestamp.format(&Rfc3339).ok())
-        .is_some_and(|canonical| canonical == value)
-}
-
-fn strictly_sorted_unique(values: &[String]) -> bool {
-    values.windows(2).all(|items| items[0] < items[1])
-}
-
-fn finish_runtime_error(mut log: OperationLog, error: RuntimeFailure) -> InspectPackError {
-    let details = format!("status: failure\nerror: {error}\n");
+fn finish_runtime_error(
+    mut log: OperationLog,
+    error: RuntimeInfrastructureError,
+) -> InspectPackInfrastructureError {
+    let details = runtime_failure_log_details(&error);
     if let Err(log_error) = log.append(details.as_bytes()) {
-        return InspectPackError::operation_log(log_error);
+        return InspectPackInfrastructureError::operation_log(log_error);
     }
     match log.finish() {
-        Ok(log_path) => InspectPackError::Runtime {
+        Ok(log_path) => InspectPackInfrastructureError::Runtime {
             source: error,
             log_path,
         },
-        Err(log_error) => InspectPackError::operation_log(log_error),
+        Err(log_error) => InspectPackInfrastructureError::operation_log(log_error),
     }
+}
+
+fn runtime_failure_log_details(error: &RuntimeInfrastructureError) -> String {
+    format!(
+        "status: failure\nerror: {}\n",
+        project_inline_text(&error.to_string())
+    )
 }
 
 enum ExchangeError {
     Log(OperationLogError),
-    Runtime(RuntimeFailure),
+    Runtime(RuntimeInfrastructureError),
 }
 
-impl From<RuntimeFailure> for ExchangeError {
-    fn from(error: RuntimeFailure) -> Self {
+impl From<RuntimeInfrastructureError> for ExchangeError {
+    fn from(error: RuntimeInfrastructureError) -> Self {
         Self::Runtime(error)
     }
 }
 
 #[derive(Debug, Error, Diagnostic)]
-pub(crate) enum InspectPackError {
+pub(crate) enum InspectPackInfrastructureError {
     #[error("PACK inspection Operation log could not be delivered")]
     #[diagnostic(help("Provide a writable KAT Data Home and retry the complete inspection"))]
     OperationLog {
@@ -650,12 +239,12 @@ pub(crate) enum InspectPackError {
     #[diagnostic(help("Inspect the Operation log, correct the PACK or deployment, and retry"))]
     Runtime {
         #[source]
-        source: RuntimeFailure,
+        source: RuntimeInfrastructureError,
         log_path: String,
     },
 }
 
-impl InspectPackError {
+impl InspectPackInfrastructureError {
     fn operation_log(source: OperationLogError) -> Self {
         match source.readable_path() {
             Some(log_path) => Self::IncompleteOperationLog { source, log_path },
@@ -676,7 +265,7 @@ impl InspectPackError {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum RuntimeFailure {
+pub(crate) enum RuntimeInfrastructureError {
     #[error("PACK path cannot be represented as native Unicode: {0:?}")]
     NonUnicodePackPath(PathBuf),
     #[error("failed to create Runtime control directory")]
@@ -711,6 +300,8 @@ pub(crate) enum RuntimeFailure {
     },
     #[error("Runtime {0} capture thread failed")]
     StreamThread(&'static str),
+    #[error("Runtime output made no progress while draining after Bundled Python Host exit")]
+    StreamDrainTimeout,
     #[error("failed to wait for Bundled Python Host")]
     WaitHost(#[source] io::Error),
     #[error("Bundled Python Host exited without completing Runtime IPC (exit code {0:?})")]
@@ -726,11 +317,40 @@ pub(crate) enum RuntimeFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text_projection::TextProjection;
     use std::io::Write as _;
+    use std::thread;
     use std::time::{Duration, Instant};
 
     struct FailingLog {
         path: PathBuf,
+    }
+
+    #[derive(Default)]
+    struct RecordingLog {
+        bytes: Vec<u8>,
+    }
+
+    struct SlowRecordingLog {
+        bytes: Vec<u8>,
+        delay: Duration,
+    }
+
+    impl RuntimeLogSink for RecordingLog {
+        fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    impl RuntimeLogSink for SlowRecordingLog {
+        fn append(&mut self, bytes: &[u8]) -> Result<(), OperationLogError> {
+            if !bytes.is_empty() {
+                thread::sleep(self.delay);
+                self.bytes.extend_from_slice(bytes);
+            }
+            Ok(())
+        }
     }
 
     impl RuntimeLogSink for FailingLog {
@@ -767,11 +387,48 @@ mod tests {
     #[test]
     fn strict_response_rejects_unknown_fields_and_incomplete_parameter_contracts() {
         let unknown = br#"{"status":"success","result":{"workflows":[],"extra":true}}"#;
-        assert!(serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(unknown).is_err());
+        assert!(
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(unknown).is_err()
+        );
+
+        let missing_failure_owner = br#"{"status":"failure","error":{"message":"failed"}}"#;
+        assert!(
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(
+                missing_failure_owner
+            )
+            .is_err()
+        );
+        let unknown_failure_owner =
+            br#"{"status":"failure","failure_owner":"deployment","error":{"message":"failed"}}"#;
+        assert!(
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(
+                unknown_failure_owner
+            )
+            .is_err()
+        );
+        let pack_failure =
+            br#"{"status":"failure","failure_owner":"pack","error":{"message":"failed"}}"#;
+        assert!(matches!(
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(pack_failure)
+                .unwrap(),
+            RuntimeResponse::Failure {
+                failure_owner: RuntimeFailureOwner::Pack,
+                ..
+            }
+        ));
+        let request_failure = br#"{"status":"failure","failure_owner":"runtime_request","error":{"message":"failed"}}"#;
+        assert!(matches!(
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(request_failure)
+                .unwrap(),
+            RuntimeResponse::Failure {
+                failure_owner: RuntimeFailureOwner::RuntimeRequest,
+                ..
+            }
+        ));
 
         let response = br#"{"status":"success","result":{"workflows":[{"name":"a","title":"A","description":"A","required_tables":[],"parameters":[{"name":"flag","option":"--flag","type":"boolean","required":false,"description":"Flag","default":false}]}]}}"#;
         let RuntimeResponse::Success { result } =
-            serde_json::from_slice::<RuntimeResponse<InspectPackResult>>(response).unwrap()
+            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(response).unwrap()
         else {
             panic!("expected success response");
         };
@@ -783,7 +440,8 @@ mod tests {
                 "result": {"workflows": [workflow]}
             });
             let RuntimeResponse::Success { result } =
-                serde_json::from_value::<RuntimeResponse<InspectPackResult>>(response).unwrap()
+                serde_json::from_value::<RuntimeResponse<InspectPackRuntimeResult>>(response)
+                    .unwrap()
             else {
                 panic!("expected success response");
             };
@@ -884,7 +542,7 @@ mod tests {
         let path = temporary.path().join("partial.log");
         fs::write(&path, "partial\n").unwrap();
 
-        let error = InspectPackError::operation_log(OperationLogError::Flush {
+        let error = InspectPackInfrastructureError::operation_log(OperationLogError::Flush {
             path,
             source: io::Error::other("injected flush failure"),
         });
@@ -895,11 +553,12 @@ mod tests {
         );
         assert!(matches!(
             error,
-            InspectPackError::IncompleteOperationLog { .. }
+            InspectPackInfrastructureError::IncompleteOperationLog { .. }
         ));
     }
 
     #[test]
+    #[allow(clippy::zombie_processes)] // exit cases intentionally leave pipe-owning descendants to the parent test
     fn inherited_pipe_helper() {
         match std::env::var("KAT_INHERITED_PIPE_HELPER").as_deref() {
             Ok("direct") => {
@@ -921,9 +580,203 @@ mod tests {
                 thread::sleep(Duration::from_secs(30));
                 descendant.wait().unwrap();
             }
+            Ok("direct-exit") => {
+                let executable = std::env::current_exe().unwrap();
+                Command::new(executable)
+                    .args([
+                        "--exact",
+                        "workflow_runtime::tests::inherited_pipe_helper",
+                        "--nocapture",
+                    ])
+                    .env("KAT_INHERITED_PIPE_HELPER", "descendant")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .unwrap();
+                println!("direct Runtime output");
+                io::stdout().flush().unwrap();
+            }
+            Ok("burst-exit") => {
+                let mut stdout = io::stdout();
+                stdout.write_all(&vec![b'x'; 512 * 1024]).unwrap();
+                stdout.flush().unwrap();
+            }
+            Ok(mode @ ("late-exit" | "active-exit")) => {
+                let executable = std::env::current_exe().unwrap();
+                let descendant_mode = if mode == "late-exit" {
+                    "late-descendant"
+                } else {
+                    "active-descendant"
+                };
+                Command::new(executable)
+                    .args([
+                        "--exact",
+                        "workflow_runtime::tests::inherited_pipe_helper",
+                        "--nocapture",
+                    ])
+                    .env("KAT_INHERITED_PIPE_HELPER", descendant_mode)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .unwrap();
+            }
+            Ok("late-descendant") => {
+                thread::sleep(Duration::from_millis(250));
+                println!("\x1b[31mlate Runtime output \u{1f600}\x1b[0m");
+                io::stdout().flush().unwrap();
+            }
+            Ok("active-descendant") => {
+                for index in 0..4 {
+                    thread::sleep(Duration::from_millis(700));
+                    println!("active Runtime output {index}");
+                    io::stdout().flush().unwrap();
+                }
+            }
             Ok("descendant") => thread::sleep(Duration::from_secs(3)),
             _ => {}
         }
+    }
+
+    #[test]
+    fn runtime_exit_reports_stalled_inherited_pipes_as_failure() {
+        let executable = std::env::current_exe().unwrap();
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "workflow_runtime::tests::inherited_pipe_helper",
+                "--nocapture",
+            ])
+            .env("KAT_INHERITED_PIPE_HELPER", "direct-exit")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut log = RecordingLog::default();
+        let started = Instant::now();
+
+        let result = capture_streams(&mut child, &mut log);
+
+        assert!(matches!(
+            result,
+            Err(ExchangeError::Runtime(
+                RuntimeInfrastructureError::StreamDrainTimeout
+            ))
+        ));
+        assert!(started.elapsed() >= Duration::from_secs(2));
+        assert!(
+            String::from_utf8(log.bytes)
+                .unwrap()
+                .contains("direct Runtime output\n")
+        );
+        thread::sleep(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn runtime_exit_captures_late_output_before_eof() {
+        let executable = std::env::current_exe().unwrap();
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "workflow_runtime::tests::inherited_pipe_helper",
+                "--nocapture",
+            ])
+            .env("KAT_INHERITED_PIPE_HELPER", "late-exit")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut log = RecordingLog::default();
+        let started = Instant::now();
+
+        let Ok(status) = capture_streams(&mut child, &mut log) else {
+            panic!("capture must succeed");
+        };
+
+        assert!(status.success());
+        assert!(started.elapsed() >= Duration::from_millis(200));
+        let log = String::from_utf8(log.bytes).unwrap();
+        assert!(log.contains("late Runtime output \u{1f600}\n"));
+        assert!(!log.contains('\x1b'));
+    }
+
+    #[test]
+    fn runtime_exit_allows_active_drain_beyond_stall_limit() {
+        let executable = std::env::current_exe().unwrap();
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "workflow_runtime::tests::inherited_pipe_helper",
+                "--nocapture",
+            ])
+            .env("KAT_INHERITED_PIPE_HELPER", "active-exit")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut log = RecordingLog::default();
+        let started = Instant::now();
+
+        let Ok(status) = capture_streams(&mut child, &mut log) else {
+            panic!("capture must succeed");
+        };
+
+        assert!(status.success());
+        assert!(started.elapsed() >= Duration::from_secs(2));
+        assert!(
+            String::from_utf8(log.bytes)
+                .unwrap()
+                .contains("active Runtime output 3\n")
+        );
+    }
+
+    #[test]
+    fn runtime_exit_drains_queued_output_before_reporting_success() {
+        let executable = std::env::current_exe().unwrap();
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "workflow_runtime::tests::inherited_pipe_helper",
+                "--nocapture",
+            ])
+            .env("KAT_INHERITED_PIPE_HELPER", "burst-exit")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut log = SlowRecordingLog {
+            bytes: Vec::new(),
+            delay: Duration::from_millis(5),
+        };
+
+        let Ok(status) = capture_streams(&mut child, &mut log) else {
+            panic!("capture must succeed");
+        };
+
+        assert!(status.success());
+        assert!(log.bytes.iter().filter(|byte| **byte == b'x').count() >= 512 * 1024);
+    }
+
+    #[test]
+    fn runtime_failure_log_keeps_error_on_one_plain_text_line() {
+        let error = RuntimeInfrastructureError::InvalidPayload(PathBuf::from(
+            "bad\x1b[31m\r\n\tpath\u{0007}",
+        ));
+
+        let details = runtime_failure_log_details(&error);
+
+        assert_eq!(
+            details,
+            "status: failure\nerror: KAT executable has no Platform Payload directory: bad\\n\\tpath\\u{0007}\n"
+        );
+        assert!(!details.contains('\x1b'));
+        assert!(!details.contains('\r'));
+        assert_eq!(details.lines().count(), 2);
     }
 
     #[test]

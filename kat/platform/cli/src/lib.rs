@@ -16,6 +16,7 @@ use miette::Diagnostic;
 use operation_log::{OperationLog, OperationLogError};
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
 use serde::Serialize;
+use text_projection::project_inline_text;
 use thiserror::Error;
 
 #[derive(Parser)]
@@ -29,7 +30,7 @@ struct Cli {
 enum Operation {
     /// Import one source into a complete KAT Dataset.
     Import(ImportArgs),
-    /// Inspect available PACKs or one KAT Dataset.
+    /// Inspect available PACKs, one exact PACK, or one KAT Dataset.
     Inspect {
         /// Inspect one exact PACK by manifest name.
         #[arg(long, value_name = "NAME", conflicts_with = "dataset")]
@@ -191,7 +192,11 @@ fn inspect_target_pack(
         ));
     };
     let mut log = match OperationLog::create(&data_home, "inspect", |file| {
-        writeln!(file, "operation: kat inspect --pack\npack: {pack_name}")
+        writeln!(
+            file,
+            "operation: kat inspect --pack\npack: {}",
+            pack_name.escape_debug()
+        )
     }) {
         Ok(log) => log,
         Err(error) => return inspect_target_log_failure(error),
@@ -211,7 +216,7 @@ fn inspect_target_pack(
         Err(source) => {
             return finish_inspect_target_failure(
                 log,
-                InspectTargetPackError::Discovery { source },
+                InspectTargetPackError::PackDiscovery(source.into()),
             );
         }
     };
@@ -233,7 +238,11 @@ fn inspect_target_pack(
             project_inspected_pack(pack, workflows),
             Some(log_path),
         ),
-        Ok(workflow_runtime::InspectPackOutcome::Failure {
+        Ok(workflow_runtime::InspectPackOutcome::PackFailure {
+            diagnostic,
+            log_path,
+        }) => response::prepare_runtime_failure(diagnostic, log_path),
+        Ok(workflow_runtime::InspectPackOutcome::RuntimeRequestFailure {
             diagnostic,
             log_path,
         }) => response::prepare_runtime_failure(diagnostic, log_path),
@@ -248,7 +257,11 @@ fn finish_inspect_target_failure(
     mut log: OperationLog,
     error: InspectTargetPackError,
 ) -> response::PreparedResponse<InspectPackResult> {
-    if let Err(log_error) = log.append(format!("status: failure\nerror: {error}\n").as_bytes()) {
+    let details = format!(
+        "status: failure\nerror: {}\n",
+        project_inline_text(&error.to_string())
+    );
+    if let Err(log_error) = log.append(details.as_bytes()) {
         return inspect_target_log_failure(log_error);
     }
     let report = miette::Report::new(error);
@@ -515,7 +528,7 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     })
-    .map_err(InspectPacksError::from)?;
+    .map_err(PackDiscoveryFailure::from)?;
 
     Ok(InspectPacksResult {
         packs: discovered.iter().map(project_pack).collect(),
@@ -654,6 +667,52 @@ enum SkillRootError {
 }
 
 #[derive(Debug, Error, Diagnostic)]
+enum PackDiscoveryFailure {
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
+    Discovery {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help(
+        "Make the default PACK search path a readable directory or remove it, then retry"
+    ))]
+    DefaultPackSearchPath {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
+    DuplicatePackName {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+}
+
+impl From<pack_discovery::PackDiscoveryError> for PackDiscoveryFailure {
+    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
+        match source {
+            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
+                Self::DuplicatePackName {
+                    source: Box::new(source),
+                }
+            }
+            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
+                Self::DefaultPackSearchPath {
+                    source: Box::new(source),
+                }
+            }
+            source => Self::Discovery {
+                source: Box::new(source),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Error, Diagnostic)]
 enum InspectPacksError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help(
@@ -667,42 +726,9 @@ enum InspectPacksError {
     #[error("KAT Data Home is unavailable on this platform")]
     #[diagnostic(help("Run KAT on Linux or Windows with a platform standard user data directory"))]
     DataHomeUnavailable,
-    #[error("PACK discovery failed")]
-    #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
-    Discovery {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
-    #[error("PACK discovery failed")]
-    #[diagnostic(help(
-        "Make the default PACK search path a readable directory or remove it, then retry"
-    ))]
-    DefaultPackSearchPath {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
-    #[error("PACK discovery failed")]
-    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
-    DuplicatePackName {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
-}
-
-impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
-    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
-        match source {
-            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
-                Self::DuplicatePackName { source }
-            }
-            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
-            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
-            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
-                Self::DefaultPackSearchPath { source }
-            }
-            source => Self::Discovery { source },
-        }
-    }
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PackDiscovery(#[from] PackDiscoveryFailure),
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -721,12 +747,9 @@ enum InspectTargetPackError {
         "Inspect the partial log if present, then provide writable storage and retry"
     ))]
     IncompleteOperationLog(#[source] OperationLogError),
-    #[error("PACK discovery failed")]
-    #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
-    Discovery {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PackDiscovery(#[from] PackDiscoveryFailure),
     #[error("PACK {name:?} was not discovered")]
     #[diagnostic(help(
         "Use the exact manifest name from `kat inspect`, or add its directory with --pack-dir"

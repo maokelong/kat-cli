@@ -6,7 +6,7 @@ import re
 import types
 import typing
 from dataclasses import dataclass
-from typing import Any, Literal, get_args, get_origin
+from typing import Any, Literal, NotRequired, TypedDict, get_args, get_origin
 
 import click
 import kat
@@ -15,6 +15,27 @@ from kat._workflow import _normalize_required_tables
 
 _WORKFLOW_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _MISSING = inspect.Signature.empty
+
+WorkflowDefault = str | float | bool | None
+
+
+class WorkflowParameter(TypedDict):
+    name: str
+    option: str
+    type: str
+    required: bool
+    description: str
+    negative_option: NotRequired[str]
+    choices: NotRequired[list[str]]
+    default: NotRequired[WorkflowDefault]
+
+
+class WorkflowInterface(TypedDict):
+    name: str
+    title: str
+    description: str
+    required_tables: list[str]
+    parameters: list[WorkflowParameter]
 
 
 class _FiniteFloat(click.ParamType):
@@ -57,7 +78,7 @@ class _WallClockType(click.ParamType):
 @dataclass(frozen=True)
 class CompiledWorkflow:
     function: typing.Callable[..., Any]
-    interface: dict[str, Any]
+    interface: WorkflowInterface
     command: click.Command
 
     def parse_arguments(self, arguments: typing.Sequence[str]) -> dict[str, Any]:
@@ -76,7 +97,7 @@ class CompiledWorkflow:
             context.close()
 
 
-def inspect_declared_workflow(function: typing.Callable[..., Any]) -> dict[str, Any]:
+def inspect_declared_workflow(function: typing.Callable[..., Any]) -> WorkflowInterface:
     return compile_declared_workflow(function).interface
 
 
@@ -104,11 +125,14 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
     except ImportError:
         signature = inspect.signature(function, eval_str=False)
     else:
-        signature = inspect.signature(
-            function,
-            eval_str=False,
-            annotation_format=annotationlib.Format.FORWARDREF,
-        )
+        try:
+            signature = inspect.signature(
+                function,
+                eval_str=False,
+                annotation_format=annotationlib.Format.STRING,
+            )
+        except (Exception, SystemExit) as error:
+            raise ValueError("cannot inspect Workflow annotations") from error
     parameters = list(signature.parameters.values())
     if not parameters:
         raise ValueError("Workflow must start with ctx")
@@ -133,7 +157,7 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
             raise ValueError(f"Workflow parameter {name!r} description must not be empty")
 
     options: list[click.Option] = []
-    projections: list[dict[str, Any]] = []
+    projections: list[WorkflowParameter] = []
     for parameter in user_parameters:
         if parameter.kind not in (
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -155,10 +179,18 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
     for option, projection in zip(options, projections, strict=True):
         if not projection["required"]:
             try:
-                effective = option.process_value(context, option.get_default(context, call=True))
-            except click.ClickException as error:
+                effective = option.type_cast_value(
+                    context, option.get_default(context, call=True)
+                )
+            except (Exception, SystemExit) as error:
+                detail = (
+                    error.format_message()
+                    if isinstance(error, click.ClickException)
+                    else str(error)
+                )
                 raise ValueError(
-                    f"Workflow parameter {projection['name']!r} default is invalid: {error.format_message()}"
+                    f"Workflow parameter {projection['name']!r} default is invalid: "
+                    f"{detail or type(error).__name__}"
                 ) from error
             projection["default"] = _project_default(projection["type"], effective)
 
@@ -178,31 +210,25 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
 def _resolve_annotation(function: typing.Callable[..., Any], parameter: inspect.Parameter) -> object:
     if parameter.annotation is _MISSING:
         raise ValueError(f"Workflow parameter {parameter.name!r} is missing an annotation")
-    annotation = parameter.annotation
+
+    def annotation_holder() -> None:
+        pass
+
+    annotation_holder.__annotations__ = {parameter.name: parameter.annotation}
     try:
-        import annotationlib
-    except ImportError:
-        if not isinstance(annotation, str):
-            return annotation
-        try:
-            return eval(annotation, function.__globals__, {})
-        except Exception as error:
-            raise ValueError(f"cannot resolve Workflow parameter {parameter.name!r} annotation") from error
-    try:
-        if isinstance(annotation, str):
-            annotation = typing.ForwardRef(annotation)
-        if isinstance(annotation, annotationlib.ForwardRef):
-            return typing.evaluate_forward_ref(
-                annotation, owner=function, globals=function.__globals__
-            )
-        return annotation
-    except Exception as error:
+        return typing.get_type_hints(
+            annotation_holder,
+            globalns=function.__globals__,
+            localns={},
+            include_extras=True,
+        )[parameter.name]
+    except (Exception, SystemExit) as error:
         raise ValueError(f"cannot resolve Workflow parameter {parameter.name!r} annotation") from error
 
 
 def _compile_parameter(
     parameter: inspect.Parameter, annotation: object, description: str
-) -> tuple[click.Option, dict[str, Any]]:
+) -> tuple[click.Option, WorkflowParameter]:
     optional = False
     origin = get_origin(annotation)
     if origin in (types.UnionType, typing.Union):
@@ -262,7 +288,7 @@ def _compile_parameter(
     }
     if parameter.default is not _MISSING:
         option_arguments["default"] = parameter.default
-    projection: dict[str, Any] = {
+    projection: WorkflowParameter = {
         "name": parameter.name,
         "option": option_name,
         "type": public_type,
@@ -279,7 +305,7 @@ def _compile_parameter(
     return click.Option(declarations, **option_arguments), projection
 
 
-def _project_default(public_type: str, value: object) -> object:
+def _project_default(public_type: str, value: object) -> WorkflowDefault:
     if value is None:
         return None
     if public_type == "int64":
@@ -290,4 +316,4 @@ def _project_default(public_type: str, value: object) -> object:
         return bool(value)
     if public_type in ("duration", "wall_clock_timestamp"):
         return str(value)
-    return value
+    return typing.cast(str, value)

@@ -1,6 +1,13 @@
-use std::{io::Write, process::ExitCode};
+use std::{
+    error::Error,
+    fmt::{self, Display},
+    io::Write,
+    process::ExitCode,
+};
 
-use miette::Diagnostic;
+use miette::{
+    Diagnostic, LabeledSpan, MietteError, MietteSpanContents, SourceCode, SourceSpan, SpanContents,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::text_projection::project_complete_text;
@@ -26,11 +33,11 @@ enum KatResponse<P> {
     },
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct KatDiagnostic {
     message: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_non_empty_causes")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     causes: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_optional_nonnull")]
@@ -49,6 +56,19 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+fn deserialize_non_empty_causes<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let causes = Vec::<String>::deserialize(deserializer)?;
+    if causes.is_empty() {
+        return Err(serde::de::Error::custom(
+            "Runtime Diagnostic causes must be omitted or non-empty",
+        ));
+    }
+    Ok(causes)
+}
+
 impl KatDiagnostic {
     pub(super) fn validate(&self) -> bool {
         !self.message.trim().is_empty()
@@ -61,7 +81,7 @@ impl KatDiagnostic {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DiagnosticLocation {
     source: String,
@@ -71,7 +91,7 @@ struct DiagnosticLocation {
 
 impl DiagnosticLocation {
     fn valid(&self) -> bool {
-        !self.source.trim().is_empty()
+        valid_runtime_location_source(&self.source)
             && self.start.line > 0
             && self.start.column > 0
             && self.end.line > 0
@@ -80,7 +100,7 @@ impl DiagnosticLocation {
     }
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DiagnosticPosition {
     line: usize,
@@ -149,7 +169,8 @@ pub(super) fn prepare_runtime_failure<P>(
     diagnostic: KatDiagnostic,
     log_path: String,
 ) -> PreparedResponse<P> {
-    let rendered_diagnostic = RenderedDiagnostic(render_runtime_diagnostic(&diagnostic));
+    let report = miette::Report::new(RuntimeDiagnosticPresentation::new(&diagnostic));
+    let rendered_diagnostic = RenderedDiagnostic(project_complete_text(&format!("{report:?}")));
     PreparedResponse {
         response: KatResponse::Failure {
             error: diagnostic,
@@ -160,23 +181,139 @@ pub(super) fn prepare_runtime_failure<P>(
     }
 }
 
-fn render_runtime_diagnostic(diagnostic: &KatDiagnostic) -> String {
-    let mut rendered = diagnostic.message.clone();
-    for cause in &diagnostic.causes {
-        rendered.push_str("\n  caused by: ");
-        rendered.push_str(cause);
+#[derive(Debug)]
+struct RuntimeDiagnosticPresentation {
+    message: String,
+    cause: Option<Box<RuntimeDiagnosticCause>>,
+    help: Option<String>,
+    location: Option<RuntimeDiagnosticLocation>,
+}
+
+impl RuntimeDiagnosticPresentation {
+    fn new(diagnostic: &KatDiagnostic) -> Self {
+        let cause = diagnostic
+            .causes
+            .iter()
+            .rev()
+            .fold(None, |source, message| {
+                Some(Box::new(RuntimeDiagnosticCause {
+                    message: message.clone(),
+                    source,
+                }))
+            });
+        Self {
+            message: diagnostic.message.clone(),
+            cause,
+            help: diagnostic.help.clone(),
+            location: diagnostic
+                .location
+                .as_ref()
+                .map(RuntimeDiagnosticLocation::from),
+        }
     }
-    if let Some(help) = &diagnostic.help {
-        rendered.push_str("\n  help: ");
-        rendered.push_str(help);
+}
+
+fn valid_runtime_location_source(source: &str) -> bool {
+    if source.is_empty()
+        || source != source.trim()
+        || source.starts_with('/')
+        || source.starts_with('\\')
+        || source.contains('\\')
+        || source.chars().any(char::is_control)
+    {
+        return false;
     }
-    if let Some(location) = &diagnostic.location {
-        rendered.push_str(&format!(
-            "\n  at {}:{}:{}",
-            location.source, location.start.line, location.start.column
-        ));
+    let bytes = source.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return false;
     }
-    project_complete_text(&rendered)
+    source
+        .split('/')
+        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+impl Display for RuntimeDiagnosticPresentation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl Error for RuntimeDiagnosticPresentation {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref().map(|cause| cause as _)
+    }
+}
+
+impl Diagnostic for RuntimeDiagnosticPresentation {
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.help
+            .as_ref()
+            .map(|help| Box::new(help) as Box<dyn Display>)
+    }
+
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        self.location.as_ref().map(|location| location as _)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        self.location.as_ref()?;
+        Some(Box::new(std::iter::once(
+            LabeledSpan::new_primary_with_span(None, (0, 0)),
+        )))
+    }
+}
+
+#[derive(Debug)]
+struct RuntimeDiagnosticCause {
+    message: String,
+    source: Option<Box<RuntimeDiagnosticCause>>,
+}
+
+impl Display for RuntimeDiagnosticCause {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl Error for RuntimeDiagnosticCause {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.source.as_deref().map(|source| source as _)
+    }
+}
+
+#[derive(Debug)]
+struct RuntimeDiagnosticLocation {
+    source: String,
+    start: DiagnosticPosition,
+    end: DiagnosticPosition,
+}
+
+impl From<&DiagnosticLocation> for RuntimeDiagnosticLocation {
+    fn from(location: &DiagnosticLocation) -> Self {
+        Self {
+            source: location.source.clone(),
+            start: location.start,
+            end: location.end,
+        }
+    }
+}
+
+impl SourceCode for RuntimeDiagnosticLocation {
+    fn read_span<'a>(
+        &'a self,
+        span: &SourceSpan,
+        _context_lines_before: usize,
+        _context_lines_after: usize,
+    ) -> Result<Box<dyn SpanContents<'a> + 'a>, MietteError> {
+        Ok(Box::new(MietteSpanContents::new_named(
+            self.source.clone(),
+            &[],
+            *span,
+            self.start.line - 1,
+            self.start.column - 1,
+            self.end.line - self.start.line + 1,
+        )))
+    }
 }
 
 fn project_location(diagnostic: &dyn Diagnostic) -> Option<DiagnosticLocation> {
@@ -440,8 +577,12 @@ mod tests {
             KatDiagnostic {
                 message: "Runtime failure".to_owned(),
                 causes: vec![cause.clone()],
-                help: None,
-                location: None,
+                help: Some("repair Runtime input".to_owned()),
+                location: Some(DiagnosticLocation {
+                    source: "workflows/cpu.py".to_owned(),
+                    start: DiagnosticPosition { line: 3, column: 5 },
+                    end: DiagnosticPosition { line: 3, column: 8 },
+                }),
             },
             "log.txt".to_owned(),
         );
@@ -456,5 +597,49 @@ mod tests {
         assert!(!terminal.contains('\x1b'));
         assert!(!terminal.contains('\0'));
         assert!(terminal.contains("red\nline\\u{0000}"));
+        assert!(terminal.contains("repair Runtime input"));
+        assert!(terminal.contains("workflows/cpu.py:3:5"));
+    }
+
+    #[test]
+    fn runtime_diagnostic_rejects_explicit_empty_causes() {
+        let error = serde_json::from_value::<KatDiagnostic>(serde_json::json!({
+            "message": "Runtime failure",
+            "causes": []
+        }))
+        .expect_err("an explicit empty causes field is not a valid sparse Diagnostic");
+
+        assert!(
+            error
+                .to_string()
+                .contains("causes must be omitted or non-empty")
+        );
+    }
+
+    #[test]
+    fn runtime_diagnostic_rejects_non_relative_location_sources() {
+        for source in [
+            "/tmp/request.json",
+            "../request.json",
+            "workflows/../request.json",
+            "workflows\\cpu.py",
+            "C:/private/request.json",
+            "workflows//cpu.py",
+            "workflows/cpu.py\nforged",
+        ] {
+            let diagnostic = KatDiagnostic {
+                message: "Runtime failure".to_owned(),
+                causes: Vec::new(),
+                help: None,
+                location: Some(DiagnosticLocation {
+                    source: source.to_owned(),
+                    start: DiagnosticPosition { line: 1, column: 1 },
+                    end: DiagnosticPosition { line: 1, column: 2 },
+                }),
+            };
+
+            assert!(!diagnostic.validate(), "accepted private source {source:?}");
+        }
+        assert!(valid_runtime_location_source("workflows/分析.py"));
     }
 }

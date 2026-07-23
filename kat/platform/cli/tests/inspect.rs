@@ -2,6 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 
 use base64::Engine;
@@ -40,7 +41,7 @@ fn stage_fake_python_host(binary: &Path) {
     fs::write(
         &source,
         r#"
-use std::{env, fs, io::{self, Write}, process};
+use std::{env, fs, io::{self, Write}, process, thread, time::Duration};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -60,9 +61,13 @@ fn main() {
     }
     io::stdout().write_all(b"\x1b[31mruntime stdout\x1b[0m\r\ninvalid: \xff\r").unwrap();
     io::stderr().write_all(b"runtime stderr\r\n").unwrap();
+    if let Ok(milliseconds) = env::var("KAT_FAKE_RUNTIME_WAIT_AFTER_OUTPUT_MS") {
+        thread::sleep(Duration::from_millis(milliseconds.parse().unwrap()));
+    }
     fs::write(&arguments[10], env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap()).unwrap();
     process::exit(env::var("KAT_FAKE_RUNTIME_EXIT").unwrap_or_else(|_| "0".to_owned()).parse().unwrap());
 }
+
 "#,
     )
     .expect("write fake Host source");
@@ -78,6 +83,61 @@ fn main() {
         "fake Host compilation failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn stage_real_python_host(binary: &Path, python: &Path, workflow_wheel: &Path) {
+    let payload = binary.parent().expect("Platform Payload directory");
+    let environment = if cfg!(windows) {
+        payload.to_path_buf()
+    } else {
+        payload.join("python")
+    };
+    let output = Command::new(python)
+        .args(["-m", "venv"])
+        .arg(&environment)
+        .output()
+        .expect("create real Workflow Host environment");
+    assert!(
+        output.status.success(),
+        "Workflow Host environment creation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let environment_python = if cfg!(windows) {
+        payload.join("Scripts").join("python.exe")
+    } else {
+        payload.join("python").join("bin").join("python3")
+    };
+    let output = Command::new(&environment_python)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--ignore-requires-python",
+            "--no-index",
+            "--find-links",
+        ])
+        .arg(
+            workflow_wheel
+                .parent()
+                .expect("Workflow wheel belongs to a wheelhouse"),
+        )
+        .arg(workflow_wheel)
+        .output()
+        .expect("install Workflow Host wheel");
+    assert!(
+        output.status.success(),
+        "Workflow Host wheel installation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    #[cfg(windows)]
+    {
+        let host = payload.join("python").join("python.exe");
+        fs::create_dir_all(host.parent().unwrap()).expect("create real Host directory");
+        fs::copy(environment_python, host).expect("stage real Windows Host executable");
+    }
 }
 
 fn prepare_platform_data_home(command: &mut Command, root: &Path) {
@@ -176,6 +236,100 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
 }
 
 #[test]
+#[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
+fn targeted_pack_inspection_runs_real_installed_workflow_host() {
+    let python = PathBuf::from(
+        std::env::var_os("KAT_TEST_PYTHON").expect("KAT_TEST_PYTHON identifies CPython"),
+    );
+    let workflow_wheel = PathBuf::from(
+        std::env::var_os("KAT_TEST_WORKFLOW_WHEEL")
+            .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
+    );
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_real_python_host(&binary, &python, &workflow_wheel);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let workflows = pack.join("workflows");
+    fs::create_dir_all(&workflows).expect("create Workflow directory");
+    fs::write(
+        workflows.join("cpu.py"),
+        r#"from kat import Context, workflow
+
+@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+def analyze(ctx: Context, *, limit: int = 10):
+    """Analyze CPU time."""
+"#,
+    )
+    .expect("write Workflow entry");
+
+    let mut command = Command::new(&binary);
+    command
+        .arg("inspect")
+        .args(["--pack", "alpha"])
+        .arg("--pack-dir")
+        .arg(&pack);
+    prepare_platform_data_home(&mut command, temporary.path());
+    let output = command.output().expect("inspect with real Workflow Host");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(response["result"]["name"], "alpha");
+    assert_eq!(response["result"]["workflows"][0]["name"], "cpu-time");
+    assert_eq!(
+        response["result"]["workflows"][0]["parameters"][0]["default"],
+        "10"
+    );
+    assert!(!pack.join("workflows").join("__pycache__").exists());
+
+    fs::write(
+        workflows.join("cpu.py"),
+        r#"from kat import Context, workflow
+
+class MetadataProxy:
+    def __getattribute__(self, attribute):
+        if attribute == "__module__":
+            raise RuntimeError("author metadata must not execute")
+        return object.__getattribute__(self, attribute)
+
+proxy = MetadataProxy()
+
+def invalid_default():
+    raise RuntimeError("author default failed")
+
+@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+def analyze(ctx: Context, *, limit: int = invalid_default):
+    """Analyze CPU time."""
+"#,
+    )
+    .expect("replace Workflow entry with an author failure");
+
+    let mut command = targeted_inspect_command(&binary, temporary.path(), &pack);
+    let output = command
+        .output()
+        .expect("inspect author failure with real Workflow Host");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    assert_eq!(response["error"]["message"], "PACK inspection failed");
+    assert!(response.get("result").is_none());
+    assert!(response.get("failure_owner").is_none());
+    let log_path = PathBuf::from(
+        response["log_path"]
+            .as_str()
+            .expect("readable Operation log"),
+    );
+    assert!(log_path.is_file());
+}
+
+#[test]
 fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
@@ -226,7 +380,7 @@ fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
     let mut failure = targeted_inspect_command(&binary, temporary.path(), &pack);
     failure.env(
         "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"failure","error":{"message":"PACK declaration is invalid","causes":["missing docstring"],"help":"Add a docstring"}}"#,
+        r#"{"status":"failure","failure_owner":"pack","error":{"message":"PACK declaration is invalid","causes":["missing docstring"],"help":"Add a docstring"}}"#,
     );
     let failure = failure.output().expect("run legal Runtime failure");
     assert_eq!(failure.status.code(), Some(1));
@@ -295,13 +449,135 @@ fn targeted_pack_preflight_failures_still_deliver_the_single_operation_log() {
     assert!(log.contains("operation: kat inspect --pack"));
     assert!(log.contains("pack: missing"));
     assert!(log.contains("status: failure"));
+
+    let duplicate = temporary.path().join("duplicate-checkout");
+    write_pack(&duplicate, "alpha", "Duplicate PACK");
+    let mut duplicate_command = Command::new(&binary);
+    duplicate_command
+        .arg("inspect")
+        .args(["--pack", "alpha"])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .arg("--pack-dir")
+        .arg(&duplicate);
+    prepare_platform_data_home(&mut duplicate_command, temporary.path());
+
+    let duplicate_output = duplicate_command
+        .output()
+        .expect("reject duplicate PACK name");
+
+    assert_eq!(duplicate_output.status.code(), Some(1));
+    let duplicate_response: serde_json::Value =
+        serde_json::from_slice(&duplicate_output.stdout).unwrap();
+    assert_eq!(
+        duplicate_response["error"]["help"],
+        "Remove one conflicting PACK or give the PACKs distinct names, then retry"
+    );
+    let duplicate_log =
+        fs::read_to_string(duplicate_response["log_path"].as_str().unwrap()).unwrap();
+    assert!(duplicate_log.contains("status: failure"));
     #[cfg(not(windows))]
     assert_eq!(
         fs::read_dir(data_home(temporary.path()).join("logs"))
             .unwrap()
             .count(),
-        1
+        2
     );
+}
+
+#[test]
+fn targeted_pack_log_header_escapes_untrusted_pack_name() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    let mut command = Command::new(binary);
+    command
+        .arg("inspect")
+        .arg("--pack")
+        .arg("bad\nforged:\x1b[31mred\r")
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"workflows":[]}}"#,
+        );
+    prepare_platform_data_home(&mut command, temporary.path());
+
+    let output = command.output().expect("reject untrusted PACK name");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(!log.contains('\x1b'));
+    assert!(!log.contains('\r'));
+    assert!(log.contains("pack: bad\\nforged:"));
+    assert!(log.contains("error: PACK \"bad\\nforged:"));
+    assert!(!log.lines().any(|line| line.starts_with("forged:")));
+}
+
+#[test]
+fn targeted_pack_log_write_and_flush_faults_replace_runtime_success() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_fake_python_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+
+    let mut write_fault = targeted_inspect_command(&binary, temporary.path(), &pack);
+    write_fault
+        .env("KAT_TEST_OPERATION_LOG_FAULT", "write:2")
+        .env("KAT_FAKE_RUNTIME_WAIT_AFTER_OUTPUT_MS", "30000");
+    let started = Instant::now();
+    let write_output = write_fault.output().expect("inject log write failure");
+    assert!(started.elapsed() < Duration::from_secs(20));
+    assert_eq!(write_output.status.code(), Some(1));
+    let write_response: serde_json::Value = serde_json::from_slice(&write_output.stdout).unwrap();
+    assert_eq!(
+        write_response["error"]["message"],
+        "PACK inspection Operation log is incomplete"
+    );
+    assert!(
+        write_response["error"]["causes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|cause| cause
+                .as_str()
+                .unwrap()
+                .contains("injected test write failure"))
+    );
+    assert!(write_response.get("result").is_none());
+    assert!(
+        String::from_utf8_lossy(&write_output.stderr)
+            .contains("PACK inspection Operation log is incomplete")
+    );
+    let write_log = fs::read_to_string(write_response["log_path"].as_str().unwrap()).unwrap();
+    assert!(write_log.contains("path:"));
+
+    let mut flush_fault = targeted_inspect_command(&binary, temporary.path(), &pack);
+    flush_fault.env("KAT_TEST_OPERATION_LOG_FAULT", "flush");
+    let flush_output = flush_fault.output().expect("inject log flush failure");
+    assert_eq!(flush_output.status.code(), Some(1));
+    let flush_response: serde_json::Value = serde_json::from_slice(&flush_output.stdout).unwrap();
+    assert_eq!(
+        flush_response["error"]["message"],
+        "PACK inspection Operation log is incomplete"
+    );
+    assert!(
+        flush_response["error"]["causes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|cause| cause
+                .as_str()
+                .unwrap()
+                .contains("injected test flush failure"))
+    );
+    assert!(flush_response.get("result").is_none());
+    assert!(
+        String::from_utf8_lossy(&flush_output.stderr)
+            .contains("PACK inspection Operation log is incomplete")
+    );
+    let flush_log = fs::read_to_string(flush_response["log_path"].as_str().unwrap()).unwrap();
+    assert!(flush_log.contains("runtime stdout\n"));
+    assert!(flush_log.contains("status: success\n"));
 }
 
 #[test]
@@ -324,7 +600,7 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
     assert!(operation_help.stderr.is_empty());
     assert!(!operation_help.stdout.starts_with(b"{"));
     let operation_help_text = String::from_utf8(operation_help.stdout).expect("UTF-8 help");
-    assert!(operation_help_text.contains("available PACKs or one KAT Dataset"));
+    assert!(operation_help_text.contains("available PACKs, one exact PACK, or one KAT Dataset"));
     assert!(operation_help_text.contains("managed KAT Dataset and its Parquet Schema"));
     assert!(operation_help_text.contains("validation order"));
     assert!(operation_help_text.contains("sorted by PACK name"));

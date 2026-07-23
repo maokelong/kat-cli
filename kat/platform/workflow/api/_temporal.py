@@ -61,7 +61,7 @@ class WallClockTimestamp(str):
                     raise ValueError("invalid UTC offset")
                 delta = timedelta(hours=hours, minutes=minutes)
                 local = local - delta if offset[0] == "+" else local + delta
-        except ValueError as error:
+        except (OverflowError, ValueError) as error:
             raise ValueError(f"invalid WallClockTimestamp literal: {literal!r}") from error
         fraction = (match.group("fraction") or "")[1:].ljust(9, "0").rstrip("0")
         normalized = local.strftime("%Y-%m-%dT%H:%M:%S")

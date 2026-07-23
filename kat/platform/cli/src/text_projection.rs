@@ -109,3 +109,9 @@ pub(crate) fn project_complete_text(text: &str) -> String {
     output.push_str(&projection.finish());
     output
 }
+
+pub(crate) fn project_inline_text(text: &str) -> String {
+    project_complete_text(text)
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+}

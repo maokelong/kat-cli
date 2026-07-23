@@ -33,6 +33,21 @@ def workflow(
     required_tables: list[str],
     parameters: dict[str, str] | None = None,
 ) -> Callable[[F], F]:
+    """Declare a module-top-level synchronous KAT Workflow.
+
+    The decorated function must have a non-empty docstring, start with
+    ``ctx: kat.Context``, and give every remaining parameter exactly one
+    description through ``parameters``. Supported parameter annotations are
+    ``str``, ``int``, ``float``, ``bool``, ``kat.Duration``,
+    ``kat.WallClockTimestamp``, string ``Literal`` values, and resolved
+    optional non-boolean values equivalent to ``T | None``. Non-boolean
+    parameters without defaults are required. Boolean parameters require a
+    default, while optional parameters must default to None. Inspection
+    validates and converts defaults using their CLI types.
+
+    ``required_tables`` names the Dataset tables the Workflow needs. ``name``
+    is its stable machine name and ``title`` is its human-readable label.
+    """
     if type(name) is not str:
         raise TypeError("Workflow name must be a string")
     if type(title) is not str or not title.strip():

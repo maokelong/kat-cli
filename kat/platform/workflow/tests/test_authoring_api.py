@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import unittest
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Optional, Union
 
 import kat
 from _kat_runtime.inspection import compile_declared_workflow, inspect_declared_workflow
@@ -101,6 +102,26 @@ def required_bool(ctx: kat.Context, flag: bool) -> None:
 
 
 @kat.workflow(
+    name="invalid-bool-default",
+    title="Invalid bool default",
+    required_tables=[],
+    parameters={"flag": "Flag"},
+)
+def invalid_bool_default(ctx: kat.Context, flag: bool = 1) -> None:  # type: ignore[assignment]
+    """Invalid Click defaults remain PACK authoring failures."""
+
+
+@kat.workflow(
+    name="overflowing-int-default",
+    title="Overflowing int default",
+    required_tables=[],
+    parameters={"count": "Count"},
+)
+def overflowing_int_default(ctx: kat.Context, count: int = float("inf")) -> None:  # type: ignore[assignment]
+    """Overflowing numeric conversion remains a PACK authoring failure."""
+
+
+@kat.workflow(
     name="none-without-optional",
     title="None without optional",
     required_tables=[],
@@ -123,6 +144,61 @@ def unsupported_any(ctx: kat.Context, value: Any) -> None:
 
 
 @kat.workflow(
+    name="unsupported-annotated",
+    title="Unsupported Annotated",
+    required_tables=[],
+    parameters={"value": "Value"},
+)
+def unsupported_annotated(ctx: kat.Context, value: Annotated[str, "metadata"]) -> None:
+    """Typing extras are outside the closed authoring type set."""
+
+
+@kat.workflow(
+    name="overflowing-wall-clock",
+    title="Overflowing wall clock",
+    required_tables=[],
+    parameters={"at": "Boundary"},
+)
+def overflowing_wall_clock(
+    ctx: kat.Context,
+    at: kat.WallClockTimestamp = "0001-01-01T00:00:00+23:59",
+) -> None:
+    """The UTC conversion must remain inside the supported datetime range."""
+
+
+@kat.workflow(
+    name="legacy-optional",
+    title="Legacy Optional",
+    required_tables=[],
+    parameters={"value": "Value"},
+)
+def legacy_optional(ctx: kat.Context, value: Optional[str] = None) -> None:
+    """typing.Optional resolves to the supported optional type."""
+
+
+@kat.workflow(
+    name="legacy-union",
+    title="Legacy Union",
+    required_tables=[],
+    parameters={"value": "Value"},
+)
+def legacy_union(ctx: kat.Context, value: Union[str, None] = None) -> None:
+    """typing.Union resolves to the supported optional type."""
+
+
+@kat.workflow(
+    name="nested-forward-reference",
+    title="Nested forward reference",
+    required_tables=[],
+    parameters={"value": "Value"},
+)
+def nested_forward_reference(
+    ctx: kat.Context, value: Optional["str"] = None
+) -> None:
+    """Nested ForwardRefs resolve through the standard typing evaluator."""
+
+
+@kat.workflow(
     name="required-string",
     title="Required string",
     required_tables=[],
@@ -133,6 +209,23 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
+    def test_public_decorator_documents_the_authoring_contract(self) -> None:
+        documentation = inspect.getdoc(kat.workflow)
+        self.assertIsNotNone(documentation)
+        assert documentation is not None
+        documentation = " ".join(documentation.split())
+        for boundary in (
+            "module-top-level synchronous",
+            "ctx: kat.Context",
+            "every remaining parameter exactly one description",
+            "Non-boolean parameters without defaults are required",
+            "Boolean parameters require a default",
+            "optional parameters must default to None",
+            "required_tables",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, documentation)
+
     def test_complete_interface_uses_click_converted_defaults(self) -> None:
         self.assertEqual(
             inspect_declared_workflow(analyze),
@@ -202,8 +295,28 @@ class AuthoringApiTest(unittest.TestCase):
                 kat.Duration(invalid)
         with self.assertRaises(TypeError):
             kat.Duration(1)  # type: ignore[arg-type]
-        with self.assertRaises(ValueError):
-            kat.WallClockTimestamp("2026-07-14T08:30:00")
+        for invalid in [
+            "2026-07-14T08:30:00",
+            "0001-01-01T00:00:00+23:59",
+            "9999-12-31T23:59:59-23:59",
+        ]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                kat.WallClockTimestamp(invalid)
+
+    def test_runtime_equivalent_optional_annotations_share_the_contract(self) -> None:
+        expected = [
+            {
+                "name": "value",
+                "option": "--value",
+                "type": "string",
+                "required": False,
+                "description": "Value",
+                "default": None,
+            }
+        ]
+        for function in [legacy_optional, legacy_union, nested_forward_reference]:
+            with self.subTest(function=function.__name__):
+                self.assertEqual(inspect_declared_workflow(function)["parameters"], expected)
 
     def test_invalid_workflow_shapes_fail_during_inspection(self) -> None:
         for function in [
@@ -211,8 +324,12 @@ class AuthoringApiTest(unittest.TestCase):
             asynchronous,
             missing_parameter_description,
             required_bool,
+            invalid_bool_default,
+            overflowing_int_default,
             none_without_optional,
             unsupported_any,
+            unsupported_annotated,
+            overflowing_wall_clock,
         ]:
             with self.subTest(function=function.__name__), self.assertRaises(ValueError):
                 inspect_declared_workflow(function)

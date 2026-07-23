@@ -41,11 +41,17 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install Workflow Host wheel
-        run: python -m pip install --disable-pip-version-check ./kat/platform/workflow
+      - name: Build and install Workflow Host wheel
+        run: |
+          python -m pip wheel --disable-pip-version-check --wheel-dir target/workflow-wheel ./kat/platform/workflow
+          python -c "import glob, subprocess, sys; wheel = glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-index', '--find-links', 'target/workflow-wheel', wheel])"
+          python -c "import glob, os, sys; from pathlib import Path; wheel = Path(glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]).resolve(); open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write(f'KAT_TEST_PYTHON={sys.executable}\nKAT_TEST_WORKFLOW_WHEEL={wheel}\n')"
 
       - name: Check
         run: cargo check --locked
+
+      - name: Test real Workflow Host vertical slice
+        run: cargo test --locked -p kat-cli --test inspect targeted_pack_inspection_runs_real_installed_workflow_host -- --ignored --exact
 
       - name: Test Workflow Host
         run: python -I -B -m unittest discover -s kat/platform/workflow/tests

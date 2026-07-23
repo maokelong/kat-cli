@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import uuid
+
+from _kat_runtime import __main__ as runtime_main
+from _kat_runtime.pack import _workflow_entries
 
 
 class RuntimeProcessTest(unittest.TestCase):
@@ -117,14 +122,156 @@ def analyze(ctx: Context, *, limit: int = 10):
         self.assertEqual(after, before)
         self.assertFalse(any(path.name == "__pycache__" for path in pack.rglob("*")))
 
-    def test_invalid_request_and_invalid_entry_return_only_diagnostic(self) -> None:
-        completed, response = self.run_runtime(
-            {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative", "extra": True}
+    def test_workflow_directory_state_errors_are_not_treated_as_absence(self) -> None:
+        missing = self.root / "missing-workflows"
+        self.assertEqual(_workflow_entries(missing), [])
+
+        with mock.patch.object(
+            Path,
+            "stat",
+            side_effect=PermissionError("workflow directory state is unavailable"),
+        ):
+            with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
+                _workflow_entries(self.root)
+
+        with (
+            mock.patch.object(Path, "lstat", return_value=mock.Mock(st_mode=stat.S_IFLNK)),
+            mock.patch.object(Path, "stat", side_effect=FileNotFoundError("dangling target")),
+        ):
+            with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
+                _workflow_entries(self.root)
+
+        dangling_root = self.root / "dangling-workflows"
+        dangling_root.mkdir()
+        try:
+            (dangling_root / "workflows").symlink_to(
+                dangling_root / "missing-target", target_is_directory=True
+            )
+        except OSError:
+            return
+        with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
+            _workflow_entries(dangling_root)
+
+    def test_diagnostic_ignores_hostile_syntax_error_metadata(self) -> None:
+        pack = self.root / "hostile-syntax-metadata"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "hostile.py").write_text(
+            "class HostileSyntaxError(SyntaxError):\n"
+            "    @property\n"
+            "    def __cause__(self):\n"
+            "        raise SystemExit('dynamic cause metadata')\n"
+            "    @property\n"
+            "    def __context__(self):\n"
+            "        raise SystemExit('dynamic context metadata')\n"
+            "    @property\n"
+            "    def __suppress_context__(self):\n"
+            "        raise SystemExit('dynamic suppression metadata')\n"
+            "    def __getattribute__(self, attribute):\n"
+            "        if attribute in {'filename', 'lineno', 'offset', 'end_lineno', 'end_offset'}:\n"
+            "            raise SystemExit('dynamic syntax metadata')\n"
+            "        return super().__getattribute__(attribute)\n"
+            "raise HostileSyntaxError('author syntax failure')\n",
+            encoding="utf-8",
         )
-        self.assertEqual(completed.returncode, 0)
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "hostile-syntax-metadata",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "failure")
-        self.assertEqual(set(response), {"status", "error"})
-        self.assertEqual(set(response["error"]), {"message", "causes", "help"})
+        self.assertEqual(response["failure_owner"], "pack")
+        self.assertEqual(response["error"]["message"], "PACK inspection failed")
+        self.assertNotIn("location", response["error"])
+
+    def test_diagnostic_omits_pack_root_syntax_error_location(self) -> None:
+        pack = self.root / "root-syntax-location"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "root_location.py").write_text(
+            "from pathlib import Path\n"
+            "root = str(Path(__file__).parent.parent)\n"
+            "raise SyntaxError('root location', (root, 1, 1, 'x', 1, 2))\n",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "root-syntax-location",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure")
+        self.assertEqual(response["failure_owner"], "pack")
+        self.assertEqual(response["error"]["message"], "PACK inspection failed")
+        self.assertNotIn("location", response["error"])
+
+    @unittest.skipUnless(sys.version_info >= (3, 14), "requires Python 3.14 annotations")
+    def test_python_314_resolves_only_supported_input_annotations(self) -> None:
+        pack = self.root / "python-314-annotations"
+        (pack / "workflows").mkdir(parents=True)
+        entry = pack / "workflows" / "annotation.py"
+        entry.write_text(
+            "from typing import Optional\n"
+            "from kat import Context, workflow\n"
+            "@workflow(name='annotation', title='Annotation', required_tables=[], parameters={'value': 'Value'})\n"
+            "def annotation(ctx: Context, value: Optional['str'] = None) -> MissingReturn:\n"
+            "    \"\"\"Inspect annotations.\"\"\"\n",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "python-314-annotations",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success")
+        parameter = response["result"]["workflows"][0]["parameters"][0]
+        self.assertEqual(parameter["default"], None)
+
+        entry.write_text(
+            entry.read_text(encoding="utf-8").replace("MissingReturn", "1 / 0"),
+            encoding="utf-8",
+        )
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "python-314-annotations",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure")
+        self.assertEqual(response["error"]["message"], "PACK inspection failed")
+
+    def test_invalid_request_and_invalid_entry_return_strict_private_failure(self) -> None:
+        for request in [
+            {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative", "extra": True},
+            {"operation": "inspect_pack", "pack_name": "", "pack_path": str(self.root.resolve())},
+            {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative"},
+        ]:
+            with self.subTest(request=request):
+                completed, response = self.run_runtime(request)
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(response["status"], "failure")
+                self.assertEqual(response["failure_owner"], "runtime_request")
+                self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+                self.assertEqual(
+                    response["error"]["help"],
+                    "Use a compatible KAT CLI and Runtime deployment",
+                )
+                self.assertEqual(set(response), {"status", "failure_owner", "error"})
+                self.assertEqual(set(response["error"]), {"message", "causes", "help"})
 
         pack = self.write_pack()
         (pack / "workflows" / "broken.py").write_text(
@@ -138,6 +285,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure")
+        self.assertEqual(response["failure_owner"], "pack")
         self.assertNotIn("result", response)
         self.assertTrue(response["error"]["causes"])
 
@@ -246,6 +394,90 @@ def other(ctx: Context):
                 },
             ),
             (
+                "entry-import-importlib-dunder",
+                {
+                    "workflows/a.py": """from kat import Context, workflow
+SHARED = "not a helper"
+@workflow(name='a', title='A', required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"A.\"\"\"
+""",
+                    "workflows/b.py": """import importlib
+from kat import Context, workflow
+title = importlib.__import__('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
+@workflow(name='b', title=title, required_tables=[])
+def other(ctx: Context):
+    \"\"\"B.\"\"\"
+""",
+                },
+            ),
+            (
+                "entry-import-cached-builtins-dunder",
+                {
+                    "helpers/cached.py": """import builtins
+import_entry = builtins.__import__
+""",
+                    "workflows/a.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+SHARED = "not a helper"
+@workflow(name='a', title='A', required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"A.\"\"\"
+""",
+                    "workflows/b.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+title = cached.import_entry('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
+@workflow(name='b', title=title, required_tables=[])
+def other(ctx: Context):
+    \"\"\"B.\"\"\"
+""",
+                },
+            ),
+            (
+                "entry-import-cached-importlib-dunder",
+                {
+                    "helpers/cached.py": """import importlib
+import_entry = importlib.__import__
+""",
+                    "workflows/a.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+SHARED = "not a helper"
+@workflow(name='a', title='A', required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"A.\"\"\"
+""",
+                    "workflows/b.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+title = cached.import_entry('kat.pack.workflows.a', fromlist=('SHARED',)).SHARED
+@workflow(name='b', title=title, required_tables=[])
+def other(ctx: Context):
+    \"\"\"B.\"\"\"
+""",
+                },
+            ),
+            (
+                "entry-import-cached-import-module",
+                {
+                    "helpers/cached.py": """import importlib
+import_entry = importlib.import_module
+""",
+                    "workflows/a.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+SHARED = "not a helper"
+@workflow(name='a', title='A', required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"A.\"\"\"
+""",
+                    "workflows/b.py": """from kat import Context, workflow
+from kat.pack.helpers import cached
+title = cached.import_entry('kat.pack.workflows.a').SHARED
+@workflow(name='b', title=title, required_tables=[])
+def other(ctx: Context):
+    \"\"\"B.\"\"\"
+""",
+                },
+            ),
+            (
                 "entry-import-parent-namespace",
                 {
                     "workflows/a.py": """from kat import Context, workflow
@@ -314,7 +546,186 @@ def other(ctx: Context):
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure")
+        self.assertEqual(response["failure_owner"], "pack")
         self.assertEqual(set(response["error"]), {"message", "help"})
+
+    def test_pack_exception_chain_is_safe_bounded_and_respects_suppression(self) -> None:
+        cases = {
+            "unsafe-string": (
+                """class UnsafeStringError(Exception):
+    def __str__(self):
+        raise RuntimeError('string rendering failed')
+raise UnsafeStringError()
+""",
+                [],
+            ),
+            "cyclic-chain": (
+                """first = RuntimeError('first')
+second = ValueError('second')
+first.__cause__ = second
+second.__cause__ = first
+raise first
+""",
+                ["first", "second"],
+            ),
+            "suppressed-context": (
+                """try:
+    raise ValueError('hidden context')
+except ValueError:
+    raise RuntimeError('visible cause') from None
+""",
+                ["visible cause"],
+            ),
+        }
+        for name, (source, expected_causes) in cases.items():
+            with self.subTest(name=name):
+                pack = self.root / name
+                (pack / "workflows").mkdir(parents=True)
+                (pack / "workflows" / "broken.py").write_text(source, encoding="utf-8")
+
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_pack",
+                        "pack_name": name,
+                        "pack_path": str(pack.resolve()),
+                    }
+                )
+
+                self.assertEqual(
+                    completed.returncode, 0, completed.stderr.decode(errors="replace")
+                )
+                self.assertEqual(response["status"], "failure")
+                self.assertEqual(response["error"]["message"], "PACK inspection failed")
+                self.assertEqual(response["error"].get("causes", []), expected_causes)
+
+    def test_pack_system_exit_is_a_pack_failure(self) -> None:
+        pack = self.root / "system-exit"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "broken.py").write_text(
+            "raise SystemExit('PACK requested exit')\n", encoding="utf-8"
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "system-exit",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure")
+        self.assertEqual(response["error"]["message"], "PACK inspection failed")
+        self.assertIn("PACK requested exit", response["error"]["causes"])
+
+    def test_author_controlled_inspection_errors_are_pack_failures(self) -> None:
+        cases = {
+            "annotation-system-exit": """from __future__ import annotations
+from kat import Context, workflow
+@workflow(name='annotation-exit', title='Annotation exit', required_tables=[], parameters={'value': 'Value'})
+def analyze(ctx: Context, value: __import__('sys').exit('annotation requested exit')):
+    \"\"\"Inspect an annotation.\"\"\"
+""",
+            "callable-default-runtime-error": """from kat import Context, workflow
+def invalid_default():
+    raise RuntimeError('callable default failed')
+@workflow(name='default-error', title='Default error', required_tables=[], parameters={'value': 'Value'})
+def analyze(ctx: Context, value: str = invalid_default):
+    \"\"\"Inspect a callable default.\"\"\"
+""",
+        }
+        for name, source in cases.items():
+            with self.subTest(name=name):
+                pack = self.root / name
+                (pack / "workflows").mkdir(parents=True)
+                (pack / "workflows" / "broken.py").write_text(source, encoding="utf-8")
+
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_pack",
+                        "pack_name": name,
+                        "pack_path": str(pack.resolve()),
+                    }
+                )
+
+                self.assertEqual(
+                    completed.returncode, 0, completed.stderr.decode(errors="replace")
+                )
+                self.assertEqual(response["status"], "failure")
+                self.assertEqual(response["error"]["message"], "PACK inspection failed")
+
+    def test_entry_import_scan_does_not_execute_author_module_metadata(self) -> None:
+        cases = {
+            "runtime-error": "raise RuntimeError('dynamic module access')",
+            "system-exit": "raise SystemExit('dynamic module access')",
+            "unhashable": "return []",
+        }
+        for name, module_behavior in cases.items():
+            with self.subTest(name=name):
+                pack = self.root / f"module-metadata-{name}"
+                (pack / "workflows").mkdir(parents=True)
+                (pack / "workflows" / "entry.py").write_text(
+                    f"""from kat import Context, workflow
+class MetadataProxy:
+    def __getattribute__(self, attribute):
+        if attribute == '__module__':
+            {module_behavior}
+        return object.__getattribute__(self, attribute)
+proxy = MetadataProxy()
+@workflow(name='metadata', title='Metadata', required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"Inspect metadata safely.\"\"\"
+""",
+                    encoding="utf-8",
+                )
+
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_pack",
+                        "pack_name": f"module-metadata-{name}",
+                        "pack_path": str(pack.resolve()),
+                    }
+                )
+
+                self.assertEqual(
+                    completed.returncode, 0, completed.stderr.decode(errors="replace")
+                )
+                self.assertEqual(response["status"], "success")
+                self.assertEqual(response["result"]["workflows"][0]["name"], "metadata")
+
+    def test_unexpected_runtime_error_exits_without_a_pack_failure_response(self) -> None:
+        request_path = self.root / "request.json"
+        response_path = self.root / "response.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "operation": "inspect_pack",
+                    "pack_name": "stable-name",
+                    "pack_path": str(self.root.resolve()),
+                }
+            ),
+            encoding="utf-8",
+        )
+        arguments = [
+            "_kat_runtime",
+            "--request",
+            str(request_path),
+            "--response",
+            str(response_path),
+        ]
+
+        with (
+            mock.patch.object(sys, "argv", arguments),
+            mock.patch.object(
+                runtime_main,
+                "inspect_pack",
+                side_effect=AttributeError("injected Runtime implementation failure"),
+            ),
+            self.assertRaisesRegex(AttributeError, "Runtime implementation failure"),
+        ):
+            runtime_main.main()
+
+        self.assertFalse(response_path.exists())
 
 
 if __name__ == "__main__":
