@@ -30,7 +30,7 @@ class WorkflowParameter(TypedDict):
     default: NotRequired[WorkflowDefault]
 
 
-class WorkflowInterface(TypedDict):
+class WorkflowInputInterface(TypedDict):
     name: str
     title: str
     description: str
@@ -78,7 +78,7 @@ class _WallClockType(click.ParamType):
 @dataclass(frozen=True)
 class CompiledWorkflow:
     function: typing.Callable[..., Any]
-    interface: WorkflowInterface
+    interface: WorkflowInputInterface
     command: click.Command
 
     def parse_arguments(self, arguments: typing.Sequence[str]) -> dict[str, Any]:
@@ -97,7 +97,9 @@ class CompiledWorkflow:
             context.close()
 
 
-def inspect_declared_workflow(function: typing.Callable[..., Any]) -> WorkflowInterface:
+def inspect_declared_workflow(
+    function: typing.Callable[..., Any],
+) -> WorkflowInputInterface:
     return compile_declared_workflow(function).interface
 
 

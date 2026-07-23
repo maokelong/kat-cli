@@ -238,7 +238,9 @@ class AuthoringApiTest(unittest.TestCase):
             "[a-z0-9]+(?:-[a-z0-9]+)*",
             "[a-z][a-z0-9]*(?:_[a-z0-9]+)*",
             "known explicit UTC offset",
-            "Successful decoration alone does not mean the production Interface is valid",
+            "absolute UTC instant, not a local civil-time value",
+            "Successful decoration alone does not mean the production input Interface is valid",
+            "output validation belongs to the later Workflow execution boundary",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, documentation)

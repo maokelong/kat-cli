@@ -18,12 +18,12 @@ import kat
 from kat._workflow import _registration_count, _registrations_since
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
-from .inspection import WorkflowInterface, compile_declared_workflow
+from .inspection import WorkflowInputInterface, compile_declared_workflow
 
 
 @dataclass(frozen=True)
 class InspectPackRuntimeResult:
-    workflows: list[WorkflowInterface]
+    workflows: list[WorkflowInputInterface]
 
 
 class PackInspectionError(Exception):
@@ -36,7 +36,7 @@ class PackInspectionError(Exception):
 
 @dataclass(frozen=True)
 class _EntrySuccess:
-    interface: WorkflowInterface
+    interface: WorkflowInputInterface
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ def inspect_pack(selected_pack_name: str, pack_path: Path) -> InspectPackRuntime
         _validate_module_conflicts(entries)
     except (OSError, ValueError) as error:
         raise _pack_failure(error, root) from error
-    workflows: list[WorkflowInterface] = []
+    workflows: list[WorkflowInputInterface] = []
     names: set[str] = set()
     for source, segments in entries:
         module_name = ".".join(("kat", "pack", "workflows", *segments))

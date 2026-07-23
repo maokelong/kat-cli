@@ -42,7 +42,12 @@ class Duration(str):
 
 
 class WallClockTimestamp(str):
-    """An RFC 3339 instant with a known offset, normalized to UTC nanoseconds."""
+    """An absolute UTC instant parsed from offset-bearing RFC 3339 text.
+
+    "Wall-clock" distinguishes globally aligned calendar timestamps from
+    Dataset clock-domain readings. It is not a local civil-time value: the
+    required offset is consumed when the value is normalized to ``Z``.
+    """
 
     def __new__(cls, literal: str) -> WallClockTimestamp:
         if type(literal) is not str:

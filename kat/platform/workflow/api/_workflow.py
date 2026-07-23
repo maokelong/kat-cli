@@ -54,13 +54,17 @@ def workflow(
     Duration inputs use a non-negative decimal followed by one of ``ns``,
     ``us``, ``ms``, ``s``, ``min``, or ``h``. Wall-clock inputs use RFC 3339
     with ``Z`` or a known explicit UTC offset, at most nine fractional digits,
-    and never the unknown offset ``-00:00``.
+    and never the unknown offset ``-00:00``. A ``WallClockTimestamp`` is an
+    absolute UTC instant, not a local civil-time value; its input offset is
+    consumed during normalization to ``Z``.
 
     Applying the decorator validates its argument shapes, title, parameter
     descriptions, and Required table names. PACK inspection then validates
     the Workflow name, callable, docstring, complete signature, annotations,
     description mapping, and converted defaults. Successful decoration alone
-    does not mean the production Interface is valid.
+    does not mean the production input Interface is valid. Inspection does
+    not evaluate or publish the return annotation; output validation belongs
+    to the later Workflow execution boundary.
     """
     if type(name) is not str:
         raise TypeError("Workflow name must be a string")
