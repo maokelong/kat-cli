@@ -51,8 +51,10 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test --locked
 
-      - name: Test (serialized on Linux)
+      - name: Test (system linker on Linux)
         if: runner.os == 'Linux'
+        env:
+          RUSTFLAGS: -C linker-features=-lld
         run: cargo test --locked --jobs 1
 
       - name: Test real Workflow Host vertical slice
