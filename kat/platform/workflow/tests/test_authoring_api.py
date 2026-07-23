@@ -167,6 +167,19 @@ def overflowing_wall_clock(
 
 
 @kat.workflow(
+    name="unknown-wall-clock-offset",
+    title="Unknown wall clock offset",
+    required_tables=[],
+    parameters={"at": "Boundary"},
+)
+def unknown_wall_clock_offset(
+    ctx: kat.Context,
+    at: kat.WallClockTimestamp = "2026-07-14T08:30:00-00:00",
+) -> None:
+    """A wall-clock default must identify a known UTC offset."""
+
+
+@kat.workflow(
     name="legacy-optional",
     title="Legacy Optional",
     required_tables=[],
@@ -270,6 +283,10 @@ class AuthoringApiTest(unittest.TestCase):
         self.assertEqual(effective["mode"], "mean")
         self.assertIsNone(effective["optional_label"])
         self.assertEqual(inspect_declared_workflow(unresolved_return)["parameters"], [])
+        with self.assertRaises(ValueError):
+            compile_declared_workflow(analyze).parse_arguments(
+                ["--at", "2026-07-14T08:30:00-00:00"]
+            )
 
         required = compile_declared_workflow(required_string)
         self.assertEqual(
@@ -297,6 +314,7 @@ class AuthoringApiTest(unittest.TestCase):
             kat.Duration(1)  # type: ignore[arg-type]
         for invalid in [
             "2026-07-14T08:30:00",
+            "2026-07-14T08:30:00-00:00",
             "0001-01-01T00:00:00+23:59",
             "9999-12-31T23:59:59-23:59",
         ]:
@@ -330,6 +348,7 @@ class AuthoringApiTest(unittest.TestCase):
             unsupported_any,
             unsupported_annotated,
             overflowing_wall_clock,
+            unknown_wall_clock_offset,
         ]:
             with self.subTest(function=function.__name__), self.assertRaises(ValueError):
                 inspect_declared_workflow(function)

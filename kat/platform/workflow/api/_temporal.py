@@ -24,7 +24,7 @@ _WALL_CLOCK = re.compile(
 
 
 class Duration(str):
-    """A non-negative elapsed-time literal accepted by KAT."""
+    """A non-negative decimal elapsed time with one supported unit suffix."""
 
     def __new__(cls, literal: str) -> Duration:
         if type(literal) is not str:
@@ -42,7 +42,7 @@ class Duration(str):
 
 
 class WallClockTimestamp(str):
-    """An RFC 3339 instant normalized to UTC with nanosecond precision."""
+    """An RFC 3339 instant with a known offset, normalized to UTC nanoseconds."""
 
     def __new__(cls, literal: str) -> WallClockTimestamp:
         if type(literal) is not str:
@@ -55,6 +55,8 @@ class WallClockTimestamp(str):
                 f"{match.group('date')}T{match.group('time')}", "%Y-%m-%dT%H:%M:%S"
             )
             offset = match.group("offset")
+            if offset == "-00:00":
+                raise ValueError("unknown UTC offset is not allowed")
             if offset != "Z":
                 hours, minutes = map(int, offset[1:].split(":"))
                 if hours > 23 or minutes > 59:
