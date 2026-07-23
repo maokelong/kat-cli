@@ -5,6 +5,8 @@ use kat_datasource::{DatasetLocator, DatasetStore, DatasetWriteTarget};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use prost::Message;
 use serde_json::json;
+#[cfg(any(target_os = "linux", target_os = "redox"))]
+use std::process::Command;
 use std::{
     env,
     fs::{self, File},

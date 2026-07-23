@@ -1454,6 +1454,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "distill-strip-ansi"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf8f653f041bfa7a8864f64c6d2cbb0400cf56b7cf98a6e88f87d83effc158c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2095,6 +2104,7 @@ dependencies = [
  "base64",
  "clap",
  "directories",
+ "distill-strip-ansi",
  "dunce",
  "kat-datasource",
  "miette",

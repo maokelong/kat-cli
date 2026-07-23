@@ -1,17 +1,22 @@
+mod operation_log;
 mod pack_discovery;
 mod response;
+mod text_projection;
+mod workflow_runtime;
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs,
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
 };
 
 use clap::{Args, Parser, Subcommand};
 use miette::Diagnostic;
+use operation_log::{OperationLog, OperationLogError};
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
 use serde::Serialize;
+use text_projection::project_inline_text;
 use thiserror::Error;
 
 #[derive(Parser)]
@@ -25,10 +30,17 @@ struct Cli {
 enum Operation {
     /// Import one source into a complete KAT Dataset.
     Import(ImportArgs),
-    /// Inspect available PACKs or one KAT Dataset.
+    /// Inspect available PACKs, one exact PACK, or one KAT Dataset.
     Inspect {
+        /// Inspect one exact PACK by manifest name.
+        #[arg(long, value_name = "NAME", conflicts_with = "dataset")]
+        pack: Option<String>,
         /// Inspect one managed KAT Dataset and its Parquet Schema.
-        #[arg(long, value_name = "DIRECTORY", conflicts_with = "pack_directories")]
+        #[arg(
+            long,
+            value_name = "DIRECTORY",
+            conflicts_with_all = ["pack", "pack_directories"]
+        )]
         dataset: Option<PathBuf>,
         #[arg(
             long = "pack-dir",
@@ -80,6 +92,40 @@ struct PackResult {
     owner: String,
 }
 
+#[derive(Serialize)]
+struct InspectPackResult {
+    name: String,
+    title: String,
+    description: String,
+    owner: String,
+    workflows: Vec<InspectWorkflowResult>,
+}
+
+#[derive(Serialize)]
+struct InspectWorkflowResult {
+    name: String,
+    title: String,
+    description: String,
+    required_tables: Vec<String>,
+    parameters: Vec<InspectParameterResult>,
+}
+
+#[derive(Serialize)]
+struct InspectParameterResult {
+    name: String,
+    option: String,
+    #[serde(rename = "type")]
+    parameter_type: workflow_runtime::ParameterType,
+    required: bool,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    negative_option: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    choices: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "workflow_runtime::ParameterDefault::is_missing")]
+    default: workflow_runtime::ParameterDefault,
+}
+
 pub fn run() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -119,6 +165,12 @@ pub fn run() -> ExitCode {
         }
         Operation::Inspect {
             dataset: None,
+            pack: Some(pack),
+            pack_directories,
+        } => response::publish(inspect_target_pack(pack, pack_directories)),
+        Operation::Inspect {
+            dataset: None,
+            pack: None,
             pack_directories,
         } => {
             let prepared = match inspect_packs(pack_directories) {
@@ -127,6 +179,138 @@ pub fn run() -> ExitCode {
             };
             response::publish(prepared)
         }
+    }
+}
+
+fn inspect_target_pack(
+    pack_name: String,
+    pack_directories: Vec<PathBuf>,
+) -> response::PreparedResponse<InspectPackResult> {
+    let Some(data_home) = locate_data_home() else {
+        return response::prepare_cli_failure(miette::Report::new(
+            InspectTargetPackError::DataHomeUnavailable,
+        ));
+    };
+    let mut log = match OperationLog::create(&data_home, "inspect", |file| {
+        writeln!(
+            file,
+            "operation: kat inspect --pack\npack: {}",
+            pack_name.escape_debug()
+        )
+    }) {
+        Ok(log) => log,
+        Err(error) => return inspect_target_log_failure(error),
+    };
+    let skill_root = match locate_skill_root() {
+        Ok(path) => path,
+        Err(source) => {
+            return finish_inspect_target_failure(log, InspectTargetPackError::SkillRoot(source));
+        }
+    };
+    let discovered = match pack_discovery::discover(PackDiscoveryPaths {
+        skill_pack_search_directory: skill_root.join("assets").join("packs"),
+        data_home_pack_search_directory: data_home.join("packs"),
+        additional_pack_directories: pack_directories,
+    }) {
+        Ok(discovered) => discovered,
+        Err(source) => {
+            return finish_inspect_target_failure(
+                log,
+                InspectTargetPackError::PackDiscovery(source.into()),
+            );
+        }
+    };
+    let Some(pack) = discovered.get(&pack_name) else {
+        return finish_inspect_target_failure(
+            log,
+            InspectTargetPackError::UnknownPack { name: pack_name },
+        );
+    };
+    if let Err(error) = log.append(format!("path: {:?}\n", pack.directory()).as_bytes()) {
+        return inspect_target_log_failure(error);
+    }
+
+    match workflow_runtime::inspect_pack(log, pack.name(), pack.directory()) {
+        Ok(workflow_runtime::InspectPackOutcome::Success {
+            workflows,
+            log_path,
+        }) => response::prepare_success_with_log(
+            project_inspected_pack(pack, workflows),
+            Some(log_path),
+        ),
+        Ok(workflow_runtime::InspectPackOutcome::Failure {
+            diagnostic,
+            log_path,
+        }) => response::prepare_runtime_failure(diagnostic, log_path),
+        Err(error) => {
+            let log_path = error.log_path();
+            response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
+        }
+    }
+}
+
+fn finish_inspect_target_failure(
+    mut log: OperationLog,
+    error: InspectTargetPackError,
+) -> response::PreparedResponse<InspectPackResult> {
+    let details = format!(
+        "status: failure\nerror: {}\n",
+        project_inline_text(&error.to_string())
+    );
+    if let Err(log_error) = log.append(details.as_bytes()) {
+        return inspect_target_log_failure(log_error);
+    }
+    let report = miette::Report::new(error);
+    match log.finish() {
+        Ok(log_path) => response::prepare_cli_failure_with_log(report, Some(log_path)),
+        Err(error) => inspect_target_log_failure(error),
+    }
+}
+
+fn inspect_target_log_failure(
+    error: OperationLogError,
+) -> response::PreparedResponse<InspectPackResult> {
+    let log_path = error.readable_path();
+    let error = if log_path.is_some() {
+        InspectTargetPackError::IncompleteOperationLog(error)
+    } else {
+        InspectTargetPackError::OperationLog(error)
+    };
+    response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
+}
+
+fn project_inspected_pack(
+    pack: &DiscoveredPack,
+    workflows: Vec<workflow_runtime::Workflow>,
+) -> InspectPackResult {
+    InspectPackResult {
+        name: pack.name().to_owned(),
+        title: pack.title().to_owned(),
+        description: pack.description().to_owned(),
+        owner: pack.owner().to_owned(),
+        workflows: workflows
+            .into_iter()
+            .map(|workflow| InspectWorkflowResult {
+                name: workflow.name,
+                title: workflow.title,
+                description: workflow.description,
+                required_tables: workflow.required_tables,
+                parameters: workflow
+                    .parameters
+                    .into_iter()
+                    .map(|parameter| InspectParameterResult {
+                        name: parameter.name,
+                        option: parameter.option,
+                        parameter_type: parameter.parameter_type,
+                        required: parameter.required,
+                        description: parameter.description,
+                        negative_option: parameter.negative_option,
+                        choices: parameter.choices,
+                        default: parameter.default,
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 
@@ -152,13 +336,18 @@ fn import_hitrace(
             .join("datasets")
             .join(uuid::Uuid::now_v7().to_string())
     });
-    let mut log = match OperationLog::create(&data_home, &trace, &target) {
+    let mut log = match OperationLog::create(&data_home, "import", |file| {
+        writeln!(
+            file,
+            "operation: kat import hitrace\ntrace: {trace:?}\ndataset: {target:?}"
+        )
+    }) {
         Ok(log) => log,
         Err(error) => return operation_log_failure(error),
     };
     if let Err(source) = locate_skill_root() {
         let error = ImportHitraceError::SkillRoot(source);
-        if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+        if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
             return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
         }
         return finish_hitrace_failure(log, error);
@@ -168,9 +357,9 @@ fn import_hitrace(
     } else {
         kat_datasource::DatasetWriteTarget::write_to_empty(target)
     }
-    .protect_path(&log.path);
+    .protect_path(log.path());
     let imported = match kat_datasource::import_hitrace(&trace, target, |content| {
-        write_unsupported_hitrace_content(&mut log.file, content)
+        write_unsupported_hitrace_content(&mut log, content)
     }) {
         Ok(imported) => imported,
         Err(kat_datasource::HitraceImportError::ObserveUnsupportedContent { source }) => {
@@ -178,7 +367,7 @@ fn import_hitrace(
         }
         Err(source) => {
             let error = ImportHitraceError::Import { source };
-            if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+            if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
                 return finish_hitrace_failure(
                     log,
                     ImportHitraceError::WriteOperationLog { source },
@@ -193,7 +382,7 @@ fn import_hitrace(
             let error = ImportHitraceError::NonUnicodeDataset {
                 path: imported.path().to_path_buf(),
             };
-            if let Err(source) = writeln!(log.file, "status: failure\nerror: {error}") {
+            if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
                 return finish_hitrace_failure(
                     log,
                     ImportHitraceError::WriteOperationLog { source },
@@ -202,7 +391,7 @@ fn import_hitrace(
             return finish_hitrace_failure(log, error);
         }
     };
-    if let Err(source) = writeln!(log.file, "status: success") {
+    if let Err(source) = writeln!(log, "status: success") {
         return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
     }
     let result = ImportHitraceResult {
@@ -217,7 +406,7 @@ fn import_hitrace(
 }
 
 fn write_unsupported_hitrace_content(
-    log: &mut File,
+    log: &mut dyn Write,
     unsupported: &kat_datasource::UnsupportedHitraceContent,
 ) -> io::Result<()> {
     writeln!(
@@ -250,123 +439,6 @@ fn operation_log_failure(
         ImportHitraceError::OperationLog(error)
     };
     response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
-}
-
-#[derive(Debug)]
-struct OperationLog {
-    path: PathBuf,
-    file: File,
-}
-
-impl OperationLog {
-    fn create(data_home: &Path, trace: &Path, target: &Path) -> Result<Self, OperationLogError> {
-        Self::create_with(data_home, |file| {
-            writeln!(
-                file,
-                "operation: kat import hitrace\ntrace: {trace:?}\ndataset: {target:?}"
-            )
-        })
-    }
-
-    fn create_with(
-        data_home: &Path,
-        write_header: impl FnOnce(&mut File) -> io::Result<()>,
-    ) -> Result<Self, OperationLogError> {
-        let directory = data_home.join("logs");
-        fs::create_dir_all(&directory).map_err(|source| OperationLogError::CreateDirectory {
-            path: directory.clone(),
-            source,
-        })?;
-        let path = directory.join(format!("import-{}.log", uuid::Uuid::now_v7()));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|source| OperationLogError::Create {
-                path: path.clone(),
-                source,
-            })?;
-        write_header(&mut file).map_err(|source| OperationLogError::Write {
-            path: path.clone(),
-            source,
-        })?;
-        Ok(Self { path, file })
-    }
-
-    fn finish(self) -> Result<String, OperationLogError> {
-        self.finish_with(File::flush)
-    }
-
-    fn finish_with(
-        mut self,
-        flush: impl FnOnce(&mut File) -> io::Result<()>,
-    ) -> Result<String, OperationLogError> {
-        flush(&mut self.file).map_err(|source| OperationLogError::Flush {
-            path: self.path.clone(),
-            source,
-        })?;
-        drop(self.file);
-        let path =
-            dunce::canonicalize(&self.path).map_err(|source| OperationLogError::Canonicalize {
-                path: self.path.clone(),
-                source,
-            })?;
-        path.to_str()
-            .map(str::to_owned)
-            .ok_or(OperationLogError::NonUnicode { path })
-    }
-}
-
-#[derive(Debug, Error)]
-enum OperationLogError {
-    #[error("failed to create Operation log directory {path}")]
-    CreateDirectory {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to create Operation log {path}")]
-    Create {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to write Operation log {path}")]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to flush Operation log {path}")]
-    Flush {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to resolve Operation log {path}")]
-    Canonicalize {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Operation log path cannot be represented as native Unicode: {path:?}")]
-    NonUnicode { path: PathBuf },
-}
-
-impl OperationLogError {
-    fn readable_path(&self) -> Option<String> {
-        let path = match self {
-            Self::Write { path, .. }
-            | Self::Flush { path, .. }
-            | Self::Canonicalize { path, .. }
-            | Self::NonUnicode { path } => path,
-            Self::CreateDirectory { .. } | Self::Create { .. } => return None,
-        };
-        if !fs::metadata(path).ok()?.is_file() || File::open(path).is_err() {
-            return None;
-        }
-        dunce::canonicalize(path).ok()?.to_str().map(str::to_owned)
-    }
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -452,7 +524,7 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     })
-    .map_err(InspectPacksError::from)?;
+    .map_err(PackDiscoveryFailure::from)?;
 
     Ok(InspectPacksResult {
         packs: discovered.iter().map(project_pack).collect(),
@@ -591,6 +663,52 @@ enum SkillRootError {
 }
 
 #[derive(Debug, Error, Diagnostic)]
+enum PackDiscoveryFailure {
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
+    Discovery {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help(
+        "Make the default PACK search path a readable directory or remove it, then retry"
+    ))]
+    DefaultPackSearchPath {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
+    DuplicatePackName {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
+}
+
+impl From<pack_discovery::PackDiscoveryError> for PackDiscoveryFailure {
+    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
+        match source {
+            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
+                Self::DuplicatePackName {
+                    source: Box::new(source),
+                }
+            }
+            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
+            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
+                Self::DefaultPackSearchPath {
+                    source: Box::new(source),
+                }
+            }
+            source => Self::Discovery {
+                source: Box::new(source),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Error, Diagnostic)]
 enum InspectPacksError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help(
@@ -604,42 +722,35 @@ enum InspectPacksError {
     #[error("KAT Data Home is unavailable on this platform")]
     #[diagnostic(help("Run KAT on Linux or Windows with a platform standard user data directory"))]
     DataHomeUnavailable,
-    #[error("PACK discovery failed")]
-    #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
-    Discovery {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
-    #[error("PACK discovery failed")]
-    #[diagnostic(help(
-        "Make the default PACK search path a readable directory or remove it, then retry"
-    ))]
-    DefaultPackSearchPath {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
-    #[error("PACK discovery failed")]
-    #[diagnostic(help("Remove one conflicting PACK or give the PACKs distinct names, then retry"))]
-    DuplicatePackName {
-        #[source]
-        source: pack_discovery::PackDiscoveryError,
-    },
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PackDiscovery(#[from] PackDiscoveryFailure),
 }
 
-impl From<pack_discovery::PackDiscoveryError> for InspectPacksError {
-    fn from(source: pack_discovery::PackDiscoveryError) -> Self {
-        match source {
-            source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
-                Self::DuplicatePackName { source }
-            }
-            source @ pack_discovery::PackDiscoveryError::ReadSearchDirectory { .. }
-            | source @ pack_discovery::PackDiscoveryError::EnumerateSearchDirectory { .. }
-            | source @ pack_discovery::PackDiscoveryError::InspectSearchEntry { .. } => {
-                Self::DefaultPackSearchPath { source }
-            }
-            source => Self::Discovery { source },
-        }
-    }
+#[derive(Debug, Error, Diagnostic)]
+enum InspectTargetPackError {
+    #[error("KAT Skill is unavailable")]
+    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
+    SkillRoot(#[source] SkillRootError),
+    #[error("KAT Data Home is unavailable on this platform")]
+    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
+    DataHomeUnavailable,
+    #[error("PACK inspection Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete inspection"))]
+    OperationLog(#[source] OperationLogError),
+    #[error("PACK inspection Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog(#[source] OperationLogError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PackDiscovery(#[from] PackDiscoveryFailure),
+    #[error("PACK {name:?} was not discovered")]
+    #[diagnostic(help(
+        "Use the exact manifest name from `kat inspect`, or add its directory with --pack-dir"
+    ))]
+    UnknownPack { name: String },
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -701,15 +812,58 @@ mod tests {
 
         let Operation::Inspect {
             dataset,
+            pack,
             pack_directories,
         } = cli.operation
         else {
             panic!("expected inspect operation");
         };
         assert!(dataset.is_none());
+        assert!(pack.is_none());
         assert_eq!(
             pack_directories,
             [PathBuf::from("first"), PathBuf::from("second")]
+        );
+    }
+
+    #[test]
+    fn parser_accepts_one_exact_pack_target_and_rejects_other_inspect_modes() {
+        let cli = Cli::try_parse_from([
+            "kat",
+            "inspect",
+            "--pack",
+            "cpu-pack",
+            "--pack-dir",
+            "checkout",
+        ])
+        .expect("parse targeted PACK inspection");
+        let Operation::Inspect { pack, dataset, .. } = cli.operation else {
+            panic!("expected inspect operation");
+        };
+        assert_eq!(pack.as_deref(), Some("cpu-pack"));
+        assert!(dataset.is_none());
+
+        assert!(
+            Cli::try_parse_from([
+                "kat",
+                "inspect",
+                "--pack",
+                "cpu-pack",
+                "--dataset",
+                "dataset",
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "kat",
+                "inspect",
+                "--dataset",
+                "dataset",
+                "--pack-dir",
+                "checkout",
+            ])
+            .is_err()
         );
     }
 
@@ -773,32 +927,5 @@ mod tests {
             ])
             .is_err()
         );
-    }
-
-    #[test]
-    fn operation_log_fault_seams_distinguish_partial_files_from_create_failures() {
-        let temp = tempfile::tempdir().unwrap();
-        let write_error = OperationLog::create_with(temp.path(), |_| {
-            Err(io::Error::other("injected header write failure"))
-        })
-        .unwrap_err();
-        assert!(matches!(write_error, OperationLogError::Write { .. }));
-        assert!(write_error.readable_path().is_some());
-
-        let log =
-            OperationLog::create_with(temp.path(), |file| file.write_all(b"partial\n")).unwrap();
-        let flush_error = log
-            .finish_with(|_| Err(io::Error::other("injected flush failure")))
-            .unwrap_err();
-        assert!(matches!(flush_error, OperationLogError::Flush { .. }));
-        assert!(flush_error.readable_path().is_some());
-
-        let unrelated = temp.path().join("unrelated.log");
-        fs::write(&unrelated, "not this operation").unwrap();
-        let create_error = OperationLogError::Create {
-            path: unrelated,
-            source: io::Error::new(io::ErrorKind::AlreadyExists, "injected create failure"),
-        };
-        assert!(create_error.readable_path().is_none());
     }
 }
