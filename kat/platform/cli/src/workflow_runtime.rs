@@ -315,10 +315,26 @@ mod tests {
             br#"{"status":"failure","failure_owner":"pack","error":{"message":"failed"}}"#
                 .as_slice(),
             br#"{"status":"failure","error":{"message":"failed"},"extra":true}"#.as_slice(),
+            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}]}}"#.as_slice(),
         ] {
             assert!(
                 serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(invalid)
                     .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_response_accepts_only_scalar_parameter_defaults() {
+        for default in [r#""value""#, "42", "1.5", "true", "null"] {
+            let response = format!(
+                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}]}}]}}}}"#
+            );
+            assert!(
+                serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
+                    .is_ok(),
+                "default should be a valid JSON scalar: {default}"
             );
         }
     }

@@ -33,7 +33,16 @@ pub(crate) struct Parameter {
 pub(crate) enum ParameterDefault {
     #[default]
     Missing,
-    Value(serde_json::Value),
+    Value(JsonScalar),
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum JsonScalar {
+    String(String),
+    Number(serde_json::Number),
+    Boolean(bool),
+    Null(()),
 }
 
 impl ParameterDefault {
@@ -58,7 +67,7 @@ fn deserialize_default<'de, D>(deserializer: D) -> Result<ParameterDefault, D::E
 where
     D: serde::Deserializer<'de>,
 {
-    serde_json::Value::deserialize(deserializer).map(ParameterDefault::Value)
+    JsonScalar::deserialize(deserializer).map(ParameterDefault::Value)
 }
 
 fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
