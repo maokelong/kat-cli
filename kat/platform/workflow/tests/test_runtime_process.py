@@ -142,12 +142,18 @@ def analyze(ctx: Context, *, limit: int = 10):
             with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
                 _workflow_entries(self.root)
 
+    def test_non_ordinary_workflow_paths_are_ignored(self) -> None:
         with (
             mock.patch.object(Path, "lstat", return_value=mock.Mock(st_mode=stat.S_IFLNK)),
-            mock.patch.object(Path, "stat", side_effect=FileNotFoundError("dangling target")),
+            mock.patch.object(Path, "stat") as target_stat,
         ):
-            with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
-                _workflow_entries(self.root)
+            self.assertEqual(_workflow_entries(self.root), [])
+            target_stat.assert_not_called()
+
+        file_root = self.root / "file-workflows"
+        file_root.mkdir()
+        (file_root / "workflows").write_text("not a directory", encoding="utf-8")
+        self.assertEqual(_workflow_entries(file_root), [])
 
         dangling_root = self.root / "dangling-workflows"
         dangling_root.mkdir()
@@ -157,8 +163,18 @@ def analyze(ctx: Context, *, limit: int = 10):
             )
         except OSError:
             return
-        with self.assertRaisesRegex(OSError, "failed to scan PACK workflows directory"):
-            _workflow_entries(dangling_root)
+        self.assertEqual(_workflow_entries(dangling_root), [])
+
+        linked_entry_root = self.root / "linked-entry"
+        workflow_directory = linked_entry_root / "workflows"
+        workflow_directory.mkdir(parents=True)
+        linked_source = linked_entry_root / "outside.py"
+        linked_source.write_text("raise AssertionError('must not import')\n", encoding="utf-8")
+        try:
+            (workflow_directory / "linked.py").symlink_to(linked_source)
+        except OSError:
+            return
+        self.assertEqual(_workflow_entries(linked_entry_root), [])
 
     def test_diagnostic_ignores_hostile_syntax_error_metadata(self) -> None:
         pack = self.root / "hostile-syntax-metadata"

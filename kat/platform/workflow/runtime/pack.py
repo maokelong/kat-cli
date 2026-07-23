@@ -202,10 +202,8 @@ def _workflow_entries(root: Path) -> list[tuple[Path, tuple[str, ...]]]:
             metadata = directory.lstat()
         except FileNotFoundError:
             return []
-        if stat.S_ISLNK(metadata.st_mode):
-            metadata = directory.stat()
         if not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError("PACK workflows path must be a directory")
+            return []
         pending: list[tuple[str, Path, bool, bool]] = []
         entries: list[tuple[Path, tuple[str, ...]]] = []
         _enqueue_children(directory, directory, pending)
