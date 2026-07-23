@@ -115,7 +115,7 @@ struct InspectParameterResult {
     name: String,
     option: String,
     #[serde(rename = "type")]
-    parameter_type: String,
+    parameter_type: workflow_runtime::ParameterType,
     required: bool,
     description: String,
     #[serde(skip_serializing_if = "Option::is_none")]

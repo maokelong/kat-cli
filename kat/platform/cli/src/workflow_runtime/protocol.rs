@@ -18,7 +18,7 @@ pub(crate) struct Parameter {
     pub(crate) name: String,
     pub(crate) option: String,
     #[serde(rename = "type")]
-    pub(crate) parameter_type: String,
+    pub(crate) parameter_type: ParameterType,
     pub(crate) required: bool,
     pub(crate) description: String,
     #[serde(default, deserialize_with = "deserialize_optional_string")]
@@ -27,6 +27,17 @@ pub(crate) struct Parameter {
     pub(crate) choices: Option<Vec<String>>,
     #[serde(default, deserialize_with = "deserialize_default")]
     pub(crate) default: ParameterDefault,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ParameterType {
+    String,
+    Int64,
+    Float64,
+    Boolean,
+    Duration,
+    WallClockTimestamp,
 }
 
 #[derive(Default)]

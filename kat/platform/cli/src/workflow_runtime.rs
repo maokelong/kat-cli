@@ -19,7 +19,7 @@ mod protocol;
 
 use output_spool::RuntimeOutputSpool;
 use protocol::{InspectPackRuntimeResult, RuntimeResponse};
-pub(crate) use protocol::{ParameterDefault, Workflow};
+pub(crate) use protocol::{ParameterDefault, ParameterType, Workflow};
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
 
@@ -317,10 +317,32 @@ mod tests {
             br#"{"status":"failure","error":{"message":"failed"},"extra":true}"#.as_slice(),
             br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}]}}"#.as_slice(),
             br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}]}]}}"#.as_slice(),
         ] {
             assert!(
                 serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(invalid)
                     .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_response_accepts_only_closed_parameter_types() {
+        for parameter_type in [
+            "string",
+            "int64",
+            "float64",
+            "boolean",
+            "duration",
+            "wall_clock_timestamp",
+        ] {
+            let response = format!(
+                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}]}}]}}}}"#
+            );
+            assert!(
+                serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
+                    .is_ok(),
+                "parameter type should be part of the closed set: {parameter_type}"
             );
         }
     }
