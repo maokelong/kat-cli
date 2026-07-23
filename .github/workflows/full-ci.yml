@@ -54,6 +54,7 @@ jobs:
       - name: Test (system linker on Linux)
         if: runner.os == 'Linux'
         env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
           RUSTFLAGS: -C linker-features=-lld
         run: cargo test --locked --jobs 1
 
