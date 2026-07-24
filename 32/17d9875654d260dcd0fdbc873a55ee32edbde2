@@ -1,0 +1,38 @@
+README.md
+  s_450935cb905f4d::t_8499b9bb5d53c5 76-77,91-94,110-112,115-116,162-165
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_450935cb905f4d::t_8499b9bb5d53c5 18-22
+docs/superpowers/specs/2026-07-24-pr-151-kat-run-deepening-design.md
+  s_450935cb905f4d::t_855f9654b08329 3,100-116,175-176
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_450935cb905f4d::t_8499b9bb5d53c5 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3217d9875654d260dcd0fdbc873a55ee32edbde2",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 41,
+      "total_deletions": 0,
+      "accepted_lines": 41,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
