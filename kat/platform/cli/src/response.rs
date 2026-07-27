@@ -79,6 +79,17 @@ impl KatDiagnostic {
                 .is_none_or(|help| !help.trim().is_empty())
             && self.location.as_ref().is_none_or(DiagnosticLocation::valid)
     }
+
+    pub(super) fn contains_private_value(&self, value: &str) -> bool {
+        !value.is_empty()
+            && (self.message.contains(value)
+                || self.causes.iter().any(|cause| cause.contains(value))
+                || self.help.as_ref().is_some_and(|help| help.contains(value))
+                || self
+                    .location
+                    .as_ref()
+                    .is_some_and(|location| location.source.contains(value)))
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1,6 +1,7 @@
 mod operation_log;
 mod pack_discovery;
 mod response;
+mod run;
 mod text_projection;
 mod workflow_runtime;
 
@@ -49,6 +50,11 @@ enum Operation {
         )]
         pack_directories: Vec<PathBuf>,
     },
+    /// Execute one Workflow and atomically publish one Run.
+    ///
+    /// The Operation log may retain the resolved PACK path, optional Dataset
+    /// path, and all arguments after `--`. Do not pass secrets in these values.
+    Run(run::RunArgs),
 }
 
 #[derive(Args)]
@@ -179,6 +185,7 @@ pub fn run() -> ExitCode {
             };
             response::publish(prepared)
         }
+        Operation::Run(arguments) => response::publish(run::execute(arguments)),
     }
 }
 
@@ -231,13 +238,9 @@ fn inspect_target_pack(
     }
 
     match workflow_runtime::inspect_pack(log, pack.name(), pack.directory()) {
-        Ok(workflow_runtime::InspectPackOutcome::Success {
-            workflows,
-            log_path,
-        }) => response::prepare_success_with_log(
-            project_inspected_pack(pack, workflows),
-            Some(log_path),
-        ),
+        Ok(workflow_runtime::InspectPackOutcome::Success { result, log_path }) => {
+            response::prepare_success_with_log(project_inspected_pack(pack, result), Some(log_path))
+        }
         Ok(workflow_runtime::InspectPackOutcome::Failure {
             diagnostic,
             log_path,

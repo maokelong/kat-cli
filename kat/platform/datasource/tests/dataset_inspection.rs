@@ -7,7 +7,10 @@ use std::{
 use arrow_schema::{DataType, Field, Schema};
 use parquet::arrow::ArrowWriter;
 
-use kat_datasource::{DatasetInspection, DatasetInspectionError, TableInspection, inspect_dataset};
+use kat_datasource::{
+    DatasetInspection, DatasetInspectionError, ResolvedTable, TableInspection, inspect_dataset,
+    resolve_dataset,
+};
 
 fn dataset(root: &Path) -> PathBuf {
     let path = root.join("dataset");
@@ -53,7 +56,7 @@ fn inspection_returns_canonical_path_sorted_tables_and_ordered_columns() {
 
     let inspection = inspect_dataset(&dataset).expect("inspect Dataset");
 
-    assert_eq!(inspection.path(), dunce::canonicalize(dataset).unwrap());
+    assert_eq!(inspection.path(), dunce::canonicalize(&dataset).unwrap());
     assert_eq!(
         inspection
             .tables()
@@ -69,6 +72,21 @@ fn inspection_returns_canonical_path_sorted_tables_and_ordered_columns() {
     assert_eq!(columns[1].name(), "label");
     assert_eq!(columns[1].data_type(), "Utf8");
     assert!(columns[1].nullable());
+
+    let resolved = resolve_dataset(&dataset).unwrap();
+    assert_eq!(resolved.path(), inspection.path());
+    assert_eq!(
+        resolved
+            .tables()
+            .iter()
+            .map(ResolvedTable::name)
+            .collect::<Vec<_>>(),
+        ["alpha", "zeta"]
+    );
+    assert_eq!(
+        resolved.tables()[0].path(),
+        dunce::canonicalize(dataset.join("tables/alpha.parquet")).unwrap()
+    );
 }
 
 #[test]

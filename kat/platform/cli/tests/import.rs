@@ -7,6 +7,10 @@ use std::{
 use prost::Message;
 use rusqlite::Connection;
 
+#[allow(dead_code)]
+mod support;
+use support::cargo_kat;
+
 const HEADER_SIZE: usize = 1024;
 const HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
 
@@ -112,24 +116,8 @@ fn profiler_section(data_type: u32, frames: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 
-fn cargo_kat() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_kat"))
-}
-
 fn stage_skill(root: &Path) -> PathBuf {
-    let skill = root.join("skill");
-    let target = if cfg!(windows) {
-        "windows-x86_64"
-    } else {
-        "linux-x86_64"
-    };
-    let binary_name = if cfg!(windows) { "kat.exe" } else { "kat" };
-    let payload = skill.join("scripts").join("targets").join(target);
-    fs::create_dir_all(&payload).unwrap();
-    fs::write(skill.join("SKILL.md"), "# KAT\n").unwrap();
-    let binary = payload.join(binary_name);
-    fs::copy(cargo_kat(), &binary).unwrap();
-    binary
+    support::stage_skill(root, "skill").1
 }
 
 fn command(binary: &Path, root: &Path) -> Command {

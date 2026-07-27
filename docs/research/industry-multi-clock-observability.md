@@ -1,5 +1,8 @@
 # 多时钟可观测系统的业内做法与 KAT 时间轴设计
 
+> 决策更新：ADR-0051 保留本文的时钟证据与批量换算结论，但第一版只通过
+> `ctx.convert_clock(...)` 暴露换算，不再注册 SQL `kat_convert_clock(...)`。
+
 > 调研日期：2026-07-14
 >
 > 结论先行：成熟系统不会让普通查询者手写 clock conversion。Perfetto 在具有周期同步证据时导入到一条 trace time；OpenTelemetry 则在互操作协议入口直接要求 Unix epoch；Linux ftrace/perf 保留采集者选择的 clock。它们共同要求时间值的 domain 与计量语义可确认，不能只靠一个整数或字段名猜测。
@@ -197,19 +200,22 @@ KAT 使用 PyArrow 批量 checked integer kernels 完成差值和平移，不经
 
 缺少定义或 baseline reading、频率不是首版固定值、目标结果小于零或超过 `u64` 时，任何一行都会使整个操作失败，不返回原值、NULL 或部分结果。第一版不实现异频缩放、`u128` 乘除或舍入；新的真实 Datasource 证据要求准入不同频率时再单独设计，不提前把未来算法带进当前发布闭包。
 
-NULL 只表达关系上的缺席：来源 `clock_domain` 与 `clock_value` 同时为 NULL 时结果为 NULL，使 LEFT JOIN 的未匹配行不需要额外 CASE；恰好一个为 NULL 则破坏 `UnifiedClock` 值对并使整个查询失败。两个输入都非 NULL 时，未知 domain、证据缺失和越界仍严格失败。目标 domain 必须是非空固定字符串，SQL NULL 与 Python `None` 不属于 Interface。
+NULL 只表达关系上的缺席：来源 `clock_domain` 与 `clock_value` 同时为 NULL 时结果为 NULL，使 LEFT JOIN 的未匹配行不需要额外 CASE；恰好一个为 NULL 则破坏 `UnifiedClock` 值对并使整个查询失败。两个输入都非 NULL 时，未知 domain、证据缺失和越界仍严格失败。目标 domain 必须是精确类型的非空 Python `str`；空字符串、`None`、其他类型和 `str` 子类都不属于 Interface。
 
-输入类型也不做隐式推导：两个来源 Expr 必须精确为 Arrow `Utf8 clock_domain` 与 `UInt64 clock_value`；来源 `LargeUtf8`、`Utf8View`、有符号整数、Decimal 等其他类型由 PACK 先使用 DataFusion 严格显式 cast，负数、越界和非法值在那一层失败。SQL target 的公共契约是普通字符串字面量，Python target 是普通 `str`；DataFusion 对 literal 的内部 string 表示不构成来源 coercion 或 KAT 类型承诺。SQL 与 Python 不各自维护来源 coercion 例外，DataFusion 未来的隐式转换变化也不会扩大 KAT Interface。
+Context 在构造私有 UDF Expr 时把两个来源 Expr 严格 cast 为 Arrow
+`Utf8 clock_domain` 与 `UInt64 clock_value`，让零行和非零行关系服从同一规划合同。
+DataFusion 能安全转换的 `LargeUtf8`、`Utf8View` 与非负有符号整数可以使用；负数、
+越界、非法文本或其他不安全转换使整个 Workflow 失败，不用 `try_cast` 降级为 NULL。
+KAT 明确保证规范 `Utf8`/`UInt64`、`LargeUtf8`/`Utf8View` domain 与可表示的非负
+`Int64`；其他来源类型即使能被固定版本引擎转换，也不属于 Pack Authoring Interface。
+`target_domain` 仍在构造 Expr 前由 Pack Authoring API 直接验证为精确的非空 Python
+`str`，不依赖 DataFusion 的隐式转换。DataFusion 54 Python API 没有可靠的
+schema-aware planning callback，因此 KAT 不再用行级 `arrow_typeof(...)` 值模拟精确
+来源物理类型门禁；见 ADR-0054。
 
-### 6.4 同源 SQL 与 Python 入口
+### 6.4 单一 Pack Authoring API 入口
 
-Runtime 注册一个向量化 DataFusion scalar UDF：
-
-```sql
-kat_convert_clock(clock_domain, clock_value, 'boottime')
-```
-
-第三个参数必须是固定字符串字面量。DataFrame Workflow 通过当前 Execution Lease 上的薄入口构造同一 UDF Expr：
+DataFrame Workflow 通过当前 Execution Lease 上的薄入口构造私有 UDF Expr：
 
 ```python
 ctx.convert_clock(
@@ -219,9 +225,9 @@ ctx.convert_clock(
 )
 ```
 
-两者都返回目标 domain 下的 `UInt64 ClockValue`。KAT 不返回 Struct、不逐行重复目标 domain，也不公开 `ctx.udf(name)`；需要发布结果时由 PACK 使用 `boottime_clock_value` 等自说明名称。`target_domain` 必须是 Datasource 发布的精确 domain identity；`clock_type` 不充当 alias，KAT 不做大小写转换、模糊匹配或唯一同类型自动选择，找不到时列出实际 domain 后失败。调用者不提供 snapshot、频率或 Dataset 路径。DataFusion 自身的 scalar UDF 同时支持 SQL 注册和 Python Expr 调用，因此这两个表面共享一个执行实现，不需要 KAT 再造表达式系统。[DataFusion Python UDF](https://datafusion.apache.org/python/user-guide/common-operations/udf-and-udfa.html)
+入口返回目标 domain 下的 `UInt64 ClockValue`。KAT 不返回 Struct、不逐行重复目标 domain，也不公开 `ctx.udf(name)`；需要发布结果时由 PACK 使用 `boottime_clock_value` 等自说明名称。`target_domain` 必须是 Datasource 发布的精确 domain identity；`clock_type` 不充当 alias，KAT 不做大小写转换、模糊匹配或唯一同类型自动选择，找不到时列出实际 domain 后失败。调用者不提供 snapshot、频率或 Dataset 路径。
 
-首版用 Workflow Runtime 私有的 `stable` Python/PyArrow scalar UDF 实现。回调始终接收和返回 Arrow batches，并只调用 PyArrow compute kernels；不使用 `.as_py()`、Python 逐行循环、PyO3、FFI capsule、自建 native wheel 或 Rust 平行实现。Query Engine 只拥有 SessionContext、注册、生命周期和资源边界，时钟能力作为其上的库/UDF 被 SQL 与 Expr 共同使用。只有代表性 trace 的真实性能证据证明这一实现成为关键瓶颈时，才保持 Interface 与失败语义不变地下沉，不预建双实现或 port abstraction。
+首版用 Workflow Runtime 私有的 `stable` Python/PyArrow scalar UDF 实现。回调始终接收和返回 Arrow batches，并只调用 PyArrow compute kernels；不使用 `.as_py()`、Python 逐行循环、PyO3、FFI capsule、自建 native wheel 或 Rust 平行实现。该 UDF object 不向 `SessionContext` 注册；SQL 中调用 `kat_convert_clock(...)` 按 DataFusion 普通未知函数失败。DataFusion 54 Python API 没有可靠的规划期字面量校验入口，因此 SQL UDF 延后到 API 提供可靠规划回调之后，见 ADR-0051。只有代表性 trace 的真实性能证据证明批量实现成为关键瓶颈时，才重新评估下沉，不预建双实现或 port abstraction。
 
 换算到目标 domain 并不等于得到 UTC。第一版直接由封闭的 `clock_type` 承担 origin 契约：只有 `realtime` 与 `realtime_coarse` 表示 Unix epoch 墙上时间，后者只是更低精度；PACK 才能继续使用 DataFusion 现成的严格 [`arrow_cast`](https://datafusion.apache.org/user-guide/sql/data_types.html) 派生 `Timestamp(ns, UTC)`。越界或非法转换使查询失败，不用 `try_cast` 静默产生 NULL。其他 domain 即使也是每秒十亿 tick，也不强求能够显示为公历时间。KAT 不增加 `origin`、`is_unix_epoch`、wall-clock UDF 或 Context 方法。
 
@@ -229,7 +235,7 @@ ctx.convert_clock(
 
 形成 `duration_ns` 还要求 target domain 的 `ticks_per_second` 恰好为 `1_000_000_000`。PACK 决定业务起点与终点，显式检查终点不早于起点且差值能装入 `Int64`，再用 DataFusion 原生算术产生结果。第一版不提供 diff/Duration UDF，不对负差取绝对值、交换两端或返回 NULL；没有可到达纳秒 domain 时只保留原始 tick，不伪造 KAT Duration。
 
-时钟表不是所有 Dataset、Workflow 或 Output Query 的启动前提。Runtime 只有在实际执行换算时才从当前请求可用的 Resolved Dataset 读取并验证 `clock_domain`，在本次执行面内构建一个可复用的内存 Resolver；它不建立磁盘缓存或跨进程状态。Workflow 使用当前 Workflow execution 可选携带的 Dataset；Output Query 只有在 `query_run.dataset` 为 `available` 时使用其中查询当下的当前 Dataset。SQL UDF 不分析参数来自历史 `output.*` 还是当前 `dataset.*`；路径覆盖后仍使用当前 evidence，语义后果由用户承担，不为此增加 Dataset revision、旧证据副本或表达式 lineage。`not_provided`、`unavailable` 或缺少时钟证据时，实际换算失败，但未执行换算的 Workflow 和纯 `output.*` 查询仍可运行。合法 domain 定义即使对恒等换算也必需，snapshot 则只在实际跨 domain 时要求。Runtime 的内部读取不加入 Workflow Table Grant，PACK 直接查询时仍按普通 Required tables 约束。
+时钟表不是所有 Dataset 或 Workflow 的启动前提。Runtime 在 Workflow execution plane 创建时构建一个私有的空 Resolver，但只有在实际执行换算时才从当前 Resolved Dataset 读取并验证 `clock_domain`，随后在本次执行面内复用已加载证据；它不建立磁盘缓存或跨进程状态。未提供 Dataset 或缺少时钟证据时，实际换算失败，但未执行换算的 Workflow 仍可运行。合法 domain 定义即使对恒等换算也必需，snapshot 则只在实际跨 domain 时要求。Runtime 的内部读取不加入 Workflow Table Grant，PACK 直接查询时仍按普通 Required tables 约束。
 
 ### 6.5 当前 Interface 不变量
 
@@ -244,11 +250,12 @@ ctx.convert_clock(
 9. 来源与目标 domain 必须共同出现在 baseline，不拼接不同 snapshot group 做多跳；定义或 baseline reading 缺失、重复、冲突时失败，不猜测、不返回原值、不降级为 NULL。
 10. 裸 `clock_value` 仍是普通 `UInt64`，KAT 不声称识别或阻止任意表达式中的跨域误用；受支持的跨域语义先显式换算到同一 target，再使用 DataFusion 运算符。
 11. `duration_ns` 只由同一纳秒 target 上经 PACK 验证为非负且落入 `Int64` 的差值产生；KAT 不增加 Duration UDF 或隐式修正。
-12. 时钟证据只在换算实际使用时加载，每个 execution plane 至多构建一个内存 Resolver；缺表不影响未使用换算的 Workflow。
+12. 每个 execution plane 创建一个私有内存 Resolver，时钟证据只在换算实际使用时加载；缺表不影响未使用换算的 Workflow。
 13. 时钟换算只产生目标 `ClockValue`；第一版只有 `clock_type` 为 `realtime` 或 `realtime_coarse` 时，PACK 才用 DataFusion 严格 cast 派生 `Timestamp(ns, UTC)`，KAT 不增加 origin 字段或专用 UDF。
-14. `kat_convert_clock` 可用于 Output Query，并只绑定 `query_run.dataset` 的 `available` evidence；`not_provided` 与 `unavailable` 在实际换算时失败。KAT 不追踪参数 provenance 或保存 Run 时证据，路径覆盖后的语义一致性由用户负责。
-15. 换算入口只接受精确的 Arrow `Utf8 + UInt64` 来源输入和固定 string target，不执行隐式类型转换；其他类型由 PACK 先严格显式 cast。
-16. 首版只有一个 `stable` Python/PyArrow batch UDF 实现，不逐行转 Python object，也不预建 Rust/FFI 平行实现；只有真实性能证据才触发保持 Interface 不变的下沉。
+14. 时钟换算只通过 `ctx.convert_clock(...)` 暴露；SQL 中的 `kat_convert_clock(...)` 未注册并按未知函数失败。
+15. 换算入口把来源 Expr 严格 cast 为 Arrow `Utf8 + UInt64`，安全 coercion 可用，
+    不安全转换使 Workflow 失败；target 仍只接受精确的非空 Python `str`。
+16. 首版只有一个 Runtime 私有的 `stable` Python/PyArrow batch UDF 实现，不逐行转 Python object，也不预建 Rust/FFI 平行实现；只有真实性能证据才触发重新评估。
 
 ### 6.6 最小测试矩阵
 
@@ -266,10 +273,11 @@ ctx.convert_clock(
 - 同 domain 换算恒等；跨 domain 按 baseline 做同频 checked 平移，不实现异频缩放或舍入；
 - 换算结果小于零或超过 `u64` 时整批失败，不发布 NULL 或部分结果；
 - 来源 domain 与 value 同时为 NULL 时传播 NULL；恰好一个为 NULL 时整批失败；target 为 NULL 或空字符串时拒绝；
-- `Utf8 + UInt64` 以外的来源 Expr 即使可转换也拒绝，PACK 显式严格 cast 后才能调用；类型诊断显示实际与期望类型；
-- SQL 与 Python 入口形成等价 Logical Plan 语义并得到同一结果；目标 domain 不是固定字符串时在计划阶段失败；
+- 零行和非零行的 `LargeUtf8`/`Utf8View`、非负有符号整数等安全 coercion 与规范
+  `Utf8 + UInt64` 输入结果一致；负数、越界、非法文本和其他不安全转换失败；
+- `ctx.convert_clock(...)` 正常构造换算 Expr；空字符串、`None`、非字符串和 `str` 子类在构造 Expr 前失败；SQL 直接调用 `kat_convert_clock(...)` 按未知函数失败；
 - `duration_ns` 派生覆盖正常零值与正值、终点早于起点、超过 `Int64` 和不存在纳秒 target；后三者不能被自动修正为 Duration；
-- 未调用换算时缺少时钟表不影响 Workflow；调用后同域只要求合法定义，跨域再要求 baseline，Resolver 在同一 execution plane 内只初始化一次；
+- 未调用换算时缺少时钟表不影响 Workflow；调用后同域只要求合法定义，跨域再要求 baseline，Resolver 在同一 execution plane 内只创建一次并按需加载证据；
 - Import 失败不会发布部分 Dataset。
 
 ## 7. Trade-offs 与被拒方案
@@ -297,7 +305,7 @@ Linux 的 BOOTTIME 会累计 suspend、MONOTONIC 会受渐进校时影响而 RAW
 
 ### 拒绝：现在实现通用 clock graph
 
-Perfetto 的 BFS、sequence-scoped/global clocks、跨 trace/machine scope 都解决了 KAT 当前尚未证实的问题。KAT 当前只为已准入的同频时钟提供使用 `snapshot_id = 0` 的严格 baseline 平移，并通过同一个 `kat_convert_clock` UDF 暴露；不搜索路径、不拼接多跳，也不预建完整图引擎。以后只有真实来源引入异频或多段映射需求时，才重新设计相应操作。
+Perfetto 的 BFS、sequence-scoped/global clocks、跨 trace/machine scope 都解决了 KAT 当前尚未证实的问题。KAT 当前只为已准入的同频时钟提供使用 `snapshot_id = 0` 的严格 baseline 平移，并通过 `ctx.convert_clock(...)` 暴露；不搜索路径、不拼接多跳，也不预建完整图引擎。以后只有真实来源引入异频或多段映射需求时，才重新设计相应操作。
 
 ## 8. 推荐决策
 
@@ -307,4 +315,4 @@ Perfetto 的 BFS、sequence-scoped/global clocks、跨 trace/machine scope 都�
 
 这个模型不承诺不同 Dataset、不同设备、不同启动或 Dataset 重建前后的同名 domain 自动一致。KAT 也不为此持久化 generation 或全局时钟身份；需要跨边界对齐时必须有额外证据。
 
-这保留了原始证据和明确失败边界，同时采用符合当前 OpenHarmony 移动设备经验的风险策略。Runtime 通过同一个 `kat_convert_clock` scalar UDF 提供 SQL 换算，并由 `ctx.convert_clock(...)` 为 DataFrame Workflow 构造同一 Expr；两个入口不泄露 snapshot、频率或底层 SessionContext。首版实现停留在 PyArrow batch library 层，只有真实瓶颈才在 Interface 不变的前提下下沉。
+这保留了原始证据和明确失败边界，同时采用符合当前 OpenHarmony 移动设备经验的风险策略。Runtime 只通过 `ctx.convert_clock(...)` 为 DataFrame Workflow 构造私有 UDF Expr，不向 SQL 注册函数，也不泄露 snapshot、频率或底层 SessionContext。首版实现停留在 PyArrow batch library 层；SQL UDF 等 DataFusion Python API 提供可靠规划期校验入口后再重新设计。

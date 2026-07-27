@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import stat
@@ -12,7 +13,7 @@ from unittest import mock
 import uuid
 
 from _kat_runtime import __main__ as runtime_main
-from _kat_runtime.pack import _workflow_entries
+from _kat_runtime.pack import _workflow_entries, inspect_pack
 
 
 class RuntimeProcessTest(unittest.TestCase):
@@ -281,6 +282,11 @@ def analyze(ctx: Context, *, limit: int = 10):
             {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative", "extra": True},
             {"operation": "inspect_pack", "pack_name": "", "pack_path": str(self.root.resolve())},
             {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative"},
+            {
+                "operation": "inspect_pack",
+                "pack_name": "alpha",
+                "pack_path": str((self.root / "private-missing-pack").resolve()),
+            },
         ]:
             with self.subTest(request=request):
                 completed, response = self.run_runtime(request)
@@ -293,6 +299,7 @@ def analyze(ctx: Context, *, limit: int = 10):
                 )
                 self.assertEqual(set(response), {"status", "error"})
                 self.assertEqual(set(response["error"]), {"message", "causes", "help"})
+                self.assertNotIn("private-missing-pack", json.dumps(response))
 
         pack = self.write_pack()
         (pack / "workflows" / "broken.py").write_text(
@@ -468,6 +475,33 @@ def analyze(ctx: Context):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "success")
+
+    def test_inspection_reaps_its_spawn_worker_before_returning(self) -> None:
+        pack = self.root / "reaped-worker"
+        (pack / "workflows").mkdir(parents=True)
+        worker_pid = self.root / "inspection-worker.pid"
+        (pack / "workflows" / "worker.py").write_text(
+            f"""import os
+from pathlib import Path
+from kat import Context, workflow
+
+Path({str(worker_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+
+@workflow(name="worker", title="Worker", required_tables=[])
+def analyze(ctx: Context):
+    \"\"\"Record the real inspection worker.\"\"\"
+""",
+            encoding="utf-8",
+        )
+        before = {child.pid for child in multiprocessing.active_children()}
+
+        result = inspect_pack("reaped-worker", pack.resolve())
+
+        pid = int(worker_pid.read_text(encoding="utf-8"))
+        after = {child.pid for child in multiprocessing.active_children()}
+        self.assertEqual([workflow["name"] for workflow in result.workflows], ["worker"])
+        self.assertNotIn(pid, after)
+        self.assertEqual(after, before)
 
     def test_declarative_entry_errors_follow_portable_relative_path_order(self) -> None:
         pack = self.root / "ordered-errors"
@@ -658,6 +692,35 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "operation": "inspect_pack",
                 "pack_name": "worker-crash",
                 "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(response_path.exists())
+        self.assertIn(
+            "Workflow inspection worker exited without a result",
+            completed.stderr.decode(errors="replace"),
+        )
+
+    def test_run_worker_crash_exits_without_a_workflow_failure_response(self) -> None:
+        pack = self.root / "run-worker-crash"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "crash.py").write_text(
+            "import os\nos._exit(17)\n", encoding="utf-8"
+        )
+        candidate_id = str(uuid.uuid7())
+        candidate = self.root / candidate_id
+        candidate.mkdir()
+
+        completed, response_path = self.run_runtime_process(
+            {
+                "operation": "run_workflow",
+                "pack_name": "run-worker-crash",
+                "pack_path": str(pack.resolve()),
+                "workflow_name": "analyze",
+                "arguments": [],
+                "candidate_id": candidate_id,
+                "candidate_path": str(candidate.resolve()),
             }
         )
 

@@ -6,35 +6,18 @@ use std::{
 
 use base64::Engine;
 
+mod support;
+use support::cargo_kat;
+
 const DATA_DICT_PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
-fn cargo_kat() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_kat"))
-}
-
 fn stage_minimum_skill_layout(root: &Path) -> (PathBuf, PathBuf) {
-    let skill = root.join("movable-skill");
-    let target = if cfg!(windows) {
-        "windows-x86_64"
-    } else {
-        "linux-x86_64"
-    };
-    let binary_name = if cfg!(windows) { "kat.exe" } else { "kat" };
-    let payload = skill.join("scripts").join("targets").join(target);
-    fs::create_dir_all(&payload).expect("create Platform Payload");
-    fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
-    let binary = payload.join(binary_name);
-    fs::copy(cargo_kat(), &binary).expect("copy kat into Skill");
-    (skill, binary)
+    support::stage_skill(root, "movable-skill")
 }
 
 fn stage_fake_python_host(binary: &Path) {
     let payload = binary.parent().expect("Platform Payload directory");
-    let host = if cfg!(windows) {
-        payload.join("python").join("python.exe")
-    } else {
-        payload.join("python").join("bin").join("python3")
-    };
+    let host = support::host_path(binary);
     fs::create_dir_all(host.parent().unwrap()).expect("create fake Host directory");
     let source = payload.join("fake-python-host.rs");
     fs::write(
@@ -79,61 +62,6 @@ fn main() {
         "fake Host compilation failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-fn stage_real_python_host(binary: &Path, python: &Path, workflow_wheel: &Path) {
-    let payload = binary.parent().expect("Platform Payload directory");
-    let environment = if cfg!(windows) {
-        payload.to_path_buf()
-    } else {
-        payload.join("python")
-    };
-    let output = Command::new(python)
-        .args(["-m", "venv"])
-        .arg(&environment)
-        .output()
-        .expect("create real Workflow Host environment");
-    assert!(
-        output.status.success(),
-        "Workflow Host environment creation failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let environment_python = if cfg!(windows) {
-        payload.join("Scripts").join("python.exe")
-    } else {
-        payload.join("python").join("bin").join("python3")
-    };
-    let output = Command::new(&environment_python)
-        .args([
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--ignore-requires-python",
-            "--no-index",
-            "--find-links",
-        ])
-        .arg(
-            workflow_wheel
-                .parent()
-                .expect("Workflow wheel belongs to a wheelhouse"),
-        )
-        .arg(workflow_wheel)
-        .output()
-        .expect("install Workflow Host wheel");
-    assert!(
-        output.status.success(),
-        "Workflow Host wheel installation failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    #[cfg(windows)]
-    {
-        let host = payload.join("python").join("python.exe");
-        fs::create_dir_all(host.parent().unwrap()).expect("create real Host directory");
-        fs::copy(environment_python, host).expect("stage real Windows Host executable");
-    }
 }
 
 fn prepare_platform_data_home(command: &mut Command, root: &Path) {
@@ -242,8 +170,8 @@ fn targeted_pack_inspection_runs_real_installed_workflow_host() {
             .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
     );
     let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    stage_real_python_host(&binary, &python, &workflow_wheel);
+    let (_skill, binary) =
+        support::stage_real_host_skill(temporary.path(), &cargo_kat(), &python, &workflow_wheel);
     let pack = temporary.path().join("external-checkout");
     write_pack(&pack, "alpha", "External PACK");
     let workflows = pack.join("workflows");
