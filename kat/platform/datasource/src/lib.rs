@@ -1,6 +1,6 @@
 //! KAT 唯一的内部 Datasource 与 Dataset Storage package。
 //!
-//! 当前切片开放 Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
+//! 当前切片开放 Hitrace Import、Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
 //! Trace Streamer 入口只服务预发布机制联调，不形成兼容承诺，并将在第一次正式发布前删除。
 
 mod arrow_table;
@@ -79,6 +79,7 @@ impl DatasetInspection {
 
 pub struct TableInspection {
     name: String,
+    path: PathBuf,
     columns: Vec<ColumnInspection>,
 }
 
@@ -89,6 +90,36 @@ impl TableInspection {
 
     pub fn columns(&self) -> &[ColumnInspection] {
         &self.columns
+    }
+}
+
+pub struct ResolvedDataset {
+    path: PathBuf,
+    tables: Vec<ResolvedTable>,
+}
+
+impl ResolvedDataset {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn tables(&self) -> &[ResolvedTable] {
+        &self.tables
+    }
+}
+
+pub struct ResolvedTable {
+    name: String,
+    path: PathBuf,
+}
+
+impl ResolvedTable {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 
@@ -129,6 +160,21 @@ pub fn inspect_dataset(path: &Path) -> Result<DatasetInspection, DatasetInspecti
         tables.push(read_table(name, path)?);
     }
     Ok(DatasetInspection { path: root, tables })
+}
+
+pub fn resolve_dataset(path: &Path) -> Result<ResolvedDataset, DatasetInspectionError> {
+    let inspection = inspect_dataset(path)?;
+    Ok(ResolvedDataset {
+        path: inspection.path,
+        tables: inspection
+            .tables
+            .into_iter()
+            .map(|table| ResolvedTable {
+                name: table.name,
+                path: table.path,
+            })
+            .collect(),
+    })
 }
 
 fn canonical_unicode(path: &Path, label: &'static str) -> Result<PathBuf, DatasetInspectionError> {
@@ -242,7 +288,7 @@ fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetIns
         ArrowReaderMetadata::load(&file, ArrowReaderOptions::default()).map_err(|source| {
             DatasetInspectionError::ReadTableMetadata {
                 name: name.clone(),
-                path: canonical,
+                path: canonical.clone(),
                 source,
             }
         })?;
@@ -261,7 +307,11 @@ fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetIns
             nullable: field.is_nullable(),
         });
     }
-    Ok(TableInspection { name, columns })
+    Ok(TableInspection {
+        name,
+        path: canonical,
+        columns,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]

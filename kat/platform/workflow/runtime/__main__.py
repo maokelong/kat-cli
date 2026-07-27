@@ -8,7 +8,20 @@ from pathlib import Path
 from typing import Literal
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
-from .pack import InspectPackRuntimeResult, PackInspectionError, inspect_pack
+from .execution import RunWorkflowRuntimeResult, run_workflow
+from .pack import (
+    InspectPackRuntimeResult,
+    PackInspectionError,
+    _PackInspectionWorkerError,
+    inspect_pack,
+)
+from .request import (
+    InspectPackRequest,
+    RunWorkflowRequest,
+    RuntimeRequest,
+    RuntimeRequestError,
+    read_request,
+)
 
 
 @dataclass(frozen=True)
@@ -23,17 +36,11 @@ class RuntimeFailure:
     error: RuntimeDiagnostic
 
 
-type InspectPackRuntimeResponse = RuntimeSuccess[InspectPackRuntimeResult] | RuntimeFailure
-
-
-@dataclass(frozen=True)
-class InspectPackRequest:
-    pack_name: str
-    pack_path: Path
-
-
-class RuntimeRequestError(Exception):
-    """The control file does not contain a valid Runtime Request."""
+type RuntimeResponse = (
+    RuntimeSuccess[InspectPackRuntimeResult]
+    | RuntimeSuccess[RunWorkflowRuntimeResult]
+    | RuntimeFailure
+)
 
 
 def main() -> int:
@@ -43,9 +50,9 @@ def main() -> int:
     arguments = parser.parse_args()
     response_path = Path(arguments.response)
     try:
-        request = _read_request(Path(arguments.request))
+        request = read_request(Path(arguments.request))
     except RuntimeRequestError as error:
-        response: InspectPackRuntimeResponse = RuntimeFailure(
+        response: RuntimeResponse = RuntimeFailure(
             error=diagnostic_from_exception(
                 error,
                 None,
@@ -54,54 +61,56 @@ def main() -> int:
             )
         )
     else:
-        try:
-            result = inspect_pack(request.pack_name, request.pack_path)
-        except PackInspectionError as error:
-            response = RuntimeFailure(error=error.diagnostic)
-        else:
-            response = RuntimeSuccess(result=result)
+        response = _execute(request)
     _write_response(response_path, response)
     return 0
 
 
-def _read_request(path: Path) -> InspectPackRequest:
-    with path.open("r", encoding="utf-8") as file:
+def _execute(request: RuntimeRequest) -> RuntimeResponse:
+    if isinstance(request, InspectPackRequest):
         try:
-            request = json.load(file)
-        except (json.JSONDecodeError, UnicodeError) as error:
-            raise RuntimeRequestError("Runtime Request must be UTF-8 JSON") from error
-    if type(request) is not dict:
-        raise RuntimeRequestError("Runtime Request must be a JSON object")
-    expected = {"operation", "pack_name", "pack_path"}
-    if set(request) != expected:
-        raise RuntimeRequestError(
-            f"inspect_pack Runtime Request fields must be exactly {sorted(expected)}"
-        )
-    if request["operation"] != "inspect_pack":
-        raise RuntimeRequestError("unsupported Runtime Request operation")
-    if type(request["pack_name"]) is not str or type(request["pack_path"]) is not str:
-        raise RuntimeRequestError("inspect_pack Runtime Request fields must be strings")
-    if not request["pack_name"]:
-        raise RuntimeRequestError("inspect_pack Runtime Request PACK name must not be empty")
-    supplied = Path(request["pack_path"])
-    if not supplied.is_absolute():
-        raise RuntimeRequestError("inspect_pack Runtime Request PACK path must be absolute")
+            result = inspect_pack(request.pack_name, request.pack_path)
+        except PackInspectionError as error:
+            return RuntimeFailure(error=error.diagnostic)
+        return RuntimeSuccess(result=result)
+
     try:
-        pack_path = supplied.resolve(strict=True)
-    except (OSError, RuntimeError) as error:
-        raise RuntimeRequestError(
-            "inspect_pack Runtime Request PACK path must identify an existing directory"
-        ) from error
-    if pack_path != supplied or not pack_path.is_dir():
-        raise RuntimeRequestError(
-            "inspect_pack Runtime Request PACK path must identify its canonical directory"
+        result = run_workflow(request)
+    except _PackInspectionWorkerError:
+        raise
+    except PackInspectionError as error:
+        return RuntimeFailure(error=error.diagnostic)
+    except (Exception, SystemExit) as error:
+        return RuntimeFailure(
+            error=diagnostic_from_exception(
+                error,
+                request.pack_path,
+                message="Workflow execution failed",
+                help="Correct the Workflow, arguments, or Dataset and retry the complete Run",
+                private_values=_private_run_values(request),
+            )
         )
-    return InspectPackRequest(pack_name=request["pack_name"], pack_path=pack_path)
+    return RuntimeSuccess(result=result)
 
 
-def _write_response(path: Path, response: InspectPackRuntimeResponse) -> None:
+def _private_run_values(request: RunWorkflowRequest) -> tuple[str, ...]:
+    candidate_path = request.candidate.path
+    return (
+        request.candidate.identifier,
+        str(candidate_path),
+        candidate_path.as_posix(),
+    )
+
+
+def _write_response(path: Path, response: RuntimeResponse) -> None:
     with path.open("x", encoding="utf-8", newline="\n") as file:
-        json.dump(asdict(response), file, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        json.dump(
+            asdict(response),
+            file,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         file.write("\n")
         file.flush()
         os.fsync(file.fileno())

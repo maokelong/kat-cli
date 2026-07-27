@@ -28,6 +28,7 @@ def diagnostic_from_exception(
     *,
     message: str,
     help: str,
+    private_values: tuple[str, ...] = (),
 ) -> RuntimeDiagnostic:
     causes: list[str] = []
     for current in _exception_chain(error):
@@ -36,6 +37,12 @@ def diagnostic_from_exception(
         except BaseException:
             continue
         if rendered:
+            for private in sorted(
+                (value for value in private_values if value),
+                key=len,
+                reverse=True,
+            ):
+                rendered = rendered.replace(private, "<private>")
             causes.append(rendered)
     diagnostic: RuntimeDiagnostic = {"message": message, "help": help}
     if causes:

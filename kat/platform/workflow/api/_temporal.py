@@ -15,6 +15,8 @@ _DURATION_FACTORS = {
     "h": 3_600_000_000_000,
 }
 _MAX_DURATION_NS = 2**63 - 1
+_MIN_TIMESTAMP_NS = -(2**63)
+_MAX_TIMESTAMP_NS = 2**63 - 1
 _WALL_CLOCK = re.compile(
     r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})T"
     r"(?P<time>[0-9]{2}:[0-9]{2}:[0-9]{2})"
@@ -29,15 +31,7 @@ class Duration(str):
     def __new__(cls, literal: str) -> Duration:
         if type(literal) is not str:
             raise TypeError("Duration requires a string literal")
-        match = _DURATION.fullmatch(literal)
-        if match is None:
-            raise ValueError(f"invalid Duration literal: {literal!r}")
-        try:
-            nanoseconds = Decimal(match.group(1)) * _DURATION_FACTORS[match.group(2)]
-        except InvalidOperation as error:
-            raise ValueError(f"invalid Duration literal: {literal!r}") from error
-        if nanoseconds != nanoseconds.to_integral_value() or not 0 <= nanoseconds <= _MAX_DURATION_NS:
-            raise ValueError(f"Duration is not an exact non-negative int64 nanosecond value: {literal!r}")
+        _duration_nanoseconds(literal)
         return str.__new__(cls, literal)
 
 
@@ -74,4 +68,33 @@ class WallClockTimestamp(str):
         normalized = local.strftime("%Y-%m-%dT%H:%M:%S")
         if fraction:
             normalized += f".{fraction}"
+        nanoseconds = _wall_clock_nanoseconds(normalized + "Z")
+        if not _MIN_TIMESTAMP_NS <= nanoseconds <= _MAX_TIMESTAMP_NS:
+            raise ValueError(
+                "WallClockTimestamp is outside Arrow timestamp(ns) range: "
+                f"{literal!r}"
+            )
         return str.__new__(cls, normalized + "Z")
+
+
+def _duration_nanoseconds(value: str) -> int:
+    match = _DURATION.fullmatch(value)
+    if match is None:
+        raise ValueError(f"invalid Duration literal: {value!r}")
+    try:
+        nanoseconds = Decimal(match.group(1)) * _DURATION_FACTORS[match.group(2)]
+    except InvalidOperation as error:
+        raise ValueError(f"invalid Duration literal: {value!r}") from error
+    if nanoseconds != nanoseconds.to_integral_value() or not 0 <= nanoseconds <= _MAX_DURATION_NS:
+        raise ValueError(
+            f"Duration is not an exact non-negative int64 nanosecond value: {value!r}"
+        )
+    return int(nanoseconds)
+
+
+def _wall_clock_nanoseconds(value: str) -> int:
+    base, _, fraction = value[:-1].partition(".")
+    instant = datetime.fromisoformat(base)
+    delta = instant - datetime(1970, 1, 1)
+    seconds = delta.days * 86_400 + delta.seconds
+    return seconds * 1_000_000_000 + int(fraction.ljust(9, "0") or "0")

@@ -18,7 +18,11 @@ import kat
 from kat._workflow import _registration_count, _registrations_since
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
-from .inspection import WorkflowInputInterface, compile_declared_workflow
+from .inspection import (
+    CompiledWorkflow,
+    WorkflowInputInterface,
+    compile_declared_workflow,
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,10 @@ class PackInspectionError(Exception):
         self.diagnostic = diagnostic
 
 
+class _PackInspectionWorkerError(RuntimeError):
+    """The private inspection worker did not complete its Runtime protocol."""
+
+
 @dataclass(frozen=True)
 class _EntrySuccess:
     interface: WorkflowInputInterface
@@ -47,6 +55,87 @@ class _EntryFailure:
 type _EntryOutcome = _EntrySuccess | _EntryFailure
 
 
+@dataclass(frozen=True)
+class _InspectedEntry:
+    source: Path
+    module_name: str
+    interface: WorkflowInputInterface
+
+
+@dataclass(frozen=True)
+class ProductionPack:
+    """One validated production PACK exposed through inspection and selection."""
+
+    name: str
+    root: Path
+    entries: tuple[_InspectedEntry, ...]
+
+    @classmethod
+    def open(cls, selected_pack_name: str, pack_path: Path) -> ProductionPack:
+        if not selected_pack_name:
+            raise ValueError("PACK name must be a non-empty string")
+        root = pack_path
+        try:
+            discovered = _workflow_entries(root)
+            _validate_module_conflicts(discovered)
+        except (OSError, ValueError) as error:
+            raise _pack_failure(error, root) from error
+
+        entries: list[_InspectedEntry] = []
+        names: set[str] = set()
+        for source, segments in discovered:
+            module_name = ".".join(("kat", "pack", "workflows", *segments))
+            outcome = _inspect_entry_isolated(
+                selected_pack_name,
+                root,
+                source,
+                module_name,
+            )
+            if isinstance(outcome, _EntryFailure):
+                raise PackInspectionError(outcome.diagnostic)
+            name = outcome.interface["name"]
+            if name in names:
+                error = ValueError(f"duplicate Workflow name: {name}")
+                raise _pack_failure(error, root)
+            names.add(name)
+            entries.append(
+                _InspectedEntry(
+                    source=source,
+                    module_name=module_name,
+                    interface=outcome.interface,
+                )
+            )
+        entries.sort(key=lambda entry: entry.interface["name"])
+        return cls(name=selected_pack_name, root=root, entries=tuple(entries))
+
+    def inspect(self) -> InspectPackRuntimeResult:
+        return InspectPackRuntimeResult(
+            workflows=[entry.interface for entry in self.entries]
+        )
+
+    def load(self, workflow_name: str) -> CompiledWorkflow:
+        entry = next(
+            (
+                entry
+                for entry in self.entries
+                if entry.interface["name"] == workflow_name
+            ),
+            None,
+        )
+        if entry is None:
+            raise ValueError(
+                f"Workflow {workflow_name!r} was not found in the selected PACK"
+            )
+        _mount_current_pack(self.root)
+        compiled = _load_entry(self.root, entry.source, entry.module_name)
+        if compiled.interface != entry.interface:
+            raise ValueError(
+                f"Workflow entry {entry.source.relative_to(self.root).as_posix()} "
+                "changed between inspection and execution loading"
+            )
+        return compiled
+
+
 def inspect_pack(selected_pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
     """Inspect the production Workflows of one selected PACK.
 
@@ -54,33 +143,7 @@ def inspect_pack(selected_pack_name: str, pack_path: Path) -> InspectPackRuntime
     checkout. Runtime mounts that checkout as ``kat.pack``; it does not bind or
     verify PACK identity from the checkout directory name.
     """
-    root = pack_path
-
-    try:
-        entries = _workflow_entries(root)
-        _validate_module_conflicts(entries)
-    except (OSError, ValueError) as error:
-        raise _pack_failure(error, root) from error
-    workflows: list[WorkflowInputInterface] = []
-    names: set[str] = set()
-    for source, segments in entries:
-        module_name = ".".join(("kat", "pack", "workflows", *segments))
-        outcome = _inspect_entry_isolated(
-            selected_pack_name,
-            root,
-            source,
-            module_name,
-        )
-        if isinstance(outcome, _EntryFailure):
-            raise PackInspectionError(outcome.diagnostic)
-        name = outcome.interface["name"]
-        if name in names:
-            error = ValueError(f"duplicate Workflow name: {name}")
-            raise _pack_failure(error, root)
-        names.add(name)
-        workflows.append(outcome.interface)
-    workflows.sort(key=lambda workflow: workflow["name"])
-    return InspectPackRuntimeResult(workflows=workflows)
+    return ProductionPack.open(selected_pack_name, pack_path).inspect()
 
 
 def _inspect_entry_isolated(
@@ -105,16 +168,16 @@ def _inspect_entry_isolated(
             outcome = receive.recv()
         except EOFError as error:
             process.join()
-            raise RuntimeError(
+            raise _PackInspectionWorkerError(
                 f"Workflow inspection worker exited without a result: {module_name}"
             ) from error
         process.join()
         if process.exitcode != 0:
-            raise RuntimeError(
+            raise _PackInspectionWorkerError(
                 f"Workflow inspection worker exited with code {process.exitcode}: {module_name}"
             )
         if not isinstance(outcome, (_EntrySuccess, _EntryFailure)):
-            raise RuntimeError(
+            raise _PackInspectionWorkerError(
                 f"Workflow inspection worker returned an invalid result: {module_name}"
             )
         return outcome
@@ -143,24 +206,28 @@ def _inspect_entry_worker(
 
 
 def _inspect_entry(root: Path, source: Path, module_name: str) -> _EntryOutcome:
-    before = _registration_count()
     try:
-        module = importlib.import_module(module_name)
+        compiled = _load_entry(root, source, module_name)
     except (Exception, SystemExit) as error:
         return _EntryFailure(_pack_diagnostic(error, root))
+    return _EntrySuccess(compiled.interface)
+
+
+def _load_entry(root: Path, source: Path, module_name: str) -> CompiledWorkflow:
+    before = _registration_count()
+    module = importlib.import_module(module_name)
     try:
         module_file = vars(module).get("__file__")
         actual_source = (
             Path(module_file).resolve(strict=True) if type(module_file) is str else None
         )
-    except (OSError, RuntimeError) as error:
-        return _EntryFailure(_pack_diagnostic(error, root))
+    except (OSError, RuntimeError):
+        raise
     if actual_source != source:
-        error = ValueError(
+        raise ValueError(
             f"Workflow entry {source.relative_to(root).as_posix()} "
             "loaded from an unexpected module path"
         )
-        return _EntryFailure(_pack_diagnostic(error, root))
     registrations = _registrations_since(before)
     registration = registrations[0] if len(registrations) == 1 else None
     registration_module = (
@@ -170,16 +237,11 @@ def _inspect_entry(root: Path, source: Path, module_name: str) -> _EntryOutcome:
     )
     if type(registration_module) is not str or registration_module != module_name:
         relative = source.relative_to(root).as_posix()
-        error = ValueError(
+        raise ValueError(
             f"Workflow entry {relative} must register exactly one Workflow "
             "defined by that module"
         )
-        return _EntryFailure(_pack_diagnostic(error, root))
-    try:
-        compiled = compile_declared_workflow(registration)
-    except ValueError as error:
-        return _EntryFailure(_pack_diagnostic(error, root))
-    return _EntrySuccess(compiled.interface)
+    return compile_declared_workflow(registration)
 
 
 def _pack_failure(error: BaseException, root: Path) -> PackInspectionError:

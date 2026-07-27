@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::response::KatDiagnostic;
@@ -106,4 +108,52 @@ pub(super) enum RuntimeResponse<R> {
 #[serde(deny_unknown_fields)]
 pub(super) struct InspectPackRuntimeResult {
     pub(super) workflows: Vec<Workflow>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ResolvedDatasetRequest {
+    pub(crate) path: String,
+    pub(crate) tables: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawRunWorkflowResult {
+    pub(super) effective_inputs: BTreeMap<String, serde_json::Value>,
+    pub(super) outputs: BTreeMap<String, RawRuntimeOutput>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawRuntimeOutput {
+    pub(super) columns: Vec<Column>,
+    pub(super) row_count: u64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Column {
+    pub(crate) name: String,
+    #[serde(rename = "type")]
+    pub(crate) data_type: String,
+}
+
+#[derive(Serialize)]
+pub(super) struct RunWorkflowRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
+    pub(super) workflow_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) dataset: Option<&'a ResolvedDatasetRequest>,
+    pub(super) arguments: &'a [String],
+    pub(super) candidate_id: &'a str,
+    pub(super) candidate_path: &'a str,
+}
+
+#[derive(Serialize)]
+pub(super) struct InspectPackRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
 }
