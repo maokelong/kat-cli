@@ -101,9 +101,10 @@ impl OperationLog {
                 path: self.path.clone(),
                 source,
             })?;
-        path.to_str()
-            .map(str::to_owned)
-            .ok_or(OperationLogError::NonUnicode { path })
+        path
+        .to_str()
+        .map(str::to_owned)
+        .ok_or(OperationLogError::NonUnicode { path })
     }
 }
 

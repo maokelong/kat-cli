@@ -121,7 +121,7 @@ _Avoid_: Source clock、Event clock
 _Avoid_: Artifact、Result
 
 **Output Query**:
-针对已发布 Run Output 发起的有界、只读后续查询，不创建新 Run。查询若使用 Run 关联的 Dataset，看到的是该位置当前可用的事实，而不是 Run 输入的历史快照。
+针对已发布 Run Output 发起的本地只读后续查询，不创建新 Run。查询若使用 Run 关联的 Dataset，看到的是该位置当前可用的事实，而不是 Run 输入的历史快照；用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
 
 **Query Result**:
 一次 Output Query 返回的短命结构化数据。它不会成为新的 Run Output，也不是模型面向用户形成的 Analysis Result。

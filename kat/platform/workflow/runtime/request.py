@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
+from typing import cast
 import uuid
 
 from kat._identifiers import valid_table_name
@@ -44,7 +45,15 @@ class RunWorkflowRequest:
     candidate: RunCandidateRef
 
 
-type RuntimeRequest = InspectPackRequest | RunWorkflowRequest
+@dataclass(frozen=True)
+class QueryRunRequest:
+    run_path: Path
+    outputs: tuple[str, ...]
+    dataset: ResolvedDatasetRef | None
+    sql: str
+
+
+type RuntimeRequest = InspectPackRequest | RunWorkflowRequest | QueryRunRequest
 
 
 def read_request(path: Path) -> RuntimeRequest:
@@ -60,6 +69,8 @@ def read_request(path: Path) -> RuntimeRequest:
         return _read_inspect_pack_request(request)
     if operation == "run_workflow":
         return _read_run_workflow_request(request)
+    if operation == "query_run":
+        return _read_query_run_request(request)
     raise RuntimeRequestError("unsupported Runtime Request operation")
 
 
@@ -116,6 +127,24 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
             request["candidate_id"],
             request["candidate_path"],
         ),
+    )
+
+
+def _read_query_run_request(request: dict[str, object]) -> QueryRunRequest:
+    dataset = cast(dict[str, object] | None, request.get("dataset"))
+    return QueryRunRequest(
+        run_path=Path(cast(str, request["run_path"])),
+        outputs=tuple(cast(list[str], request["outputs"])),
+        dataset=_construct_query_dataset(dataset) if dataset is not None else None,
+        sql=cast(str, request["sql"]),
+    )
+
+
+def _construct_query_dataset(value: dict[str, object]) -> ResolvedDatasetRef:
+    tables = cast(dict[str, str], value["tables"])
+    return ResolvedDatasetRef(
+        path=Path(cast(str, value["path"])),
+        tables={name: Path(path) for name, path in tables.items()},
     )
 
 

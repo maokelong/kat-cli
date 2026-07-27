@@ -1,5 +1,6 @@
 mod operation_log;
 mod pack_discovery;
+mod query;
 mod response;
 mod run;
 mod text_projection;
@@ -55,6 +56,16 @@ enum Operation {
     /// The Operation log may retain the resolved PACK path, optional Dataset
     /// path, and all arguments after `--`. Do not pass secrets in these values.
     Run(run::RunArgs),
+    /// Query one published Run's output.* and optional current dataset.* tables.
+    ///
+    /// Rows are positional JSON scalars. int64/uint64 and Decimal values are
+    /// decimal strings. Timestamp(ns, UTC) values are RFC 3339 strings
+    /// normalized to UTC with Z. Other supported integers and finite floats are
+    /// JSON numbers; bool, string, and null retain their JSON kinds.
+    ///
+    /// The Operation log retains the complete --sql value. Do not pass secrets
+    /// in it.
+    Query(query::QueryArgs),
 }
 
 #[derive(Args)]
@@ -186,6 +197,7 @@ pub fn run() -> ExitCode {
             response::publish(prepared)
         }
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
+        Operation::Query(arguments) => response::publish(query::execute(arguments)),
     }
 }
 
