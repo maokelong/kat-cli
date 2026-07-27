@@ -15,8 +15,10 @@ from .pack import (
     _PackInspectionWorkerError,
     inspect_pack,
 )
+from .query import QueryRunRuntimeResult, query_run
 from .request import (
     InspectPackRequest,
+    QueryRunRequest,
     RunWorkflowRequest,
     RuntimeRequest,
     RuntimeRequestError,
@@ -39,6 +41,7 @@ class RuntimeFailure:
 type RuntimeResponse = (
     RuntimeSuccess[InspectPackRuntimeResult]
     | RuntimeSuccess[RunWorkflowRuntimeResult]
+    | RuntimeSuccess[QueryRunRuntimeResult]
     | RuntimeFailure
 )
 
@@ -72,6 +75,20 @@ def _execute(request: RuntimeRequest) -> RuntimeResponse:
             result = inspect_pack(request.pack_name, request.pack_path)
         except PackInspectionError as error:
             return RuntimeFailure(error=error.diagnostic)
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, QueryRunRequest):
+        try:
+            result = query_run(request)
+        except (Exception, SystemExit) as error:
+            return RuntimeFailure(
+                error=diagnostic_from_exception(
+                    error,
+                    None,
+                    message="Run Output query failed",
+                    help="Correct the SQL or its inputs, then retry",
+                )
+            )
         return RuntimeSuccess(result=result)
 
     try:

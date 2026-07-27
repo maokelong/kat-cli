@@ -7,7 +7,7 @@ use std::{
 
 use clap::Args;
 use miette::Diagnostic;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -60,15 +60,27 @@ struct PublicOutput {
     row_count: u64,
 }
 
-#[derive(Serialize)]
-struct RunManifest {
-    run_id: String,
-    pack: String,
-    workflow: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dataset: Option<String>,
-    inputs: BTreeMap<String, serde_json::Value>,
-    outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RunManifest {
+    pub(super) run_id: String,
+    pub(super) pack: String,
+    pub(super) workflow: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_non_null_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(super) dataset: Option<String>,
+    pub(super) inputs: BTreeMap<String, serde_json::Value>,
+    pub(super) outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
+}
+
+fn deserialize_optional_non_null_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(Some)
 }
 
 impl RunManifest {
@@ -167,9 +179,21 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         },
         None => None,
     };
-    let runtime_dataset = match dataset.as_ref().map(project_resolved_dataset).transpose() {
+    let runtime_dataset = match dataset
+        .as_ref()
+        .map(workflow_runtime::project_dataset)
+        .transpose()
+    {
         Ok(dataset) => dataset,
-        Err(error) => return finish_failure(log, error),
+        Err(error) => {
+            return finish_failure(
+                log,
+                RunOperationError::NonUnicodePath {
+                    label: error.label,
+                    path: error.path,
+                },
+            );
+        }
     };
     let dataset_path = runtime_dataset.as_ref().map(|dataset| dataset.path.clone());
     let Some(pack_path) = pack.directory().to_str().map(str::to_owned) else {
@@ -291,29 +315,6 @@ fn create_run_candidate(data_home: &Path, id: &str) -> Result<RunCandidate, RunO
         }
     })?;
     Ok(candidate)
-}
-
-fn project_resolved_dataset(
-    dataset: &kat_datasource::ResolvedDataset,
-) -> Result<workflow_runtime::ResolvedDatasetRequest, RunOperationError> {
-    let path = unicode_path("Dataset", dataset.path())?;
-    let mut tables = BTreeMap::new();
-    for table in dataset.tables() {
-        tables.insert(
-            table.name().to_owned(),
-            unicode_path("Dataset table", table.path())?,
-        );
-    }
-    Ok(workflow_runtime::ResolvedDatasetRequest { path, tables })
-}
-
-fn unicode_path(label: &'static str, path: &Path) -> Result<String, RunOperationError> {
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| RunOperationError::NonUnicodePath {
-            label,
-            path: path.to_path_buf(),
-        })
 }
 
 fn publish_run_manifest(candidate: &Path, manifest: &RunManifest) -> Result<(), RunOperationError> {

@@ -6,8 +6,8 @@ use std::{
 };
 
 use miette::Diagnostic;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -24,8 +24,8 @@ pub(crate) use protocol::{
     Column, ParameterDefault, ParameterType, ResolvedDatasetRequest, Workflow,
 };
 use protocol::{
-    InspectPackRequest, InspectPackRuntimeResult, RawRunWorkflowResult, RunWorkflowRequest,
-    RuntimeResponse,
+    InspectPackRequest, InspectPackRuntimeResult, QueryRunRequest, RawRunWorkflowResult,
+    RunWorkflowRequest, RuntimeResponse,
 };
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
@@ -42,6 +42,17 @@ pub(crate) enum RuntimeOutcome<T> {
 }
 
 pub(crate) type InspectPackOutcome = RuntimeOutcome<Vec<Workflow>>;
+
+pub(crate) enum QueryRunOutcome {
+    Success {
+        result: QueryRunResult,
+        log: OperationLog,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log: OperationLog,
+    },
+}
 
 /// Runtime execution outcome before the CLI performs the Run publication gate.
 pub(crate) enum RunWorkflowOutcome {
@@ -67,7 +78,8 @@ pub(crate) struct RunWorkflowReport {
 }
 
 /// Runtime-reported metadata for one named Run Output.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RunOutputMetadata {
     pub(crate) columns: Vec<Column>,
     pub(crate) row_count: u64,
@@ -81,6 +93,49 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) arguments: Vec<String>,
     pub(crate) candidate_id: String,
     pub(crate) candidate_path: String,
+}
+
+pub(crate) struct QueryRunInvocation {
+    pub(crate) run_path: String,
+    pub(crate) outputs: Vec<String>,
+    pub(crate) dataset: Option<ResolvedDatasetRequest>,
+    pub(crate) sql: String,
+}
+
+pub(crate) fn project_dataset(
+    dataset: &kat_datasource::ResolvedDataset,
+) -> Result<ResolvedDatasetRequest, DatasetProjectionError> {
+    let path = unicode_path("Dataset", dataset.path())?;
+    let mut tables = BTreeMap::new();
+    for table in dataset.tables() {
+        tables.insert(
+            table.name().to_owned(),
+            unicode_path("Dataset table", table.path())?,
+        );
+    }
+    Ok(ResolvedDatasetRequest { path, tables })
+}
+
+fn unicode_path(label: &'static str, path: &Path) -> Result<String, DatasetProjectionError> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| DatasetProjectionError {
+            label,
+            path: path.to_path_buf(),
+        })
+}
+
+#[derive(Debug, Error)]
+#[error("{label} path cannot be represented as native Unicode: {path:?}")]
+pub(crate) struct DatasetProjectionError {
+    pub(crate) label: &'static str,
+    pub(crate) path: PathBuf,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct QueryRunResult {
+    pub(crate) columns: Vec<Column>,
+    pub(crate) rows: Vec<Vec<serde_json::Value>>,
 }
 
 pub(crate) fn inspect_pack(
@@ -177,6 +232,44 @@ pub(crate) fn execute_workflow_runtime(
             Ok(RunWorkflowOutcome::Failure {
                 diagnostic: error,
                 log_path,
+            })
+        }
+    }
+}
+
+pub(crate) fn execute_query_runtime(
+    mut log: OperationLog,
+    invocation: QueryRunInvocation,
+) -> Result<QueryRunOutcome, QueryRunError> {
+    let request = QueryRunRequest {
+        operation: "query_run",
+        run_path: &invocation.run_path,
+        outputs: &invocation.outputs,
+        dataset: invocation.dataset.as_ref(),
+        sql: &invocation.sql,
+    };
+    let response = match exchange_request("kat-query-run-", &request, &mut log) {
+        Ok(response) => response,
+        Err(ExchangeError::Log(error)) => return Err(QueryRunError::operation_log(error)),
+        Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
+        Err(ExchangeError::InvalidResponse(details)) => {
+            return Err(finish_invalid_runtime_response(log, &details));
+        }
+    };
+    match response {
+        RuntimeResponse::Success { result } => {
+            if let Err(source) = log.append(b"runtime_status: success\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            Ok(QueryRunOutcome::Success { result, log })
+        }
+        RuntimeResponse::Failure { error } => {
+            if let Err(source) = log.append(b"runtime_status: failure\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            Ok(QueryRunOutcome::Failure {
+                diagnostic: error,
+                log,
             })
         }
     }
@@ -293,14 +386,9 @@ fn result_violates_private_value_isolation(
     result: &RawRunWorkflowResult,
     invocation: &RunWorkflowInvocation,
 ) -> bool {
-    let private_values = [
-        invocation.candidate_id.as_str(),
-        invocation.candidate_path.as_str(),
-    ];
-    let normalized_candidate_path = invocation.candidate_path.replace('\\', "/");
     let contains_private = |value: &str| {
-        private_values.iter().any(|private| value.contains(private))
-            || value.contains(&normalized_candidate_path)
+        value.contains(&invocation.candidate_id)
+            || contains_private_path(value, &invocation.candidate_path)
     };
 
     result.effective_inputs.iter().any(|(name, value)| {
@@ -314,7 +402,16 @@ fn result_violates_private_value_isolation(
     })
 }
 
-fn valid_output_name(name: &str) -> bool {
+fn diagnostic_contains_private_path(diagnostic: &KatDiagnostic, private_path: &str) -> bool {
+    diagnostic.contains_private_value(private_path)
+        || diagnostic.contains_private_value(&private_path.replace('\\', "/"))
+}
+
+fn contains_private_path(value: &str, private_path: &str) -> bool {
+    value.contains(private_path) || value.contains(&private_path.replace('\\', "/"))
+}
+
+pub(crate) fn valid_output_name(name: &str) -> bool {
     !name.is_empty()
         && name.as_bytes()[0].is_ascii_lowercase()
         && name.split('_').all(|segment| {
@@ -397,7 +494,6 @@ fn exchange_request_bytes(
     let mut child = command
         .spawn()
         .map_err(|source| RuntimeInfrastructureError::StartHost { python, source })?;
-
     let status = match child.wait() {
         Ok(status) => status,
         Err(source) => {
@@ -585,6 +681,65 @@ impl RunWorkflowError {
 }
 
 impl RuntimeOperationError for RunWorkflowError {
+    fn operation_log(source: OperationLogError) -> Self {
+        Self::operation_log(source)
+    }
+
+    fn runtime(source: RuntimeInfrastructureError, log_path: String) -> Self {
+        Self::Runtime { source, log_path }
+    }
+}
+
+#[derive(Debug, Error, Diagnostic)]
+pub(crate) enum QueryRunError {
+    #[error("Query Operation log could not be delivered")]
+    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Query"))]
+    OperationLog {
+        #[source]
+        source: OperationLogError,
+        log_path: Option<String>,
+    },
+    #[error("Query Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog {
+        #[source]
+        source: OperationLogError,
+        log_path: String,
+    },
+    #[error("Workflow Runtime query failed")]
+    #[diagnostic(help(
+        "Inspect the Operation log, narrow the query, correct its inputs, and retry"
+    ))]
+    Runtime {
+        #[source]
+        source: RuntimeInfrastructureError,
+        log_path: String,
+    },
+}
+
+impl QueryRunError {
+    fn operation_log(source: OperationLogError) -> Self {
+        match source.readable_path() {
+            Some(log_path) => Self::IncompleteOperationLog { source, log_path },
+            None => Self::OperationLog {
+                source,
+                log_path: None,
+            },
+        }
+    }
+
+    pub(crate) fn log_path(&self) -> Option<String> {
+        match self {
+            Self::OperationLog { log_path, .. } => log_path.clone(),
+            Self::IncompleteOperationLog { log_path, .. } => Some(log_path.clone()),
+            Self::Runtime { log_path, .. } => Some(log_path.clone()),
+        }
+    }
+}
+
+impl RuntimeOperationError for QueryRunError {
     fn operation_log(source: OperationLogError) -> Self {
         Self::operation_log(source)
     }
