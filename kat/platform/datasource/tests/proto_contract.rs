@@ -1,6 +1,116 @@
 use prost::Message;
 use std::fs;
 
+mod relational {
+    pub(crate) mod descriptor {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/relational/descriptor.rs"
+        ));
+    }
+
+    pub(crate) mod rules {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/relational/rules.rs"
+        ));
+    }
+
+    pub(crate) mod plan {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/relational/plan.rs"
+        ));
+    }
+}
+
+#[test]
+fn relational_descriptor_contains_current_profiler_roots() {
+    for root in [
+        "CpuData",
+        "MemoryData",
+        "ProcessData",
+        "DiskioData",
+        "NetworkDatas",
+        "GpuData",
+        "TracePluginResult",
+        "BatchNativeHookData",
+        "NativeHookData",
+        "AllocEvent",
+        "Frame",
+    ] {
+        assert!(
+            relational::descriptor::RELATIONAL_DESCRIPTORS
+                .iter()
+                .any(|candidate| candidate.name == root),
+            "{root} should be available to relational planning"
+        );
+    }
+}
+
+#[test]
+fn relational_plan_derives_current_root_repeated_and_oneof_tables() {
+    let plan = relational::plan::expansion_plan_for_roots(&[
+        "MemoryData",
+        "TracePluginResult",
+        "NativeHookConfig",
+        "BatchNativeHookData",
+    ]);
+    let tables = plan
+        .iter()
+        .map(|item| item.output_table.as_str())
+        .collect::<Vec<_>>();
+
+    for table in [
+        "memory_data",
+        "memory_data_processesinfo",
+        "memory_data_processesinfo_smapinfo",
+        "trace_plugin_result",
+        "trace_plugin_result_ftrace_cpu_detail",
+        "trace_plugin_result_ftrace_cpu_detail_event",
+        "native_hook_config",
+        "native_hook_config_expand_pids",
+        "batch_native_hook_data",
+        "batch_native_hook_data_events",
+        "batch_native_hook_data_events_alloc_event",
+        "batch_native_hook_data_events_alloc_event_frame_info",
+        "batch_native_hook_data_events_stack_map",
+        "batch_native_hook_data_events_stack_map_ip",
+    ] {
+        assert!(
+            tables.contains(&table),
+            "{table} should be derived from the selected roots"
+        );
+    }
+    assert!(
+        tables.iter().all(|table| !table.contains("__")),
+        "Dataset Storage table names use canonical single underscores"
+    );
+    assert!(
+        !tables.contains(&"batch_native_hook_data_events_event"),
+        "a oneof group is not a physical table"
+    );
+
+    for relationship in [
+        (
+            "batch_native_hook_data_events_alloc_event",
+            Some("batch_native_hook_data_events"),
+        ),
+        (
+            "batch_native_hook_data_events_alloc_event_frame_info",
+            Some("batch_native_hook_data_events_alloc_event"),
+        ),
+    ] {
+        assert!(
+            plan.iter().any(|item| {
+                item.output_table == relationship.0
+                    && item.parent_table.as_deref() == relationship.1
+            }),
+            "{relationship:?} should use an existing physical parent table"
+        );
+    }
+}
+
 #[allow(dead_code)]
 mod proto {
     pub mod kat {
@@ -21,6 +131,11 @@ mod arrow_table {
     #![allow(dead_code)]
 
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/arrow_table.rs"));
+}
+
+#[allow(dead_code)]
+mod payload_value {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/payload_value.rs"));
 }
 
 mod record {
@@ -108,6 +223,7 @@ fn trace_record_stream_models_pre_sink_records() {
         record::TraceRecord::FtraceCapture(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected plugin data record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected plugin data record"),
+        record::TraceRecord::DecodedPayload(_) => unreachable!("expected plugin data record"),
     }
 
     let event = domains::ftrace::FtraceEventRecord::new(
@@ -132,6 +248,7 @@ fn trace_record_stream_models_pre_sink_records() {
         record::TraceRecord::FtraceCapture(_) => unreachable!("expected ftrace event record"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected ftrace event record"),
         record::TraceRecord::NativeHook(_) => unreachable!("expected ftrace event record"),
+        record::TraceRecord::DecodedPayload(_) => unreachable!("expected ftrace event record"),
     }
 
     let config = proto::NativeHookConfig {
@@ -152,6 +269,7 @@ fn trace_record_stream_models_pre_sink_records() {
         record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook config"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook config"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook config"),
+        record::TraceRecord::DecodedPayload(_) => unreachable!("expected native hook config"),
     }
 
     let event = domains::native_hook::NativeHookEvent::new(
@@ -175,6 +293,7 @@ fn trace_record_stream_models_pre_sink_records() {
         record::TraceRecord::FtraceCapture(_) => unreachable!("expected native hook event"),
         record::TraceRecord::ProfilerPluginData(_) => unreachable!("expected native hook event"),
         record::TraceRecord::Ftrace(_) => unreachable!("expected native hook event"),
+        record::TraceRecord::DecodedPayload(_) => unreachable!("expected native hook event"),
     }
 }
 

@@ -20,28 +20,6 @@ pub(crate) struct NativeHookEventSpec {
     pub(crate) table_name: String,
 }
 
-pub(crate) fn native_hook_serializable_messages(
-    messages: &[ProtoMessage],
-    events: &[NativeHookEventSpec],
-) -> Vec<String> {
-    let required_messages = std::iter::once("Frame".to_string())
-        .chain(events.iter().map(|event| event.message_name.clone()))
-        .collect::<Vec<_>>();
-
-    for required in &required_messages {
-        assert!(
-            messages.iter().any(|message| message.name == *required),
-            "{required} should exist in {NATIVE_HOOK_RESULT_PROTO}"
-        );
-    }
-
-    messages
-        .iter()
-        .filter(|message| required_messages.contains(&message.name))
-        .map(|message| message.name.clone())
-        .collect()
-}
-
 pub(crate) fn native_hook_events_from_descriptor(
     native_hook_data: &DescriptorProto,
     messages: &[ProtoMessage],

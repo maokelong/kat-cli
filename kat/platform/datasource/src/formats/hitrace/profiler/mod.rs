@@ -12,7 +12,7 @@ use crate::{
 
 pub(crate) use envelope::{PluginEnvelope, PluginEnvelopeKind};
 pub(crate) use payload::decode_payload;
-pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
+pub(crate) use registry::{PluginDecoder, PluginPayloadRegistry};
 
 use framing::for_each_profiler_envelope_frame;
 

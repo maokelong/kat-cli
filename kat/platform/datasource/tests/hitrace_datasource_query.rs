@@ -133,7 +133,7 @@ async fn build_exposes_empty_profiler_table_without_profiler_records() {
 }
 
 #[tokio::test]
-async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
+async fn direct_query_preserves_raw_config_and_unregistered_plugin_payloads() {
     let dir = tempdir().expect("tempdir is created");
     let trace_path = dir.path().join("plugin-flow-envelopes.hitrace");
     fs::write(
@@ -159,6 +159,16 @@ async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
                 version: "1.0".to_string(),
                 sample_interval: 9,
             },
+            TestProfilerPluginData {
+                name: "cpu-plugin".to_string(),
+                status: 0,
+                data: vec![7, 7, 7],
+                clock_id: 2,
+                tv_sec: 12,
+                tv_nsec: 300,
+                version: "1.0".to_string(),
+                sample_interval: 10,
+            },
         ]),
     )
     .expect("trace is written");
@@ -173,6 +183,7 @@ async fn profiler_dispatch_ignores_config_and_unknown_plugin_payloads() {
     assert_eq!(
         raw_rows,
         json!([
+            { "name": "cpu-plugin", "data": "070707" },
             { "name": "ftrace-plugin_config", "data": "010203" },
             { "name": "unknown-plugin", "data": "090909" }
         ])

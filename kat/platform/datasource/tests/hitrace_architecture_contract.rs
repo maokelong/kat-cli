@@ -66,10 +66,11 @@ fn datasource_uses_reviewer_layer_boundaries() {
         "src/domains/mod.rs",
         "src/domains/ftrace/mod.rs",
         "src/domains/ftrace/event.rs",
-        "src/domains/ftrace/packet.rs",
         "src/domains/native_hook/mod.rs",
         "src/domains/native_hook/event.rs",
-        "src/domains/native_hook/packet.rs",
+        "src/decode/profiler/mod.rs",
+        "src/decode/profiler/ftrace/mod.rs",
+        "src/decode/profiler/native_hook/mod.rs",
         "src/sinks/mod.rs",
         "src/sinks/arrow/mod.rs",
         "src/sinks/arrow/native_hook.rs",
@@ -148,7 +149,6 @@ fn profiler_envelope_mechanism_does_not_own_domain_decoders() {
     assert!(profiler_sources.contains("fn configure("));
     assert!(profiler_sources.contains("fn decode_data("));
     assert!(profiler_sources.contains("fn finish("));
-    assert!(profiler_sources.contains("PluginDecoderSpec"));
     assert!(profiler_sources.contains("PluginPayloadRegistry"));
     assert!(profiler_sources.contains("ProfilerPluginData"));
     assert!(profiler_sources.contains("for_each_profiler_envelope_frame"));
@@ -164,6 +164,8 @@ fn profiler_envelope_mechanism_does_not_own_domain_decoders() {
         "FTRACE_PLUGIN_DECODER",
         "NATIVE_HOOK_PLUGIN_DECODER",
         "HOOK_DAEMON_PLUGIN_DECODER",
+        "ProfilerPluginRoute",
+        "PROFILER_PLUGIN_ROUTES",
         "DecodePluginPayload",
         "ArrayBuilder",
         "RecordBatch",
@@ -177,29 +179,39 @@ fn profiler_envelope_mechanism_does_not_own_domain_decoders() {
 }
 
 #[test]
-fn hitrace_pipeline_assembles_profiler_decoder_specs() {
+fn hitrace_pipeline_uses_decoders_assembled_by_the_decode_layer() {
     let pipeline = source("src/formats/hitrace/mod.rs");
-
-    for marker in [
-        "FTRACE_PLUGIN_DECODER",
-        "NATIVE_HOOK_PLUGIN_DECODER",
-        "HOOK_DAEMON_PLUGIN_DECODER",
-        "PluginPayloadRegistry::new",
-    ] {
+    for marker in ["source_fact_plugin_decoders", "PluginPayloadRegistry::new"] {
         assert!(
             pipeline.contains(marker),
             "{marker} should be assembled by the hitrace pipeline"
         );
     }
+
+    let decoder_sources = joined_sources(&[
+        "src/decode/profiler/mod.rs",
+        "src/decode/profiler/fixed_result/mod.rs",
+        "src/decode/profiler/ftrace/mod.rs",
+        "src/decode/profiler/native_hook/mod.rs",
+    ]);
+    for marker in [
+        "ProfilerPluginRoute",
+        "PROFILER_PLUGIN_ROUTES",
+        "FTRACE_ROUTE",
+        "NATIVE_HOOK_ROUTE",
+        "HOOK_DAEMON_ROUTE",
+    ] {
+        assert!(
+            decoder_sources.contains(marker),
+            "{marker} should be assembled by the decode layer"
+        );
+    }
 }
 
 #[test]
-fn ftrace_domain_decodes_payload_to_neutral_records() {
-    let ftrace_sources = joined_sources(&[
-        "src/domains/ftrace/mod.rs",
-        "src/domains/ftrace/event.rs",
-        "src/domains/ftrace/packet.rs",
-    ]);
+fn ftrace_domain_models_neutral_records() {
+    let ftrace_sources =
+        joined_sources(&["src/domains/ftrace/mod.rs", "src/domains/ftrace/event.rs"]);
 
     assert!(ftrace_sources.contains("pub(crate) enum FtraceRecord"));
 
@@ -225,7 +237,6 @@ fn arrow_sink_owns_record_to_table_conversion() {
     let native_hook_domain = joined_sources(&[
         "src/domains/native_hook/mod.rs",
         "src/domains/native_hook/event.rs",
-        "src/domains/native_hook/packet.rs",
     ]);
     let generated_native_hook_records =
         fs::read_to_string(format!("{}/native_hook_records.rs", env!("OUT_DIR")))

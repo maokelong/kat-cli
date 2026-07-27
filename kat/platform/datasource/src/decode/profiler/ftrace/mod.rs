@@ -1,44 +1,40 @@
+//! ftrace plugin domain decoding.
+
 use anyhow::Result;
 
 use crate::{
-    formats::hitrace::profiler::{
-        PluginDecoder, PluginDecoderSpec, PluginEnvelope, decode_payload,
-    },
+    decode::profiler::{ProfilerPayloadRoute, ProfilerPluginRoute},
+    domains::ftrace::{FtraceCaptureRecord, FtraceEventRecord, FtraceRecord},
+    formats::hitrace::profiler::{PluginEnvelope, decode_payload},
     proto::TracePluginResult,
-    record::{TraceRecord, TraceRecordSink},
+    record::{DecodedPayload, TraceRecord, TraceRecordSink},
 };
 
-use super::{FtraceCaptureRecord, FtraceEventRecord, FtraceRecord};
+const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
 
-pub(crate) const FTRACE_PLUGIN_NAME: &str = "ftrace-plugin";
-pub(crate) const FTRACE_PLUGIN_DECODER: PluginDecoderSpec =
-    PluginDecoderSpec::new(new_ftrace_plugin_decoder);
+pub(super) const FTRACE_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
+    plugin_name: FTRACE_PLUGIN_NAME,
+    config: None,
+    data: ProfilerPayloadRoute {
+        root_message: "TracePluginResult",
+        emit: emit_ftrace_payload,
+    },
+};
 
-fn new_ftrace_plugin_decoder() -> Box<dyn PluginDecoder> {
-    Box::new(FtracePluginDecoder)
-}
-
-struct FtracePluginDecoder;
-
-impl PluginDecoder for FtracePluginDecoder {
-    fn plugin_name(&self) -> &'static str {
-        FTRACE_PLUGIN_NAME
-    }
-
-    fn decode_data(
-        &mut self,
-        envelope: &PluginEnvelope<'_>,
-        sink: &mut dyn TraceRecordSink,
-    ) -> Result<()> {
-        decode_plugin_payload(envelope, sink)
-    }
-}
-
-fn decode_plugin_payload(
+fn emit_ftrace_payload(
+    plugin_name: &'static str,
+    root_message: &'static str,
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
     let result: TracePluginResult = decode_payload(envelope)?;
+    if sink.accepts_decoded_payloads() {
+        let payload = DecodedPayload::from_typed_message(plugin_name, root_message, &result)?;
+        sink.push(TraceRecord::DecodedPayload(Box::new(payload)))?;
+    }
+    if !sink.accepts_source_records() {
+        return Ok(());
+    }
 
     for stats in result.ftrace_cpu_stats {
         sink.push(TraceRecord::FtraceCapture(FtraceCaptureRecord::CpuStats(

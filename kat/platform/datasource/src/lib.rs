@@ -6,6 +6,7 @@
 mod arrow_table;
 mod dataset;
 mod dataset_writer;
+mod decode;
 mod domains;
 mod formats;
 mod ftrace_event_table_builders {
@@ -17,8 +18,10 @@ mod mmap;
 mod native_hook_table_builders {
     include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
 }
+mod payload_value;
 mod query;
 mod record;
+mod relational;
 mod sinks;
 mod trace_streamer;
 
@@ -55,6 +58,30 @@ pub(crate) mod proto {
 
         pub(crate) mod native_hook {
             include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
+        }
+
+        pub(crate) mod cpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.cpu_data.rs"));
+        }
+
+        pub(crate) mod memory_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.memory_data.rs"));
+        }
+
+        pub(crate) mod process_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.process_data.rs"));
+        }
+
+        pub(crate) mod diskio_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.diskio_data.rs"));
+        }
+
+        pub(crate) mod network_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.network_data.rs"));
+        }
+
+        pub(crate) mod gpu_data {
+            include!(concat!(env!("OUT_DIR"), "/kat.gpu_data.rs"));
         }
     }
 

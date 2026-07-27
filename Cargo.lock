@@ -2156,6 +2156,7 @@ dependencies = [
  "serde_arrow",
  "serde_bytes",
  "serde_json",
+ "smallvec",
  "tempfile",
  "thiserror",
  "tokio",

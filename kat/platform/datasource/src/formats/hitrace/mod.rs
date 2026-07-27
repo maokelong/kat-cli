@@ -12,19 +12,15 @@ use anyhow::{Result, bail};
 use log::debug;
 
 use crate::{
-    domains::{
-        ftrace::FTRACE_PLUGIN_DECODER,
-        native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
-    },
-    mmap::with_mapped_file,
-    record::TraceRecordSink,
+    decode::profiler::source_fact_plugin_decoders, mmap::with_mapped_file, record::TraceRecordSink,
 };
 
 use file::{
     HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE, has_profiler_header, read_profiler_section,
 };
 use profiler::{
-    PluginPayloadRegistry, decode_plugin_section_body, decode_plugin_section_body_with_observer,
+    PluginDecoder, PluginPayloadRegistry, decode_plugin_section_body,
+    decode_plugin_section_body_with_observer,
 };
 
 #[derive(Debug, Default)]
@@ -57,19 +53,28 @@ pub(crate) struct UnsupportedHitraceContent {
 type UnsupportedContentObserver<'a> = dyn FnMut(&UnsupportedHitraceContent) -> Result<()> + 'a;
 
 pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
-    debug!("decoding hitrace format from {}", path.display());
-    with_mapped_file(path, |bytes| decode_bytes(bytes, sink))
+    decode_file_with_plugin_decoders(path, sink, source_fact_plugin_decoders())
 }
 
-pub(crate) fn decode_file_with_report(
+pub(crate) fn decode_file_with_plugin_decoders(
+    path: &Path,
+    sink: &mut impl TraceRecordSink,
+    decoders: Vec<Box<dyn PluginDecoder>>,
+) -> Result<()> {
+    debug!("decoding hitrace format from {}", path.display());
+    with_mapped_file(path, |bytes| decode_bytes(bytes, sink, decoders))
+}
+
+pub(crate) fn decode_file_with_report_and_plugin_decoders(
     path: &Path,
     sink: &mut impl TraceRecordSink,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
+    decoders: Vec<Box<dyn PluginDecoder>>,
 ) -> std::result::Result<HitraceDecodeReport, HitraceDecodeFailure> {
     debug!("decoding hitrace format from {}", path.display());
     let mut report = HitraceDecodeReport::default();
     let result = with_mapped_file(path, |bytes| {
-        decode_bytes_with_report(bytes, sink, &mut report, observe_unsupported)
+        decode_bytes_with_report(bytes, sink, &mut report, observe_unsupported, decoders)
     });
     match result {
         Ok(()) => Ok(report),
@@ -77,12 +82,16 @@ pub(crate) fn decode_file_with_report(
     }
 }
 
-fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
+fn decode_bytes(
+    bytes: &[u8],
+    sink: &mut impl TraceRecordSink,
+    decoders: Vec<Box<dyn PluginDecoder>>,
+) -> Result<()> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
 
-    decode_sections(bytes, sink)
+    decode_sections(bytes, sink, decoders)
 }
 
 fn decode_bytes_with_report(
@@ -90,16 +99,21 @@ fn decode_bytes_with_report(
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
+    decoders: Vec<Box<dyn PluginDecoder>>,
 ) -> Result<()> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
 
-    decode_sections_with_report(bytes, sink, report, observe_unsupported)
+    decode_sections_with_report(bytes, sink, report, observe_unsupported, decoders)
 }
 
-fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    decode_sections_inner(bytes, sink, None, None)
+fn decode_sections(
+    bytes: &[u8],
+    sink: &mut impl TraceRecordSink,
+    decoders: Vec<Box<dyn PluginDecoder>>,
+) -> Result<()> {
+    decode_sections_inner(bytes, sink, None, None, decoders)
 }
 
 fn decode_sections_with_report(
@@ -107,8 +121,15 @@ fn decode_sections_with_report(
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
+    decoders: Vec<Box<dyn PluginDecoder>>,
 ) -> Result<()> {
-    decode_sections_inner(bytes, sink, Some(report), Some(observe_unsupported))
+    decode_sections_inner(
+        bytes,
+        sink,
+        Some(report),
+        Some(observe_unsupported),
+        decoders,
+    )
 }
 
 fn decode_sections_inner(
@@ -116,14 +137,10 @@ fn decode_sections_inner(
     sink: &mut impl TraceRecordSink,
     mut report: Option<&mut HitraceDecodeReport>,
     mut observe_unsupported: Option<&mut UnsupportedContentObserver<'_>>,
+    decoders: Vec<Box<dyn PluginDecoder>>,
 ) -> Result<()> {
     let mut offset = 0usize;
-    let decoder_specs = [
-        FTRACE_PLUGIN_DECODER,
-        NATIVE_HOOK_PLUGIN_DECODER,
-        HOOK_DAEMON_PLUGIN_DECODER,
-    ];
-    let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
+    let mut plugin_registry = PluginPayloadRegistry::new(decoders);
 
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;

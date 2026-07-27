@@ -22,6 +22,7 @@ serde.workspace = true
 serde_arrow.workspace = true
 serde_bytes.workspace = true
 serde_json.workspace = true
+smallvec.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 url.workspace = true

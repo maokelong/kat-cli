@@ -1,9 +1,10 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
 
-use arrow_array::{Int32Array, StringArray, UInt32Array, UInt64Array};
+use arrow_array::{Array, Int32Array, StringArray, UInt32Array, UInt64Array};
 use kat_datasource::DatasetWriteTarget;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use prost::Message;
@@ -223,7 +224,22 @@ fn import_publishes_long_term_clock_and_switch_facts_in_source_order() {
         .iter()
         .map(|table| table.name().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(tables, ["clock_domain", "clock_snapshot", "sched_switch"]);
+    for fact in ["clock_domain", "clock_snapshot", "sched_switch"] {
+        assert!(
+            tables.iter().any(|table| table == fact),
+            "{fact} is preserved"
+        );
+    }
+    for relational in [
+        "trace_plugin_result",
+        "trace_plugin_result_ftrace_cpu_detail",
+        "trace_plugin_result_ftrace_cpu_detail_event",
+    ] {
+        assert!(
+            tables.iter().any(|table| table == relational),
+            "{relational} is added"
+        );
+    }
 
     let mut rows = Vec::new();
     for batch in batches(&dataset.join("tables/sched_switch.parquet")) {
@@ -581,7 +597,25 @@ fn capture_damage_is_irrelevant_without_supported_ftrace_events() {
         .iter()
         .map(|table| table.name().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(tables, ["clock_domain", "clock_snapshot"]);
+    for fact in ["clock_domain", "clock_snapshot"] {
+        assert!(
+            tables.iter().any(|table| table == fact),
+            "{fact} is preserved"
+        );
+    }
+    assert!(
+        !tables.iter().any(|table| table == "sched_switch"),
+        "no supported switch fact is generated"
+    );
+    for relational in [
+        "trace_plugin_result",
+        "trace_plugin_result_ftrace_cpu_detail",
+    ] {
+        assert!(
+            tables.iter().any(|table| table == relational),
+            "{relational} is added"
+        );
+    }
 }
 
 #[test]
@@ -735,6 +769,71 @@ fn real_openharmony_capture_smoke() {
             .iter()
             .any(|table| table.name() == "sched_switch")
     );
+    for table in [
+        "trace_plugin_result",
+        "trace_plugin_result_ftrace_cpu_detail",
+        "trace_plugin_result_ftrace_cpu_detail_event",
+    ] {
+        assert!(
+            inspection
+                .tables()
+                .iter()
+                .any(|candidate| candidate.name() == table),
+            "{table} should coexist with source facts"
+        );
+    }
+
+    let detail_path = imported
+        .path()
+        .join("tables/trace_plugin_result_ftrace_cpu_detail.parquet");
+    let detail_keys = batches(&detail_path)
+        .into_iter()
+        .flat_map(|batch| {
+            let sources = batch
+                .column_by_name("source_index")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .clone();
+            let rows = batch
+                .column_by_name("row_index")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .clone();
+            (0..batch.num_rows()).map(move |index| (sources.value(index), rows.value(index)))
+        })
+        .collect::<HashSet<_>>();
+
+    let event_path = imported
+        .path()
+        .join("tables/trace_plugin_result_ftrace_cpu_detail_event.parquet");
+    let mut event_count = 0usize;
+    for batch in batches(&event_path) {
+        let sources = batch
+            .column_by_name("source_index")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        let parents = batch
+            .column_by_name("parent_index")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        for index in 0..batch.num_rows() {
+            assert!(!parents.is_null(index), "event row should have a parent");
+            assert!(
+                detail_keys.contains(&(sources.value(index), parents.value(index))),
+                "event row should reference an existing cpu detail row"
+            );
+            event_count += 1;
+        }
+    }
+    assert!(event_count > 0, "real capture should contain ftrace events");
 }
 
 fn batches(path: &Path) -> Vec<arrow_array::RecordBatch> {

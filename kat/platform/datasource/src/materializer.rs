@@ -26,10 +26,12 @@ use crate::{
     arrow_table::ArrowTable,
     dataset::{DatasetTableWriter, DatasetWriter},
     dataset_writer::{DatasetWriteTarget, DatasetWriter as ManagedDatasetWriter},
+    decode::profiler::relational_plugin_decoders,
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
     formats::{hitrace, langfuse},
     proto::kat::hitrace::FtraceCpuStatsMsg,
     record::{TraceRecord, TraceRecordSink},
+    relational::sink::RelationalDatasetSink,
     sinks::arrow::ArrowSink,
 };
 
@@ -112,7 +114,6 @@ fn import_hitrace_inner(
     target: DatasetWriteTarget,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    // 先让迁移后的 Hitrace format/domain pipeline 完成解析与完整性校验，再授权覆盖目标。
     let mut sink = LongTermHitraceSink::new();
     let mut observer_failure = None;
     let decoded_report = {
@@ -128,7 +129,12 @@ fn import_hitrace_inner(
             }
             Ok(())
         };
-        hitrace::decode_file_with_report(path, &mut sink, &mut observe)
+        hitrace::decode_file_with_report_and_plugin_decoders(
+            path,
+            &mut sink,
+            &mut observe,
+            relational_plugin_decoders(),
+        )
     };
     if let Some(source) = observer_failure {
         return Err(HitraceImportError::ObserveUnsupportedContent { source });
@@ -145,7 +151,16 @@ fn import_hitrace_inner(
     let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
 
     (|| -> Result<ImportedHitrace> {
-        let mut writer = ManagedDatasetWriter::begin(target)?;
+        let writer = ManagedDatasetWriter::begin(target)?;
+        let mut relational = RelationalDatasetSink::new(writer)?;
+        hitrace::decode_file_with_plugin_decoders(
+            path,
+            &mut relational,
+            relational_plugin_decoders(),
+        )
+        .with_context(|| format!("failed to expand hitrace file: {}", path.display()))?;
+        let mut writer = relational.finish()?;
+
         write_clock_domains(&mut writer, &decoded.clock_domains)?;
         let clock_snapshots = decoded
             .clock_snapshots
@@ -550,7 +565,9 @@ impl TraceRecordSink for LongTermHitraceSink {
         match record {
             TraceRecord::FtraceCapture(record) => self.push_capture(record),
             TraceRecord::Ftrace(record) => self.push_ftrace(*record),
-            TraceRecord::ProfilerPluginData(_) | TraceRecord::NativeHook(_) => Ok(()),
+            TraceRecord::ProfilerPluginData(_)
+            | TraceRecord::NativeHook(_)
+            | TraceRecord::DecodedPayload(_) => Ok(()),
         }
     }
 }
