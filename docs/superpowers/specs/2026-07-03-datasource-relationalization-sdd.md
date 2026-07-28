@@ -1,6 +1,6 @@
 # kat-datasource Profiler Payload 关系化架构 SDD
 
-状态：设计已确认，已按本文实现并完成 datasource 与真实数据验证。
+状态：设计已确认；本文按当前 PR 的 one-pass 实现维护，验证证据见第 11.5 节。
 
 ## 1. 背景与问题
 
@@ -24,7 +24,7 @@ payload 已经有 `.proto` 描述，但 protobuf 的 nested message、repeated�
 6. 对大 trace 采用有界表缓冲和增量 Parquet 写入，不在内存中保留全量关系行。
 7. 新增已知 protobuf payload 时，只增加 decode 注册和 descriptor 覆盖；不为每个 message 手写表转换代码。
 8. 通用关系化表作为现有 Hitrace source facts 的附加输出，不改变 `clock_domain`、`clock_snapshot`、`sched_switch` 及其校验语义。
-9. 保留未知 plugin/section 的 observer 时序、排序后的 `unsupported_*` 返回数组，以及已注册 plugin 解码失败时不发布 Dataset 的现有契约。
+9. 保留未知 plugin/section 的 observer 时序、排序后的 `unsupported_*` 返回数组，以及失败时不发布 `.kat-dataset` marker 的契约。
 
 ## 3. 非目标
 
@@ -34,7 +34,7 @@ payload 已经有 `.proto` 描述，但 protobuf 的 nested message、repeated�
 4. 不做 runtime reflection decoder；decode 主路径仍使用 generated Rust type 和 `prost::Message::decode`。
 5. 不承诺 dataset 跨进程长期持久化、迁移、恢复或原子替换。
 6. 不新增 `catalog.json` 或其他 Dataset 元数据文件；遵守 ADR 0020 的 Dataset Storage 契约。
-7. 不在本切片修改现有 source facts 的表名、schema、内容、时钟语义和错误行为。
+7. 不修改现有 source facts 的表名、schema、内容和时钟语义；覆盖目标的失败生命周期遵守 ADR 0020。
 8. 不修改 ADR 0025 定义的未知内容报告和失败传播行为。
 
 ## 4. 数据流与分层
@@ -44,37 +44,39 @@ payload 已经有 `.proto` 描述，但 protobuf 的 nested message、repeated�
 ```text
 kat import / import_hitrace
   -> materializer.rs
-  -> pass 1: formats/hitrace + decode/profiler
-       -> existing TraceRecord
+  -> ManagedDatasetWriter::begin(target)
+  -> formats/hitrace + decode/profiler（读取一次）
        -> LongTermHitraceSink
+            -> existing TraceRecord
+                 -> collect source facts
+                 -> validate clock / loss / ordering / thread continuity
+            -> record.rs: DecodedPayload
+                 -> payload_value.rs: PayloadValue
+                 -> relational/plan.rs: ExpansionPlan
+                 -> relational/plan_exec.rs + table_data.rs
+                 -> relational/table_batch.rs: Arrow builders / RecordBatch
        -> observe unsupported plugin / section
-       -> validate clock / loss / ordering / thread continuity
-  -> DatasetWriter::begin
-  -> pass 2: the same formats/hitrace + decode/profiler
-       -> record.rs: DecodedPayload
-       -> payload_value.rs: PayloadValue
-       -> relational/plan.rs: ExpansionPlan
-       -> relational/plan_exec.rs + table_data.rs
-       -> relational/table_batch.rs: Arrow builders / RecordBatch
-  -> the same DatasetWriter
+  -> LongTermHitraceSink::finish
+       -> finish relational tables
        -> generic relational tables
        -> existing clock_domain / clock_snapshot / sched_switch facts
-  -> .kat-dataset + tables/*.parquet
+  -> ManagedDatasetWriter::finish
+       -> .kat-dataset + tables/*.parquet
   -> Dataset Storage resolution
   -> Python DataFusion
 ```
 
-CLI 继续调用原有 `import_hitrace`。第一遍完成现有 source facts 收集和全部校验，只有验证成功后才打开写入目标；第二遍通过同一套 profiler decoder 生成通用关系化表。两类输出写入同一个 ADR 0020 `DatasetWriter`。
+CLI 继续调用原有 `import_hitrace`。`materializer.rs` 先按 ADR 0020 打开统一 Dataset writer，再读取一次输入。`LongTermHitraceSink` 同时接收现有 source records 和 `DecodedPayload`：前者继续生成并校验 source facts，后者进入通用关系化展开。两类输出写入同一个 Dataset。
 
-两遍读取是本切片为保持现有“验证失败不修改目标”契约所采用的最小兼容实现。它没有引入第二套 decoder，也没有改变关系化规则；后续若能在不改变错误语义的前提下合并读取次数，应作为独立性能变更验证。
+这相对 base 明确改变了目标打开时机：base 在 decode 和 source-fact 校验成功后才打开 writer；当前实现为了单遍流式写入，在 decode 前调用 `ManagedDatasetWriter::begin`。因此，用户通过 `--overwrite-dataset` 授权覆盖已有目标后，旧内容可能在输入解码或校验失败前被删除。失败不会调用 `ManagedDatasetWriter::finish`，因而不会发布 `.kat-dataset` marker，但不恢复旧内容。该行为遵守 ADR 0020 的破坏式 fail-fast 语义，不承诺备份、回滚或失败恢复。
 
-`TraceRecordSink` 显式声明是否接收 `DecodedPayload` 和现有 source records：第一遍不构造 `PayloadValue`，第二遍不拆分现有 ftrace/native_hook records。两遍共享 typed decode 代码，但各自只生成需要的中间表示。
+`TraceRecordSink` 显式声明是否接收 `DecodedPayload` 和现有 source records。当前组合 sink 同时接收两类 record；同一个 typed decoder 不重复解析输入，也不让关系化层感知时钟业务。
 
 ### 4.2 各层输入和输出
 
 | 顺序 | 模块 | 输入 | 输出 | 职责 |
 | --- | --- | --- | --- | --- |
-| 1 | `materializer.rs` | 一个输入 source | 验证后的 source facts 与 Dataset 写入流程 | 保持公开 import 入口；先完成现有校验，再组装关系化 sink 和统一 Dataset writer。 |
+| 1 | `materializer.rs` | 一个输入 source | 统一 Dataset 写入流程 | 保持公开 import 入口；先打开 ADR 0020 writer，再组装组合 sink 并单遍 decode。 |
 | 2 | `formats/hitrace/` | `.htrace` bytes | profiler envelope | 读取文件、解析 framing，并按 plugin name / payload kind 分发。 |
 | 3 | `decode/profiler/` | envelope payload bytes | typed prost message、现有 records 与 `DecodedPayload` | 根据 `ProfilerPluginRoute` 选择 generated Rust type 并执行 decode；同一 decoder 同时服务现有 facts 和新增关系化输出。 |
 | 4 | `record.rs` | typed prost message | `TraceRecord` / `DecodedPayload` | 保留现有 record 变体，并增加 decode 后、关系化前的通用 payload 边界。 |
@@ -91,7 +93,7 @@ CLI 继续调用原有 `import_hitrace`。第一遍完成现有 source facts 收
 
 ```text
 message package / name
-field name / number
+field name
 field label
 field scalar、enum、bytes 或 message 类型
 message type name
@@ -122,7 +124,7 @@ payload bytes
   -> DecodedPayload {
        plugin_name,
        root_message,
-       value
+       message
      }
 ```
 
@@ -136,7 +138,7 @@ decode 层不决定表名、不展开 repeated/oneof、不注入业务字段，�
 DecodedPayload
   plugin_name
   root_message
-  value: PayloadValue
+  message: PayloadValue
 ```
 
 `PayloadValue` 是 typed prost message 的通用只读结构表示。它保留：
@@ -738,7 +740,7 @@ RepeatedMessage
 每个 payload 调用一次 `emit_payload`：
 
 ```text
-DecodedPayload.value
+DecodedPayload.message
   -> 取 root_message 对应的已编译计划
   -> 按计划访问 PayloadValue
   -> 依次追加 root、父表、子表数据
@@ -909,8 +911,9 @@ kat/platform/datasource/
 4. Parquet schema 可通过 Dataset Storage resolution 交给 DataFusion。
 5. 多次 flush 不改变 row_index、parent_index 或 batch 顺序。
 6. 关系化表与现有 `clock_domain`、`clock_snapshot`、`sched_switch` 同时存在。
-7. 现有时钟、loss、overwrite、排序和 thread-continuity 校验仍在写目标前完成。
-8. 未知 plugin/section 继续按 ADR 0025 报告，observer 失败和已知 payload 解码失败继续阻止目标发布。
+7. 现有时钟、loss、排序和 thread-continuity 校验继续执行；它们在 writer 打开后、marker 发布前完成。
+8. 未知 plugin/section 继续按 ADR 0025 报告；observer、decode、关系化或 source-fact 校验失败均不发布 `.kat-dataset` marker。
+9. 覆盖已有目标时，失败不恢复 writer 打开前删除的旧内容，符合 ADR 0020 的破坏式 fail-fast 语义。
 
 ### 11.3 查询契约
 
@@ -954,31 +957,32 @@ where e.event = 'alloc_event';
 
 ### 11.5 本次实现验证证据
 
+冻结代码对象：`5188f93f0c6f66e97c647ee23614a30258f24695`。
+
 代码验证：
 
 ```text
-cargo test -p kat-datasource --all-targets
-  结果：全部通过；真实 trace smoke 保持为显式 ignored 测试。
+cargo test --workspace --all-targets -- --test-threads=1
+  结果：220 passed，0 failed，3 ignored。
 
-cargo test -p kat-datasource --release --test hitrace_import_contract \
-  real_openharmony_capture_smoke -- --ignored --exact
-  结果：通过。
+KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
+  --test hitrace_import_contract real_openharmony_capture_smoke \
+  -- --ignored --nocapture
+  结果：1 passed，0 failed。
 ```
 
 真实数据通过公开 `kat import hitrace`、Linux release 二进制和 WSL2 ext4 输入/输出导入：
 
 | 样本 | 结果 | 现有功能共存证据 |
 | --- | --- | --- |
-| `hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` | 导入成功；13.64s；9 张表；64,063,947 Parquet bytes。 | `clock_domain`、`clock_snapshot`、`sched_switch` 与 6 张 `trace_plugin_result*` 关系表同时存在；真实 smoke 校验 event 行可通过 `source_index + parent_index` 回到 CPU detail 行。 |
-| `all_memory_full.htrace` | 导入成功；0.73s；16 张表；48,178,638 Parquet bytes。 | 现有时钟 facts 与 `batch_native_hook_data_events*` 关系表同时存在。 |
-| `native_heap_full.htrace` | 导入成功；1.20s；15 张表；56,424,818 Parquet bytes。 | 现有时钟 facts 与 native_hook oneof、repeated scalar/message 关系表同时存在。 |
+| `hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` | SHA-256 `da6877da3f24db1e4754b9f06bcfb35830fb1fffc2ae827ee306548f2cf9f4b9`；导入成功；7.31s；峰值 RSS 240,700 KiB；9 张表；64,063,947 Parquet bytes。 | `clock_domain`、`clock_snapshot`、`sched_switch`、`trace_plugin_result_clocks_detail` 均存在且非空；共 6 张 `trace_plugin_result*` 关系表，真实 smoke 校验 event 行可通过 `source_index + parent_index` 回到 CPU detail 行。 |
 
 本轮没有把 Python DataFusion 查询作为验收证据；验证范围是 Dataset Storage 产物、Parquet schema、父子索引和现有 source facts 共存。外层 Python 查询接入不属于本 PR。
 
 ## 12. 当前限制
 
 1. decode 仍需要为新 typed root 增加静态 route；不能只靠字符串动态 decode 未编译的 message。
-2. 当前 import 为保持“校验失败不修改目标”而读取输入两遍；它增加了真实大 trace 的端到端耗时，后续优化必须独立验证且不能改变错误语义。
+2. 当前 import 单遍读取并在 decode 前打开 writer；覆盖已有目标时，后续失败不发布 marker，也不恢复旧内容。
 3. Dataset 不持久化父表元数据；查询者依据稳定转换契约选择父表，并用公共关系列 join。
 4. dataset 是可重建查询产物，不承诺跨版本 schema migration。
 5. 对新的 proto 结构形态，需要先明确 SQL 表达后再新增规则。
