@@ -352,6 +352,34 @@ fn hitrace_dataset_materializer_uses_streaming_sink_not_arrow_table_set() {
 }
 
 #[test]
+fn long_term_hitrace_import_decodes_once_into_relational_and_source_fact_outputs() {
+    let materializer = source("src/materializer.rs");
+
+    assert_eq!(
+        materializer
+            .matches("decode_file_with_report_and_plugin_decoders(")
+            .count(),
+        1
+    );
+    assert!(!materializer.contains("decode_file_with_plugin_decoders("));
+    for marker in [
+        "ManagedDatasetWriter::begin_staged(target)",
+        "struct LongTermHitraceSink",
+        "impl TraceRecordSink for LongTermHitraceSink",
+        "fn accepts_decoded_payloads(&self) -> bool",
+        "fn accepts_source_records(&self) -> bool",
+        "TraceRecord::DecodedPayload(payload) => self.relational.push_payload(*payload)",
+        "TraceRecord::FtraceCapture(record) => self.push_capture(record)",
+        "TraceRecord::Ftrace(record) => self.push_ftrace(*record)",
+    ] {
+        assert!(
+            materializer.contains(marker),
+            "{marker} should preserve the one-pass import contract"
+        );
+    }
+}
+
+#[test]
 fn build_script_splits_codegen_by_responsibility() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let build_rs = source("build.rs");

@@ -114,7 +114,11 @@ fn import_hitrace_inner(
     target: DatasetWriteTarget,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    let mut sink = LongTermHitraceSink::new();
+    let writer = ManagedDatasetWriter::begin_staged(target)
+        .map_err(anyhow::Error::from)
+        .map_err(HitraceImportError::import)?;
+    let relational = RelationalDatasetSink::new(writer).map_err(HitraceImportError::import)?;
+    let mut sink = LongTermHitraceSink::new(relational);
     let mut observer_failure = None;
     let decoded_report = {
         let mut observe = |content: &hitrace::UnsupportedHitraceContent| {
@@ -148,19 +152,9 @@ fn import_hitrace_inner(
             ))));
         }
     };
-    let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
+    let (decoded, mut writer) = sink.finish(report).map_err(HitraceImportError::import)?;
 
     (|| -> Result<ImportedHitrace> {
-        let writer = ManagedDatasetWriter::begin(target)?;
-        let mut relational = RelationalDatasetSink::new(writer)?;
-        hitrace::decode_file_with_plugin_decoders(
-            path,
-            &mut relational,
-            relational_plugin_decoders(),
-        )
-        .with_context(|| format!("failed to expand hitrace file: {}", path.display()))?;
-        let mut writer = relational.finish()?;
-
         write_clock_domains(&mut writer, &decoded.clock_domains)?;
         let clock_snapshots = decoded
             .clock_snapshots
@@ -262,6 +256,7 @@ struct ClockSnapshot {
 }
 
 struct LongTermHitraceSink {
+    relational: RelationalDatasetSink,
     switches: Option<SwitchSpool>,
     clock_snapshots: Option<ClockSnapshotSpool>,
     reported_clocks: BTreeSet<FtraceClock>,
@@ -282,8 +277,9 @@ struct CpuSwitchState {
 }
 
 impl LongTermHitraceSink {
-    fn new() -> Self {
+    fn new(relational: RelationalDatasetSink) -> Self {
         Self {
+            relational,
             switches: None,
             clock_snapshots: None,
             reported_clocks: BTreeSet::new(),
@@ -476,7 +472,10 @@ impl LongTermHitraceSink {
             })
     }
 
-    fn finish(mut self, report: hitrace::HitraceDecodeReport) -> Result<DecodedLongTermHitrace> {
+    fn finish(
+        mut self,
+        report: hitrace::HitraceDecodeReport,
+    ) -> Result<(DecodedLongTermHitrace, ManagedDatasetWriter)> {
         let ftrace_clock = self.validate_ftrace_capture()?;
 
         let mut clock_domains = report.clock_domains;
@@ -497,7 +496,7 @@ impl LongTermHitraceSink {
             })
             .collect::<Vec<_>>();
 
-        Ok(DecodedLongTermHitrace {
+        let decoded = DecodedLongTermHitrace {
             switches: self.switches,
             clock_snapshots: self.clock_snapshots,
             header_clock_snapshots,
@@ -505,7 +504,9 @@ impl LongTermHitraceSink {
             ftrace_clock,
             unsupported_plugins: report.unsupported_plugins.into_iter().collect(),
             unsupported_section_types: report.unsupported_section_types.into_iter().collect(),
-        })
+        };
+        let writer = self.relational.finish()?;
+        Ok((decoded, writer))
     }
 
     fn validate_ftrace_capture(&mut self) -> Result<Option<FtraceClock>> {
@@ -561,13 +562,20 @@ impl LongTermHitraceSink {
 }
 
 impl TraceRecordSink for LongTermHitraceSink {
+    fn accepts_decoded_payloads(&self) -> bool {
+        true
+    }
+
+    fn accepts_source_records(&self) -> bool {
+        true
+    }
+
     fn push(&mut self, record: TraceRecord) -> Result<()> {
         match record {
             TraceRecord::FtraceCapture(record) => self.push_capture(record),
             TraceRecord::Ftrace(record) => self.push_ftrace(*record),
-            TraceRecord::ProfilerPluginData(_)
-            | TraceRecord::NativeHook(_)
-            | TraceRecord::DecodedPayload(_) => Ok(()),
+            TraceRecord::DecodedPayload(payload) => self.relational.push_payload(*payload),
+            TraceRecord::ProfilerPluginData(_) | TraceRecord::NativeHook(_) => Ok(()),
         }
     }
 }
