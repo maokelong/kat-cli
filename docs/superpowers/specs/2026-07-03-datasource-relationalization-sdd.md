@@ -122,7 +122,6 @@ payload bytes
   -> <GeneratedType as prost::Message>::decode
   -> PayloadValue
   -> DecodedPayload {
-       plugin_name,
        root_message,
        message
      }
@@ -130,13 +129,14 @@ payload bytes
 
 decode 层不决定表名、不展开 repeated/oneof、不注入业务字段，也不为 ftrace 或 native_hook 建立特殊表模型。
 
+`plugin_name` 只用于 envelope registry 选择 typed decoder，不进入 `DecodedPayload`，也不参与关系表身份。关系化层按 protobuf `root_message` 选择 plan 和输出表；多个 plugin alias 使用同一个 typed root 时，共享同一组关系表。
+
 ### 4.5 `DecodedPayload` 与 `PayloadValue`
 
 `DecodedPayload` 表示“一份已经完成 protobuf 解码的 profiler payload”，包含路由信息和数据：
 
 ```text
 DecodedPayload
-  plugin_name
   root_message
   message: PayloadValue
 ```
@@ -324,6 +324,8 @@ Event { status: TRACE_START }
 为什么提取为规则：protobuf bytes 是原始字节序列，不等价于 UTF-8 string。强制转字符串会改变内容或在无效 UTF-8 时失败。
 
 规则：直接写入 Arrow `Binary` / Parquet `BYTE_ARRAY`，不做文本解释。
+
+build-time 从 proto descriptor 自动识别 `bytes` 字段并配置 binary 序列化，不维护字段名 allowlist。
 
 原数据：
 
@@ -746,6 +748,8 @@ DecodedPayload.message
   -> 依次追加 root、父表、子表数据
 ```
 
+`RelationalDatasetSink::push_payload` 收到一份 `DecodedPayload` 后立即执行这条数据流，并在执行完成后清理该 payload 的父子索引。sink 不跨 payload 保留解码结果；常驻缓冲只包含各表的 Arrow builders 和有界 Parquet 写入队列。
+
 ### 7.3 `table_data.rs`：找到行数据并追加字段
 
 `table_data.rs` 做两件事：
@@ -957,13 +961,17 @@ where e.event = 'alloc_event';
 
 ### 11.5 本次实现验证证据
 
-冻结代码对象：`5188f93f0c6f66e97c647ee23614a30258f24695`。
+冻结代码对象：`60456912e4ecaa93859d14d14815ace64993c7ab`。
 
 代码验证：
 
 ```text
 cargo test --workspace --all-targets -- --test-threads=1
-  结果：220 passed，0 failed，3 ignored。
+  结果：226 passed，0 failed，3 ignored。
+
+cargo test -p kat-datasource --test hitrace_import_contract \
+  import_decodes_fixed_result_payload_into_relational_tables -- --exact
+  结果：1 passed，0 failed。
 
 KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
   --test hitrace_import_contract real_openharmony_capture_smoke \
@@ -976,6 +984,10 @@ KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
 | 样本 | 结果 | 现有功能共存证据 |
 | --- | --- | --- |
 | `hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` | SHA-256 `da6877da3f24db1e4754b9f06bcfb35830fb1fffc2ae827ee306548f2cf9f4b9`；导入成功；7.31s；峰值 RSS 240,700 KiB；9 张表；64,063,947 Parquet bytes。 | `clock_domain`、`clock_snapshot`、`sched_switch`、`trace_plugin_result_clocks_detail` 均存在且非空；共 6 张 `trace_plugin_result*` 关系表，真实 smoke 校验 event 行可通过 `source_index + parent_index` 回到 CPU detail 行。 |
+
+移除 8 条 `DecodedPayload` 延迟缓冲后，在同一 WSL2 ext4 环境进行了五组 baseline/candidate 交叉 A/B。baseline 二进制 SHA-256 为 `0a3b4739c883a21fd5d609ea1de342bccca6ca3db3280e977857a659f1c29868`，candidate 二进制 SHA-256 为 `4c5fab714b3fb13d65ed630582d1bc85887678a0ef10319a0841d8d626246fd3`。baseline 中位数为 6.98s，candidate 中位数为 6.86s，改善 1.72%；五组 candidate 均更快。峰值 RSS 中位数分别为 240,892 KiB 和 240,716 KiB，没有观察到稳定的内存变化。
+
+主样本两侧均输出 9 张表和 64,063,947 Parquet bytes，全部 dataset 文件 SHA-256 一致。`native_heap_full.htrace` 和 `all_memory_full.htrace` 也分别得到相同表数、Parquet bytes 和逐文件 SHA-256。该改动因此保留，收益主要是删除无执行收益的 payload 保留层，同时未改变输出、顺序和父子索引。
 
 本轮没有把 Python DataFusion 查询作为验收证据；验证范围是 Dataset Storage 产物、Parquet schema、父子索引和现有 source facts 共存。外层 Python 查询接入不属于本 PR。
 
