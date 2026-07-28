@@ -363,7 +363,7 @@ fn long_term_hitrace_import_decodes_once_into_relational_and_source_fact_outputs
     );
     assert!(!materializer.contains("decode_file_with_plugin_decoders("));
     for marker in [
-        "ManagedDatasetWriter::begin_staged(target)",
+        "ManagedDatasetWriter::begin(target)",
         "struct LongTermHitraceSink",
         "impl TraceRecordSink for LongTermHitraceSink",
         "fn accepts_decoded_payloads(&self) -> bool",

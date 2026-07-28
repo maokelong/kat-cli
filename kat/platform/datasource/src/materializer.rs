@@ -114,7 +114,7 @@ fn import_hitrace_inner(
     target: DatasetWriteTarget,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    let writer = ManagedDatasetWriter::begin_staged(target)
+    let writer = ManagedDatasetWriter::begin(target)
         .map_err(anyhow::Error::from)
         .map_err(HitraceImportError::import)?;
     let relational = RelationalDatasetSink::new(writer).map_err(HitraceImportError::import)?;

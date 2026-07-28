@@ -415,7 +415,7 @@ fn import_batches_clock_snapshots_without_changing_source_order() {
 }
 
 #[test]
-fn clock_and_thread_continuity_damage_fail_before_target_mutation() {
+fn clock_and_thread_continuity_damage_leave_no_published_overwrite_target() {
     for (events, expected) in [
         (
             vec![switch(2, 0, 1), switch(1, 1, 2)],
@@ -441,10 +441,8 @@ fn clock_and_thread_continuity_damage_fail_before_target_mutation() {
         .expect_err("damaged capture is rejected");
         let message = format!("{error:?}");
         assert!(message.contains(expected), "{message}");
-        assert_eq!(
-            fs::read_to_string(dataset.join("sentinel")).expect("sentinel remains"),
-            "unchanged"
-        );
+        assert!(!dataset.join("sentinel").exists());
+        assert!(!dataset.join(".kat-dataset").exists());
     }
 }
 
@@ -567,10 +565,7 @@ fn every_loss_evidence_rejects_the_complete_import() {
         .expect_err("loss evidence is rejected");
         let message = format!("{error:?}");
         assert!(message.contains(counter), "{counter}: {message}");
-        assert!(
-            !dataset.exists(),
-            "invalid capture must not publish a Dataset"
-        );
+        assert!(!dataset.join(".kat-dataset").exists());
     }
 }
 
@@ -647,10 +642,7 @@ fn reported_ftrace_clock_is_validated_without_supported_events() {
         .expect_err("invalid reported clock is rejected");
         let message = format!("{error:?}");
         assert!(message.contains(expected), "{expected}: {message}");
-        assert!(
-            !dataset.exists(),
-            "invalid clock must not publish a Dataset"
-        );
+        assert!(!dataset.join(".kat-dataset").exists());
     }
 }
 

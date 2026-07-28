@@ -66,12 +66,6 @@ pub(crate) struct DatasetWriter {
     root: PathBuf,
     tables: PathBuf,
     table_names: HashSet<String>,
-    staged_publication: Option<StagedPublication>,
-}
-
-struct StagedPublication {
-    target: DatasetWriteTarget,
-    staging: tempfile::TempDir,
 }
 
 impl DatasetWriter {
@@ -86,30 +80,6 @@ impl DatasetWriter {
             root,
             tables,
             table_names: HashSet::new(),
-            staged_publication: None,
-        })
-    }
-
-    pub(crate) fn begin_staged(target: DatasetWriteTarget) -> Result<Self, DatasetWriteError> {
-        let staging_parent = staged_publication_parent(&target)?;
-        let staging = tempfile::Builder::new()
-            .prefix(".kat-dataset-stage-")
-            .tempdir_in(&staging_parent)
-            .map_err(|source| DatasetWriteError::CreateStaging {
-                path: staging_parent,
-                source,
-            })?;
-        let root = staging.path().to_path_buf();
-        let tables = root.join("tables");
-        fs::create_dir(&tables).map_err(|source| DatasetWriteError::CreateTables {
-            path: tables.clone(),
-            source,
-        })?;
-        Ok(Self {
-            root,
-            tables,
-            table_names: HashSet::new(),
-            staged_publication: Some(StagedPublication { target, staging }),
         })
     }
 
@@ -157,7 +127,7 @@ impl DatasetWriter {
         })
     }
 
-    pub(crate) fn finish(mut self) -> Result<PathBuf, DatasetWriteError> {
+    pub(crate) fn finish(self) -> Result<PathBuf, DatasetWriteError> {
         let mut tables = self
             .table_names
             .into_iter()
@@ -185,13 +155,7 @@ impl DatasetWriter {
             path: marker.clone(),
             source,
         })?;
-
-        let Some(publication) = self.staged_publication.take() else {
-            return Ok(self.root);
-        };
-        let target_root = prepare_target(&publication.target)?;
-        publish_staged_contents(publication.staging.path(), &target_root)?;
-        Ok(target_root)
+        Ok(self.root)
     }
 }
 
@@ -269,115 +233,6 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
             source,
         }),
     }
-}
-
-fn staged_publication_parent(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteError> {
-    match fs::metadata(&target.path) {
-        Ok(metadata) => {
-            if !metadata.is_dir() {
-                return Err(DatasetWriteError::TargetNotDirectory {
-                    path: target.path.clone(),
-                });
-            }
-            let canonical = canonical_unicode(&target.path)?;
-            protect_paths_from_clear(target, &canonical)?;
-            ensure_target_contents_allowed(target, &canonical)?;
-            canonical
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| DatasetWriteError::MissingStagingParent { path: canonical })
-        }
-        Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            let absolute = if target.path.is_absolute() {
-                target.path.clone()
-            } else {
-                std::env::current_dir()
-                    .map_err(|source| DatasetWriteError::ResolveCurrentDirectory { source })?
-                    .join(&target.path)
-            };
-            let parent =
-                absolute
-                    .parent()
-                    .ok_or_else(|| DatasetWriteError::MissingStagingParent {
-                        path: absolute.clone(),
-                    })?;
-            fs::create_dir_all(parent).map_err(|source| DatasetWriteError::CreateTargetParent {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-            canonical_unicode(parent)
-        }
-        Err(source) => Err(DatasetWriteError::InspectTarget {
-            path: target.path.clone(),
-            source,
-        }),
-    }
-}
-
-fn ensure_target_contents_allowed(
-    target: &DatasetWriteTarget,
-    canonical: &Path,
-) -> Result<(), DatasetWriteError> {
-    let mut entries = fs::read_dir(canonical).map_err(|source| DatasetWriteError::ReadTarget {
-        path: canonical.to_path_buf(),
-        source,
-    })?;
-    let nonempty = match entries.next() {
-        Some(Ok(_)) => true,
-        Some(Err(source)) => {
-            return Err(DatasetWriteError::ReadTarget {
-                path: canonical.to_path_buf(),
-                source,
-            });
-        }
-        None => false,
-    };
-    if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
-        return Err(DatasetWriteError::TargetNotEmpty {
-            path: canonical.to_path_buf(),
-        });
-    }
-    Ok(())
-}
-
-fn publish_staged_contents(
-    staging_root: &Path,
-    target_root: &Path,
-) -> Result<(), DatasetWriteError> {
-    let entries = fs::read_dir(staging_root).map_err(|source| DatasetWriteError::ReadStaging {
-        path: staging_root.to_path_buf(),
-        source,
-    })?;
-    let mut paths = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| DatasetWriteError::ReadStaging {
-            path: staging_root.to_path_buf(),
-            source,
-        })?;
-        paths.push(entry.path());
-    }
-    paths.sort();
-
-    for source_path in paths
-        .iter()
-        .filter(|path| path.file_name().is_none_or(|name| name != MARKER))
-    {
-        move_staged_entry(source_path, target_root)?;
-    }
-    let marker = staging_root.join(MARKER);
-    move_staged_entry(&marker, target_root)
-}
-
-fn move_staged_entry(source_path: &Path, target_root: &Path) -> Result<(), DatasetWriteError> {
-    let file_name = source_path
-        .file_name()
-        .expect("staged Dataset entry should have a file name");
-    let target_path = target_root.join(file_name);
-    fs::rename(source_path, &target_path).map_err(|source| DatasetWriteError::PublishStagedEntry {
-        source_path: source_path.to_path_buf(),
-        target_path,
-        source,
-    })
 }
 
 fn protect_paths_from_clear(
@@ -513,38 +368,6 @@ pub enum DatasetWriteError {
     #[error("failed to create Dataset target {path}")]
     CreateTarget {
         path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to resolve current directory for staged Dataset publication")]
-    ResolveCurrentDirectory {
-        #[source]
-        source: io::Error,
-    },
-    #[error("Dataset target has no parent directory for staged publication: {path}")]
-    MissingStagingParent { path: PathBuf },
-    #[error("failed to create Dataset target parent {path}")]
-    CreateTargetParent {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to create staged Dataset beside target in {path}")]
-    CreateStaging {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to read staged Dataset {path}")]
-    ReadStaging {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to publish staged Dataset entry from {source_path} to {target_path}")]
-    PublishStagedEntry {
-        source_path: PathBuf,
-        target_path: PathBuf,
         #[source]
         source: io::Error,
     },

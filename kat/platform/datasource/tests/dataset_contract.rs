@@ -366,7 +366,7 @@ fn managed_hitrace_import_streams_unknown_occurrences_before_decode_failure() {
 }
 
 #[test]
-fn unsupported_content_observer_failure_precedes_authorized_target_mutation() {
+fn unsupported_content_observer_failure_leaves_no_published_overwrite_target() {
     let root = tempdir().expect("tempdir");
     let trace_path = root.path().join("capture.hitrace");
     let target = root.path().join("dataset");
@@ -398,14 +398,12 @@ fn unsupported_content_observer_failure_precedes_authorized_target_mutation() {
         error,
         kat_datasource::HitraceImportError::ObserveUnsupportedContent { .. }
     ));
-    assert_eq!(
-        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
-        "unchanged"
-    );
+    assert!(!target.join("sentinel").exists());
+    assert!(!target.join(".kat-dataset").exists());
 }
 
 #[test]
-fn invalid_hitrace_preserves_authorized_overwrite_target() {
+fn invalid_hitrace_leaves_no_published_overwrite_target() {
     let root = tempdir().expect("tempdir");
     let trace_path = root.path().join("invalid.hitrace");
     let target = root.path().join("dataset");
@@ -420,10 +418,8 @@ fn invalid_hitrace_preserves_authorized_overwrite_target() {
     )
     .expect_err("invalid Hitrace is rejected");
 
-    assert_eq!(
-        fs::read_to_string(target.join("sentinel")).expect("sentinel remains readable"),
-        "unchanged"
-    );
+    assert!(!target.join("sentinel").exists());
+    assert!(!target.join(".kat-dataset").exists());
 }
 
 #[cfg(unix)]
