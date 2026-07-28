@@ -25,7 +25,7 @@ pub(crate) struct ProfilerPluginRoute {
 }
 
 pub(crate) type ProfilerPayloadEmitFn =
-    fn(&'static str, &'static str, &PluginEnvelope<'_>, &mut dyn TraceRecordSink) -> Result<()>;
+    fn(&'static str, &PluginEnvelope<'_>, &mut dyn TraceRecordSink) -> Result<()>;
 
 struct ProfilerPluginDecoder {
     route: &'static ProfilerPluginRoute,
@@ -80,7 +80,7 @@ impl PluginDecoder for ProfilerPluginDecoder {
         let Some(config) = self.route.config else {
             return Ok(());
         };
-        (config.emit)(self.route.plugin_name, config.root_message, envelope, sink)
+        (config.emit)(config.root_message, envelope, sink)
     }
 
     fn decode_data(
@@ -88,17 +88,11 @@ impl PluginDecoder for ProfilerPluginDecoder {
         envelope: &PluginEnvelope<'_>,
         sink: &mut dyn TraceRecordSink,
     ) -> Result<()> {
-        (self.route.data.emit)(
-            self.route.plugin_name,
-            self.route.data.root_message,
-            envelope,
-            sink,
-        )
+        (self.route.data.emit)(self.route.data.root_message, envelope, sink)
     }
 }
 
 pub(crate) fn emit_typed_payload<T>(
-    plugin_name: &'static str,
     root_message: &'static str,
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
@@ -110,6 +104,6 @@ where
     if !sink.accepts_decoded_payloads() {
         return Ok(());
     }
-    let payload = DecodedPayload::from_typed_message(plugin_name, root_message, &message)?;
+    let payload = DecodedPayload::from_typed_message(root_message, &message)?;
     sink.push(TraceRecord::DecodedPayload(Box::new(payload)))
 }

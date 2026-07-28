@@ -71,7 +71,7 @@ struct CompiledOneofVariant {
 
 impl CompiledRootPlan {
     pub(super) fn new(root_message: &str) -> Result<Self> {
-        let plan_items = expansion_plan_for_roots(&[root_message]);
+        let plan_items = expansion_plan_for_roots(&[root_message])?;
         reject_output_table_collisions(&plan_items)?;
         let mut items: Vec<_> = plan_items.into_iter().map(CompiledPlanItem::new).collect();
         let parent_index_tables = items

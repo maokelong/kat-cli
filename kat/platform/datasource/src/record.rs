@@ -14,14 +14,12 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub(crate) struct DecodedPayload {
-    pub(crate) plugin_name: String,
     pub(crate) root_message: String,
     pub(crate) message: PayloadValue,
 }
 
 impl DecodedPayload {
     pub(crate) fn from_typed_message<T>(
-        plugin_name: impl Into<String>,
         root_message: impl Into<String>,
         message: &T,
     ) -> Result<Self>
@@ -33,7 +31,6 @@ impl DecodedPayload {
             .with_context(|| format!("failed to serialize decoded payload {root_message}"))?;
 
         Ok(Self {
-            plugin_name: plugin_name.into(),
             root_message,
             message,
         })

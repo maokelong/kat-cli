@@ -22,14 +22,13 @@ pub(super) const FTRACE_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
 };
 
 fn emit_ftrace_payload(
-    plugin_name: &'static str,
     root_message: &'static str,
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
     let result: TracePluginResult = decode_payload(envelope)?;
     if sink.accepts_decoded_payloads() {
-        let payload = DecodedPayload::from_typed_message(plugin_name, root_message, &result)?;
+        let payload = DecodedPayload::from_typed_message(root_message, &result)?;
         sink.push(TraceRecord::DecodedPayload(Box::new(payload)))?;
     }
     if !sink.accepts_source_records() {

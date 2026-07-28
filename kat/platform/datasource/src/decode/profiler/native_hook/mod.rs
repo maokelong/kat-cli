@@ -40,14 +40,13 @@ pub(super) const HOOK_DAEMON_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
 };
 
 fn emit_native_hook_config(
-    plugin_name: &'static str,
     root_message: &'static str,
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
     let config: NativeHookConfig = decode_payload(envelope)?;
     if sink.accepts_decoded_payloads() {
-        let payload = DecodedPayload::from_typed_message(plugin_name, root_message, &config)?;
+        let payload = DecodedPayload::from_typed_message(root_message, &config)?;
         sink.push(TraceRecord::DecodedPayload(Box::new(payload)))?;
     }
     if !sink.accepts_source_records() {
@@ -59,14 +58,13 @@ fn emit_native_hook_config(
 }
 
 fn emit_native_hook_data(
-    plugin_name: &'static str,
     root_message: &'static str,
     envelope: &PluginEnvelope<'_>,
     sink: &mut dyn TraceRecordSink,
 ) -> Result<()> {
     let batch: BatchNativeHookData = decode_payload(envelope)?;
     if sink.accepts_decoded_payloads() {
-        let payload = DecodedPayload::from_typed_message(plugin_name, root_message, &batch)?;
+        let payload = DecodedPayload::from_typed_message(root_message, &batch)?;
         sink.push(TraceRecord::DecodedPayload(Box::new(payload)))?;
     }
     if !sink.accepts_source_records() {

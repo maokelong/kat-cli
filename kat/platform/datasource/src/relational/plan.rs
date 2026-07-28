@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use anyhow::{Context, Result};
+
 use super::{
     descriptor::{MessageDescriptor, ProtoFieldLabel, ProtoFieldType, RELATIONAL_DESCRIPTORS},
     rules::ExpansionRule,
@@ -15,13 +17,14 @@ pub(crate) struct ExpansionPlanItem {
     pub(crate) parent_table: Option<String>,
 }
 
-pub(crate) fn expansion_plan_for_roots(root_messages: &[&str]) -> Vec<ExpansionPlanItem> {
+pub(crate) fn expansion_plan_for_roots(root_messages: &[&str]) -> Result<Vec<ExpansionPlanItem>> {
     let mut items = Vec::new();
 
     for root_message in root_messages {
-        let Some(message) = message_descriptor(root_message) else {
-            continue;
-        };
+        let message = message_descriptor(root_message).with_context(|| {
+            format!("missing relational root message descriptor: {root_message}")
+        })?;
+        validate_message_descriptors(message, &mut HashSet::new())?;
 
         let root_table = table_name(root_message, &[]);
         items.push(ExpansionPlanItem {
@@ -44,7 +47,7 @@ pub(crate) fn expansion_plan_for_roots(root_messages: &[&str]) -> Vec<ExpansionP
         );
     }
 
-    items
+    Ok(items)
 }
 
 fn collect_nested_tables(
@@ -146,6 +149,30 @@ fn collect_nested_tables(
             );
         }
     }
+}
+
+fn validate_message_descriptors(
+    message: &'static MessageDescriptor,
+    visited: &mut HashSet<&'static str>,
+) -> Result<()> {
+    if !visited.insert(message.name) {
+        return Ok(());
+    }
+
+    for field in message.fields {
+        let ProtoFieldType::Message(child_name) = field.field_type else {
+            continue;
+        };
+        let child = message_descriptor(child_name).with_context(|| {
+            format!(
+                "missing relational message descriptor: {child_name}, referenced by {}.{}",
+                message.name, field.name
+            )
+        })?;
+        validate_message_descriptors(child, visited)?;
+    }
+
+    Ok(())
 }
 
 fn append_segment(path: &[String], segment: &str) -> Vec<String> {

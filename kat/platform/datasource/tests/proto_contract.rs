@@ -1,5 +1,5 @@
 use prost::Message;
-use std::fs;
+use std::{collections::BTreeSet, fs};
 
 mod relational {
     pub(crate) mod descriptor {
@@ -55,7 +55,8 @@ fn relational_plan_derives_current_root_repeated_and_oneof_tables() {
         "TracePluginResult",
         "NativeHookConfig",
         "BatchNativeHookData",
-    ]);
+    ])
+    .expect("registered roots should produce a relational plan");
     let tables = plan
         .iter()
         .map(|item| item.output_table.as_str())
@@ -109,6 +110,98 @@ fn relational_plan_derives_current_root_repeated_and_oneof_tables() {
             "{relationship:?} should use an existing physical parent table"
         );
     }
+}
+
+#[test]
+fn relational_plan_rejects_an_unknown_root() {
+    let error = relational::plan::expansion_plan_for_roots(&["MissingProfilerRoot"])
+        .expect_err("an unknown profiler root must not be silently skipped");
+
+    assert!(
+        error
+            .to_string()
+            .contains("missing relational root message descriptor: MissingProfilerRoot")
+    );
+}
+
+#[test]
+fn generated_bytes_are_binary_and_repeated_numbers_remain_arrays() {
+    let symbol_table = proto::kat::native_hook::SymbolTable {
+        sym_table: vec![0x00, 0xff, 0x41],
+        str_table: vec![0x10, 0x20],
+        ..Default::default()
+    };
+    let symbol_value =
+        payload_value::to_payload_value(&symbol_table).expect("symbol table serializes");
+    let symbol_fields = symbol_value.as_object().expect("symbol table is an object");
+
+    for (name, expected) in [
+        ("sym_table", &[0x00, 0xff, 0x41][..]),
+        ("str_table", &[0x10, 0x20][..]),
+    ] {
+        let value = symbol_fields
+            .iter()
+            .find(|field| field.name() == name)
+            .unwrap_or_else(|| panic!("{name} should be serialized"));
+        assert_eq!(value.value().as_binary(), Some(expected));
+    }
+
+    let stack_map = proto::kat::native_hook::StackMap {
+        ip: vec![0x1000, 0x2000],
+        ..Default::default()
+    };
+    let stack_value = payload_value::to_payload_value(&stack_map).expect("stack map serializes");
+    let ip = stack_value
+        .as_object()
+        .expect("stack map is an object")
+        .iter()
+        .find(|field| field.name() == "ip")
+        .expect("ip should be serialized");
+    assert_eq!(ip.value().as_array().map(<[_]>::len), Some(2));
+    assert!(ip.value().as_binary().is_none());
+}
+
+#[test]
+fn registered_payload_roots_have_relational_plans() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let route_files = [
+        "src/decode/profiler/fixed_result/mod.rs",
+        "src/decode/profiler/ftrace/mod.rs",
+        "src/decode/profiler/native_hook/mod.rs",
+    ];
+    let mut roots = BTreeSet::new();
+
+    for relative_path in route_files {
+        let source = fs::read_to_string(format!("{manifest_dir}/{relative_path}"))
+            .unwrap_or_else(|error| panic!("failed to read {relative_path}: {error}"));
+        roots.extend(
+            source
+                .lines()
+                .filter_map(route_root_message)
+                .map(str::to_owned),
+        );
+    }
+
+    assert!(
+        !roots.is_empty(),
+        "profiler routes should declare payload roots"
+    );
+    for root in roots {
+        let plan =
+            relational::plan::expansion_plan_for_roots(&[root.as_str()]).unwrap_or_else(|error| {
+                panic!("registered payload root {root} must have a relational plan: {error:#}")
+            });
+        assert!(
+            !plan.is_empty(),
+            "registered payload root {root} must produce at least one table"
+        );
+    }
+}
+
+fn route_root_message(line: &str) -> Option<&str> {
+    line.trim()
+        .strip_prefix("root_message: \"")?
+        .strip_suffix("\",")
 }
 
 #[allow(dead_code)]

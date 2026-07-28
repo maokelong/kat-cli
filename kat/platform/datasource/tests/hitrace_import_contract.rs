@@ -99,6 +99,26 @@ struct TimeSpec {
     nanoseconds: u32,
 }
 
+#[derive(Clone, PartialEq, Message)]
+struct MemoryData {
+    #[prost(message, repeated, tag = "1")]
+    processesinfo: Vec<ProcessMemoryInfo>,
+    #[prost(uint64, tag = "4")]
+    zram: u64,
+    #[prost(uint64, tag = "9")]
+    gpu_limit_size: u64,
+    #[prost(uint64, tag = "10")]
+    gpu_used_size: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProcessMemoryInfo {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+}
+
 fn cpu_stats(cpu: u64) -> PerCpuStats {
     PerCpuStats {
         cpu,
@@ -161,6 +181,11 @@ fn fixture_results(results: impl IntoIterator<Item = TraceResult>) -> Vec<u8> {
             .encode_to_vec()
         })
         .collect::<Vec<_>>();
+    profiler_fixture(envelopes)
+}
+
+fn profiler_fixture(envelopes: impl IntoIterator<Item = Vec<u8>>) -> Vec<u8> {
+    let envelopes = envelopes.into_iter().collect::<Vec<_>>();
     let body_length = envelopes
         .iter()
         .map(|envelope| 4 + envelope.len())
@@ -180,6 +205,118 @@ fn fixture_results(results: impl IntoIterator<Item = TraceResult>) -> Vec<u8> {
 
 fn write_fixture(path: &Path, result: TraceResult) {
     fs::write(path, fixture(result)).expect("Hitrace fixture is written");
+}
+
+#[test]
+fn import_decodes_fixed_result_payload_into_relational_tables() {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("memory.htrace");
+    let dataset = root.path().join("dataset");
+    let payload = MemoryData {
+        processesinfo: vec![ProcessMemoryInfo {
+            pid: 42,
+            name: "render-service".to_owned(),
+        }],
+        zram: 4096,
+        gpu_limit_size: 8192,
+        gpu_used_size: 2048,
+    };
+    let envelope = Envelope {
+        name: "memory-plugin".to_owned(),
+        data: payload.encode_to_vec(),
+    }
+    .encode_to_vec();
+    fs::write(&source, profiler_fixture([envelope])).expect("Hitrace fixture is written");
+
+    let imported = kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .expect("memory fixed-result payload imports");
+    let inspection = kat_datasource::inspect_dataset(imported.path()).expect("Dataset inspects");
+    for table in ["memory_data", "memory_data_processesinfo"] {
+        assert!(
+            inspection
+                .tables()
+                .iter()
+                .any(|candidate| candidate.name() == table),
+            "{table} should be materialized"
+        );
+    }
+
+    let root_batches = batches(&dataset.join("tables/memory_data.parquet"));
+    assert_eq!(
+        root_batches
+            .iter()
+            .map(|batch| batch.num_rows())
+            .sum::<usize>(),
+        1
+    );
+    let root_batch = &root_batches[0];
+    let root_row_index = root_batch
+        .column_by_name("row_index")
+        .expect("root row_index")
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .expect("root row_index is UInt64")
+        .value(0);
+    assert_eq!(
+        root_batch
+            .column_by_name("zram")
+            .expect("zram")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("zram is UInt64")
+            .value(0),
+        4096
+    );
+
+    let process_batches = batches(&dataset.join("tables/memory_data_processesinfo.parquet"));
+    assert_eq!(
+        process_batches
+            .iter()
+            .map(|batch| batch.num_rows())
+            .sum::<usize>(),
+        1
+    );
+    let process_batch = &process_batches[0];
+    assert_eq!(
+        process_batch
+            .column_by_name("pid")
+            .expect("pid")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid is Int32")
+            .value(0),
+        42
+    );
+    assert_eq!(
+        process_batch
+            .column_by_name("name")
+            .expect("name")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("name is Utf8")
+            .value(0),
+        "render-service"
+    );
+    let source_index = process_batch
+        .column_by_name("source_index")
+        .expect("source_index")
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .expect("source_index is UInt64")
+        .value(0);
+    let parent_index = process_batch
+        .column_by_name("parent_index")
+        .expect("parent_index")
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .expect("parent_index is UInt64")
+        .value(0);
+    assert_eq!(source_index, 0);
+    assert_eq!(parent_index, root_row_index);
 }
 
 #[test]

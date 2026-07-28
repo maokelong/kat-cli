@@ -1,9 +1,56 @@
-use prost_types::{DescriptorProto, FileDescriptorSet};
+use prost_types::{DescriptorProto, FileDescriptorSet, field_descriptor_proto::Type};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProtoMessage {
     pub(crate) name: String,
     pub(crate) table_name: String,
+}
+
+pub(crate) fn bytes_field_paths(fds: &FileDescriptorSet) -> Vec<String> {
+    let mut paths = Vec::new();
+    for file in &fds.file {
+        let package = file.package.as_deref().unwrap_or("");
+        for message in &file.message_type {
+            collect_bytes_field_paths(package, "", message, &mut paths);
+        }
+    }
+    paths
+}
+
+fn collect_bytes_field_paths(
+    package: &str,
+    parent_path: &str,
+    message: &DescriptorProto,
+    paths: &mut Vec<String>,
+) {
+    let message_name = message
+        .name
+        .as_deref()
+        .expect("descriptor message should have a name");
+    let message_path = if parent_path.is_empty() {
+        message_name.to_string()
+    } else {
+        format!("{parent_path}.{message_name}")
+    };
+    let qualified_message = if package.is_empty() {
+        message_path.clone()
+    } else {
+        format!("{package}.{message_path}")
+    };
+
+    for field in &message.field {
+        if field.r#type == Some(Type::Bytes as i32) {
+            let field_name = field
+                .name
+                .as_deref()
+                .expect("descriptor field should have a name");
+            paths.push(format!(".{qualified_message}.{field_name}"));
+        }
+    }
+
+    for nested in &message.nested_type {
+        collect_bytes_field_paths(package, &message_path, nested, paths);
+    }
 }
 
 pub(crate) fn messages_in_file(fds: &FileDescriptorSet, proto_path: &str) -> Vec<ProtoMessage> {

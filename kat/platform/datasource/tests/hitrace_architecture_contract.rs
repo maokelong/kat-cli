@@ -380,6 +380,47 @@ fn long_term_hitrace_import_decodes_once_into_relational_and_source_fact_outputs
 }
 
 #[test]
+fn decoded_payload_uses_proto_root_as_relational_identity() {
+    let record = source("src/record.rs");
+    let plan_exec = source("src/relational/plan_exec.rs");
+    let native_hook = source("src/decode/profiler/native_hook/mod.rs");
+
+    assert!(record.contains("pub(crate) root_message: String"));
+    assert!(!record.contains("pub(crate) plugin_name: String"));
+    assert!(plan_exec.contains("payload.root_message"));
+    assert_eq!(
+        native_hook
+            .matches("root_message: \"NativeHookConfig\"")
+            .count(),
+        2
+    );
+    assert_eq!(
+        native_hook
+            .matches("root_message: \"BatchNativeHookData\"")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn relational_sink_does_not_retain_decoded_payload_chunks() {
+    let sink = source("src/relational/sink.rs");
+
+    assert!(sink.contains("self.emit_payload(self.source_index, &payload)?"));
+    for marker in [
+        "RELATIONAL_PAYLOAD_CHUNK_MAX_RECORDS",
+        "PayloadChunk",
+        "PendingPayload",
+        "pending_payloads",
+    ] {
+        assert!(
+            !sink.contains(marker),
+            "{marker} should not retain payloads"
+        );
+    }
+}
+
+#[test]
 fn build_script_splits_codegen_by_responsibility() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let build_rs = source("build.rs");

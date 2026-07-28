@@ -17,7 +17,7 @@ use native_hook_domain_codegen::{
     NATIVE_HOOK_PROTO_FILES, NATIVE_HOOK_RESULT_PROTO, generate_native_hook_records,
     native_hook_events_from_descriptor,
 };
-use proto_codegen::{message_in_file, messages_in_file};
+use proto_codegen::{bytes_field_paths, message_in_file, messages_in_file};
 use relational_descriptor_codegen::generate_relational_descriptors;
 
 const SERDE_DERIVE: &str = "#[derive(serde::Serialize, serde::Deserialize)]";
@@ -94,18 +94,9 @@ fn main() {
         config.type_attribute(package, SERDE_DERIVE);
         config.enum_attribute(package, CLIPPY_ENUM_VARIANT_NAMES);
     }
-    config.field_attribute(
-        ".kat.hitrace.ProfilerPluginData.data",
-        "#[serde(with = \"serde_bytes\")]",
-    );
-    config.field_attribute(
-        ".kat.native_hook.SymbolTable.sym_table",
-        "#[serde(with = \"serde_bytes\")]",
-    );
-    config.field_attribute(
-        ".kat.native_hook.SymbolTable.str_table",
-        "#[serde(with = \"serde_bytes\")]",
-    );
+    for field_path in bytes_field_paths(&fds) {
+        config.field_attribute(field_path, "#[serde(with = \"serde_bytes\")]");
+    }
     config
         .compile_fds(fds)
         .expect("hitrace and event family protos compile");
