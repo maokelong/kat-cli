@@ -1,0 +1,42 @@
+kat/platform/cli/src/operation_log.rs
+  s_4c9b23b9708f9e::t_95eeb847201cc3 21-26,34,42,44,47,55
+  s_4c9b23b9708f9e::t_a8bf8a63a20523 111-113,221,228-231
+kat/platform/cli/src/response.rs
+  s_4c9b23b9708f9e::t_9adab7c6b7af47 134-141,147,162,167,179-186,194,206,214-222,227,235,250-254
+kat/platform/cli/src/workflow_runtime.rs
+  s_4c9b23b9708f9e::t_43a9d016a6c29a 550-551,553,574,584-585,601,607-621
+  s_4c9b23b9708f9e::t_a8bf8a63a20523 622-654
+kat/platform/cli/src/workflow_runtime/output_spool.rs
+  s_4c9b23b9708f9e::t_a8bf8a63a20523 170-175,181,189-190
+  s_4c9b23b9708f9e::t_dafe6c9ca1a18d 94
+  s_4c9b23b9708f9e::t_f807257b564dc0 95-96,101-106,125-139,160,169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e7fe84b2351682bf58c238b66375d8f5114b8361",
+  "prompts": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 206,
+      "total_deletions": 0,
+      "accepted_lines": 146,
+      "overriden_lines": 60
+    }
+  },
+  "sessions": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
