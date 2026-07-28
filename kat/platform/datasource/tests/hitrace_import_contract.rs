@@ -755,12 +755,25 @@ fn real_openharmony_capture_smoke() {
     .expect("real OpenHarmony capture imports");
 
     let inspection = kat_datasource::inspect_dataset(imported.path()).expect("Dataset inspects");
-    assert!(
-        inspection
-            .tables()
+    for table in [
+        "clock_domain",
+        "clock_snapshot",
+        "sched_switch",
+        "trace_plugin_result_clocks_detail",
+    ] {
+        assert!(
+            inspection
+                .tables()
+                .iter()
+                .any(|candidate| candidate.name() == table),
+            "{table} should exist in the real capture"
+        );
+        let row_count = batches(&imported.path().join(format!("tables/{table}.parquet")))
             .iter()
-            .any(|table| table.name() == "sched_switch")
-    );
+            .map(arrow_array::RecordBatch::num_rows)
+            .sum::<usize>();
+        assert!(row_count > 0, "{table} should contain real rows");
+    }
     for table in [
         "trace_plugin_result",
         "trace_plugin_result_ftrace_cpu_detail",
