@@ -16,14 +16,24 @@ from kat._temporal import _duration_nanoseconds, _wall_clock_nanoseconds
 
 from .clock import ClockCapability
 from .outputs import materialize_outputs
+from .inspection import CompiledWorkflow
 from .pack import ProductionPack
-from .request import RunWorkflowRequest
+from .request import ResolvedDatasetRef, RunCandidateRef, RunWorkflowRequest
 
 
 @dataclass(frozen=True)
 class RunWorkflowRuntimeResult:
     effective_inputs: dict[str, object]
     outputs: dict[str, dict[str, object]]
+
+
+class WorkflowExecutionFailure(Exception):
+    """已知且可由 PACK 作者纠正的 Workflow 解析或执行路径失败。
+
+    包括已加载 Workflow 的参数、Dataset/Table Grant、用户函数与 Output
+    materialization；kat_run 的 Workflow 名称查找未命中也使用此类。非法 Python
+    fixture 实参及 pytest plugin、fixture、日志设施等 harness 异常不属于此类。
+    """
 
 
 class ExecutionLease:
@@ -91,27 +101,64 @@ def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
     dataset = request.dataset
 
     workflow = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
+    return run_loaded_workflow(
+        workflow,
+        pack_name=pack_name,
+        workflow_name=workflow_name,
+        dataset=dataset,
+        arguments=request.arguments,
+        candidate=request.candidate,
+    )
+
+
+def run_loaded_workflow(
+    workflow: CompiledWorkflow,
+    *,
+    pack_name: str,
+    workflow_name: str,
+    dataset: ResolvedDatasetRef | None,
+    arguments: list[str],
+    candidate: RunCandidateRef,
+) -> RunWorkflowRuntimeResult:
+    candidate_id = candidate.identifier
+    candidate_path = candidate.path
 
     required_tables = workflow.interface["required_tables"]
     table_paths = {} if dataset is None else dataset.tables
     if required_tables and dataset is None:
-        raise ValueError("the selected Workflow requires a Dataset")
+        raise WorkflowExecutionFailure() from ValueError(
+            "the selected Workflow requires a Dataset"
+        )
     missing = sorted(set(required_tables) - set(table_paths))
     if missing:
-        raise ValueError(f"Dataset is missing required tables: {', '.join(missing)}")
+        raise WorkflowExecutionFailure() from ValueError(
+            f"Dataset is missing required tables: {', '.join(missing)}"
+        )
 
-    effective = workflow.parse_arguments(request.arguments)
+    try:
+        effective = workflow.parse_arguments(arguments)
+    except ValueError as error:
+        raise WorkflowExecutionFailure() from error
     session = SessionContext()
-    for table_name in required_tables:
-        session.register_parquet(table_name, str(table_paths[table_name]))
+    try:
+        for table_name in required_tables:
+            session.register_parquet(table_name, str(table_paths[table_name]))
+    except (Exception, SystemExit) as error:
+        raise WorkflowExecutionFailure() from error
     clock = ClockCapability(dataset)
 
     lease = ExecutionLease()
     context = WorkflowContext(session, lease, clock)
     try:
         with workflow_logging(candidate_id, pack_name, workflow_name):
-            value = workflow.function(context, **effective)
-            outputs = materialize_outputs(value, candidate_path)
+            try:
+                value = workflow.function(context, **effective)
+            except (Exception, SystemExit) as error:
+                raise WorkflowExecutionFailure() from error
+            try:
+                outputs = materialize_outputs(value, candidate_path)
+            except (Exception, SystemExit) as error:
+                raise WorkflowExecutionFailure() from error
     finally:
         lease.expire()
     return RunWorkflowRuntimeResult(

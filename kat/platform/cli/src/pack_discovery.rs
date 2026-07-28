@@ -77,6 +77,16 @@ pub(crate) fn discover(paths: PackDiscoveryPaths) -> Result<DiscoveredPacks, Pac
     Ok(DiscoveredPacks { packs: state.packs })
 }
 
+pub(crate) fn discover_pack_at(directory: &Path) -> Result<DiscoveredPack, PackDiscoveryError> {
+    let mut state = DiscoveryState::default();
+    state.discover_candidate(directory)?;
+    Ok(state
+        .packs
+        .into_values()
+        .next()
+        .expect("a successfully discovered target directory contains one PACK"))
+}
+
 #[derive(Default)]
 struct DiscoveryState {
     directories: BTreeSet<PathBuf>,

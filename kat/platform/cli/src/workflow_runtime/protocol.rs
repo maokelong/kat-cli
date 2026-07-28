@@ -167,3 +167,18 @@ pub(super) struct InspectPackRequest<'a> {
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
 }
+
+#[derive(Serialize)]
+pub(super) struct TestPackRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
+    pub(super) datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
+    pub(super) tests: &'a [String],
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TestPackResult {
+    pub(crate) summary: BTreeMap<String, u64>,
+}

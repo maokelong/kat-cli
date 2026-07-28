@@ -25,11 +25,15 @@ enum KatResponse<P> {
         result: P,
         #[serde(skip_serializing_if = "Option::is_none")]
         log_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        test_report_path: Option<String>,
     },
     Failure {
         error: KatDiagnostic,
         #[serde(skip_serializing_if = "Option::is_none")]
         log_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        test_report_path: Option<String>,
     },
 }
 
@@ -128,8 +132,20 @@ pub(super) fn prepare_success_with_log<P>(
     result: P,
     log_path: Option<String>,
 ) -> PreparedResponse<P> {
+    prepare_success_with_artifacts(result, log_path, None)
+}
+
+fn prepare_success_with_artifacts<P>(
+    result: P,
+    log_path: Option<String>,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
     PreparedResponse {
-        response: KatResponse::Success { result, log_path },
+        response: KatResponse::Success {
+            result,
+            log_path,
+            test_report_path,
+        },
         rendered_diagnostic: None,
         exit_code: ExitCode::SUCCESS,
     }
@@ -143,8 +159,81 @@ pub(super) fn prepare_cli_failure_with_log<P>(
     report: miette::Report,
     log_path: Option<String>,
 ) -> PreparedResponse<P> {
+    let diagnostic = cli_diagnostic(&report);
+    let rendered_diagnostic = RenderedDiagnostic(format!("{report:?}"));
+
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path,
+            test_report_path: None,
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
+pub(super) fn prepare_runtime_failure<P>(
+    diagnostic: KatDiagnostic,
+    log_path: String,
+) -> PreparedResponse<P> {
+    prepare_runtime_failure_with_artifacts(diagnostic, log_path, None)
+}
+
+fn prepare_runtime_failure_with_artifacts<P>(
+    diagnostic: KatDiagnostic,
+    log_path: String,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
+    let report = miette::Report::new(RuntimeDiagnosticPresentation::new(&diagnostic));
+    let rendered_diagnostic = RenderedDiagnostic(project_complete_text(&format!("{report:?}")));
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path: Some(log_path),
+            test_report_path,
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
+pub(super) fn prepare_test_success<P>(
+    result: P,
+    log_path: String,
+    test_report_path: String,
+) -> PreparedResponse<P> {
+    prepare_success_with_artifacts(result, Some(log_path), Some(test_report_path))
+}
+
+pub(super) fn prepare_test_runtime_failure<P>(
+    diagnostic: KatDiagnostic,
+    log_path: String,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
+    prepare_runtime_failure_with_artifacts(diagnostic, log_path, test_report_path)
+}
+
+pub(super) fn prepare_test_cli_failure<P>(
+    report: miette::Report,
+    log_path: Option<String>,
+    test_report_path: Option<String>,
+) -> PreparedResponse<P> {
+    let diagnostic = cli_diagnostic(&report);
+    let rendered_diagnostic = RenderedDiagnostic(project_complete_text(&format!("{report:?}")));
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path,
+            test_report_path,
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
+fn cli_diagnostic(report: &miette::Report) -> KatDiagnostic {
     let diagnostic: &dyn Diagnostic = report.as_ref();
-    let message = diagnostic.to_string();
     let help = diagnostic
         .help()
         .map(|help| help.to_string())
@@ -158,37 +247,11 @@ pub(super) fn prepare_cli_failure_with_log<P>(
         }
         source = cause.source();
     }
-    let rendered_diagnostic = RenderedDiagnostic(format!("{report:?}"));
-    let location = project_location(diagnostic);
-
-    PreparedResponse {
-        response: KatResponse::Failure {
-            error: KatDiagnostic {
-                message,
-                causes,
-                help,
-                location,
-            },
-            log_path,
-        },
-        rendered_diagnostic: Some(rendered_diagnostic),
-        exit_code: ExitCode::FAILURE,
-    }
-}
-
-pub(super) fn prepare_runtime_failure<P>(
-    diagnostic: KatDiagnostic,
-    log_path: String,
-) -> PreparedResponse<P> {
-    let report = miette::Report::new(RuntimeDiagnosticPresentation::new(&diagnostic));
-    let rendered_diagnostic = RenderedDiagnostic(project_complete_text(&format!("{report:?}")));
-    PreparedResponse {
-        response: KatResponse::Failure {
-            error: diagnostic,
-            log_path: Some(log_path),
-        },
-        rendered_diagnostic: Some(rendered_diagnostic),
-        exit_code: ExitCode::FAILURE,
+    KatDiagnostic {
+        message: diagnostic.to_string(),
+        causes,
+        help,
+        location: project_location(diagnostic),
     }
 }
 

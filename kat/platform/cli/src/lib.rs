@@ -3,6 +3,7 @@ mod pack_discovery;
 mod query;
 mod response;
 mod run;
+mod test;
 mod text_projection;
 mod workflow_runtime;
 
@@ -66,6 +67,8 @@ enum Operation {
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
     Query(query::QueryArgs),
+    /// Run one PACK's pytest suite in the production execution plane.
+    Test(test::TestArgs),
 }
 
 #[derive(Args)]
@@ -198,6 +201,7 @@ pub fn run() -> ExitCode {
         }
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
+        Operation::Test(arguments) => response::publish(test::execute(arguments)),
     }
 }
 
