@@ -20,10 +20,13 @@ class OutputMaterializationError(Exception):
 def materialize_outputs(
     value: object, candidate_path: Path
 ) -> dict[str, dict[str, Any]]:
-    outputs = _normalize_outputs(value)
+    try:
+        outputs = _normalize_outputs(value)
+    except (TypeError, ValueError) as error:
+        raise OutputMaterializationError(str(error)) from error
     output_root = candidate_path / "outputs"
     if output_root.exists():
-        raise ValueError("Run Output directory already exists")
+        raise OutputMaterializationError("Run Output directory already exists")
     try:
         output_root.mkdir()
     except OSError:

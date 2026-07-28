@@ -135,6 +135,19 @@ class ProductionPack:
             )
         return compiled
 
+    def load_all(self) -> dict[str, CompiledWorkflow]:
+        _mount_current_pack(self.root)
+        workflows: dict[str, CompiledWorkflow] = {}
+        for entry in self.entries:
+            compiled = _load_entry(self.root, entry.source, entry.module_name)
+            if compiled.interface != entry.interface:
+                raise ValueError(
+                    f"Workflow entry {entry.source.relative_to(self.root).as_posix()} "
+                    "changed between inspection and execution loading"
+                )
+            workflows[compiled.interface["name"]] = compiled
+        return workflows
+
 
 def inspect_pack(selected_pack_name: str, pack_path: Path) -> InspectPackRuntimeResult:
     """Inspect the production Workflows of one selected PACK.

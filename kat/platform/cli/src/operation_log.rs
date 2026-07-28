@@ -18,7 +18,12 @@ impl OperationLog {
         file_prefix: &str,
         write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
     ) -> Result<Self, OperationLogError> {
-        Self::create_with(data_home, file_prefix, |file| write_header(file))
+        Self::create_named(
+            data_home,
+            file_prefix,
+            &uuid::Uuid::now_v7().to_string(),
+            |file| write_header(file),
+        )
     }
 
     pub(crate) fn create_run(
@@ -26,18 +31,20 @@ impl OperationLog {
         candidate_id: &str,
         write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
     ) -> Result<Self, OperationLogError> {
-        let directory = data_home.join("logs");
-        fs::create_dir_all(&directory).map_err(|source| OperationLogError::CreateDirectory {
-            path: directory.clone(),
-            source,
-        })?;
-        let path = directory.join(format!("run-{candidate_id}.log"));
-        Self::create_at(path, |file| write_header(file))
+        Self::create_named(data_home, "run", candidate_id, |file| write_header(file))
     }
 
-    fn create_with(
+    pub(crate) fn create_test(
+        data_home: &Path,
+        token: &str,
+        write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
+        Self::create_named(data_home, "test", token, |file| write_header(file))
+    }
+    fn create_named(
         data_home: &Path,
         file_prefix: &str,
+        token: &str,
         write_header: impl FnOnce(&mut File) -> io::Result<()>,
     ) -> Result<Self, OperationLogError> {
         let directory = data_home.join("logs");
@@ -45,7 +52,7 @@ impl OperationLog {
             path: directory.clone(),
             source,
         })?;
-        let path = directory.join(format!("{file_prefix}-{}.log", uuid::Uuid::now_v7()));
+        let path = directory.join(format!("{file_prefix}-{token}.log"));
         Self::create_at(path, write_header)
     }
 
@@ -101,10 +108,9 @@ impl OperationLog {
                 path: self.path.clone(),
                 source,
             })?;
-        path
-        .to_str()
-        .map(str::to_owned)
-        .ok_or(OperationLogError::NonUnicode { path })
+        path.to_str()
+            .map(str::to_owned)
+            .ok_or(OperationLogError::NonUnicode { path })
     }
 }
 
@@ -212,16 +218,17 @@ mod tests {
     #[test]
     fn fault_seams_distinguish_partial_files_from_create_failures() {
         let temp = tempfile::tempdir().unwrap();
-        let write_error = OperationLog::create_with(temp.path(), "test", |_| {
+        let write_error = OperationLog::create_named(temp.path(), "test", "write", |_| {
             Err(io::Error::other("injected header write failure"))
         })
         .unwrap_err();
         assert!(matches!(write_error, OperationLogError::Write { .. }));
         assert!(write_error.readable_path().is_some());
 
-        let log =
-            OperationLog::create_with(temp.path(), "test", |file| file.write_all(b"partial\n"))
-                .unwrap();
+        let log = OperationLog::create_named(temp.path(), "test", "partial", |file| {
+            file.write_all(b"partial\n")
+        })
+        .unwrap();
         let flush_error = log
             .finish_with(|_| Err(io::Error::other("injected flush failure")))
             .unwrap_err();

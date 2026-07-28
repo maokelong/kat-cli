@@ -53,7 +53,17 @@ class QueryRunRequest:
     sql: str
 
 
-type RuntimeRequest = InspectPackRequest | RunWorkflowRequest | QueryRunRequest
+@dataclass(frozen=True)
+class TestPackRequest:
+    pack_name: str
+    pack_path: Path
+    datasets: dict[str, ResolvedDatasetRef]
+    tests: list[str]
+
+
+type RuntimeRequest = (
+    InspectPackRequest | RunWorkflowRequest | QueryRunRequest | TestPackRequest
+)
 
 
 def read_request(path: Path) -> RuntimeRequest:
@@ -71,6 +81,8 @@ def read_request(path: Path) -> RuntimeRequest:
         return _read_run_workflow_request(request)
     if operation == "query_run":
         return _read_query_run_request(request)
+    if operation == "test_pack":
+        return _read_test_pack_request(request)
     raise RuntimeRequestError("unsupported Runtime Request operation")
 
 
@@ -137,6 +149,18 @@ def _read_query_run_request(request: dict[str, object]) -> QueryRunRequest:
         outputs=tuple(cast(list[str], request["outputs"])),
         dataset=_construct_query_dataset(dataset) if dataset is not None else None,
         sql=cast(str, request["sql"]),
+    )
+
+
+def _read_test_pack_request(request: dict[str, object]) -> TestPackRequest:
+    datasets = cast(dict[str, dict[str, object]], request["datasets"])
+    return TestPackRequest(
+        pack_name=cast(str, request["pack_name"]),
+        pack_path=Path(cast(str, request["pack_path"])),
+        datasets={
+            name: _construct_query_dataset(value) for name, value in datasets.items()
+        },
+        tests=cast(list[str], request["tests"]),
     )
 
 

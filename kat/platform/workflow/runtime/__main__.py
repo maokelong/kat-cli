@@ -22,8 +22,10 @@ from .request import (
     RunWorkflowRequest,
     RuntimeRequest,
     RuntimeRequestError,
+    TestPackRequest,
     read_request,
 )
+from .testing import PytestExitError, TestPackRuntimeResult, test_pack
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ type RuntimeResponse = (
     RuntimeSuccess[InspectPackRuntimeResult]
     | RuntimeSuccess[RunWorkflowRuntimeResult]
     | RuntimeSuccess[QueryRunRuntimeResult]
+    | RuntimeSuccess[TestPackRuntimeResult]
     | RuntimeFailure
 )
 
@@ -50,6 +53,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--request", required=True)
     parser.add_argument("--response", required=True)
+    parser.add_argument("--test-report")
     arguments = parser.parse_args()
     response_path = Path(arguments.response)
     try:
@@ -64,12 +68,17 @@ def main() -> int:
             )
         )
     else:
-        response = _execute(request)
+        response = _execute(
+            request,
+            Path(arguments.test_report) if arguments.test_report is not None else None,
+        )
     _write_response(response_path, response)
     return 0
 
 
-def _execute(request: RuntimeRequest) -> RuntimeResponse:
+def _execute(
+    request: RuntimeRequest, test_report_path: Path | None = None
+) -> RuntimeResponse:
     if isinstance(request, InspectPackRequest):
         try:
             result = inspect_pack(request.pack_name, request.pack_path)
@@ -87,6 +96,24 @@ def _execute(request: RuntimeRequest) -> RuntimeResponse:
                     None,
                     message="Run Output query failed",
                     help="Correct the SQL or its inputs, then retry",
+                )
+            )
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, TestPackRequest):
+        try:
+            if test_report_path is None:
+                raise RuntimeRequestError("test_pack requires a private test report path")
+            result = test_pack(request, test_report_path)
+        except (Exception, SystemExit) as error:
+            if isinstance(error, PytestExitError):
+                return RuntimeFailure(error={"message": error.message(), "help": error.help()})
+            return RuntimeFailure(
+                error=diagnostic_from_exception(
+                    error,
+                    request.pack_path,
+                    message="PACK test Runtime failed",
+                    help="Inspect the pytest terminal report and Operation log, correct the PACK, and retry",
                 )
             )
         return RuntimeSuccess(result=result)

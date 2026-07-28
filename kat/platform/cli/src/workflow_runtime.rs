@@ -1,8 +1,9 @@
 use std::{
     collections::BTreeMap,
-    fs, io,
+    fs,
+    io::{self, Read},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
 };
 
 use miette::Diagnostic;
@@ -19,13 +20,13 @@ use crate::{
 mod output_spool;
 mod protocol;
 
-use output_spool::RuntimeOutputSpool;
+use output_spool::{RuntimeOutputMirror, RuntimeOutputSpool};
 pub(crate) use protocol::{
     Column, ParameterDefault, ParameterType, ResolvedDatasetRequest, Workflow,
 };
 use protocol::{
     InspectPackRequest, InspectPackRuntimeResult, QueryRunRequest, RawRunWorkflowResult,
-    RunWorkflowRequest, RuntimeResponse,
+    RunWorkflowRequest, RuntimeResponse, TestPackRequest, TestPackResult,
 };
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
@@ -100,6 +101,27 @@ pub(crate) struct QueryRunInvocation {
     pub(crate) outputs: Vec<String>,
     pub(crate) dataset: Option<ResolvedDatasetRequest>,
     pub(crate) sql: String,
+}
+
+pub(crate) struct TestPackInvocation<'a> {
+    pub(crate) pack_name: &'a str,
+    pub(crate) pack_path: &'a Path,
+    pub(crate) datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
+    pub(crate) tests: &'a [String],
+    pub(crate) test_report_path: &'a Path,
+}
+
+pub(crate) type TestPackError = RunWorkflowError;
+
+pub(crate) enum TestPackOutcome {
+    Success {
+        result: TestPackResult,
+        log_path: String,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log_path: String,
+    },
 }
 
 pub(crate) fn project_dataset(
@@ -275,6 +297,60 @@ pub(crate) fn execute_query_runtime(
     }
 }
 
+pub(crate) fn test_pack(
+    mut log: OperationLog,
+    invocation: TestPackInvocation<'_>,
+) -> Result<TestPackOutcome, TestPackError> {
+    let pack_path = match invocation.pack_path.to_str() {
+        Some(path) => path,
+        None => {
+            return Err(finish_runtime_error(
+                log,
+                RuntimeInfrastructureError::NonUnicodePackPath(invocation.pack_path.to_path_buf()),
+            ));
+        }
+    };
+    let request = TestPackRequest {
+        operation: "test_pack",
+        pack_name: invocation.pack_name,
+        pack_path,
+        datasets: invocation.datasets,
+        tests: invocation.tests,
+    };
+    let response: RuntimeResponse<TestPackResult> = match exchange_test_request(
+        "kat-test-pack-",
+        &request,
+        &mut log,
+        invocation.pack_path,
+        invocation.test_report_path,
+    ) {
+        Ok(response) => response,
+        Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
+        Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
+        Err(ExchangeError::InvalidResponse(details)) => {
+            return Err(finish_invalid_runtime_response(log, &details));
+        }
+    };
+    match response {
+        RuntimeResponse::Success { result } => {
+            log.append(b"runtime_status: success\n")
+                .map_err(RunWorkflowError::operation_log)?;
+            Ok(TestPackOutcome::Success {
+                result,
+                log_path: log.finish().map_err(RunWorkflowError::operation_log)?,
+            })
+        }
+        RuntimeResponse::Failure { error } => {
+            log.append(b"runtime_status: failure\n")
+                .map_err(RunWorkflowError::operation_log)?;
+            Ok(TestPackOutcome::Failure {
+                diagnostic: error,
+                log_path: log.finish().map_err(RunWorkflowError::operation_log)?,
+            })
+        }
+    }
+}
+
 struct RuntimeResponseViolation {
     details: String,
 }
@@ -402,11 +478,6 @@ fn result_violates_private_value_isolation(
     })
 }
 
-fn diagnostic_contains_private_path(diagnostic: &KatDiagnostic, private_path: &str) -> bool {
-    diagnostic.contains_private_value(private_path)
-        || diagnostic.contains_private_value(&private_path.replace('\\', "/"))
-}
-
 fn contains_private_path(value: &str, private_path: &str) -> bool {
     value.contains(private_path) || value.contains(&private_path.replace('\\', "/"))
 }
@@ -463,30 +534,11 @@ fn exchange_request_bytes(
     request: &impl Serialize,
     log: &mut OperationLog,
 ) -> Result<Vec<u8>, ExchangeError> {
-    let control = tempfile::Builder::new()
-        .prefix(prefix)
-        .tempdir()
-        .map_err(RuntimeInfrastructureError::ControlDirectory)?;
-    let control_path =
-        dunce::canonicalize(control.path()).map_err(RuntimeInfrastructureError::ControlPath)?;
-    let request_path = control_path.join("request.json");
-    let response_path = control_path.join("response.json");
-    let output = RuntimeOutputSpool::create(&control_path)?;
+    let control = prepare_runtime_control(prefix, request)?;
+    let output = RuntimeOutputSpool::create(&control.path)?;
     let (stdout, stderr) = output.stdio()?;
-    let request = serde_json::to_vec(request).map_err(RuntimeInfrastructureError::EncodeRequest)?;
-    fs::write(&request_path, request).map_err(RuntimeInfrastructureError::WriteRequest)?;
-
-    let python = bundled_python_path()?;
-    if !python.is_file() {
-        return Err(RuntimeInfrastructureError::MissingHost(python).into());
-    }
-    let mut command = Command::new(&python);
+    let (mut command, python) = runtime_command(&control)?;
     command
-        .args(["-I", "-B", "-X", "utf8", "-u", "-m", PRIVATE_RUNTIME_MODULE])
-        .arg("--request")
-        .arg(&request_path)
-        .arg("--response")
-        .arg(&response_path)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(stdout)
@@ -506,9 +558,133 @@ fn exchange_request_bytes(
     if !status.success() {
         return Err(RuntimeInfrastructureError::HostExit(status.code()).into());
     }
-    fs::read(&response_path)
-        .map_err(RuntimeInfrastructureError::ReadResponse)
-        .map_err(Into::into)
+    read_runtime_response(&control).map_err(Into::into)
+}
+
+fn exchange_test_request<R: DeserializeOwned>(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+    working_directory: &Path,
+    test_report_path: &Path,
+) -> Result<RuntimeResponse<R>, ExchangeError> {
+    let control = prepare_runtime_control(prefix, request)?;
+    let (mut output, writer) =
+        io::pipe().map_err(RuntimeInfrastructureError::CreateRuntimeOutputPipe)?;
+    let stderr = writer
+        .try_clone()
+        .map_err(RuntimeInfrastructureError::CloneRuntimeOutputPipe)?;
+    let (mut command, python) = runtime_command(&control)?;
+    command
+        .arg("--test-report")
+        .arg(test_report_path)
+        .current_dir(working_directory)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(writer)
+        .stderr(stderr);
+    let mut child = command
+        .spawn()
+        .map_err(|source| RuntimeInfrastructureError::StartHost { python, source })?;
+    // Command 仍持有已配置的 pipe writer；先释放它们，EOF 才只取决于 Runtime。
+    drop(command);
+    let status = mirror_test_runtime_output(&mut child, &mut output, log)?;
+    if !status.success() {
+        return Err(RuntimeInfrastructureError::HostExit(status.code()).into());
+    }
+    let response = read_runtime_response(&control)?;
+    serde_json::from_slice(&response).map_err(|source| {
+        ExchangeError::InvalidResponse(format!("Runtime Response decoding failed: {source}"))
+    })
+}
+
+struct RuntimeControl {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+    request_path: PathBuf,
+    response_path: PathBuf,
+}
+
+fn prepare_runtime_control(
+    prefix: &str,
+    request: &impl Serialize,
+) -> Result<RuntimeControl, RuntimeInfrastructureError> {
+    let directory = tempfile::Builder::new()
+        .prefix(prefix)
+        .tempdir()
+        .map_err(RuntimeInfrastructureError::ControlDirectory)?;
+    let path =
+        dunce::canonicalize(directory.path()).map_err(RuntimeInfrastructureError::ControlPath)?;
+    let request_path = path.join("request.json");
+    let response_path = path.join("response.json");
+    let request = serde_json::to_vec(request).map_err(RuntimeInfrastructureError::EncodeRequest)?;
+    fs::write(&request_path, request).map_err(RuntimeInfrastructureError::WriteRequest)?;
+    Ok(RuntimeControl {
+        _directory: directory,
+        path,
+        request_path,
+        response_path,
+    })
+}
+
+fn runtime_command(
+    control: &RuntimeControl,
+) -> Result<(Command, PathBuf), RuntimeInfrastructureError> {
+    let python = bundled_python_path()?;
+    if !python.is_file() {
+        return Err(RuntimeInfrastructureError::MissingHost(python));
+    }
+    let mut command = Command::new(&python);
+    command
+        .args(["-I", "-B", "-X", "utf8", "-u", "-m", PRIVATE_RUNTIME_MODULE])
+        .arg("--request")
+        .arg(&control.request_path)
+        .arg("--response")
+        .arg(&control.response_path);
+    Ok((command, python))
+}
+
+fn read_runtime_response(control: &RuntimeControl) -> Result<Vec<u8>, RuntimeInfrastructureError> {
+    fs::read(&control.response_path).map_err(RuntimeInfrastructureError::ReadResponse)
+}
+
+fn mirror_test_runtime_output(
+    child: &mut Child,
+    output: &mut impl Read,
+    log: &mut OperationLog,
+) -> Result<ExitStatus, ExchangeError> {
+    let stderr = io::stderr();
+    let mut terminal = stderr.lock();
+    let mut mirror = RuntimeOutputMirror::new(log, &mut terminal);
+    let mirror_result = (|| {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let count = output
+                .read(&mut buffer)
+                .map_err(RuntimeInfrastructureError::ReadPipedOutput)?;
+            if count == 0 {
+                break;
+            }
+            mirror.append(&buffer[..count])?;
+        }
+        mirror.finish()
+    })();
+    if let Err(error) = mirror_result {
+        terminate_test_runtime(child);
+        return Err(error);
+    }
+    match child.wait() {
+        Ok(status) => Ok(status),
+        Err(source) => {
+            terminate_test_runtime(child);
+            Err(RuntimeInfrastructureError::WaitHost(source).into())
+        }
+    }
+}
+
+fn terminate_test_runtime(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn bundled_python_path() -> Result<PathBuf, RuntimeInfrastructureError> {
@@ -787,6 +963,14 @@ pub(crate) enum RuntimeInfrastructureError {
         #[source]
         source: io::Error,
     },
+    #[error("failed to create the Runtime diagnostic output pipe")]
+    CreateRuntimeOutputPipe(#[source] io::Error),
+    #[error("failed to duplicate the Runtime diagnostic output pipe")]
+    CloneRuntimeOutputPipe(#[source] io::Error),
+    #[error("failed to read piped Runtime diagnostic output")]
+    ReadPipedOutput(#[source] io::Error),
+    #[error("failed to mirror Runtime output to the terminal")]
+    MirrorRuntimeOutput(#[source] io::Error),
     #[error("failed to wait for Bundled Python Host")]
     WaitHost(#[source] io::Error),
     #[error("Bundled Python Host exited without completing Runtime IPC (exit code {0:?})")]

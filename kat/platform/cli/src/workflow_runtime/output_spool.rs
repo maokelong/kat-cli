@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     path::Path,
     process::Stdio,
 };
@@ -15,6 +15,19 @@ use super::{ExchangeError, RuntimeInfrastructureError};
 pub(super) struct RuntimeOutputSpool {
     stdout: File,
     stderr: File,
+}
+
+pub(super) struct RuntimeOutputMirror<'a> {
+    log: &'a mut OperationLog,
+    terminal: &'a mut dyn Write,
+    projection: StreamProjection,
+}
+
+struct StreamProjection {
+    stripper: strip_ansi::StripStream,
+    projection: TextProjection,
+    wrote_output: bool,
+    ended_with_newline: bool,
 }
 
 impl RuntimeOutputSpool {
@@ -41,8 +54,9 @@ impl RuntimeOutputSpool {
     }
 
     pub(super) fn append_to(mut self, log: &mut OperationLog) -> Result<(), ExchangeError> {
-        append_stream(&mut self.stdout, "stdout", log)?;
-        append_stream(&mut self.stderr, "stderr", log)
+        let mut terminal = None;
+        append_stream(&mut self.stdout, "stdout", log, &mut terminal)?;
+        append_stream(&mut self.stderr, "stderr", log, &mut terminal)
     }
 
     fn clone_for(
@@ -53,6 +67,62 @@ impl RuntimeOutputSpool {
         file.try_clone()
             .map(Stdio::from)
             .map_err(|source| RuntimeInfrastructureError::CloneOutputSpool { stream, source })
+    }
+}
+
+impl<'a> RuntimeOutputMirror<'a> {
+    pub(super) fn new(log: &'a mut OperationLog, terminal: &'a mut dyn Write) -> Self {
+        Self {
+            log,
+            terminal,
+            projection: StreamProjection::new("output"),
+        }
+    }
+
+    pub(super) fn append(&mut self, bytes: &[u8]) -> Result<(), ExchangeError> {
+        let output = self.projection.push(bytes);
+        let mut terminal = Some(&mut *self.terminal as &mut dyn Write);
+        append_projection(&mut self.projection, &output, self.log, &mut terminal)
+    }
+
+    pub(super) fn finish(mut self) -> Result<(), ExchangeError> {
+        let output = self.projection.finish();
+        let mut terminal = Some(&mut *self.terminal as &mut dyn Write);
+        append_projection(&mut self.projection, &output, self.log, &mut terminal)?;
+        if self.projection.needs_line_boundary() {
+            let mut terminal = Some(&mut *self.terminal as &mut dyn Write);
+            append_projection(&mut self.projection, "\n", self.log, &mut terminal)?;
+        }
+        self.terminal
+            .flush()
+            .map_err(RuntimeInfrastructureError::MirrorRuntimeOutput)?;
+        Ok(())
+    }
+}
+
+impl StreamProjection {
+    fn new(stream: &'static str) -> Self {
+        Self {
+            stripper: strip_ansi::StripStream::new(),
+            projection: TextProjection::new(stream),
+            wrote_output: false,
+            ended_with_newline: false,
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> String {
+        let mut plain = Vec::with_capacity(bytes.len());
+        self.stripper.push(bytes, &mut plain);
+        self.projection.push(&plain)
+    }
+
+    fn finish(&mut self) -> String {
+        self.stripper.finish();
+        self.projection.finish()
+    }
+
+    fn needs_line_boundary(&self) -> bool {
+        self.wrote_output && !self.ended_with_newline
     }
 }
 
@@ -70,14 +140,12 @@ fn append_stream(
     file: &mut File,
     stream: &'static str,
     log: &mut impl RuntimeLogSink,
+    terminal: &mut Option<&mut dyn Write>,
 ) -> Result<(), ExchangeError> {
     file.seek(SeekFrom::Start(0))
         .map_err(|source| RuntimeInfrastructureError::ReadOutputSpool { stream, source })?;
-    let mut stripper = strip_ansi::StripStream::new();
-    let mut projection = TextProjection::new(stream);
+    let mut projection = StreamProjection::new(stream);
     let mut buffer = [0_u8; 8192];
-    let mut wrote_output = false;
-    let mut ended_with_newline = false;
     loop {
         let count = file
             .read(&mut buffer)
@@ -85,40 +153,35 @@ fn append_stream(
         if count == 0 {
             break;
         }
-        let mut plain = Vec::with_capacity(count);
-        stripper.push(&buffer[..count], &mut plain);
-        append_projection(
-            &projection.push(&plain),
-            log,
-            &mut wrote_output,
-            &mut ended_with_newline,
-        )?;
+        let output = projection.push(&buffer[..count]);
+        append_projection(&mut projection, &output, log, terminal)?;
     }
-    stripper.finish();
-    append_projection(
-        &projection.finish(),
-        log,
-        &mut wrote_output,
-        &mut ended_with_newline,
-    )?;
-    if wrote_output && !ended_with_newline {
-        log.append(b"\n").map_err(ExchangeError::Log)?;
+    let output = projection.finish();
+    append_projection(&mut projection, &output, log, terminal)?;
+    if projection.needs_line_boundary() {
+        append_projection(&mut projection, "\n", log, terminal)?;
     }
     Ok(())
 }
 
 fn append_projection(
+    projection: &mut StreamProjection,
     output: &str,
     log: &mut impl RuntimeLogSink,
-    wrote_output: &mut bool,
-    ended_with_newline: &mut bool,
+    terminal: &mut Option<&mut dyn Write>,
 ) -> Result<(), ExchangeError> {
     if output.is_empty() {
         return Ok(());
     }
-    *wrote_output = true;
-    *ended_with_newline = output.ends_with('\n');
-    log.append(output.as_bytes()).map_err(ExchangeError::Log)
+    projection.wrote_output = true;
+    projection.ended_with_newline = output.ends_with('\n');
+    log.append(output.as_bytes()).map_err(ExchangeError::Log)?;
+    if let Some(terminal) = terminal.as_deref_mut() {
+        terminal
+            .write_all(output.as_bytes())
+            .map_err(RuntimeInfrastructureError::MirrorRuntimeOutput)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -145,7 +208,7 @@ mod tests {
         file.write_all(&vec![b'x'; 512 * 1024]).unwrap();
         let mut log = RecordingLog::default();
 
-        append_stream(&mut file, "stdout", &mut log).unwrap();
+        append_stream(&mut file, "stdout", &mut log, &mut None).unwrap();
 
         let output = String::from_utf8(log.0).unwrap();
         assert!(output.starts_with(
@@ -167,8 +230,8 @@ mod tests {
         stderr.write_all(b"stderr already terminated\n").unwrap();
         let mut log = RecordingLog::default();
 
-        append_stream(&mut stdout, "stdout", &mut log).unwrap();
-        append_stream(&mut stderr, "stderr", &mut log).unwrap();
+        append_stream(&mut stdout, "stdout", &mut log, &mut None).unwrap();
+        append_stream(&mut stderr, "stderr", &mut log, &mut None).unwrap();
 
         assert_eq!(
             String::from_utf8(log.0).unwrap(),
@@ -177,11 +240,37 @@ mod tests {
     }
 
     #[test]
+    fn merged_diagnostics_use_one_projection_and_one_final_line_boundary() {
+        let mut projection = StreamProjection::new("output");
+        let mut output = projection.push(b"stdout without newline");
+        output.push_str(&projection.push(b"stderr already terminated\n"));
+        output.push_str(&projection.finish());
+        if projection.needs_line_boundary() {
+            output.push('\n');
+        }
+
+        assert_eq!(output, "stdout without newlinestderr already terminated\n");
+    }
+
+    #[test]
+    fn spool_mirrors_the_same_normalized_output_to_the_terminal() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"\x1b[31mpytest\x1b[0m\r\n").unwrap();
+        let mut log = RecordingLog::default();
+        let mut terminal = Vec::new();
+
+        append_stream(&mut file, "stderr", &mut log, &mut Some(&mut terminal)).unwrap();
+
+        assert_eq!(terminal, log.0);
+        assert_eq!(String::from_utf8(terminal).unwrap(), "pytest\n");
+    }
+
+    #[test]
     fn empty_stream_does_not_add_a_log_line() {
         let mut file = tempfile::tempfile().unwrap();
         let mut log = RecordingLog::default();
 
-        append_stream(&mut file, "stdout", &mut log).unwrap();
+        append_stream(&mut file, "stdout", &mut log, &mut None).unwrap();
 
         assert!(log.0.is_empty());
     }
@@ -201,7 +290,7 @@ mod tests {
         let mut file = tempfile::tempfile().unwrap();
         file.write_all(b"output").unwrap();
         assert!(matches!(
-            append_stream(&mut file, "stderr", &mut FailingLog),
+            append_stream(&mut file, "stderr", &mut FailingLog, &mut None),
             Err(ExchangeError::Log(_))
         ));
     }
