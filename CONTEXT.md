@@ -64,6 +64,14 @@ Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类
 
 ## 数据与事实
 
+**KAT Data Home**:
+KAT 自行管理的本地持久状态根目录，容纳默认 Dataset、External PACK、Run、Operation log 与 PACK Test Report。它由当前 Skill 安装中的 KAT Configuration 选择；它不改变用户显式传入的 Dataset 目录。
+_Avoid_: 输出目录、工作目录
+
+**KAT Configuration**:
+随 KAT Skill 发布的安装本地配置，保存该安装当前选择的 KAT Data Home。Skill 升级可将它重置为发行包的默认内容；它不属于 KAT Data Home，也不是 PACK 或 Dataset。
+_Avoid_: Data Home、Skill 发布内容
+
 **Data Import**:
 由一个显式选定的 Datasource 把外部来源完整转换为新 Dataset，或整体替换一个已有 Dataset 的用户操作。
 

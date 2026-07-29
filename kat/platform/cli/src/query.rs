@@ -84,10 +84,9 @@ impl QueryDatasetState {
 }
 
 pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryResult> {
-    let Some(data_home) = locate_data_home() else {
-        return response::prepare_cli_failure(miette::Report::new(
-            QueryOperationError::DataHomeUnavailable,
-        ));
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let run_log = project_inline_text(&format!("{:?}", arguments.run));
     let sql_log = project_inline_text(&format!("{:?}", arguments.sql));
@@ -343,9 +342,6 @@ enum QueryOperationError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
-    DataHomeUnavailable,
     #[error("Query Operation log could not be delivered")]
     #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Query"))]
     OperationLog(#[source] OperationLogError),

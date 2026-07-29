@@ -24,8 +24,19 @@ fn stage_skill(root: &Path) -> PathBuf {
     let payload = skill.join("scripts").join("targets").join(target);
     fs::create_dir_all(&payload).unwrap();
     fs::write(skill.join("SKILL.md"), "# KAT\n").unwrap();
+    fs::write(skill.join("config.json"), "{}\n").unwrap();
     let binary = payload.join(binary_name);
     fs::copy(cargo_kat(), &binary).unwrap();
+    let data_home = data_home(root);
+    let configured = Command::new(&binary)
+        .args(["config", "set", "data-home", data_home.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        configured.status.success(),
+        "{}",
+        String::from_utf8_lossy(&configured.stderr)
+    );
     stage_fake_host(&binary);
     binary
 }
@@ -74,15 +85,6 @@ fn main() {
     );
 }
 
-fn configure(command: &mut Command, root: &Path) {
-    command
-        .env("XDG_DATA_HOME", root.join("xdg-data"))
-        .env("HOME", root.join("home"))
-        .env("APPDATA", root.join("app-data"))
-        .env("LOCALAPPDATA", root.join("local-app-data"))
-        .env("USERPROFILE", root.join("profile"));
-}
-
 fn data_home(root: &Path) -> PathBuf {
     if cfg!(windows) {
         root.join("app-data/KAT/data")
@@ -117,7 +119,7 @@ fn write_manifest(root: &Path, dataset: Option<&Path>) -> PathBuf {
     run
 }
 
-fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
+fn command(binary: &Path, _root: &Path, captured: &Path, sql: &str) -> Command {
     let mut command = Command::new(binary);
     command
         .arg("query")
@@ -127,7 +129,6 @@ fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
             "KAT_FAKE_RUNTIME_RESPONSE",
             r#"{"status":"success","result":{"columns":[{"name":"value","type":"int64"},{"name":"amount","type":"decimal128(10, 3)"}],"rows":[["9223372036854775807","123.450"]]}}"#,
         );
-    configure(&mut command, root);
     command
 }
 
