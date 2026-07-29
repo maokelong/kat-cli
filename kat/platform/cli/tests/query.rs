@@ -24,19 +24,15 @@ fn stage_skill(root: &Path) -> PathBuf {
     let payload = skill.join("scripts").join("targets").join(target);
     fs::create_dir_all(&payload).unwrap();
     fs::write(skill.join("SKILL.md"), "# KAT\n").unwrap();
-    fs::write(skill.join("config.json"), "{}\n").unwrap();
+    let data_home = data_home(root);
+    fs::create_dir_all(&data_home).unwrap();
+    fs::write(
+        skill.join("config.json"),
+        serde_json::json!({ "kat_data_home": data_home }).to_string(),
+    )
+    .unwrap();
     let binary = payload.join(binary_name);
     fs::copy(cargo_kat(), &binary).unwrap();
-    let data_home = data_home(root);
-    let configured = Command::new(&binary)
-        .args(["config", "set", "data-home", data_home.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(
-        configured.status.success(),
-        "{}",
-        String::from_utf8_lossy(&configured.stderr)
-    );
     stage_fake_host(&binary);
     binary
 }

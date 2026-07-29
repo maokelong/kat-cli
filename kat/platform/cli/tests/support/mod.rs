@@ -16,7 +16,8 @@ pub fn stage_skill(root: &Path, directory_name: &str) -> (PathBuf, PathBuf) {
         .join(platform_target());
     fs::create_dir_all(&payload).expect("create Platform Payload");
     fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
-    fs::write(skill.join("config.json"), "{}\n").expect("write default KAT Configuration");
+    fs::write(skill.join("config.json"), "{\"kat_data_home\":\"\"}\n")
+        .expect("write default KAT Configuration");
     let binary = payload.join(platform_binary());
     fs::copy(cargo_kat(), &binary).expect("copy kat into Skill");
     (skill, binary)
@@ -44,7 +45,8 @@ pub fn stage_real_host_skill(
         .join(platform_target());
     fs::create_dir_all(&platform_payload).expect("create staged Platform Payload");
     fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
-    fs::write(skill.join("config.json"), "{}\n").expect("write default KAT Configuration");
+    fs::write(skill.join("config.json"), "{\"kat_data_home\":\"\"}\n")
+        .expect("write default KAT Configuration");
     prepare_real_host_payload(&platform_payload, python, workflow_wheel);
     fs::copy(kat_binary, platform_payload.join(platform_binary()))
         .expect("stage kat beside the real Workflow Host");

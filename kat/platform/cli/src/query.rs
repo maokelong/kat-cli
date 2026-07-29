@@ -48,10 +48,7 @@ enum QueryDatasetResult {
 enum QueryDatasetState {
     NotProvided,
     Available(workflow_runtime::ResolvedDatasetRequest),
-    Unavailable {
-        path: String,
-        cause: String,
-    },
+    Unavailable { path: String, cause: String },
 }
 
 impl QueryDatasetState {
@@ -71,13 +68,7 @@ impl QueryDatasetState {
                 )
             }
             Self::Unavailable { path, cause } => {
-                (
-                    None,
-                    QueryDatasetResult::Unavailable {
-                        path,
-                        cause,
-                    },
-                )
+                (None, QueryDatasetResult::Unavailable { path, cause })
             }
         }
     }

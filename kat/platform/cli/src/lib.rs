@@ -32,8 +32,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
-    /// 读取或设置安装本地的 KAT 配置。
-    Config(configuration::ConfigArgs),
     /// Import one source into a complete KAT Dataset.
     Import(ImportArgs),
     /// Inspect available PACKs, one exact PACK, or one KAT Dataset.
@@ -159,18 +157,7 @@ pub fn run() -> ExitCode {
         }
     };
 
-    let must_validate_configuration = !matches!(
-        &cli.operation,
-        Operation::Config(arguments) if !configuration::requires_existing_configuration(arguments)
-    );
-    if must_validate_configuration {
-        if let Err(error) = configuration::validate() {
-            return response::publish(response::prepare_cli_failure::<()>(miette::Report::new(error)));
-        }
-    }
-
     match cli.operation {
-        Operation::Config(arguments) => response::publish(configuration::execute(arguments)),
         Operation::Import(ImportArgs {
             dataset,
             overwrite_dataset,
