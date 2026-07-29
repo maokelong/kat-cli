@@ -1,5 +1,5 @@
 ---
-name: role-based-review
+name: kat-pr-review
 description: 让三个职责正交的技术角色独立检视交付
 disable-model-invocation: true
 ---
