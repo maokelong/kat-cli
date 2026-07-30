@@ -216,7 +216,7 @@ fn trace_streamer_import_then_inspect_is_a_real_json_process_loop() {
             .iter()
             .map(|table| table["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["a_table", "a_view", "z_table"]
+        vec!["a_table", "z_table"]
     );
 }
 

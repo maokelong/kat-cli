@@ -1,0 +1,4 @@
+name = "kat-openharmony-demo"
+title = "OpenHarmony Demo"
+description = "Pre-release workflows backed by deprecated Trace Streamer data."
+owner = "Kernel Team"
