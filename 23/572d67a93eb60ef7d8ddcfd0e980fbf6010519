@@ -1,0 +1,33 @@
+crates/kat-rs-datasource/prototypes/generated-direct-emit/REPORT.md
+  s_d2d3dab35a18aa::t_eff1caee3672eb 34-81,132-134,143,186,195
+  s_d2d3dab35a18aa::t_e6532cc3dc073c 1,3,5,9,11-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "23572d67a93eb60ef7d8ddcfd0e980fbf6010519",
+  "prompts": {
+    "s_d2d3dab35a18aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de46-7ce2-ab90-300777662d7c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 81,
+      "total_deletions": 16,
+      "accepted_lines": 81,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d2d3dab35a18aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de46-7ce2-ab90-300777662d7c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}
