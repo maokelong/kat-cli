@@ -6,13 +6,9 @@ status: accepted
 
 ## 决策
 
-KAT Data Home 由 Skill 根目录的 `config.json` 和启动 KAT 的进程环境中的 `KAT_DATA_HOME` 选择。
+KAT Data Home 由可选的 Skill 根目录 `config.json` 和启动 KAT 的进程环境中的 `KAT_DATA_HOME` 选择。
 
-发行包在 Skill 根目录提供默认配置：
-
-```json
-{"kat_data_home":""}
-```
+`config.json` 是 KAT 私有应用配置，不是 Agent Skill 约定或 `SKILL.md` 扩展。它位于 Skill 根目录，使一份部署可以有独立的持久选择；使用平台配置目录会让同一用户的多份部署共享该选择，而只使用环境变量不能提供部署级持久选择。当前只有一个配置字段，因此直接使用标准 JSON 与 `serde_json`，不引入配置框架。
 
 `config.json` 是可扩展 JSON 对象：未知字段允许保留。文件缺失、`kat_data_home` 缺失或其值为 `""` 都表示该来源没有选择 Data Home；`null`、数字、数组等非字符串值，以及不可读取或无法解析的已存在文件，均为配置错误。
 
@@ -24,7 +20,7 @@ KAT Data Home 由 Skill 根目录的 `config.json` 和启动 KAT 的进程环境
 
 配置文件和环境变量的非空值都必须直接给出一个可访问的绝对目录路径；KAT 不展开 `~`、`%USERPROFILE%`、`$HOME` 等缩写，并在使用前规范化路径。任一已选择的非空候选无效时，操作失败，不再尝试下一层或默认目录。空字符串环境变量与未设置相同。
 
-`config.json` 是每个 Skill 安装的用户配置面：发行装配器只在首次安装、文件不存在时，在 Skill 根目录创建上述默认文件；用户随后直接维护该文件，KAT CLI 不写入它。升级 Skill 时，发行装配器必须原样保留已有 `config.json`，包括非空 `kat_data_home` 和未知字段，不能用发行包中的默认值覆盖它。
+`config.json` 由用户按需提供和维护；KAT CLI 不创建或写入它。文件缺失时的回退规则使其不是运行前提。发行制品是否携带该文件，以及实际 installer/updater 如何创建或在升级时处理用户文件，不属于本决策，必须由拥有该生命周期的交付单独记录并验证。
 
 ## 与既有决策的关系
 
