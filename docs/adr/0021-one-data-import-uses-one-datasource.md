@@ -4,10 +4,8 @@ status: accepted
 
 # 一次 Data Import 只使用一个 Datasource
 
-一次 Data Import 将所选 Datasource 的强类型输入交给它，并由它一次生成或整体覆盖 Dataset。KAT 不在一次导入中拆分输入、调度多个 Datasource 或合并它们的表。这个约束只作用于单次导入；后续整体覆盖可以选择另一种 Datasource，Dataset 不持久绑定来源类型。预发布输入范围只有 Hitrace 与从首次交付即标为 `Deprecated`、必须在第一次正式发布前删除的 Trace Streamer，不包含 Langfuse。
+一次 `kat import` 显式选择一个内置 Datasource，将其强类型输入整体生成或覆盖为一个 Dataset；KAT 不自动探测、拆分或合并多个来源，也不把 Dataset 永久绑定到来源类型，Workflow 只依赖表。
 
-KAT CLI 以 `kat import <datasource-type> <typed arguments>` 显式选择 Datasource。Hitrace 使用 `--trace <path>`，Trace Streamer 使用 `--database <path>`；SQLite 只是后者的输入存储机制，不是独立 Datasource。每种成功 Data Import 都在 operation-specific `result.path` 返回最终 Dataset 的 canonical 绝对 Unicode 路径；Hitrace 在同一 result 中另加自身必需的两个 `unsupported_*` arrays，Trace Streamer 不增加其他字段。Import 不复制 tables 或 Schema，Skill 使用返回的 path 调用既有 Dataset inspection。每种 Datasource type 随 KAT 二进制静态声明自己的单文件输入和参数关系；第一版不自动探测输入类型，也不使用通用 `--source`、`--datasource <value>`、`role=path`、动态参数或 manifest。
+预发布仅支持 Hitrace 和不晚于首次正式发布删除的 `Deprecated` Trace Streamer，不包含 Langfuse；后者只为联调而物化 SQLite 的全部非系统关系，不形成稳定 Schema 或通用 SQLite Datasource。
 
-过渡性的 Trace Streamer Datasource 不以固定 relation 白名单裁剪源库：它只读枚举全部非系统表与视图，并将每个可查询 relation 物化为同名 Dataset table，使后续 PACK 与 Workflow 联调面对源库实际公开的完整查询面。该源驱动 Schema 是 Deprecated 入口的明确例外，不形成稳定表合同，也不把通用 SQLite 导入提升为新的 Datasource type。
-
-这一限制暂不支持多个 Datasource 共同组成的异构 Dataset，但避免重新引入 source 分组、表名冲突、多方失败回滚和 Dataset extension 语义。Workflow 仍只依赖 Dataset 表，不把 Datasource 身份写入 Required tables。
+单源限制暂不支持异构 Dataset，但避免引入表名冲突、多方失败回滚和 Dataset extension 语义。
