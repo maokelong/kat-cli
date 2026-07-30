@@ -7,8 +7,6 @@ use miette::Diagnostic;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::{SkillRootError, locate_skill_root};
-
 const DATA_HOME_ENVIRONMENT_VARIABLE: &str = "KAT_DATA_HOME";
 
 #[derive(Default, Deserialize)]
@@ -25,10 +23,10 @@ where
 }
 
 pub(super) fn data_home() -> Result<PathBuf, ConfigurationError> {
-    if let Some(data_home) = configured_data_home()? {
+    if let Some(data_home) = environment_data_home()? {
         return Ok(data_home);
     }
-    if let Some(data_home) = environment_data_home()? {
+    if let Some(data_home) = configured_data_home()? {
         return Ok(data_home);
     }
     default_data_home()
@@ -41,8 +39,8 @@ pub(super) fn default_data_home() -> Result<PathBuf, ConfigurationError> {
 }
 
 fn configured_data_home() -> Result<Option<PathBuf>, ConfigurationError> {
-    let skill_root = locate_skill_root().map_err(ConfigurationError::SkillRoot)?;
-    let configuration = read_configuration(&skill_root)?;
+    let platform_data_home = default_data_home()?;
+    let configuration = read_configuration(&platform_data_home)?;
     configuration
         .kat_data_home
         .filter(|value| !value.is_empty())
@@ -59,8 +57,8 @@ fn environment_data_home() -> Result<Option<PathBuf>, ConfigurationError> {
         .transpose()
 }
 
-fn read_configuration(skill_root: &Path) -> Result<Configuration, ConfigurationError> {
-    let path = skill_root.join("config.json");
+fn read_configuration(platform_data_home: &Path) -> Result<Configuration, ConfigurationError> {
+    let path = platform_data_home.join("config.json");
     match fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|source| ConfigurationError::InvalidConfiguration { path, source }),
@@ -95,9 +93,6 @@ fn canonical_directory(
 
 #[derive(Debug, Error, Diagnostic)]
 pub(super) enum ConfigurationError {
-    #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run kat from a complete KAT Skill deployment"))]
-    SkillRoot(#[source] SkillRootError),
     #[error("KAT Data Home is unavailable on this platform")]
     PlatformDataHomeUnavailable,
     #[error("failed to read KAT Configuration {path}")]
