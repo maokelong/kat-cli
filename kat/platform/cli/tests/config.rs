@@ -113,6 +113,32 @@ fn kat_data_home_environment_variable_overrides_platform_configuration() {
 }
 
 #[test]
+fn valid_environment_data_home_does_not_read_invalid_platform_configuration() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = support::stage_skill(temporary.path(), "skill");
+    let environment_home = temporary.path().join("environment-home");
+    fs::create_dir_all(&environment_home).unwrap();
+    fs::create_dir_all(configuration_path(temporary.path()).parent().unwrap()).unwrap();
+    fs::write(configuration_path(temporary.path()), "{ not valid json").unwrap();
+
+    let response = import(
+        &binary,
+        temporary.path(),
+        &source_database(temporary.path()),
+        Some(&environment_home),
+    );
+    assert_eq!(
+        dataset_path(&response).parent(),
+        Some(
+            dunce::canonicalize(&environment_home)
+                .unwrap()
+                .join("datasets")
+                .as_path()
+        )
+    );
+}
+
+#[test]
 fn platform_configuration_is_used_when_environment_variable_is_empty_or_missing() {
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");

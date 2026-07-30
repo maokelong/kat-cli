@@ -14,6 +14,6 @@ KAT 只把 Skill constraints 作为稳定产品面，并将 Skill 定义、`SKIL
 
 Windows 载荷不运行 `VC_redist`、不修改系统状态、不要求管理员权限，也不假设目标机器已经安装系统级 VC Runtime；这些 app-local DLL 与 KAT Skill 其余内容一起原子更新。发布验证必须在未预装额外开发工具或运行库的干净 Windows 环境完成一次完整的 Import → Run → Query 垂直链路，以验证最终原生依赖闭包，而不只验证 `kat.exe` 能启动。
 
-KAT 平台自身在执行时不修改 Skill、Platform Payload 或 PACK 源码，所有平台产生的持久状态都写入 KAT Data Home；这不是文件系统只读强制或针对受信任 PACK 的写入沙箱。KAT CLI 使用 `directories::ProjectDirs::from("", "", "KAT")` 解析 Linux 和 Windows 的平台标准项目数据目录，并将其作为 KAT Data Home。Linux 使用 `$XDG_DATA_HOME/kat` 或 `$HOME/.local/share/kat`，Windows 使用 `%APPDATA%\KAT\data`；不再使用维护者名或 `kat-rs` 作为产品身份，也不迁移或回退读取旧目录。KAT 不另行提供 `KAT_DATA_HOME`、`--data-home` 或配置文件覆盖；平台标准环境变量继续由 `ProjectDirs` 解释。
+KAT 平台自身在执行时不修改 Skill、Platform Payload 或 PACK 源码，所有平台产生的持久状态都写入 KAT Data Home；这不是文件系统只读强制或针对受信任 PACK 的写入沙箱。KAT CLI 使用 `directories::ProjectDirs::from("", "", "KAT")` 解析 Linux 和 Windows 的平台标准项目数据目录，并将其作为 KAT Data Home。Linux 使用 `$XDG_DATA_HOME/kat` 或 `$HOME/.local/share/kat`，Windows 使用 `%APPDATA%\KAT\data`；不再使用维护者名或 `kat-rs` 作为产品身份，也不迁移或回退读取旧目录。仅“Data Home 只能使用此平台默认目录且没有覆盖来源”的决策由 [ADR-0060](0060-file-and-environment-select-kat-data-home.md) 取代；运行时不修改 Skill、Payload 或 PACK 的边界及本 ADR 的原子发布决策继续有效。
 
 默认 Dataset、External PACK、Run 和日志分别位于 KAT Data Home 的 `datasets/`、`packs/`、`runs/` 和 `logs/`。用户可以为 Data Import 选择其他 Dataset 位置；Run 和日志由 KAT 自行创建和管理，不要求用户组装内部路径。这使 Skill 可以通过整体替换升级，不与可写用户状态相互污染。
