@@ -1,3 +1,4 @@
+mod configuration;
 mod operation_log;
 mod pack_discovery;
 mod query;
@@ -209,10 +210,9 @@ fn inspect_target_pack(
     pack_name: String,
     pack_directories: Vec<PathBuf>,
 ) -> response::PreparedResponse<InspectPackResult> {
-    let Some(data_home) = locate_data_home() else {
-        return response::prepare_cli_failure(miette::Report::new(
-            InspectTargetPackError::DataHomeUnavailable,
-        ));
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let mut log = match OperationLog::create(&data_home, "inspect", |file| {
         writeln!(
@@ -345,10 +345,9 @@ fn import_hitrace(
     dataset: Option<PathBuf>,
     overwrite: bool,
 ) -> response::PreparedResponse<ImportHitraceResult> {
-    let Some(data_home) = locate_data_home() else {
-        return response::prepare_cli_failure(miette::Report::new(
-            ImportHitraceError::DataHomeUnavailable,
-        ));
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let target = dataset.unwrap_or_else(|| {
         data_home
@@ -465,9 +464,6 @@ enum ImportHitraceError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
-    DataHomeUnavailable,
     #[error("Hitrace Import Operation log could not be delivered")]
     #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Import"))]
     OperationLog(#[source] OperationLogError),
@@ -513,8 +509,7 @@ fn import_trace_streamer(
     }
     let target = match dataset {
         Some(path) => path,
-        None => locate_data_home()
-            .ok_or(ImportTraceStreamerError::DataHomeUnavailable)?
+        None => locate_data_home()?
             .join("datasets")
             .join(uuid::Uuid::now_v7().to_string()),
     };
@@ -537,7 +532,7 @@ fn import_trace_streamer(
 
 fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, InspectPacksError> {
     let skill_root = locate_skill_root()?;
-    let data_home = locate_data_home().ok_or(InspectPacksError::DataHomeUnavailable)?;
+    let data_home = locate_data_home()?;
     let discovered = pack_discovery::discover(PackDiscoveryPaths {
         skill_pack_search_directory: skill_root.join("assets").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
@@ -550,9 +545,8 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
     })
 }
 
-fn locate_data_home() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "KAT")
-        .map(|project_dirs| project_dirs.data_dir().to_path_buf())
+fn locate_data_home() -> Result<PathBuf, configuration::ConfigurationError> {
+    configuration::data_home()
 }
 
 fn project_pack(pack: &DiscoveredPack) -> PackResult {
@@ -738,9 +732,9 @@ enum InspectPacksError {
         #[source]
         SkillRootError,
     ),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on Linux or Windows with a platform standard user data directory"))]
-    DataHomeUnavailable,
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    DataHome(#[from] configuration::ConfigurationError),
     #[error(transparent)]
     #[diagnostic(transparent)]
     PackDiscovery(#[from] PackDiscoveryFailure),
@@ -751,9 +745,6 @@ enum InspectTargetPackError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
-    DataHomeUnavailable,
     #[error("PACK inspection Operation log could not be delivered")]
     #[diagnostic(help("Provide a writable KAT Data Home and retry the complete inspection"))]
     OperationLog(#[source] OperationLogError),
@@ -789,9 +780,9 @@ enum ImportTraceStreamerError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Use --dataset with an explicit target on a supported local filesystem"))]
-    DataHomeUnavailable,
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    DataHome(#[from] configuration::ConfigurationError),
     #[error("failed to resolve Trace Streamer database {path}")]
     #[diagnostic(help("Provide an existing readable Trace Streamer SQLite database"))]
     CanonicalDatabase {

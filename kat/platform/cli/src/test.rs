@@ -32,10 +32,9 @@ pub(super) struct TestPackResult {
 }
 
 pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPackResult> {
-    let Some(data_home) = locate_data_home() else {
-        return response::prepare_cli_failure(miette::Report::new(
-            TestPackOperationError::DataHomeUnavailable,
-        ));
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let token = uuid::Uuid::now_v7().to_string();
     let mut log = match OperationLog::create_test(&data_home, &token, |file| {
@@ -316,9 +315,6 @@ fn test_pack_log_failure(
 
 #[derive(Debug, Error, Diagnostic)]
 enum TestPackOperationError {
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
-    DataHomeUnavailable,
     #[error("PACK test Operation log could not be delivered")]
     #[diagnostic(help("Provide writable storage and retry the complete PACK test"))]
     OperationLog(#[source] OperationLogError),

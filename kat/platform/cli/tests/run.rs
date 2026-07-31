@@ -118,6 +118,8 @@ fn main() {
 }
 
 fn configure(command: &mut Command, root: &Path) {
+    command.env_remove("KAT_DATA_HOME");
+
     #[cfg(not(windows))]
     command
         .env("XDG_DATA_HOME", root.join("xdg-data"))

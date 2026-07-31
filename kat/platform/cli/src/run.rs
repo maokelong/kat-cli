@@ -122,10 +122,9 @@ impl RunManifest {
 }
 
 pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResult> {
-    let Some(data_home) = locate_data_home() else {
-        return response::prepare_cli_failure(miette::Report::new(
-            RunOperationError::DataHomeUnavailable,
-        ));
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let candidate_id = uuid::Uuid::now_v7().to_string();
     let pack_log = project_inline_text(&arguments.pack);
@@ -380,9 +379,6 @@ enum RunOperationError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("KAT Data Home is unavailable on this platform")]
-    #[diagnostic(help("Run KAT on a supported platform with a standard user data directory"))]
-    DataHomeUnavailable,
     #[error("failed to create Run root {path}")]
     CreateRuns {
         path: PathBuf,

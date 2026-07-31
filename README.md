@@ -34,6 +34,26 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 [PR #160](https://github.com/maokelong/kat-rs/pull/160) 跟踪；本 PR 只交付 `kat run`
 纵向闭环。
 
+## Data Home 配置
+
+KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data Home。配置文件路径为：
+
+- Linux：`$XDG_DATA_HOME/kat/config.json`，未设置时为 `$HOME/.local/share/kat/config.json`。
+- Windows：`%APPDATA%\KAT\data\config.json`。
+
+若需选择另一个已存在的目录，可在该文件中提供：
+
+```json
+{"kat_data_home":"/absolute/path/to/kat-data"}
+```
+
+也可以为一次进程设置 `KAT_DATA_HOME`。选择顺序固定为：非空
+`KAT_DATA_HOME`、非空 `config.json.kat_data_home`、平台默认目录。所有已提供的配置来源
+必须有效后才按该优先级合并，因此已存在的配置文件即使被环境变量覆盖，也必须可读取且
+具有有效的 JSON 语法和字段类型。环境变量为空或配置文件不存在表示该来源未提供值；
+合并后选中的值必须是可访问的绝对目录，非法值会使操作失败，不会回退。KAT 不展开
+`~`、`%USERPROFILE%` 或 `$HOME` 等路径缩写。
+
 ## 完整部署中的 `kat` 当前操作
 
 以下命令只适用于满足上述拓扑的完整 KAT Skill deployment：
