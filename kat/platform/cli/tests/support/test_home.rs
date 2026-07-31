@@ -6,6 +6,8 @@ use std::{
 };
 
 pub fn configure(command: &mut Command, root: &Path) {
+    command.env_remove("KAT_DATA_HOME");
+
     #[cfg(not(windows))]
     command
         .env("HOME", root.join("home"))

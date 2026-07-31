@@ -6,6 +6,9 @@ use std::{
 
 use base64::Engine;
 
+#[path = "support/test_home.rs"]
+mod test_home;
+
 const RUN_ID: &str = "019f6e00-0000-7000-8000-000000000031";
 const PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
@@ -24,6 +27,8 @@ fn stage_skill(root: &Path) -> PathBuf {
     let payload = skill.join("scripts").join("targets").join(target);
     fs::create_dir_all(&payload).unwrap();
     fs::write(skill.join("SKILL.md"), "# KAT\n").unwrap();
+    let data_home = data_home(root);
+    fs::create_dir_all(&data_home).unwrap();
     let binary = payload.join(binary_name);
     fs::copy(cargo_kat(), &binary).unwrap();
     stage_fake_host(&binary);
@@ -74,21 +79,8 @@ fn main() {
     );
 }
 
-fn configure(command: &mut Command, root: &Path) {
-    command
-        .env("XDG_DATA_HOME", root.join("xdg-data"))
-        .env("HOME", root.join("home"))
-        .env("APPDATA", root.join("app-data"))
-        .env("LOCALAPPDATA", root.join("local-app-data"))
-        .env("USERPROFILE", root.join("profile"));
-}
-
 fn data_home(root: &Path) -> PathBuf {
-    if cfg!(windows) {
-        root.join("app-data/KAT/data")
-    } else {
-        root.join("xdg-data/kat")
-    }
+    test_home::data_home(root)
 }
 
 fn write_manifest(root: &Path, dataset: Option<&Path>) -> PathBuf {
@@ -119,6 +111,7 @@ fn write_manifest(root: &Path, dataset: Option<&Path>) -> PathBuf {
 
 fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
     let mut command = Command::new(binary);
+    test_home::configure(&mut command, root);
     command
         .arg("query")
         .args(["--run", RUN_ID, "--sql", sql])
@@ -127,7 +120,6 @@ fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
             "KAT_FAKE_RUNTIME_RESPONSE",
             r#"{"status":"success","result":{"columns":[{"name":"value","type":"int64"},{"name":"amount","type":"decimal128(10, 3)"}],"rows":[["9223372036854775807","123.450"]]}}"#,
         );
-    configure(&mut command, root);
     command
 }
 

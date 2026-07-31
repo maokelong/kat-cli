@@ -125,6 +125,7 @@ fn command(binary: &Path, root: &Path) -> Command {
     let command = {
         let mut command = Command::new(binary);
         command
+            .env_remove("KAT_DATA_HOME")
             .env("XDG_DATA_HOME", root.join("xdg-data"))
             .env("HOME", root.join("home"));
         command
@@ -132,7 +133,9 @@ fn command(binary: &Path, root: &Path) -> Command {
     #[cfg(windows)]
     let command = {
         let _ = root;
-        Command::new(binary)
+        let mut command = Command::new(binary);
+        command.env_remove("KAT_DATA_HOME");
+        command
     };
     command
 }
