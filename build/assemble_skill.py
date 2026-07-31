@@ -55,6 +55,12 @@ def _validated_inputs(
 
     _regular_file(skill_source / "SKILL.md", "Skill definition")
     _regular_file(skill_source / "agents" / "openai.yaml", "Skill agent metadata")
+    for reference in (
+        "analysis-flow.md",
+        "pack-authoring-flow.md",
+        "result-contract.md",
+    ):
+        _regular_file(skill_source / "references" / reference, "Skill reference")
     if not any(path.is_dir() and not path.is_symlink() for path in packs.iterdir()):
         raise AssemblyError(
             f"Bundled PACK source contains no PACK directories: {packs}"
@@ -108,6 +114,11 @@ def assemble_skill(
         shutil.copytree(
             skill_source / "agents",
             staging / "agents",
+            symlinks=True,
+        )
+        shutil.copytree(
+            skill_source / "references",
+            staging / "references",
             symlinks=True,
         )
         shutil.copytree(packs, staging / "assets" / "packs", symlinks=True)

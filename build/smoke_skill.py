@@ -56,7 +56,12 @@ def create_input(path: Path) -> None:
 
 
 def protected_digest(skill: Path) -> dict[str, str]:
-    roots = [skill / "SKILL.md", skill / "agents", skill / "assets" / "packs"]
+    roots = [
+        skill / "SKILL.md",
+        skill / "agents",
+        skill / "references",
+        skill / "assets" / "packs",
+    ]
     result: dict[str, str] = {}
     for root in roots:
         paths = [root] if root.is_file() else sorted(root.rglob("*"))
