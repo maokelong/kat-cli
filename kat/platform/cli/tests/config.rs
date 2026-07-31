@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 use rusqlite::Connection;
@@ -82,17 +82,38 @@ fn import_command(binary: &Path, root: &Path, source: &Path) -> Command {
     command
 }
 
+fn assert_invalid_configuration(output: Output) {
+    assert!(!output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.starts_with("KAT Configuration is invalid:"))
+    );
+}
+
+#[cfg(unix)]
+fn assert_unreadable_configuration(output: Output) {
+    assert!(!output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.starts_with("failed to read KAT Configuration"))
+    );
+}
+
 #[test]
 fn kat_data_home_environment_variable_overrides_platform_configuration() {
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");
-    let configured_home = temporary.path().join("configured-home");
     let environment_home = temporary.path().join("environment-home");
-    fs::create_dir_all(&configured_home).unwrap();
     fs::create_dir_all(&environment_home).unwrap();
     write_configuration(
         temporary.path(),
-        serde_json::json!({ "kat_data_home": configured_home }),
+        serde_json::json!({ "kat_data_home": "relative-unused-home" }),
     );
 
     let response = import(
@@ -113,7 +134,7 @@ fn kat_data_home_environment_variable_overrides_platform_configuration() {
 }
 
 #[test]
-fn valid_environment_data_home_does_not_read_invalid_platform_configuration() {
+fn valid_environment_data_home_does_not_hide_invalid_platform_configuration() {
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");
     let environment_home = temporary.path().join("environment-home");
@@ -121,21 +142,69 @@ fn valid_environment_data_home_does_not_read_invalid_platform_configuration() {
     fs::create_dir_all(configuration_path(temporary.path()).parent().unwrap()).unwrap();
     fs::write(configuration_path(temporary.path()), "{ not valid json").unwrap();
 
-    let response = import(
+    let mut output = import_command(
         &binary,
         temporary.path(),
         &source_database(temporary.path()),
-        Some(&environment_home),
     );
-    assert_eq!(
-        dataset_path(&response).parent(),
-        Some(
-            dunce::canonicalize(&environment_home)
-                .unwrap()
-                .join("datasets")
-                .as_path()
+    let output = output
+        .env("KAT_DATA_HOME", environment_home)
+        .output()
+        .unwrap();
+    assert_invalid_configuration(output);
+}
+
+#[test]
+fn valid_environment_data_home_does_not_hide_invalid_configuration_value_types() {
+    for invalid_value in [
+        serde_json::Value::Null,
+        serde_json::json!(42),
+        serde_json::json!(true),
+        serde_json::json!(["path"]),
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let (_, binary) = support::stage_skill(temporary.path(), "skill");
+        let environment_home = temporary.path().join("environment-home");
+        fs::create_dir_all(&environment_home).unwrap();
+        write_configuration(
+            temporary.path(),
+            serde_json::json!({ "kat_data_home": invalid_value }),
+        );
+
+        let output = import_command(
+            &binary,
+            temporary.path(),
+            &source_database(temporary.path()),
         )
-    );
+        .env("KAT_DATA_HOME", environment_home)
+        .output()
+        .unwrap();
+        assert_invalid_configuration(output);
+    }
+}
+
+#[test]
+fn valid_environment_data_home_does_not_hide_invalid_configuration_encoding() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = support::stage_skill(temporary.path(), "skill");
+    let environment_home = temporary.path().join("environment-home");
+    fs::create_dir_all(&environment_home).unwrap();
+    fs::create_dir_all(configuration_path(temporary.path()).parent().unwrap()).unwrap();
+    fs::write(
+        configuration_path(temporary.path()),
+        b"{\"kat_data_home\":\"\xff\"}",
+    )
+    .unwrap();
+
+    let output = import_command(
+        &binary,
+        temporary.path(),
+        &source_database(temporary.path()),
+    )
+    .env("KAT_DATA_HOME", environment_home)
+    .output()
+    .unwrap();
+    assert_invalid_configuration(output);
 }
 
 #[test]
@@ -198,12 +267,34 @@ fn missing_platform_configuration_falls_back_without_creating_a_file() {
     assert_eq!(
         dataset_path(&response).parent(),
         Some(
-            test_home::data_home(temporary.path())
+            dunce::canonicalize(test_home::data_home(temporary.path()))
+                .unwrap()
                 .join("datasets")
                 .as_path()
         )
     );
     assert!(!configuration.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_platform_configuration_link_is_invalid_instead_of_missing() {
+    use std::os::unix::fs::symlink;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = support::stage_skill(temporary.path(), "skill");
+    let configuration = configuration_path(temporary.path());
+    fs::create_dir_all(configuration.parent().unwrap()).unwrap();
+    symlink(temporary.path().join("missing-config.json"), &configuration).unwrap();
+
+    let output = import_command(
+        &binary,
+        temporary.path(),
+        &source_database(temporary.path()),
+    )
+    .output()
+    .unwrap();
+    assert_unreadable_configuration(output);
 }
 
 #[test]
@@ -319,6 +410,31 @@ fn invalid_kat_data_home_environment_variable_fails_before_platform_configuratio
             .pointer("/error/message")
             .and_then(Value::as_str)
             .is_some_and(|message| message.contains("KAT_DATA_HOME must be an absolute path"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn non_unicode_kat_data_home_environment_variable_is_invalid() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = support::stage_skill(temporary.path(), "skill");
+    let output = import_command(
+        &binary,
+        temporary.path(),
+        &source_database(temporary.path()),
+    )
+    .env("KAT_DATA_HOME", OsString::from_vec(vec![0xff]))
+    .output()
+    .unwrap();
+    assert!(!output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message == "KAT_DATA_HOME must contain valid Unicode")
     );
 }
 

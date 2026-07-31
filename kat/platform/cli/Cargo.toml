@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+config.workspace = true
 directories.workspace = true
 dunce.workspace = true
 miette.workspace = true

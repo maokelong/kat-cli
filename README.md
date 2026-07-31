@@ -48,9 +48,11 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 ```
 
 也可以为一次进程设置 `KAT_DATA_HOME`。选择顺序固定为：非空
-`KAT_DATA_HOME`、非空 `config.json.kat_data_home`、平台默认目录。环境变量为空或配置
-文件不存在时继续尝试下一层；已选配置值必须是可访问的绝对目录，非法值会使操作失败，
-不会回退。KAT 不展开 `~`、`%USERPROFILE%` 或 `$HOME` 等路径缩写。
+`KAT_DATA_HOME`、非空 `config.json.kat_data_home`、平台默认目录。所有已提供的配置来源
+必须有效后才按该优先级合并，因此已存在的配置文件即使被环境变量覆盖，也必须可读取且
+具有有效的 JSON 语法和字段类型。环境变量为空或配置文件不存在表示该来源未提供值；
+合并后选中的值必须是可访问的绝对目录，非法值会使操作失败，不会回退。KAT 不展开
+`~`、`%USERPROFILE%` 或 `$HOME` 等路径缩写。
 
 ## 完整部署中的 `kat` 当前操作
 
