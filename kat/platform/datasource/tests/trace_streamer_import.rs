@@ -23,7 +23,7 @@ fn lossy_real_cell_error_reports_the_exact_integer() {
 }
 
 #[test]
-fn imports_tables_views_empty_relations_and_strict_types() {
+fn imports_tables_skips_views_empty_relations_and_strict_types() {
     let temp = tempdir().unwrap();
     let database = temp.path().join("trace-streamer.db");
     let connection = Connection::open(&database).unwrap();
@@ -31,7 +31,7 @@ fn imports_tables_views_empty_relations_and_strict_types() {
         .execute_batch(
             r#"
             CREATE TABLE facts (
-                id INTEGER,
+                id INT,
                 ratio REAL,
                 label TEXT,
                 doubled INTEGER GENERATED ALWAYS AS (id * 2) STORED
@@ -57,7 +57,7 @@ fn imports_tables_views_empty_relations_and_strict_types() {
             .iter()
             .map(|table| table.name())
             .collect::<Vec<_>>(),
-        vec!["empty_relation", "facts", "facts_view"]
+        vec!["empty_relation", "facts"]
     );
     assert_eq!(
         inspection.tables()[1]
@@ -174,7 +174,7 @@ fn partial_overwrite_failure_invalidates_the_dataset_marker() {
 }
 
 #[test]
-fn empty_database_and_invalid_relation_shape_preserve_existing_target() {
+fn empty_database_and_invalid_relation_name_preserve_existing_target() {
     let temp = tempdir().unwrap();
     let dataset = temp.path().join("dataset");
     fs::create_dir(&dataset).unwrap();
@@ -185,10 +185,6 @@ fn empty_database_and_invalid_relation_shape_preserve_existing_target() {
         (
             "invalid-name.db",
             "CREATE TABLE \"bad-name\" (value INTEGER);",
-        ),
-        (
-            "broken-view.db",
-            "CREATE TABLE good (value INTEGER); CREATE VIEW broken AS SELECT * FROM missing;",
         ),
     ] {
         let database = temp.path().join(name);
@@ -317,41 +313,27 @@ fn unsupported_schema_or_cell_aborts_without_marker() {
 }
 
 #[test]
-fn duplicate_columns_and_relation_failure_abort_without_marker() {
-    for fixture in ["duplicate", "broken-view"] {
-        let temp = tempdir().unwrap();
-        let database = temp.path().join("source.db");
-        let connection = Connection::open(&database).unwrap();
-        if fixture == "duplicate" {
-            connection
-                .execute_batch(
-                    "CREATE TABLE duplicate (first INTEGER, second TEXT); \
-                     PRAGMA writable_schema=ON; \
-                     UPDATE sqlite_schema SET sql='CREATE TABLE duplicate (value INTEGER, value TEXT)' WHERE name='duplicate'; \
-                     PRAGMA writable_schema=OFF; \
-                     PRAGMA schema_version=2;",
-                )
-                .unwrap();
-        } else {
-            connection
-                .execute_batch(
-                    "CREATE TABLE good (value INTEGER); \
-                     CREATE VIEW broken AS SELECT * FROM missing;",
-                )
-                .unwrap();
-        }
-        drop(connection);
-        let dataset = temp.path().join("dataset");
+fn duplicate_columns_abort_without_marker() {
+    let temp = tempdir().unwrap();
+    let database = temp.path().join("source.db");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE duplicate (first INTEGER, second TEXT); \
+             PRAGMA writable_schema=ON; \
+             UPDATE sqlite_schema SET sql='CREATE TABLE duplicate (value INTEGER, value TEXT)' WHERE name='duplicate'; \
+             PRAGMA writable_schema=OFF; \
+             PRAGMA schema_version=2;",
+        )
+        .unwrap();
+    drop(connection);
+    let dataset = temp.path().join("dataset");
 
-        assert!(
-            import_deprecated_trace_streamer(
-                &database,
-                DatasetWriteTarget::write_to_empty(&dataset),
-            )
+    assert!(
+        import_deprecated_trace_streamer(&database, DatasetWriteTarget::write_to_empty(&dataset),)
             .is_err()
-        );
-        assert!(!dataset.join(".kat-dataset").exists());
-    }
+    );
+    assert!(!dataset.join(".kat-dataset").exists());
 }
 
 fn create_database(path: &Path, schema: &str) {
