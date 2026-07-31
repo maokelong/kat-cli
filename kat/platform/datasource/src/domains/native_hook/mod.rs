@@ -1,4 +1,4 @@
-//! native hook plugin domain decoding.
+//! native hook source-fact domain records.
 
 mod event;
 mod records {

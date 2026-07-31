@@ -1,4 +1,4 @@
-//! ftrace plugin domain decoding.
+//! ftrace source-fact domain records.
 
 mod event;
 

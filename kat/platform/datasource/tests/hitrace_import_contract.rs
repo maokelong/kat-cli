@@ -4,7 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use arrow_array::{Array, Int32Array, StringArray, UInt32Array, UInt64Array};
+use arrow_array::{
+    Array, BooleanArray, Float64Array, Int32Array, Int64Array, StringArray, UInt32Array,
+    UInt64Array,
+};
 use kat_datasource::DatasetWriteTarget;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use prost::Message;
@@ -119,6 +122,122 @@ struct ProcessMemoryInfo {
     name: String,
 }
 
+#[derive(Clone, PartialEq, Message)]
+struct CpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_process_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct CpuData {
+    #[prost(int64, tag = "3")]
+    process_num: i64,
+    #[prost(double, tag = "4")]
+    user_load: f64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct MemoryConfig {
+    #[prost(bool, tag = "1")]
+    report_process_tree: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProcessConfig {
+    #[prost(bool, tag = "1")]
+    report_process_tree: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProcessData {
+    #[prost(message, repeated, tag = "1")]
+    processesinfo: Vec<ProcessInfo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ProcessInfo {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct DiskioConfig {
+    #[prost(int32, tag = "2")]
+    report_io_stats: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct DiskioData {
+    #[prost(message, optional, tag = "7")]
+    stats_data: Option<DiskioStatsData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct DiskioStatsData {
+    #[prost(message, repeated, tag = "1")]
+    cpuinfo: Vec<DiskioCpuStats>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct DiskioCpuStats {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(double, tag = "2")]
+    cpu_user: f64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NetworkConfig {
+    #[prost(int32, repeated, tag = "1")]
+    pid: Vec<i32>,
+    #[prost(string, tag = "2")]
+    test_file: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NetworkDatas {
+    #[prost(message, repeated, tag = "1")]
+    networkinfo: Vec<NetworkData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NetworkData {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(uint64, tag = "4")]
+    tx_bytes: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GpuConfig {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(bool, tag = "2")]
+    report_gpu_info: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GpuData {
+    #[prost(uint64, tag = "1")]
+    boottime: u64,
+    #[prost(uint64, tag = "2")]
+    gpu_utilisation: u64,
+    #[prost(message, repeated, tag = "3")]
+    gpu_data_array: Vec<GpuDataExt>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GpuDataExt {
+    #[prost(uint64, tag = "1")]
+    boottime: u64,
+    #[prost(uint64, tag = "2")]
+    gpu_utilisation: u64,
+}
+
 fn cpu_stats(cpu: u64) -> PerCpuStats {
     PerCpuStats {
         cpu,
@@ -203,15 +322,120 @@ fn profiler_fixture(envelopes: impl IntoIterator<Item = Vec<u8>>) -> Vec<u8> {
     bytes
 }
 
+fn import_fixed_result<C, D>(plugin_name: &str, config: &C, data: &D) -> tempfile::TempDir
+where
+    C: Message,
+    D: Message,
+{
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join(format!("{plugin_name}.htrace"));
+    let dataset = root.path().join("dataset");
+    let envelopes = [
+        Envelope {
+            name: format!("{plugin_name}_config"),
+            data: config.encode_to_vec(),
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: plugin_name.to_owned(),
+            data: data.encode_to_vec(),
+        }
+        .encode_to_vec(),
+    ];
+    fs::write(&source, profiler_fixture(envelopes)).expect("Hitrace fixture is written");
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .unwrap_or_else(|error| panic!("{plugin_name} fixed-result payload imports: {error:#}"));
+    root
+}
+
+fn single_row_batch(root: &tempfile::TempDir, table_name: &str) -> arrow_array::RecordBatch {
+    let mut table_batches = batches(
+        &root
+            .path()
+            .join(format!("dataset/tables/{table_name}.parquet")),
+    );
+    assert_eq!(
+        table_batches
+            .iter()
+            .map(arrow_array::RecordBatch::num_rows)
+            .sum::<usize>(),
+        1,
+        "{table_name} should contain one row"
+    );
+    assert_eq!(
+        table_batches.len(),
+        1,
+        "{table_name} should contain one batch"
+    );
+    table_batches.remove(0)
+}
+
 fn write_fixture(path: &Path, result: TraceResult) {
     fs::write(path, fixture(result)).expect("Hitrace fixture is written");
 }
 
 #[test]
-fn import_decodes_fixed_result_payload_into_relational_tables() {
-    let root = tempdir().expect("tempdir");
-    let source = root.path().join("memory.htrace");
-    let dataset = root.path().join("dataset");
+fn import_decodes_cpu_config_and_data_into_relational_tables() {
+    let root = import_fixed_result(
+        "cpu-plugin",
+        &CpuConfig {
+            pid: 1234,
+            report_process_info: true,
+        },
+        &CpuData {
+            process_num: 37,
+            user_load: 12.5,
+        },
+    );
+
+    let config = single_row_batch(&root, "cpu_config");
+    assert_eq!(
+        config
+            .column_by_name("pid")
+            .expect("pid")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid is Int32")
+            .value(0),
+        1234
+    );
+    assert!(
+        config
+            .column_by_name("report_process_info")
+            .expect("report_process_info")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("report_process_info is Boolean")
+            .value(0)
+    );
+
+    let data = single_row_batch(&root, "cpu_data");
+    assert_eq!(
+        data.column_by_name("process_num")
+            .expect("process_num")
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("process_num is Int64")
+            .value(0),
+        37
+    );
+    assert_eq!(
+        data.column_by_name("user_load")
+            .expect("user_load")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("user_load is Float64")
+            .value(0),
+        12.5
+    );
+}
+
+#[test]
+fn import_decodes_memory_config_and_data_into_relational_tables() {
     let payload = MemoryData {
         processesinfo: vec![ProcessMemoryInfo {
             pid: 42,
@@ -221,21 +445,16 @@ fn import_decodes_fixed_result_payload_into_relational_tables() {
         gpu_limit_size: 8192,
         gpu_used_size: 2048,
     };
-    let envelope = Envelope {
-        name: "memory-plugin".to_owned(),
-        data: payload.encode_to_vec(),
-    }
-    .encode_to_vec();
-    fs::write(&source, profiler_fixture([envelope])).expect("Hitrace fixture is written");
-
-    let imported = kat_datasource::import_hitrace(
-        &source,
-        DatasetWriteTarget::write_to_empty(&dataset),
-        |_| Ok(()),
-    )
-    .expect("memory fixed-result payload imports");
-    let inspection = kat_datasource::inspect_dataset(imported.path()).expect("Dataset inspects");
-    for table in ["memory_data", "memory_data_processesinfo"] {
+    let root = import_fixed_result(
+        "memory-plugin",
+        &MemoryConfig {
+            report_process_tree: true,
+        },
+        &payload,
+    );
+    let dataset = root.path().join("dataset");
+    let inspection = kat_datasource::inspect_dataset(&dataset).expect("Dataset inspects");
+    for table in ["memory_config", "memory_data", "memory_data_processesinfo"] {
         assert!(
             inspection
                 .tables()
@@ -244,6 +463,17 @@ fn import_decodes_fixed_result_payload_into_relational_tables() {
             "{table} should be materialized"
         );
     }
+
+    let config_batches = batches(&dataset.join("tables/memory_config.parquet"));
+    assert!(
+        config_batches[0]
+            .column_by_name("report_process_tree")
+            .expect("report_process_tree")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("report_process_tree is Boolean")
+            .value(0)
+    );
 
     let root_batches = batches(&dataset.join("tables/memory_data.parquet"));
     assert_eq!(
@@ -317,6 +547,235 @@ fn import_decodes_fixed_result_payload_into_relational_tables() {
         .value(0);
     assert_eq!(source_index, 0);
     assert_eq!(parent_index, root_row_index);
+}
+
+#[test]
+fn import_decodes_process_config_and_data_into_relational_tables() {
+    let root = import_fixed_result(
+        "process-plugin",
+        &ProcessConfig {
+            report_process_tree: true,
+        },
+        &ProcessData {
+            processesinfo: vec![ProcessInfo {
+                pid: 2468,
+                name: "system-service".to_owned(),
+            }],
+        },
+    );
+
+    let config = single_row_batch(&root, "process_config");
+    assert!(
+        config
+            .column_by_name("report_process_tree")
+            .expect("report_process_tree")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("report_process_tree is Boolean")
+            .value(0)
+    );
+
+    let data = single_row_batch(&root, "process_data_processesinfo");
+    assert_eq!(
+        data.column_by_name("pid")
+            .expect("pid")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid is Int32")
+            .value(0),
+        2468
+    );
+    assert_eq!(
+        data.column_by_name("name")
+            .expect("name")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("name is Utf8")
+            .value(0),
+        "system-service"
+    );
+}
+
+#[test]
+fn import_decodes_diskio_config_and_camel_case_data_fields() {
+    let payload = DiskioData {
+        stats_data: Some(DiskioStatsData {
+            cpuinfo: vec![DiskioCpuStats {
+                name: "cpu0".to_owned(),
+                cpu_user: 12.5,
+            }],
+        }),
+    };
+    let root = import_fixed_result(
+        "diskio-plugin",
+        &DiskioConfig { report_io_stats: 2 },
+        &payload,
+    );
+    let dataset = root.path().join("dataset");
+
+    let config_batches = batches(&dataset.join("tables/diskio_config.parquet"));
+    assert_eq!(
+        config_batches[0]
+            .column_by_name("report_io_stats")
+            .expect("report_io_stats")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("report_io_stats is Int32")
+            .value(0),
+        2
+    );
+    assert_eq!(
+        config_batches[0]
+            .column_by_name("report_io_stats_name")
+            .expect("report_io_stats_name")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("report_io_stats_name is Utf8")
+            .value(0),
+        "IO_REPORT_EX"
+    );
+
+    let table = dataset.join("tables/diskio_data_stats_data_cpuinfo.parquet");
+    let batches = batches(&table);
+    assert_eq!(
+        batches
+            .iter()
+            .map(arrow_array::RecordBatch::num_rows)
+            .sum::<usize>(),
+        1
+    );
+    let batch = &batches[0];
+    assert_eq!(
+        batch
+            .column_by_name("name")
+            .expect("name")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("name is Utf8")
+            .value(0),
+        "cpu0"
+    );
+    assert_eq!(
+        batch
+            .column_by_name("cpu_user")
+            .expect("cpu_user")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("cpu_user is Float64")
+            .value(0),
+        12.5
+    );
+}
+
+#[test]
+fn import_decodes_network_config_and_data_into_relational_tables() {
+    let root = import_fixed_result(
+        "network-plugin",
+        &NetworkConfig {
+            pid: vec![3141],
+            test_file: "/proc/net/dev".to_owned(),
+        },
+        &NetworkDatas {
+            networkinfo: vec![NetworkData {
+                pid: 3141,
+                tx_bytes: 65_536,
+            }],
+        },
+    );
+
+    let config = single_row_batch(&root, "network_config");
+    assert_eq!(
+        config
+            .column_by_name("test_file")
+            .expect("test_file")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("test_file is Utf8")
+            .value(0),
+        "/proc/net/dev"
+    );
+
+    let data = single_row_batch(&root, "network_datas_networkinfo");
+    assert_eq!(
+        data.column_by_name("pid")
+            .expect("pid")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid is Int32")
+            .value(0),
+        3141
+    );
+    assert_eq!(
+        data.column_by_name("tx_bytes")
+            .expect("tx_bytes")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("tx_bytes is UInt64")
+            .value(0),
+        65_536
+    );
+}
+
+#[test]
+fn import_decodes_gpu_config_and_data_into_relational_tables() {
+    let root = import_fixed_result(
+        "gpu-plugin",
+        &GpuConfig {
+            pid: 2718,
+            report_gpu_info: true,
+        },
+        &GpuData {
+            boottime: 1_000,
+            gpu_utilisation: 45,
+            gpu_data_array: vec![GpuDataExt {
+                boottime: 1_001,
+                gpu_utilisation: 55,
+            }],
+        },
+    );
+
+    let config = single_row_batch(&root, "gpu_config");
+    assert_eq!(
+        config
+            .column_by_name("pid")
+            .expect("pid")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid is Int32")
+            .value(0),
+        2718
+    );
+    assert!(
+        config
+            .column_by_name("report_gpu_info")
+            .expect("report_gpu_info")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("report_gpu_info is Boolean")
+            .value(0)
+    );
+
+    let data = single_row_batch(&root, "gpu_data");
+    assert_eq!(
+        data.column_by_name("gpu_utilisation")
+            .expect("gpu_utilisation")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("gpu_utilisation is UInt64")
+            .value(0),
+        45
+    );
+    let child = single_row_batch(&root, "gpu_data_gpu_data_array");
+    assert_eq!(
+        child
+            .column_by_name("gpu_utilisation")
+            .expect("gpu_utilisation")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("gpu_utilisation is UInt64")
+            .value(0),
+        55
+    );
 }
 
 #[test]

@@ -297,6 +297,13 @@ pub(super) fn json_child<'a>(
         return Some(value);
     }
 
+    let snake_case = upper_camel_to_snake(field_name);
+    if snake_case != field_name
+        && let Some(value) = payload_child(value, snake_case.as_str())
+    {
+        return Some(value);
+    }
+
     let upper_camel = snake_to_upper_camel(field_name);
     payload_child(value, upper_camel.as_str())
 }

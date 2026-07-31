@@ -1,6 +1,6 @@
 # kat-datasource Profiler Payload 关系化架构 SDD
 
-状态：设计已确认；本文按当前 PR 的 one-pass 实现维护，验证证据见第 11.5 节。
+状态：PR 候选设计；本文随当前 PR 的 one-pass 实现接受评议，验证证据见第 11.5 节。
 
 ## 1. 背景与问题
 
@@ -904,6 +904,7 @@ kat/platform/datasource/
 8. OneofVariant 跳过 group 中间表，父表保留 variant 名。
 9. Struct 内 repeated message 的表名保留完整 proto path，`parent_index` 指向 plan 定义的最近实际父表。
 10. 不同 proto path 规范化为同一合法表名时拒绝生成计划。
+11. cpu、memory、process、diskio、network、gpu 六类 fixed-result plugin 的 config/data route 均通过公开 Import 入口验证代表字段值；message/repeated 数据同时验证 Struct 或 child table。
 
 ### 11.2 Dataset 契约
 
@@ -961,17 +962,17 @@ where e.event = 'alloc_event';
 
 ### 11.5 本次实现验证证据
 
-冻结代码对象：`60456912e4ecaa93859d14d14815ace64993c7ab`。
+最终可审计的代码对象由 PR body 记录 HEAD SHA。本节不嵌入包含自身文档提交的 commit SHA，避免证据在更新本文时自然失效。
 
 代码验证：
 
 ```text
 cargo test --workspace --all-targets -- --test-threads=1
-  结果：226 passed，0 failed，3 ignored。
+  结果：231 passed，0 failed，3 ignored。
 
 cargo test -p kat-datasource --test hitrace_import_contract \
-  import_decodes_fixed_result_payload_into_relational_tables -- --exact
-  结果：1 passed，0 failed。
+  import_decodes_ -- --nocapture
+  结果：6 passed，0 failed。
 
 KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
   --test hitrace_import_contract real_openharmony_capture_smoke \
@@ -989,7 +990,7 @@ KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
 
 主样本两侧均输出 9 张表和 64,063,947 Parquet bytes，全部 dataset 文件 SHA-256 一致。`native_heap_full.htrace` 和 `all_memory_full.htrace` 也分别得到相同表数、Parquet bytes 和逐文件 SHA-256。该改动因此保留，收益主要是删除无执行收益的 payload 保留层，同时未改变输出、顺序和父子索引。
 
-本轮没有把 Python DataFusion 查询作为验收证据；验证范围是 Dataset Storage 产物、Parquet schema、父子索引和现有 source facts 共存。外层 Python 查询接入不属于本 PR。
+使用 Python `datafusion==54.0.0`、`pyarrow==24.0.0` 查询真实样本导入产物：`hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` 的 nested Struct 可读取 `sched_switch_format.prev_comm/next_comm`；`native_heap_full.htrace` 的 `sym_table` / `str_table` 可读取为 Binary，样本行长度分别为 2,848 / 4,504 bytes；`batch_native_hook_data_events_alloc_event` 的 239,493 行全部可通过 `source_index + parent_index` join 回 `batch_native_hook_data_events` 父表。
 
 ## 12. 当前限制
 
