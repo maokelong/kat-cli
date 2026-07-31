@@ -106,9 +106,7 @@ fn discover_relations(connection: &Connection) -> Result<Vec<Relation>, TraceStr
     let mut names = rows
         .into_iter()
         .filter_map(|(schema, name, relation_type)| {
-            (schema == "main"
-                && matches!(relation_type.as_str(), "table" | "view")
-                && !name.starts_with("sqlite_"))
+            (schema == "main" && relation_type == "table" && !name.starts_with("sqlite_"))
             .then_some(name)
         })
         .collect::<Vec<_>>();
@@ -157,7 +155,7 @@ fn discover_relation(
             });
         }
         let data_type = match declaration.trim().to_ascii_uppercase().as_str() {
-            "INTEGER" => ColumnType::Integer,
+            "INTEGER" | "INT" => ColumnType::Integer,
             "REAL" => ColumnType::Real,
             "TEXT" => ColumnType::Text,
             _ => {
