@@ -1,0 +1,4 @@
+name = "kat-openharmony-critical-path"
+title = "OpenHarmony Critical Path"
+description = "Pre-release first-frame location and bounded critical-path extraction backed by Deprecated Trace Streamer data."
+owner = "Kernel Team"

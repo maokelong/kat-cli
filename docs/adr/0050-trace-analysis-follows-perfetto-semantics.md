@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0058
 ---
 
 # Trace 分析以 Perfetto 语义为基线
