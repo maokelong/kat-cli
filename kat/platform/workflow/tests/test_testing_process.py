@@ -446,7 +446,7 @@ pytest.skip("module is not available", allow_module_level=True)
         self.assertIn("TypeError:", terminal)
         self.assertIn("unhashable type: 'list'", terminal)
         self.assertIn("kat_run(workflow=[])", terminal)
-        self.assertIn("_kat_runtime/testing.py", terminal)
+        self.assertIn("_kat_runtime/testing.py", terminal.replace("\\", "/"))
         self.assertNotIn("caused by: Workflow", terminal)
 
     def test_workflow_failures_keep_the_execution_cause_in_pytest_output(self) -> None:
