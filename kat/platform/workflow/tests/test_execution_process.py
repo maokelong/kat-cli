@@ -414,6 +414,7 @@ def other(ctx: Context):
 """,
             encoding="utf-8",
         )
+        pack = pack.resolve(strict=True)
         candidate_id, candidate = self.candidate()
 
         completed, response = self.run_runtime(
