@@ -12,7 +12,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import build_linux_payload
 import payload_builder
 
 
@@ -51,14 +50,15 @@ def build_workflow_wheel(
                 False,
             )
             extracted = temporary_root / "uv-archive"
-            payload_builder.safe_extract_tar(
-                archive,
-                extracted,
-                platform_label="Linux",
-            )
-            uv = payload_builder.find_uv(
-                extracted, build_linux_payload.PLATFORM_SPEC
-            )
+            if locked_uv.layout.archive_format == "tar":
+                payload_builder.safe_extract_tar(
+                    archive,
+                    extracted,
+                    platform_label="Linux",
+                )
+            else:
+                payload_builder.safe_extract_zip(archive, extracted)
+            uv = payload_builder.find_uv(extracted, locked_uv.layout)
         else:
             uv = uv.resolve(strict=True)
         actual_uv = payload_builder.uv_version(uv)

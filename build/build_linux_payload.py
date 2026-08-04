@@ -26,9 +26,6 @@ PLATFORM_SPEC = payload_builder.PlatformSpec(
     managed_python_launcher_glob="*/bin/python3",
     managed_python_root_parents=2,
     private_python_parts=("python", "bin", "python3"),
-    uv_archive_format="tar",
-    uv_executable="uv",
-    uv_needs_executable_bit=True,
     copy_uv_links=False,
     site_packages_globs=("lib/python*/site-packages",),
     prune_paths=(("share", "terminfo"),),
@@ -70,10 +67,9 @@ def load_inputs(repository: Path) -> LinuxInputs:
         raise ValueError("Linux minimum glibc must be a major.minor version")
     return LinuxInputs(
         python_version=common.python_version,
-        uv_version=common.uv_version,
         rust_target=common.rust_target,
         python_archive=common.python_archive,
-        uv_archive=common.uv_archive,
+        uv=common.uv,
         requirements_lock=common.requirements_lock,
         minimum_glibc=(int(match.group(1)), int(match.group(2))),
     )

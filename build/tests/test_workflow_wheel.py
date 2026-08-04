@@ -46,7 +46,7 @@ def write_wheel(
 
 
 class WorkflowWheelTests(unittest.TestCase):
-    def test_downloaded_uv_uses_the_linux_platform_spec(self) -> None:
+    def test_downloaded_uv_uses_its_locked_layout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             uv = root / "uv"
@@ -79,9 +79,9 @@ class WorkflowWheelTests(unittest.TestCase):
             ):
                 workflow_wheel.build_workflow_wheel(REPOSITORY, None, root / "wheel")
 
-            self.assertIs(
+            self.assertEqual(
                 find_uv.call_args.args[1],
-                workflow_wheel.build_linux_payload.PLATFORM_SPEC,
+                workflow_wheel.payload_builder.UvLayout("tar", "uv", True),
             )
 
     def test_build_uses_locked_uv_and_writes_a_required_checksum(self) -> None:

@@ -24,6 +24,11 @@
         "url": "https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz",
         "sha256": "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224"
       },
+      "uvLayout": {
+        "archiveFormat": "tar",
+        "executable": "uv",
+        "needsExecutableBit": true
+      },
       "requirementsLock": "build/requirements-linux.lock.txt"
     },
     "windows-x86_64": {
@@ -38,6 +43,11 @@
         "filename": "uv-x86_64-pc-windows-msvc.zip",
         "url": "https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-pc-windows-msvc.zip",
         "sha256": "0a23463216d09c6a72ff80ef5dc5a795f07dc1575cb84d24596c2f124a441b7b"
+      },
+      "uvLayout": {
+        "archiveFormat": "zip",
+        "executable": "uv.exe",
+        "needsExecutableBit": false
       },
       "vcRuntime": {
         "provider": "Visual Studio 2022 CRT Redist VSIX",

@@ -27,9 +27,6 @@ PLATFORM_SPEC = payload_builder.PlatformSpec(
     managed_python_launcher_glob="*/python.exe",
     managed_python_root_parents=1,
     private_python_parts=("python", "python.exe"),
-    uv_archive_format="zip",
-    uv_executable="uv.exe",
-    uv_needs_executable_bit=False,
     copy_uv_links=True,
     site_packages_globs=("Lib/site-packages",),
     prune_paths=(("Scripts",),),
@@ -109,10 +106,9 @@ def load_inputs(repository: Path) -> WindowsInputs:
         raise ValueError("Windows payload supports Windows 10 or newer clients")
     return WindowsInputs(
         python_version=common.python_version,
-        uv_version=common.uv_version,
         rust_target=common.rust_target,
         python_archive=common.python_archive,
-        uv_archive=common.uv_archive,
+        uv=common.uv,
         requirements_lock=common.requirements_lock,
         minimum_windows=10,
         vc_runtime=VCRuntimeInput.from_json(platform.get("vcRuntime")),

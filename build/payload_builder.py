@@ -65,19 +65,42 @@ class LockedAsset:
 
 
 @dataclass(frozen=True)
-class CommonInputs:
-    python_version: str
-    uv_version: str
-    rust_target: str
-    python_archive: LockedAsset
-    uv_archive: LockedAsset
-    requirements_lock: Path
+class UvLayout:
+    archive_format: Literal["tar", "zip"]
+    executable: str
+    needs_executable_bit: bool
+
+    @classmethod
+    def from_json(cls, value: Any, description: str) -> "UvLayout":
+        expected = {"archiveFormat", "executable", "needsExecutableBit"}
+        if not isinstance(value, dict) or set(value) != expected:
+            raise ValueError(f"{description} layout is incomplete")
+        archive_format = value["archiveFormat"]
+        executable = value["executable"]
+        needs_executable_bit = value["needsExecutableBit"]
+        if archive_format not in {"tar", "zip"}:
+            raise ValueError(f"{description} archive format must be tar or zip")
+        if not isinstance(executable, str) or Path(executable).name != executable:
+            raise ValueError(f"{description} executable name is invalid")
+        if not isinstance(needs_executable_bit, bool):
+            raise ValueError(f"{description} executable-bit flag is invalid")
+        return cls(archive_format, executable, needs_executable_bit)
 
 
 @dataclass(frozen=True)
 class UvInput:
     version: str
     archive: LockedAsset
+    layout: UvLayout
+
+
+@dataclass(frozen=True)
+class CommonInputs:
+    python_version: str
+    rust_target: str
+    python_archive: LockedAsset
+    uv: UvInput
+    requirements_lock: Path
 
 
 @dataclass(frozen=True)
@@ -88,9 +111,6 @@ class PlatformSpec:
     managed_python_launcher_glob: str
     managed_python_root_parents: int
     private_python_parts: tuple[str, ...]
-    uv_archive_format: Literal["tar", "zip"]
-    uv_executable: str
-    uv_needs_executable_bit: bool
     copy_uv_links: bool
     site_packages_globs: tuple[str, ...]
     prune_paths: tuple[tuple[str, ...], ...]
@@ -202,6 +222,14 @@ def load_uv_input(
     platform_label: str,
 ) -> UvInput:
     document, platform = _load_runtime_inputs(repository, platform_name)
+    return _parse_uv_input(document, platform, platform_label)
+
+
+def _parse_uv_input(
+    document: dict[str, Any],
+    platform: dict[str, Any],
+    platform_label: str,
+) -> UvInput:
     uv = document.get("uv")
     if not isinstance(uv, dict) or not isinstance(uv.get("version"), str):
         raise ValueError("runtime inputs are missing the uv version lock")
@@ -209,6 +237,10 @@ def load_uv_input(
         version=uv["version"],
         archive=LockedAsset.from_json(
             platform.get("uvArchive"),
+            f"{platform_label} uv archive",
+        ),
+        layout=UvLayout.from_json(
+            platform.get("uvLayout"),
             f"{platform_label} uv archive",
         ),
     )
@@ -236,9 +268,6 @@ def load_common_inputs(
         raise ValueError(
             f"{platform_label} payload requires a locked CPython 3.14 patch release"
         )
-    uv = document.get("uv")
-    if not isinstance(uv, dict) or not isinstance(uv.get("version"), str):
-        raise ValueError("runtime inputs are missing the uv version lock")
     if platform.get("rustTarget") != rust_target:
         raise ValueError(
             f"{platform_label} payload requires the {rust_target} Rust target"
@@ -261,13 +290,9 @@ def load_common_inputs(
     return (
         CommonInputs(
             python_version=version,
-            uv_version=uv["version"],
             rust_target=rust_target,
             python_archive=python_archive,
-            uv_archive=LockedAsset.from_json(
-                platform.get("uvArchive"),
-                f"{platform_label} uv archive",
-            ),
+            uv=_parse_uv_input(document, platform, platform_label),
             requirements_lock=requirements_lock,
         ),
         platform,
@@ -717,8 +742,8 @@ def reject_output_input_overlap(
             )
 
 
-def find_uv(extracted: Path, spec: PlatformSpec) -> Path:
-    expected = spec.uv_executable
+def find_uv(extracted: Path, layout: UvLayout) -> Path:
+    expected = layout.executable
     candidates = [
         path
         for path in extracted.rglob("*")
@@ -728,7 +753,7 @@ def find_uv(extracted: Path, spec: PlatformSpec) -> Path:
         raise ValueError(
             f"uv archive must contain exactly one {expected}, got {candidates}"
         )
-    if spec.uv_needs_executable_bit:
+    if layout.needs_executable_bit:
         candidates[0].chmod(candidates[0].stat().st_mode | stat.S_IXUSR)
     return candidates[0]
 
@@ -746,7 +771,7 @@ def _prepare_private_host(
     offline: bool,
 ) -> None:
     extracted_uv = temporary_root / "uv-archive"
-    if spec.uv_archive_format == "tar":
+    if inputs.uv.layout.archive_format == "tar":
         safe_extract_tar(
             uv_archive,
             extracted_uv,
@@ -754,9 +779,9 @@ def _prepare_private_host(
         )
     else:
         safe_extract_zip(uv_archive, extracted_uv)
-    uv = find_uv(extracted_uv, spec)
-    if uv_version(uv) != inputs.uv_version:
-        raise ValueError(f"{spec.label} Builder requires uv {inputs.uv_version}")
+    uv = find_uv(extracted_uv, inputs.uv.layout)
+    if uv_version(uv) != inputs.uv.version:
+        raise ValueError(f"{spec.label} Builder requires uv {inputs.uv.version}")
     install_private_python(
         uv=uv,
         python_archive=python_archive,
@@ -866,7 +891,7 @@ def build_payload(
         options.offline,
     )
     uv_archive = resolve_locked_asset(
-        inputs.uv_archive,
+        inputs.uv.archive,
         options.uv_archive,
         cache,
         options.offline,
