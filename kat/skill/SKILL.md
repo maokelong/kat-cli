@@ -49,14 +49,20 @@ KAT 在本机读取 Source 而不改写它，并在 KAT Data Home 创建 Dataset
 
 ### 默认位置与更换方式
 
-Data Home 的默认配置文件位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`（未设置时为 `$HOME/.local/share/kat/config.json`），或 Windows 的 `%APPDATA%\KAT\data\config.json`。它是由用户维护的 KAT 私有应用配置；KAT CLI 不创建或写入它。Skill 只在用户明确授权更换 Data Home 时，代表用户编辑该文件。
+Data Home 的默认配置文件位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`（未设置时为 `$HOME/.local/share/kat/config.json`），或 Windows 的 `%APPDATA%\KAT\data\config.json`。它是由用户维护的 KAT 私有应用配置；KAT CLI 和本 Skill 都不创建或写入它。
 
 首次需要写入 KAT 状态时，Skill 会提醒你当前平台的默认位置，并询问是否要更换 Data Home：
 
-- 不更换：不编辑配置，也不改动环境变量。
-- 更换：提供一个已存在、可访问的绝对目录。Skill 会校验路径并展示即将修改的 `config.json`；只有再次确认写入后才更新配置，并让本次 KAT 操作立即使用新目录。
+- 不更换：直接使用默认位置，不编辑配置，也不改动环境变量。
+- 更换：Skill 展示当前平台的准确配置路径和以下手工修改内容，由你自行创建或编辑该文件；你确认完成后，Skill 再继续调用 KAT。
 
-路径中的 `~`、`%USERPROFILE%` 和 `$HOME` 等缩写不会展开。无效路径或损坏配置会停止操作，不会覆盖原文件或擅自改用其他目录。
+```json
+{
+  "kat_data_home": "<已存在、可访问的绝对目录>"
+}
+```
+
+编辑已有 JSON object 时只增加或更新 `kat_data_home`，保留其他字段。路径中的 `~`、`%USERPROFILE%` 和 `$HOME` 等缩写不会展开。KAT 会拒绝无效路径或损坏配置，不会擅自改用其他目录。
 
 ## Agent 执行顺序
 
@@ -71,23 +77,13 @@ Data Home 的默认配置文件位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`
 
 ### 2. 在首次状态写入前确认 Data Home
 
-首次需要写入 KAT 状态时，先展示当前平台默认 Data Home 与其 `config.json` 路径，并询问用户是否要更换。这个问题每次对话只问一次；用户没有要求更换时，不编辑配置也不设置、清空或猜测 `KAT_DATA_HOME`。“更换 Data Home”与“写入所展示的配置文件”是两次独立决定；前者不自动授权后者。
+首次需要写入 KAT 状态时，展示当前平台默认 Data Home 与 `config.json` 路径，并询问用户是否要更换。这个问题每次对话只问一次；用户接受默认位置时直接继续，不编辑配置，也不设置、清空或猜测 `KAT_DATA_HOME`。
 
-用户要求更换后，严格按以下状态顺序执行：
-
-1. 获取用户提供的目标目录。
-2. 校验它是已存在、可访问、可规范化的绝对目录；不创建目标目录，不展开 `~`、`%USERPROFILE%`、`$HOME` 等缩写。
-3. 展示即将修改的平台默认 `config.json` 绝对路径、规范化目标目录和唯一将更新的 `kat_data_home` 字段，再请求明确写入确认。用户拒绝或未确认时停止配置分支，不设置环境变量，也不因该分支调用 KAT。
-4. 授权后读取平台默认位置的 `config.json`；不要读取 Skill 根目录的同名文件。文件不存在时创建父目录和新 JSON object；已存在时必须是有效 UTF-8 的合法 JSON object，且已有 `kat_data_home` 必须缺失、为空字符串或为字符串。`null`、数字、数组或其他类型都在写入前停止。
-5. 记录最终配置的初始状态：文件缺席，或已存在文件的原始字节和 SHA-256。在内存中只将 `kat_data_home` 更新为规范化目录，保留所有未知字段及其值；JSON 字段顺序和缩进不是契约。SHA-256 只用于证明提交前失败没有改变原文件，不用于协调并发写入。
-6. 不直接 patch、截断或覆盖最终 `config.json`。在它的同一目录以不可预测且不覆盖已有条目的名称创建临时文件，把完整更新结果只写入该临时文件。关闭后重新读取并确认 JSON object、`kat_data_home` 和所有未知字段的值。
-7. 只使用当前环境明确保证的同目录原子发布能力：原文件缺席时使用禁止覆盖的原子创建，已存在时使用原子替换。不先删除最终文件，不以复制代替原子发布。当前工具无法说明原子语义时，删除临时文件并按受阻交付，不修改配置。多个配置写入者之间的协调不在本 Skill 契约范围内；已存在配置由最后完成的已授权原子发布决定。
-8. 原子创建或替换成功是配置写入提交点。提交前任一失败都清理未发布临时文件，并保持最终文件缺席或原始字节不变。提交后的 KAT 失败不回滚已授权配置。
-9. 只在用户当前请求的 KAT 子进程环境中设置同一 `KAT_DATA_HOME`，确保本次立即使用新目录；不修改 Agent、Shell、用户或系统的全局环境。本次 KAT 调用结束后不再依赖该进程级覆盖，后续 KAT 进程由配置文件选择。
+用户要求更换时，获取一个已存在、可访问、可规范化的绝对目标目录，然后展示平台默认 `config.json` 的绝对路径以及只更新 `kat_data_home`、保留其他字段的 JSON 示例。不要创建目录、读取或修改配置，也不要替用户设置环境变量。等待用户确认已经手工完成修改；确认前不调用 KAT，确认后由 KAT CLI 按自身配置规则验证和选择 Data Home。
 
 KAT 依次选择非空 `KAT_DATA_HOME`、平台默认 KAT 数据目录中的非空 `config.json.kat_data_home`、平台默认 Data Home。所有已经提供的来源都必须先通过校验：即使最终由环境变量覆盖，已存在的 `config.json` 也必须可读、是有效 UTF-8 和合法 JSON object，且 `kat_data_home` 必须是字符串；损坏配置会使操作失败。只有最终选中的非空 Data Home 才检查它是否为已存在、可访问的绝对目录，被更高优先级覆盖的路径字符串不访问文件系统。无效的已选值会使操作失败，不回退到较低优先级来源。配置文件缺失、字段缺失或空字符串表示未设置。
 
-`KAT_DATA_HOME` 只影响启动它的单次子进程，不改变 `config.json` 的读取位置。KAT CLI 仍是 Data Home 选择和运行时失败语义的唯一权威。Data Home 选择失败时，根据 KAT Response 的 Diagnostic 交付，不改写已选择的配置或改用其他目录重试。
+`KAT_DATA_HOME` 只影响启动它的单次子进程，不改变 `config.json` 的读取位置。KAT CLI 是 Data Home 选择和运行时失败语义的唯一权威。Data Home 选择失败时，根据 KAT Response 的 Diagnostic 交付，不改写配置、清空环境变量或改用其他目录重试。
 
 ### 3. 先查命令速查，再按任务类型加载流程
 
