@@ -47,11 +47,55 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  requirements-locks:
+    name: Verify generated platform requirement locks
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.28"
+          enable-cache: false
+
+      - name: Regenerate both platform locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv pip compile kat/platform/workflow/pyproject.toml \
+            --python-version 3.14.6 \
+            --python-platform x86_64-unknown-linux-gnu \
+            --only-binary :all: \
+            --generate-hashes \
+            --no-config \
+            --no-progress \
+            --output-file build/requirements-linux.lock.txt
+          uv pip compile kat/platform/workflow/pyproject.toml \
+            --python-version 3.14.6 \
+            --python-platform x86_64-pc-windows-msvc \
+            --only-binary :all: \
+            --generate-hashes \
+            --no-config \
+            --no-progress \
+            --output-file build/requirements-windows.lock.txt
+          git diff --exit-code -- \
+            build/requirements-linux.lock.txt \
+            build/requirements-windows.lock.txt
+
   builder-tests:
     name: Builder tests (${{ matrix.os }})
     if: >-
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'full-ci')
+    needs: requirements-locks
     runs-on: ${{ matrix.os }}
 
     strategy:
