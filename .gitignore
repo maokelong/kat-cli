@@ -1,2 +1,5 @@
 /target
 .worktrees/
+/build/release/
+/dist/
+__pycache__/
