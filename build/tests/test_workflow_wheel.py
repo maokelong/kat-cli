@@ -46,6 +46,44 @@ def write_wheel(
 
 
 class WorkflowWheelTests(unittest.TestCase):
+    def test_downloaded_uv_uses_the_linux_platform_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            uv = root / "uv"
+            uv.write_bytes(b"locked uv")
+            archive = root / "uv.tar.gz"
+            archive.write_bytes(b"locked archive")
+
+            def fake_run(command: list[str], **_: object) -> mock.Mock:
+                if command[1] == "--version":
+                    return mock.Mock(stdout="uv 0.11.28\n")
+                out_dir = Path(command[command.index("--out-dir") + 1])
+                write_wheel(out_dir / WHEEL_NAME)
+                return mock.Mock()
+
+            with (
+                mock.patch.object(
+                    workflow_wheel.payload_builder,
+                    "resolve_locked_asset",
+                    return_value=archive,
+                ),
+                mock.patch.object(workflow_wheel.payload_builder, "safe_extract_tar"),
+                mock.patch.object(
+                    workflow_wheel.payload_builder,
+                    "find_uv",
+                    return_value=uv,
+                ) as find_uv,
+                mock.patch.object(
+                    workflow_wheel.subprocess, "run", side_effect=fake_run
+                ),
+            ):
+                workflow_wheel.build_workflow_wheel(REPOSITORY, None, root / "wheel")
+
+            self.assertIs(
+                find_uv.call_args.args[1],
+                workflow_wheel.build_linux_payload.PLATFORM_SPEC,
+            )
+
     def test_build_uses_locked_uv_and_writes_a_required_checksum(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

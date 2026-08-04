@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import build_linux_payload
 import payload_builder
 
 
@@ -55,7 +56,9 @@ def build_workflow_wheel(
                 extracted,
                 platform_label="Linux",
             )
-            uv = payload_builder.find_uv(extracted, "linux-x86_64")
+            uv = payload_builder.find_uv(
+                extracted, build_linux_payload.PLATFORM_SPEC
+            )
         else:
             uv = uv.resolve(strict=True)
         actual_uv = payload_builder.uv_version(uv)
