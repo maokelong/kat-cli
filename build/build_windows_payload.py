@@ -20,6 +20,26 @@ import payload_builder
 
 
 PLATFORM = "windows-x86_64"
+PLATFORM_SPEC = payload_builder.PlatformSpec(
+    key=PLATFORM,
+    label="Windows",
+    managed_python_fields=("windows-x86_64-none", "windows", "none"),
+    managed_python_launcher_glob="*/python.exe",
+    managed_python_root_parents=1,
+    private_python_parts=("python", "python.exe"),
+    uv_archive_format="zip",
+    uv_executable="uv.exe",
+    uv_needs_executable_bit=False,
+    copy_uv_links=True,
+    site_packages_globs=("Lib/site-packages",),
+    prune_paths=(("Scripts",),),
+    private_bin_parts=None,
+    private_bin_keep_prefix=None,
+    cli_filename="kat.exe",
+    cargo_environment=(("RUSTFLAGS", "-C target-feature=+crt-static"),),
+    forbidden_payload_suffixes=frozenset({".msi"}),
+    forbidden_payload_prefixes=("vc_redist",),
+)
 PE_X86_64 = 0x8664
 SYSTEM_API_SET_PREFIXES = ("api-ms-win-", "ext-ms-")
 @dataclass(frozen=True)
@@ -407,7 +427,7 @@ def resolve_vc_redist_root(extracted: Path, locked: VCRuntimeInput) -> Path:
 
 def assert_payload_shape(payload: Path) -> None:
     cli = payload / "kat.exe"
-    python = payload_builder.private_python(payload, PLATFORM)
+    python = payload_builder.private_python(payload, PLATFORM_SPEC)
     if not cli.is_file() or not python.is_file():
         raise ValueError("Windows payload is missing kat.exe or python/python.exe")
     root_entries = {path.name for path in payload.iterdir()}
@@ -425,15 +445,14 @@ def assert_payload_shape(payload: Path) -> None:
         raise ValueError(
             f"Windows payload root must expose only kat.exe, got {root_executables}"
         )
-    payload_builder.assert_no_build_artifacts(payload, PLATFORM)
+    payload_builder.assert_no_build_artifacts(payload, PLATFORM_SPEC)
 
 
 class WindowsAdapter:
-    platform = PLATFORM
-    label = "Windows"
+    spec = PLATFORM_SPEC
 
     def require_builder(self) -> None:
-        payload_builder.require_builder_python(self.label)
+        payload_builder.require_builder_python(self.spec.label)
         require_windows_builder()
 
     def load_inputs(self, repository: Path) -> WindowsInputs:
@@ -448,11 +467,9 @@ class WindowsAdapter:
     def resolve_extra_inputs(
         self,
         options: payload_builder.CommonBuildOptions,
-        inputs: payload_builder.CommonInputs,
+        inputs: WindowsInputs,
         cache: Path,
     ) -> Path:
-        if not isinstance(inputs, WindowsInputs):
-            raise TypeError("Windows Adapter requires WindowsInputs")
         return payload_builder.resolve_locked_asset(
             inputs.vc_runtime.archive,
             getattr(options, "vc_redist_archive", None),
@@ -465,11 +482,9 @@ class WindowsAdapter:
         payload: Path,
         temporary_root: Path,
         options: payload_builder.CommonBuildOptions,
-        inputs: payload_builder.CommonInputs,
-        extra_inputs: object,
+        inputs: WindowsInputs,
+        extra_inputs: Path,
     ) -> None:
-        if not isinstance(inputs, WindowsInputs) or not isinstance(extra_inputs, Path):
-            raise TypeError("Windows Adapter requires locked VC Runtime inputs")
         extracted_redist = temporary_root / "vc-redist-vsix"
         payload_builder.safe_extract_zip(extra_inputs, extracted_redist)
         redist_root = resolve_vc_redist_root(extracted_redist, inputs.vc_runtime)

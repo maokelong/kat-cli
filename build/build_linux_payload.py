@@ -19,6 +19,24 @@ import payload_builder
 
 
 PLATFORM = "linux-x86_64"
+PLATFORM_SPEC = payload_builder.PlatformSpec(
+    key=PLATFORM,
+    label="Linux",
+    managed_python_fields=("linux-x86_64-gnu", "linux", "gnu"),
+    managed_python_launcher_glob="*/bin/python3",
+    managed_python_root_parents=2,
+    private_python_parts=("python", "bin", "python3"),
+    uv_archive_format="tar",
+    uv_executable="uv",
+    uv_needs_executable_bit=True,
+    copy_uv_links=False,
+    site_packages_globs=("lib/python*/site-packages",),
+    prune_paths=(("share", "terminfo"),),
+    private_bin_parts=("bin",),
+    private_bin_keep_prefix="python",
+    cli_filename="kat",
+    cargo_environment=(),
+)
 GLIBC_VERSION = re.compile(r"GLIBC_(\d+)\.(\d+)")
 @dataclass(frozen=True)
 class LinuxInputs(payload_builder.CommonInputs):
@@ -117,7 +135,7 @@ def assert_payload_shape(payload: Path) -> None:
     if entries != {"kat", "python"}:
         raise ValueError(f"Linux payload root must contain only kat and python/, got {entries}")
     cli = payload / "kat"
-    python = payload_builder.private_python(payload, PLATFORM)
+    python = payload_builder.private_python(payload, PLATFORM_SPEC)
     if not cli.is_file() or not python.is_file():
         raise ValueError("Linux payload is missing kat or python/bin/python3")
     if os.name != "nt" and not os.access(cli, os.X_OK):
@@ -125,15 +143,14 @@ def assert_payload_shape(payload: Path) -> None:
     terminfo = payload / "python/share/terminfo"
     if terminfo.exists():
         raise ValueError("Linux payload contains bundled terminfo")
-    payload_builder.assert_no_build_artifacts(payload, PLATFORM)
+    payload_builder.assert_no_build_artifacts(payload, PLATFORM_SPEC)
 
 
 class LinuxAdapter:
-    platform = PLATFORM
-    label = "Linux"
+    spec = PLATFORM_SPEC
 
     def require_builder(self) -> None:
-        payload_builder.require_builder_python(self.label)
+        payload_builder.require_builder_python(self.spec.label)
 
     def load_inputs(self, repository: Path) -> LinuxInputs:
         return load_inputs(repository)
@@ -146,7 +163,7 @@ class LinuxAdapter:
     def resolve_extra_inputs(
         self,
         options: payload_builder.CommonBuildOptions,
-        inputs: payload_builder.CommonInputs,
+        inputs: LinuxInputs,
         cache: Path,
     ) -> None:
         return None
@@ -156,11 +173,9 @@ class LinuxAdapter:
         payload: Path,
         temporary_root: Path,
         options: payload_builder.CommonBuildOptions,
-        inputs: payload_builder.CommonInputs,
-        extra_inputs: object,
+        inputs: LinuxInputs,
+        extra_inputs: None,
     ) -> None:
-        if not isinstance(inputs, LinuxInputs):
-            raise TypeError("Linux Adapter requires LinuxInputs")
         readelf = getattr(options, "readelf", None)
         if not isinstance(readelf, str):
             raise TypeError("Linux Adapter requires a readelf executable")

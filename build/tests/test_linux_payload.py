@@ -27,7 +27,6 @@ class PayloadBuilderTests(unittest.TestCase):
     ) -> None:
         inputs = module.load_inputs(REPOSITORY)
         windows = module is build_windows_payload
-        platform_label = "Windows" if windows else "Linux"
         uv_name = "uv.exe" if windows else "uv"
         launcher = (
             "cpython-{version}-windows-x86_64-none/python.exe"
@@ -62,12 +61,11 @@ class PayloadBuilderTests(unittest.TestCase):
                     inputs=inputs,
                     stage=stage,
                     temporary_root=temporary_root,
-                    platform=module.PLATFORM,
-                    platform_label=platform_label,
+                    spec=module.PLATFORM_SPEC,
                 )
                 payload_builder.install_locked_requirements(
                     root / uv_name,
-                    payload_builder.private_python(stage, module.PLATFORM),
+                    payload_builder.private_python(stage, module.PLATFORM_SPEC),
                     inputs,
                     root / "cache",
                     wheelhouse_path,
@@ -93,7 +91,9 @@ class PayloadBuilderTests(unittest.TestCase):
             ]
             self.assertEqual(download["url"], archive.as_uri())
             self.assertEqual(download["sha256"], inputs.python_archive.sha256)
-            self.assertTrue(payload_builder.private_python(stage, module.PLATFORM).is_file())
+            self.assertTrue(
+                payload_builder.private_python(stage, module.PLATFORM_SPEC).is_file()
+            )
 
             sync = commands[1]
             self.assertEqual(sync[:3], [str(root / uv_name), "pip", "sync"])

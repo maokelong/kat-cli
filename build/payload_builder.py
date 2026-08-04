@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Any, Iterable, Literal, Mapping, Protocol, TypeVar
 
 PYTHON_ENVIRONMENT_VARIABLES = (
     "PYTHONHOME",
@@ -29,10 +29,6 @@ PYTHON_ENVIRONMENT_VARIABLES = (
     "PYTHONWARNINGS",
     "VIRTUAL_ENV",
 )
-MANAGED_PYTHON_PLATFORMS = {
-    "linux-x86_64": ("linux-x86_64-gnu", "linux", "gnu"),
-    "windows-x86_64": ("windows-x86_64-none", "windows", "none"),
-}
 FORBIDDEN_PAYLOAD_NAMES = {
     ".git",
     ".pytest_cache",
@@ -84,6 +80,28 @@ class UvInput:
     archive: LockedAsset
 
 
+@dataclass(frozen=True)
+class PlatformSpec:
+    key: str
+    label: str
+    managed_python_fields: tuple[str, str, str]
+    managed_python_launcher_glob: str
+    managed_python_root_parents: int
+    private_python_parts: tuple[str, ...]
+    uv_archive_format: Literal["tar", "zip"]
+    uv_executable: str
+    uv_needs_executable_bit: bool
+    copy_uv_links: bool
+    site_packages_globs: tuple[str, ...]
+    prune_paths: tuple[tuple[str, ...], ...]
+    private_bin_parts: tuple[str, ...] | None
+    private_bin_keep_prefix: str | None
+    cli_filename: str
+    cargo_environment: tuple[tuple[str, str], ...]
+    forbidden_payload_suffixes: frozenset[str] = frozenset()
+    forbidden_payload_prefixes: tuple[str, ...] = ()
+
+
 class CommonBuildOptions(Protocol):
     repository: Path
     output: Path
@@ -96,13 +114,16 @@ class CommonBuildOptions(Protocol):
     workflow_wheel: Path | None
 
 
-class PlatformAdapter(Protocol):
-    platform: str
-    label: str
+InputsT = TypeVar("InputsT", bound=CommonInputs)
+ExtraInputsT = TypeVar("ExtraInputsT")
+
+
+class PlatformAdapter(Protocol[InputsT, ExtraInputsT]):
+    spec: PlatformSpec
 
     def require_builder(self) -> None: ...
 
-    def load_inputs(self, repository: Path) -> CommonInputs: ...
+    def load_inputs(self, repository: Path) -> InputsT: ...
 
     def extra_input_paths(
         self, options: CommonBuildOptions
@@ -111,17 +132,17 @@ class PlatformAdapter(Protocol):
     def resolve_extra_inputs(
         self,
         options: CommonBuildOptions,
-        inputs: CommonInputs,
+        inputs: InputsT,
         cache: Path,
-    ) -> object: ...
+    ) -> ExtraInputsT: ...
 
     def finalize_payload(
         self,
         payload: Path,
         temporary_root: Path,
         options: CommonBuildOptions,
-        inputs: CommonInputs,
-        extra_inputs: object,
+        inputs: InputsT,
+        extra_inputs: ExtraInputsT,
     ) -> None: ...
 
     def assert_payload_shape(self, payload: Path) -> None: ...
@@ -143,15 +164,17 @@ def verify_sha256(path: Path, expected: str) -> None:
         )
 
 
-def assert_no_build_artifacts(payload: Path, platform: str) -> None:
-    windows = platform == "windows-x86_64"
-    suffixes = FORBIDDEN_PAYLOAD_SUFFIXES | ({".msi"} if windows else set())
+def assert_no_build_artifacts(payload: Path, spec: PlatformSpec) -> None:
+    suffixes = FORBIDDEN_PAYLOAD_SUFFIXES | spec.forbidden_payload_suffixes
     forbidden = [
         path
         for path in payload.rglob("*")
         if path.name in FORBIDDEN_PAYLOAD_NAMES
         or path.suffix.casefold() in suffixes
-        or (windows and path.name.casefold().startswith("vc_redist"))
+        or any(
+            path.name.casefold().startswith(prefix.casefold())
+            for prefix in spec.forbidden_payload_prefixes
+        )
     ]
     if forbidden:
         raise ValueError(
@@ -358,10 +381,8 @@ def safe_extract_zip(archive_path: Path, destination: Path) -> None:
                 shutil.copyfileobj(source, output)
 
 
-def private_python(payload: Path, platform: str) -> Path:
-    if platform == "linux-x86_64":
-        return payload / "python/bin/python3"
-    return payload / "python/python.exe"
+def private_python(payload: Path, spec: PlatformSpec) -> Path:
+    return payload.joinpath(*spec.private_python_parts)
 
 
 def isolated_environment(
@@ -410,13 +431,9 @@ def install_private_python(
     inputs: CommonInputs,
     stage: Path,
     temporary_root: Path,
-    platform: str,
-    platform_label: str,
+    spec: PlatformSpec,
 ) -> None:
-    platform_fields = MANAGED_PYTHON_PLATFORMS.get(platform)
-    if platform_fields is None:
-        raise ValueError(f"unsupported managed Python platform: {platform}")
-    platform_key, os_name, libc = platform_fields
+    platform_key, os_name, libc = spec.managed_python_fields
     installation_key = f"cpython-{inputs.python_version}-{platform_key}"
     major, minor, patch = map(int, inputs.python_version.split("."))
     downloads = {
@@ -464,26 +481,27 @@ def install_private_python(
         env=isolated_environment(),
     )
 
-    if platform == "linux-x86_64":
-        launchers = install_directory.glob("*/bin/python3")
-        roots = {launcher.parent.parent.resolve() for launcher in launchers}
-    else:
-        launchers = install_directory.glob("*/python.exe")
-        roots = {launcher.parent.resolve() for launcher in launchers}
+    launchers = install_directory.glob(spec.managed_python_launcher_glob)
+    roots = set()
+    for launcher in launchers:
+        root = launcher
+        for _ in range(spec.managed_python_root_parents):
+            root = root.parent
+        roots.add(root.resolve())
     if len(roots) != 1:
         raise ValueError(
-            f"uv must install exactly one {platform_label} Python, got {sorted(roots)}"
+            f"uv must install exactly one {spec.label} Python, got {sorted(roots)}"
         )
     source = roots.pop()
     try:
         source.relative_to(install_directory.resolve())
     except ValueError as error:
         raise ValueError(
-            f"uv installed {platform_label} Python outside the requested directory"
+            f"uv installed {spec.label} Python outside the requested directory"
         ) from error
     stage.mkdir()
     shutil.move(str(source), stage / "python")
-    python = private_python(stage, platform)
+    python = private_python(stage, spec)
     if not python.is_file():
         raise ValueError(f"Bundled Python launcher is missing: {python}")
 
@@ -641,20 +659,21 @@ def _remove_path(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def prune_private_host(python_root: Path, platform: str) -> None:
-    if platform == "linux-x86_64":
-        terminfo = python_root / "share/terminfo"
-        if terminfo.is_dir():
-            shutil.rmtree(terminfo)
+def prune_private_host(python_root: Path, spec: PlatformSpec) -> None:
+    for parts in spec.prune_paths:
+        path = python_root.joinpath(*parts)
+        if path.exists():
+            _remove_path(path)
     for cache in list(python_root.rglob("__pycache__")):
         _remove_path(cache)
     for suffix in ("*.pyc", "*.pyo", "*.whl"):
         for path in python_root.rglob(suffix):
             _remove_path(path)
-    if platform == "linux-x86_64":
-        site_packages = list((python_root / "lib").glob("python*/site-packages"))
-    else:
-        site_packages = [python_root / "Lib/site-packages"]
+    site_packages = [
+        directory
+        for pattern in spec.site_packages_globs
+        for directory in python_root.glob(pattern)
+    ]
     for directory in site_packages:
         for pattern in (
             "pip",
@@ -668,16 +687,14 @@ def prune_private_host(python_root: Path, platform: str) -> None:
         ):
             for path in directory.glob(pattern):
                 _remove_path(path)
-    if platform == "linux-x86_64":
-        bin_directory = python_root / "bin"
+    if spec.private_bin_parts is not None:
+        bin_directory = python_root.joinpath(*spec.private_bin_parts)
         if bin_directory.is_dir():
             for path in bin_directory.iterdir():
-                if not path.name.startswith("python"):
+                if spec.private_bin_keep_prefix is None or not path.name.startswith(
+                    spec.private_bin_keep_prefix
+                ):
                     _remove_path(path)
-        return
-    scripts = python_root / "Scripts"
-    if scripts.is_dir():
-        _remove_path(scripts)
 
 
 def paths_overlap(left: Path, right: Path) -> bool:
@@ -700,8 +717,8 @@ def reject_output_input_overlap(
             )
 
 
-def find_uv(extracted: Path, platform: str) -> Path:
-    expected = "uv" if platform == "linux-x86_64" else "uv.exe"
+def find_uv(extracted: Path, spec: PlatformSpec) -> Path:
+    expected = spec.uv_executable
     candidates = [
         path
         for path in extracted.rglob("*")
@@ -711,15 +728,14 @@ def find_uv(extracted: Path, platform: str) -> Path:
         raise ValueError(
             f"uv archive must contain exactly one {expected}, got {candidates}"
         )
-    if platform == "linux-x86_64":
+    if spec.uv_needs_executable_bit:
         candidates[0].chmod(candidates[0].stat().st_mode | stat.S_IXUSR)
     return candidates[0]
 
 
 def _prepare_private_host(
     *,
-    platform: str,
-    platform_label: str,
+    spec: PlatformSpec,
     stage: Path,
     temporary_root: Path,
     python_archive: Path,
@@ -730,28 +746,27 @@ def _prepare_private_host(
     offline: bool,
 ) -> None:
     extracted_uv = temporary_root / "uv-archive"
-    if platform == "linux-x86_64":
+    if spec.uv_archive_format == "tar":
         safe_extract_tar(
             uv_archive,
             extracted_uv,
-            platform_label=platform_label,
+            platform_label=spec.label,
         )
     else:
         safe_extract_zip(uv_archive, extracted_uv)
-    uv = find_uv(extracted_uv, platform)
+    uv = find_uv(extracted_uv, spec)
     if uv_version(uv) != inputs.uv_version:
-        raise ValueError(f"{platform_label} Builder requires uv {inputs.uv_version}")
+        raise ValueError(f"{spec.label} Builder requires uv {inputs.uv_version}")
     install_private_python(
         uv=uv,
         python_archive=python_archive,
         inputs=inputs,
         stage=stage,
         temporary_root=temporary_root,
-        platform=platform,
-        platform_label=platform_label,
+        spec=spec,
     )
-    python = private_python(stage, platform)
-    copy_links = platform == "windows-x86_64"
+    python = private_python(stage, spec)
+    copy_links = spec.copy_uv_links
     install_locked_requirements(
         uv,
         python,
@@ -774,7 +789,7 @@ def _prepare_private_host(
         temporary_root / "uv-check-cache",
         copy_links=copy_links,
     )
-    prune_private_host(stage / "python", platform)
+    prune_private_host(stage / "python", spec)
 
 
 def _build_cli_binary(
@@ -782,12 +797,11 @@ def _build_cli_binary(
     inputs: CommonInputs,
     target_dir: Path,
     *,
-    platform: str,
+    spec: PlatformSpec,
 ) -> Path:
     environment = dict(os.environ)
     environment["CARGO_TARGET_DIR"] = str(target_dir)
-    if platform == "windows-x86_64":
-        environment["RUSTFLAGS"] = "-C target-feature=+crt-static"
+    environment.update(spec.cargo_environment)
     command = [
         options.cargo,
         "build",
@@ -810,8 +824,7 @@ def _build_cli_binary(
         cwd=options.repository,
         env=environment,
     )
-    filename = "kat" if platform == "linux-x86_64" else "kat.exe"
-    binary = target_dir / inputs.rust_target / "release" / filename
+    binary = target_dir / inputs.rust_target / "release" / spec.cli_filename
     if not binary.is_file():
         raise ValueError(f"Cargo did not produce the KAT CLI: {binary}")
     return binary
@@ -819,7 +832,7 @@ def _build_cli_binary(
 
 def build_payload(
     options: CommonBuildOptions,
-    adapter: PlatformAdapter,
+    adapter: PlatformAdapter[InputsT, ExtraInputsT],
 ) -> Path:
     adapter.require_builder()
     repository = options.repository.resolve()
@@ -835,10 +848,12 @@ def build_payload(
     reject_output_input_overlap(
         output,
         [*common_inputs, *adapter.extra_input_paths(options)],
-        platform_label=adapter.label,
+        platform_label=adapter.spec.label,
     )
     if output.exists():
-        raise ValueError(f"{adapter.label} payload output already exists: {output}")
+        raise ValueError(
+            f"{adapter.spec.label} payload output already exists: {output}"
+        )
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
     workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
@@ -858,13 +873,12 @@ def build_payload(
     )
     extra_inputs = adapter.resolve_extra_inputs(options, inputs, cache)
 
-    prefix = f"kat-{adapter.platform}-payload-"
+    prefix = f"kat-{adapter.spec.key}-payload-"
     with tempfile.TemporaryDirectory(prefix=prefix, dir=output.parent) as temporary:
         temporary_root = Path(temporary)
         stage = temporary_root / "payload"
         _prepare_private_host(
-            platform=adapter.platform,
-            platform_label=adapter.label,
+            spec=adapter.spec,
             stage=stage,
             temporary_root=temporary_root,
             python_archive=python_archive,
@@ -878,10 +892,9 @@ def build_payload(
             options,
             inputs,
             temporary_root / "cargo-target",
-            platform=adapter.platform,
+            spec=adapter.spec,
         )
-        filename = "kat" if adapter.platform == "linux-x86_64" else "kat.exe"
-        shutil.copy2(cli, stage / filename)
+        shutil.copy2(cli, stage / adapter.spec.cli_filename)
         adapter.finalize_payload(
             stage,
             temporary_root,
