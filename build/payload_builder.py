@@ -145,22 +145,19 @@ class PlatformAdapter(Protocol[InputsT, ExtraInputsT]):
 
     def load_inputs(self, repository: Path) -> InputsT: ...
 
-    def extra_input_paths(
-        self, options: CommonBuildOptions
-    ) -> Iterable[tuple[str, Path | None]]: ...
+    def extra_input_paths(self) -> Iterable[tuple[str, Path | None]]: ...
 
     def resolve_extra_inputs(
         self,
-        options: CommonBuildOptions,
         inputs: InputsT,
         cache: Path,
+        offline: bool,
     ) -> ExtraInputsT: ...
 
     def finalize_payload(
         self,
         payload: Path,
         temporary_root: Path,
-        options: CommonBuildOptions,
         inputs: InputsT,
         extra_inputs: ExtraInputsT,
     ) -> None: ...
@@ -872,7 +869,7 @@ def build_payload(
     ]
     reject_output_input_overlap(
         output,
-        [*common_inputs, *adapter.extra_input_paths(options)],
+        [*common_inputs, *adapter.extra_input_paths()],
         platform_label=adapter.spec.label,
     )
     if output.exists():
@@ -896,7 +893,7 @@ def build_payload(
         cache,
         options.offline,
     )
-    extra_inputs = adapter.resolve_extra_inputs(options, inputs, cache)
+    extra_inputs = adapter.resolve_extra_inputs(inputs, cache, options.offline)
 
     prefix = f"kat-{adapter.spec.key}-payload-"
     with tempfile.TemporaryDirectory(prefix=prefix, dir=output.parent) as temporary:
@@ -923,7 +920,6 @@ def build_payload(
         adapter.finalize_payload(
             stage,
             temporary_root,
-            options,
             inputs,
             extra_inputs,
         )

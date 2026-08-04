@@ -447,6 +447,9 @@ def assert_payload_shape(payload: Path) -> None:
 class WindowsAdapter:
     spec = PLATFORM_SPEC
 
+    def __init__(self, *, vc_redist_archive: Path | None) -> None:
+        self.vc_redist_archive = vc_redist_archive
+
     def require_builder(self) -> None:
         payload_builder.require_builder_python(self.spec.label)
         require_windows_builder()
@@ -454,30 +457,26 @@ class WindowsAdapter:
     def load_inputs(self, repository: Path) -> WindowsInputs:
         return load_inputs(repository)
 
-    def extra_input_paths(
-        self, options: payload_builder.CommonBuildOptions
-    ) -> Iterable[tuple[str, Path | None]]:
-        vc_archive = getattr(options, "vc_redist_archive", None)
-        return (("VC Runtime VSIX", vc_archive),)
+    def extra_input_paths(self) -> Iterable[tuple[str, Path | None]]:
+        return (("VC Runtime VSIX", self.vc_redist_archive),)
 
     def resolve_extra_inputs(
         self,
-        options: payload_builder.CommonBuildOptions,
         inputs: WindowsInputs,
         cache: Path,
+        offline: bool,
     ) -> Path:
         return payload_builder.resolve_locked_asset(
             inputs.vc_runtime.archive,
-            getattr(options, "vc_redist_archive", None),
+            self.vc_redist_archive,
             cache,
-            options.offline,
+            offline,
         )
 
     def finalize_payload(
         self,
         payload: Path,
         temporary_root: Path,
-        options: payload_builder.CommonBuildOptions,
         inputs: WindowsInputs,
         extra_inputs: Path,
     ) -> None:
@@ -491,7 +490,10 @@ class WindowsAdapter:
 
 
 def build_payload(options: BuildOptions) -> Path:
-    return payload_builder.build_payload(options, WindowsAdapter())
+    return payload_builder.build_payload(
+        options,
+        WindowsAdapter(vc_redist_archive=options.vc_redist_archive),
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> BuildOptions:

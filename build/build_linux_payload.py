@@ -145,22 +145,23 @@ def assert_payload_shape(payload: Path) -> None:
 class LinuxAdapter:
     spec = PLATFORM_SPEC
 
+    def __init__(self, *, readelf: str) -> None:
+        self.readelf = readelf
+
     def require_builder(self) -> None:
         payload_builder.require_builder_python(self.spec.label)
 
     def load_inputs(self, repository: Path) -> LinuxInputs:
         return load_inputs(repository)
 
-    def extra_input_paths(
-        self, options: payload_builder.CommonBuildOptions
-    ) -> Iterable[tuple[str, Path | None]]:
+    def extra_input_paths(self) -> Iterable[tuple[str, Path | None]]:
         return ()
 
     def resolve_extra_inputs(
         self,
-        options: payload_builder.CommonBuildOptions,
         inputs: LinuxInputs,
         cache: Path,
+        offline: bool,
     ) -> None:
         return None
 
@@ -168,23 +169,21 @@ class LinuxAdapter:
         self,
         payload: Path,
         temporary_root: Path,
-        options: payload_builder.CommonBuildOptions,
         inputs: LinuxInputs,
         extra_inputs: None,
     ) -> None:
-        readelf = getattr(options, "readelf", None)
-        if not isinstance(readelf, str):
-            raise TypeError("Linux Adapter requires a readelf executable")
         cli = payload / "kat"
         cli.chmod(cli.stat().st_mode | stat.S_IXUSR)
-        verify_native_baseline(payload, readelf, inputs.minimum_glibc)
+        verify_native_baseline(payload, self.readelf, inputs.minimum_glibc)
 
     def assert_payload_shape(self, payload: Path) -> None:
         assert_payload_shape(payload)
 
 
 def build_payload(options: BuildOptions) -> Path:
-    return payload_builder.build_payload(options, LinuxAdapter())
+    return payload_builder.build_payload(
+        options, LinuxAdapter(readelf=options.readelf)
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> BuildOptions:

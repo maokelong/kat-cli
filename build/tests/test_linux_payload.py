@@ -111,6 +111,20 @@ class PayloadBuilderTests(unittest.TestCase):
     def test_windows_private_python_and_requirements_use_locked_inputs(self) -> None:
         self._assert_private_python_and_requirements(build_windows_payload)
 
+    def test_platform_adapters_own_platform_specific_options(self) -> None:
+        linux = build_linux_payload.LinuxAdapter(readelf="locked-readelf")
+        self.assertEqual(linux.readelf, "locked-readelf")
+        self.assertEqual(list(linux.extra_input_paths()), [])
+
+        vc_redist = Path("locked-vc-runtime.vsix")
+        windows = build_windows_payload.WindowsAdapter(
+            vc_redist_archive=vc_redist
+        )
+        self.assertEqual(
+            list(windows.extra_input_paths()),
+            [("VC Runtime VSIX", vc_redist)],
+        )
+
     def test_archive_extraction_rejects_traversal_and_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
