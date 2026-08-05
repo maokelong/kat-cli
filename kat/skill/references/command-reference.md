@@ -20,7 +20,7 @@ kat import trace-streamer --database <本地SQLite路径>
 kat import --dataset <Dataset目录> trace-streamer --database <本地SQLite路径>
 ```
 
-只在用户明确要求试用或验证时，用于把一个本地 Trace Streamer SQLite 数据库转为受管理 Dataset。调用前必须说明该入口及依赖它的 PACK 均为 Deprecated 预发布能力，不承诺稳定 Schema、生产兼容性或迁移路径。第二种形式指定结果目录；只有用户明确要求替换该目录时，才可额外传入 `--overwrite-dataset`，因为它会永久删除目录中原有的全部内容。成功后只从 `result.path` 取得规范化 Dataset 路径，随后用该路径执行 `kat inspect --dataset`。
+只在用户明确要求试用或验证时，用于把一个本地 Trace Streamer SQLite 数据库转为受管理 Dataset。调用前必须说明该入口及依赖它的 PACK 均为 Deprecated 预发布能力，不承诺稳定 Schema、生产兼容性或迁移路径。第二种形式指定结果目录；只有用户明确要求替换该目录时，才可额外传入 `--overwrite-dataset`，因为它会永久删除解析后目标中的全部内容，位于目标内的 Source 也不会被检测或保留。调用前必须让用户确认 Source 与 Dataset 目标不重叠。成功后只从 `result.path` 取得规范化 Dataset 路径，随后用该路径执行 `kat inspect --dataset`。
 
 `kat import hitrace --trace <本地.htrace路径>` 虽可用于明确的导入检查，但当前没有完成长期 `.htrace` Bundled Workflow 闭环。不要把导入成功表述为分析完成，也不要把 `.htrace` 请求改写为 Trace Streamer 请求。
 

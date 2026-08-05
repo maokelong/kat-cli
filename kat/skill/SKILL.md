@@ -45,7 +45,7 @@ KAT 只在缺少继续所需的事实，或多个候选会导向实质不同结�
 
 ## 数据放在哪里
 
-KAT 在本机读取 Source 而不改写它，并在 KAT Data Home 创建 Dataset、Run 和日志等结果。Bundled PACK 随 Skill 交付；External PACK 及其测试是受信任的本地代码，不在安全沙箱中运行。
+KAT 在本机读取 Source，并在 KAT Data Home 创建 Dataset、Run 和日志等结果。KAT 不直接改写 Source 内容；但显式指定 Dataset 目标并使用 `--overwrite-dataset` 时，会永久清空解析后的整个目标，且不检测 Source 是否位于目标内。Agent 调用前必须让用户确认 Source 与 Dataset 目标不重叠。Bundled PACK 随 Skill 交付；External PACK 及其测试是受信任的本地代码，不在安全沙箱中运行。
 
 ### 默认位置与更换方式
 
