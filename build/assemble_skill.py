@@ -20,11 +20,6 @@ def _directory(path: Path, label: str) -> Path:
     return path.resolve()
 
 
-def _regular_file(path: Path, label: str) -> None:
-    if not path.is_file() or path.is_symlink():
-        raise AssemblyError(f"{label} file is missing or not a regular file: {path}")
-
-
 def _overlap(left: Path, right: Path) -> bool:
     return left == right or left.is_relative_to(right) or right.is_relative_to(left)
 
@@ -42,14 +37,6 @@ def _validated_inputs(
     windows_payload = _directory(windows_payload, "Windows Platform Payload")
     output = output.resolve()
 
-    _regular_file(skill_source / "SKILL.md", "Skill definition")
-    _directory(skill_source / "agents", "Skill agent metadata")
-    _regular_file(skill_source / "agents" / "openai.yaml", "Skill agent metadata")
-    _directory(skill_source / "references", "Skill references")
-    if not any(path.is_dir() and not path.is_symlink() for path in packs.iterdir()):
-        raise AssemblyError(
-            f"Bundled PACK source contains no PACK directories: {packs}"
-        )
     if output.exists() or output.is_symlink():
         raise AssemblyError(
             f"output already exists; refusing to merge deployment views: {output}"

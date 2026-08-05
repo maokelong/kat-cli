@@ -67,6 +67,14 @@ class AssembleSkillTests(unittest.TestCase):
         arguments.update(overrides)
         return assembly.assemble_skill(**arguments)
 
+    @staticmethod
+    def relative_files(root: Path, prefix: str = "") -> set[str]:
+        return {
+            f"{prefix}{path.relative_to(root).as_posix()}"
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
     def test_assembly_maps_every_source_once_and_never_leaves_partial_output(
         self,
     ) -> None:
@@ -77,22 +85,14 @@ class AssembleSkillTests(unittest.TestCase):
                 for path in self.output.rglob("*")
                 if path.is_file()
             },
-            {
-                "SKILL.md",
-                "agents/openai.yaml",
-                "references/analysis-flow.md",
-                "references/command-reference.md",
-                "references/pack-authoring-flow.md",
-                "references/result-contract.md",
-                "references/unlisted-reference.md",
-                "assets/packs/kat-example/pack.toml",
-                "scripts/targets/linux-x86_64/kat",
-                "scripts/targets/linux-x86_64/python/bin/python3",
-                "scripts/targets/linux-x86_64/python/native.so",
-                "scripts/targets/windows-x86_64/kat.exe",
-                "scripts/targets/windows-x86_64/python/python.exe",
-                "scripts/targets/windows-x86_64/python/native.pyd",
-            },
+            self.relative_files(self.skill)
+            | self.relative_files(self.packs, "assets/packs/")
+            | self.relative_files(
+                self.linux_payload, "scripts/targets/linux-x86_64/"
+            )
+            | self.relative_files(
+                self.windows_payload, "scripts/targets/windows-x86_64/"
+            ),
         )
         shutil.rmtree(self.output)
 
@@ -140,6 +140,49 @@ class AssembleSkillTests(unittest.TestCase):
             self.assemble()
         self.assertFalse(self.output.exists())
         self.assertEqual(list((self.root / "dist").iterdir()), [])
+
+    def test_assembly_treats_input_contents_as_opaque(self) -> None:
+        opaque_skill = self.root / "opaque-skill"
+        opaque_skill.mkdir()
+        (opaque_skill / "arbitrary-skill-content").write_text(
+            "skill", encoding="utf-8"
+        )
+
+        empty_packs = self.root / "empty-packs"
+        empty_packs.mkdir()
+
+        opaque_linux = self.root / "opaque-linux"
+        opaque_linux.mkdir()
+        (opaque_linux / "arbitrary-linux-content").write_text(
+            "linux", encoding="utf-8"
+        )
+
+        opaque_windows = self.root / "opaque-windows"
+        opaque_windows.mkdir()
+        (opaque_windows / "arbitrary-windows-content").write_text(
+            "windows", encoding="utf-8"
+        )
+
+        output = self.root / "opaque-dist/kat"
+        self.assertEqual(
+            self.assemble(
+                skill_source=opaque_skill,
+                packs=empty_packs,
+                linux_payload=opaque_linux,
+                windows_payload=opaque_windows,
+                output=output,
+            ),
+            output.resolve(),
+        )
+        self.assertEqual(
+            self.relative_files(output),
+            {
+                "arbitrary-skill-content",
+                "scripts/targets/linux-x86_64/arbitrary-linux-content",
+                "scripts/targets/windows-x86_64/arbitrary-windows-content",
+            },
+        )
+        self.assertTrue((output / "assets/packs").is_dir())
 
 
 if __name__ == "__main__":
