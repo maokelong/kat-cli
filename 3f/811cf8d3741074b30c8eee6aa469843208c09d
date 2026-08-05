@@ -1,0 +1,37 @@
+kat/skill/SKILL.md
+  s_4729b9383b909c::t_150289cceae670 48
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_4729b9383b909c::t_150289cceae670 7
+  s_4729b9383b909c::t_7050f1f6be8453 17
+kat/skill/references/command-reference.md
+  s_4729b9383b909c::t_150289cceae670 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3f811cf8d3741074b30c8eee6aa469843208c09d",
+  "prompts": {
+    "s_4729b9383b909c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcf79-2a5d-7681-96b4-5220fc99b6aa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 5,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4729b9383b909c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcf79-2a5d-7681-96b4-5220fc99b6aa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
