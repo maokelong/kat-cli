@@ -1,0 +1,67 @@
+# CI-only native Builder adapter. It does not own a versioned release.
+name: CI build Linux Platform Payload
+
+on:
+  workflow_call:
+    inputs:
+      workflow-wheel-artifact:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux-payload:
+    name: Linux x86_64 Payload
+    runs-on: ubuntu-24.04
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64@sha256:b04887b645dde99b9e955aeae3ff4da414992d0bd88259f046295b56361c5614
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Read locked Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          channel=$(/opt/python/cp314-cp314/bin/python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Download the single Workflow Host wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.workflow-wheel-artifact }}
+          path: target/kat/workflow-wheel
+
+      - name: Build locked Payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test -x /opt/python/cp314-cp314/bin/python
+          /opt/python/cp314-cp314/bin/python build/build_linux_payload.py \
+            --output target/kat/payloads/linux-x86_64
+          mkdir -p target/distrib/.payload-inputs
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            --format=posix --pax-option=delete=atime,delete=ctime \
+            -C target/kat/payloads -czf \
+            target/distrib/.payload-inputs/linux-x86_64.tar.gz linux-x86_64
+
+      - name: Upload private Payload input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: artifacts-kat-linux-payload
+          path: target/distrib/
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error

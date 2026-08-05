@@ -1,0 +1,85 @@
+# CI-only native Builder adapter. It does not own a versioned release.
+name: CI build Windows Platform Payload
+
+on:
+  workflow_call:
+    inputs:
+      workflow-wheel-artifact:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows-payload:
+    name: Windows x86_64 Payload
+    runs-on: windows-2025
+
+    steps:
+      - name: Enable long paths
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Read locked Rust toolchain
+        id: rust-toolchain
+        shell: pwsh
+        run: |
+          $channel = python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])'
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: x86_64-pc-windows-msvc
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+
+      - name: Install locked Builder dependencies
+        shell: pwsh
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          --no-deps
+          --only-binary=:all:
+          --require-hashes
+          -r build/requirements-builder.lock.txt
+
+      - name: Download the single Workflow Host wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.workflow-wheel-artifact }}
+          path: target/kat/workflow-wheel
+
+      - name: Build locked Payload
+        shell: pwsh
+        run: |
+          python build/build_windows_payload.py `
+            --output "target/kat/payloads/windows-x86_64"
+          New-Item -ItemType Directory -Force "target/distrib/.payload-inputs" | Out-Null
+          tar -czf "target/distrib/.payload-inputs/windows-x86_64.tar.gz" `
+            -C "target/kat/payloads" windows-x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload private Payload input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: artifacts-kat-windows-payload
+          path: target/distrib/
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error
