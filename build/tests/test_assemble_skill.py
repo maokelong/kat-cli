@@ -184,6 +184,63 @@ class AssembleSkillTests(unittest.TestCase):
         )
         self.assertTrue((output / "assets/packs").is_dir())
 
+    def test_assembly_rejects_absolute_symlink_in_an_input(self) -> None:
+        external = self.root / "external.txt"
+        external.write_text("external", encoding="utf-8")
+        link = self.skill / "external-link"
+        try:
+            link.symlink_to(external)
+        except OSError as error:
+            self.skipTest(f"symbolic links are unavailable: {error}")
+
+        with self.assertRaisesRegex(
+            assembly.AssemblyError, "absolute symbolic link"
+        ):
+            self.assemble()
+        self.assertFalse(self.output.exists())
+
+    def test_assembly_rejects_symlink_that_escapes_its_input(self) -> None:
+        external = self.root / "external.txt"
+        external.write_text("external", encoding="utf-8")
+        link = self.skill / "external-link"
+        try:
+            link.symlink_to(Path("..") / external.name)
+        except OSError as error:
+            self.skipTest(f"symbolic links are unavailable: {error}")
+
+        with self.assertRaisesRegex(
+            assembly.AssemblyError, "escapes its input directory"
+        ):
+            self.assemble()
+        self.assertFalse(self.output.exists())
+
+    def test_assembly_rejects_dangling_symlink_in_an_input(self) -> None:
+        link = self.skill / "missing-link"
+        try:
+            link.symlink_to("missing-target")
+        except OSError as error:
+            self.skipTest(f"symbolic links are unavailable: {error}")
+
+        with self.assertRaisesRegex(assembly.AssemblyError, "dangling symbolic link"):
+            self.assemble()
+        self.assertFalse(self.output.exists())
+
+    def test_assembly_preserves_relative_symlink_within_its_input(self) -> None:
+        target = self.skill / "linked-target.txt"
+        target.write_text("linked", encoding="utf-8")
+        link = self.skill / "linked.txt"
+        try:
+            link.symlink_to(target.name)
+        except OSError as error:
+            self.skipTest(f"symbolic links are unavailable: {error}")
+
+        self.assemble()
+
+        assembled_link = self.output / link.name
+        self.assertTrue(assembled_link.is_symlink())
+        self.assertEqual(assembled_link.readlink(), Path(target.name))
+        self.assertEqual(assembled_link.read_text(encoding="utf-8"), "linked")
+
 
 if __name__ == "__main__":
     unittest.main()

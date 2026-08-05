@@ -24,6 +24,24 @@ def _overlap(left: Path, right: Path) -> bool:
     return left == right or left.is_relative_to(right) or right.is_relative_to(left)
 
 
+def _validate_symlink_closure(root: Path, label: str) -> None:
+    for path in root.rglob("*"):
+        if not path.is_symlink():
+            continue
+        if path.readlink().is_absolute():
+            raise AssemblyError(f"{label} contains an absolute symbolic link: {path}")
+        try:
+            target = path.resolve(strict=True)
+        except FileNotFoundError as error:
+            raise AssemblyError(
+                f"{label} contains a dangling symbolic link: {path}"
+            ) from error
+        if not target.is_relative_to(root):
+            raise AssemblyError(
+                f"{label} contains a symbolic link that escapes its input directory: {path}"
+            )
+
+
 def _validated_inputs(
     skill_source: Path,
     packs: Path,
@@ -48,6 +66,8 @@ def _validated_inputs(
         ("Linux Platform Payload", linux_payload),
         ("Windows Platform Payload", windows_payload),
     )
+    for label, source in sources:
+        _validate_symlink_closure(source, label)
     for index, (left_label, left) in enumerate(sources):
         if _overlap(left, output):
             raise AssemblyError(f"{left_label} overlaps output: {left} and {output}")
