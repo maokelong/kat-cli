@@ -1,0 +1,32 @@
+docs/adr/0056-output-query-uses-trusted-local-runtime.md
+  s_4c9b23b9708f9e::t_2cb2e8e0559ab0 16-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "4b48a182cf53f823c368106c6ac3c28ea0713e0e",
+  "prompts": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

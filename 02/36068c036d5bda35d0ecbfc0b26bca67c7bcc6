@@ -1,0 +1,42 @@
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_8d5fc833dd9bca::t_e67101c1ff6817 7-8
+docs/adr/0052-python-314-annotation-mapping-is-atomic.md
+  s_8d5fc833dd9bca::t_b333f7679ce7e6 1-13
+docs/adr/0051-runtime-failure-preserves-private-owner.md
+  s_8d5fc833dd9bca::t_b333f7679ce7e6 1-13
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8d5fc833dd9bca::t_e67101c1ff6817 7-8
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_8d5fc833dd9bca::t_e67101c1ff6817 8-9
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_8d5fc833dd9bca::t_e67101c1ff6817 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "0236068c036d5bda35d0ecbfc0b26bca67c7bcc6",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 34,
+      "total_deletions": 0,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

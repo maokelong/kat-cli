@@ -1,0 +1,37 @@
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_450935cb905f4d::t_1c4a36f2813dbb 7
+  s_450935cb905f4d::t_46b7788535cdd5 8-10,16,18
+docs/adr/0036-skill-first-cli-results-use-json.md
+  s_450935cb905f4d::t_3c57498dffb022 8-10,44
+docs/adr/0052-kat-run-precedes-legacy-query-removal.md
+  s_450935cb905f4d::t_8e8cf91fbb5238 45-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "94c8dd524dced174491508dc78587aeaa65c5242",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 22,
+      "total_deletions": 16,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

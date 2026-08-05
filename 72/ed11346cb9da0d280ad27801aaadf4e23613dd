@@ -1,0 +1,54 @@
+kat/platform/cli/tests/query.rs
+  s_0606d6478b96b9::t_10982efa818133 157-158
+  s_0606d6478b96b9::t_9acddb8b1ff052 174-181,215,221-224,226-231,445,448-450,452-454
+CONTEXT.md
+  s_0606d6478b96b9::t_45c22fd90e91ef 124
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_0606d6478b96b9::t_b85b6ed6879256 11
+docs/adr/0056-output-query-reads-only-registered-run-facts.md
+  s_0606d6478b96b9::t_542755ba72290e 19-30
+  s_0606d6478b96b9::t_c742295f23f270 1-18
+docs/adr/0008-run-outputs-reach-models-through-bounded-queries.md
+  s_0606d6478b96b9::t_b85b6ed6879256 13
+  s_0606d6478b96b9::t_c742295f23f270 9
+kat/platform/workflow/tests/test_query_process.py
+  s_0606d6478b96b9::t_28e9bec0d3ba28 279-302
+kat/platform/cli/src/query.rs
+  s_0606d6478b96b9::t_78f3c94d530974 116-122,126,147-149,151-155,427-428
+kat/platform/workflow/runtime/query.py
+  s_0606d6478b96b9::t_eb3bc125a41e3b 39-42
+  s_0606d6478b96b9::t_542755ba72290e 93-97,99,137-141,157-183,211,220,223,228-240
+kat/platform/cli/src/lib.rs
+  s_0606d6478b96b9::t_10982efa818133 61-63
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_0606d6478b96b9::t_c742295f23f270 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "72ed11346cb9da0d280ad27801aaadf4e23613dd",
+  "prompts": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 167,
+      "total_deletions": 38,
+      "accepted_lines": 166,
+      "overriden_lines": 1
+    }
+  },
+  "sessions": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

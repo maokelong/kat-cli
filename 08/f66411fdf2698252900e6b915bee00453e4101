@@ -1,0 +1,17 @@
+README.md
+  s_95c368522abdd0::t_c51c656933a0d7 37-38,45-54
+  s_95c368522abdd0::t_6145b392ab2ff3 39-44
+kat/platform/cli/tests/config.rs
+  s_95c368522abdd0::t_c51c656933a0d7 116-123
+docs/adr/0060-file-and-environment-select-kat-data-home.md
+  s_95c368522abdd0::t_35050925562337 13,23,29
+  s_95c368522abdd0::t_a888d9b444dc83 11-12
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_95c368522abdd0::t_a888d9b444dc83 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "08f66411fdf2698252900e6b915bee00453e4101",
+  "prompts": {}
+}

@@ -1,0 +1,20 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3a1b850a9090a538677e6c0ea4ea089447208620",
+  "prompts": {
+    "s_bf56487b799f25": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e60-d41a-7940-ab4d-d8600551d7c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 40,
+      "total_deletions": 4,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    }
+  }
+}

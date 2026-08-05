@@ -1,0 +1,71 @@
+.github/workflows/release-windows-client-smoke.yml
+  s_28f12e292b4bdc::t_cf72d7857124a5 1-61
+CONTEXT.md
+  s_28f12e292b4bdc::t_0b0ead09e7aac1 104,117
+build/tests/test_assemble_skill.py
+  s_28f12e292b4bdc::t_d3f38a86567e07 166-177
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_ac3b6335d8c7a2 23
+README.md
+  s_28f12e292b4bdc::t_ac3b6335d8c7a2 20,22,25-29
+  s_28f12e292b4bdc::t_0f2a29c81cf74f 32,34,36-43,45,47,50-53,56,59-60,63,65,67,69,72-73,76,78,80-82
+  s_28f12e292b4bdc::t_df9d76280bff2e 1,3,5,7,9-14,16,18
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_4dafb62ed97c11 6
+.github/workflows/payload-ci.yml
+  s_28f12e292b4bdc::t_54fd1cbc33fd42 24
+.github/workflows/release-windows-payload.yml
+  s_28f12e292b4bdc::t_54fd1cbc33fd42 6-8,10-11
+Cargo.toml
+  s_28f12e292b4bdc::t_4dafb62ed97c11 12
+build/smoke_skill.py
+  s_28f12e292b4bdc::t_f775d6e2d8a5cc 2
+  s_28f12e292b4bdc::t_2c597e2993125d 10,100-122,185,201-227,269,275
+build/assemble_skill.py
+  s_28f12e292b4bdc::t_d3f38a86567e07 43-52,68-69
+.github/workflows/release-linux-payload.yml
+  s_28f12e292b4bdc::t_54fd1cbc33fd42 6-8,10-11
+dist-workspace.toml
+  s_28f12e292b4bdc::t_54fd1cbc33fd42 1-15
+  s_28f12e292b4bdc::t_872bd28314d031 19-34
+  s_28f12e292b4bdc::t_ac3b6335d8c7a2 16-18
+docs/superpowers/specs/2026-07-17-kat-cutover-release-design.md
+  s_28f12e292b4bdc::t_c0d387f44df46b 26-33
+  s_28f12e292b4bdc::t_0f2a29c81cf74f 34-42
+  s_28f12e292b4bdc::t_ed7e38c8f85222 1-25
+.github/workflows/release-linux-skill-smoke.yml
+  s_28f12e292b4bdc::t_cf72d7857124a5 1-50
+.github/workflows/release-workflow-wheel.yml
+  s_28f12e292b4bdc::t_54fd1cbc33fd42 1-48
+kat/platform/cli/tests/inspect.rs
+  s_28f12e292b4bdc::t_ac3b6335d8c7a2 313-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "282ce32e1ce3a0d9b9b4d5086e2fc8bf67710622",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 387,
+      "total_deletions": 516,
+      "accepted_lines": 387,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
