@@ -1,0 +1,32 @@
+kat/platform/datasource/src/dataset_writer.rs
+  s_1d309a3aaf9927::t_2b94ce9b24d66a 192,222-252,426-459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3f8cc233f36f359bc2c2b561904b0d9345daf5d7",
+  "prompts": {
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 66,
+      "total_deletions": 1,
+      "accepted_lines": 66,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

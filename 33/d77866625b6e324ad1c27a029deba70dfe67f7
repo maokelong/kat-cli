@@ -1,0 +1,33 @@
+crates/kat-rs-datasource/prototypes/restricted-value-tree/BENCHMARK.md
+  s_d3a66d89b006ac::t_24a230fc81bbaa 27-104
+  s_d3a66d89b006ac::t_ab13f82450c533 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "33d77866625b6e324ad1c27a029deba70dfe67f7",
+  "prompts": {
+    "s_d3a66d89b006ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de4a-7b62-ac4f-bdef996f57f9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 104,
+      "total_deletions": 1,
+      "accepted_lines": 104,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d3a66d89b006ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de4a-7b62-ac4f-bdef996f57f9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}
