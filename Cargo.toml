@@ -1,7 +1,5 @@
 [workspace]
 members = [
-    "crates/kat-rs-cli",
-    "crates/kat-rs-daemon",
     "kat/platform/cli",
     "kat/platform/datasource",
 ]
