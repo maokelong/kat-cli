@@ -1,11 +1,8 @@
 # kat-rs
 
-KAT 是面向性能分析的可扩展平台。仓库正从旧的常驻 REST/DataFusion 数据面迁移到
-短命的 `kat` CLI 和受管理的 Workflow Runtime。
-
-当前交付专注于 `kat run` 闭环。旧 `kat-rs` CLI、daemon、REST API 和 Rust
-DataFusion 查询面仍保留为既有代码，但不参与 `kat run`，也没有通过 feature、
-shim 或 wrapper 与新执行面建立兼容关系。它们的直接删除属于后续独立变更。
+KAT 是面向性能分析的可扩展平台。KAT Skill 是唯一面向用户的交付物；其中包含 Skill
+约束、Bundled PACK、短命的 `kat` CLI，以及 Linux/Windows 各自的私有 Workflow Runtime。
+仓库不再交付旧 `kat-rs` CLI、daemon、REST API 或独立的服务端发布面。
 
 项目仍处于 `0.1.0` 的早期演进阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
@@ -30,9 +27,25 @@ deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 
 完整的 Skill 装配和 Platform Payload 发布拓扑遵循
-[ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)，由
-[PR #160](https://github.com/maokelong/kat-rs/pull/160) 跟踪；本 PR 只交付 `kat run`
-纵向闭环。
+[ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
+私有输入，不是可单独下载或兼容的产品。
+
+## 发布
+
+固定版本的 `dist` 读取 [`dist-workspace.toml`](dist-workspace.toml)，并生成
+`.github/workflows/release.yml`。`v<version>` tag 触发 Linux/Windows payload 构建、唯一
+Skill 装配、SHA-256 校验和与 GitHub Release；Release 只公开 `kat-skill-<version>.tar.gz`
+及其校验文件。PR 复用同一生成流水线但只上传临时 artifact，并在 Linux glibc 2.28 和
+Windows runner 上从最终压缩包完成 Import → Inspect → `kat test` → Run → Query 验证。
+
+发布配置和生成 workflow 必须保持同步：
+
+```bash
+dist generate --check
+dist plan
+```
+
+仓库不提交 payload、完整 Skill、wheel 或其他构建产物。
 
 ## Data Home 配置
 
@@ -62,7 +75,9 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 - `kat import trace-streamer`：预发布联调用的 deprecated Trace Streamer 导入。
 - `kat inspect`：列出或检查 PACK。
 - `kat inspect --dataset <directory>`：只读检查 Dataset 与 Parquet Schema。
+- `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：执行一个 Workflow 并原子发布 Run。
+- `kat query`：只读查询已发布 Run 的 `output.*`。
 
 使用外部 PACK 的调用模板如下；`/path/to/example-pack/pack.toml` 的 `name`
 应为 `example`，并声明 `analyze` Workflow：
@@ -85,9 +100,8 @@ kat run \
 ## Run 公开合同
 
 `manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和
-Response 都通过校验后，CLI 才发布 Manifest。当前切片只返回 Run metadata；`kat query`、
-`output.*` 和 Dataset 三态查询属于
-[issue #139](https://github.com/maokelong/kat-rs/issues/139) 的后续独立交付。
+Response 都通过校验后，CLI 才发布 Manifest。`kat query` 只接受已发布 Run，并通过
+`output.<name>` 查询 Manifest 声明的输出；不存在、未发布或损坏的 Run 都明确失败。
 
 PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 
@@ -97,10 +111,6 @@ PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
   Python/PyArrow batch UDF 换算时钟。
 
 `kat_convert_clock(...)` 不注册为 SQL 函数；SQL 直接调用会按未知函数失败。
-
-现存的 `kat-rs-cli`、daemon、REST API 和 Rust DataFusion 查询面与新 `kat run` 彼此
-独立，仍保持原有行为；其移除由
-[issue #176](https://github.com/maokelong/kat-rs/issues/176) 跟踪。
 
 ## 开发验证
 
