@@ -1,0 +1,11 @@
+[package]
+name = "kat"
+version = "0.1.0"
+description = "Kernel AI Kit"
+repository = "https://github.com/maokelong/kat-rs"
+binaries = ["kat"]
+build-command = ["cargo", "build", "--locked", "--release", "--package", "kat-cli"]
+
+[dist]
+dist = true
+display = false
