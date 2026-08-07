@@ -125,9 +125,11 @@ jobs:
               "$cli" inspect --pack kat-openharmony-thread-cpu-time --pack-dir "$pack" >/work/inspect-pack.json
               "$cli" test --pack-dir "$pack" >/work/test.json
               "$cli" run --pack kat-openharmony-thread-cpu-time --workflow thread-cpu-time --pack-dir "$pack" --dataset /work/dataset >/work/run.json
-              run_id=$("$python" -c "import json; print(json.load(open('/work/run.json'))['result']['run_id'])")
+              run_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -c "import json; print(json.load(open('/work/run.json'))['result']['run_id'])")
               "$cli" query --run "$run_id" --sql "SELECT COUNT(*) AS rows FROM output.thread_cpu_time_by_cpu" >/work/query.json
-              "$python" -c "import json; files=['import','inspect-dataset','inspect-pack','test','run','query']; assert all(json.load(open('/work/'+name+'.json'))['status']=='success' for name in files)"
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -c "import json; files=['import','inspect-dataset','inspect-pack','test','run','query']; assert all(json.load(open('/work/'+name+'.json'))['status']=='success' for name in files)"
             '
 
   windows-smoke:
