@@ -34,13 +34,19 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 
 固定版本的 `dist` 读取 [`dist-workspace.toml`](dist-workspace.toml)，并生成
 `.github/workflows/release.yml`。`v<version>` tag 触发 Linux/Windows payload 构建、唯一
-Skill 装配、SHA-256 校验和与 GitHub Release；Release 只公开 `kat-skill-<version>.tar.gz`
-及其校验文件。PR 复用同一生成流水线但只上传临时 artifact，并在 Linux glibc 2.28 和
-Windows runner 上从最终压缩包完成 Import → Inspect → `kat test` → Run → Query 验证。
+Skill 装配、SHA-256 校验和与 GitHub Release；Release 的用户可安装资产只有
+`kat-skill-<version>.tar.gz` 及其校验文件。`dist-manifest.json` 是 `dist` 管理发布生命周期
+所需的机器可读元数据，不构成 KAT 产品或独立交付物。PR 复用同一生成流水线但只上传临时
+artifact，并在 Linux glibc 2.28 和 Windows runner 上从最终压缩包完成 Import → Inspect →
+`kat test` → Run → Query 验证。
+
+发布版本以 [`release/kat/dist.toml`](release/kat/dist.toml) 为入口；Cargo workspace 与
+Workflow Host 的 package metadata 必须同步为该版本，发布准备阶段会拒绝三者不一致。
 
 发布配置和生成 workflow 必须保持同步：
 
 ```bash
+python -I -B build/verify_release_versions.py
 dist generate --check
 dist plan
 ```
