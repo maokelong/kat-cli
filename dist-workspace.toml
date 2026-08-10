@@ -13,8 +13,8 @@ installers = []
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Where to host releases
 hosting = "github"
-# The final Skill and its checksum are emitted by the custom global-artifact
-# job, so dist must not plan private native payload archives as public assets.
+# dist 0.32 的 extra-artifacts 无法同时保留私有原生载荷、配套校验和与
+# PR smoke，因此不能替代自定义 global job；选型证据见 ADR-0002。
 checksum = "false"
 source-tarball = false
 pr-run-mode = "upload"

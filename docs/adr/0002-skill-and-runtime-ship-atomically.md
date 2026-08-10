@@ -10,6 +10,21 @@ KAT 只把 Skill constraints 作为稳定产品面，并将 Skill 定义、`SKIL
 
 外层发布生命周期由固定版本的 `dist`（原 cargo-dist）管理，包括版本与 tag、原生目标 runner、local/global artifact jobs、校验和、托管和 GitHub Release。各 Platform Payload Builder 作为 local artifact jobs 运行，Skill Assembly Adapter 作为 global artifact job 汇总两个黑盒载荷；KAT 不手改 `dist` 生成的 release workflow，也不在其上重建发布编排器。`dist` 不理解 Skill anatomy，最终路径映射仍只属于薄 Assembly Adapter。当前固定的 `dist 0.32` 也不能发现自定义 global job 产生的 opaque artifact，因此最终 Skill 与配套 SHA-256 文件由同一个 global artifact job 使用标准归档和哈希工具一次产出；`checksum = "false"` 只阻止 `dist` 为私有原生 payload 规划公开校验文件，不改变 `dist` 对 job 顺序、托管和 Release 的所有权。真实 tag 验证同时证明 `dist-manifest.json` 会继续声明未公开的原生 payload 归档，却无法登记最终 opaque Skill，因此它只作为发布计划中间产物使用；生成流水线通过 `dist` 官方 `post-announce` job 核对 tag、commit、最终 Skill、配套 SHA-256 和完整资产集合，再将该 manifest 从 GitHub Release 删除。最终公开资产严格只有 Skill 与配套 SHA-256 文件。`release/kat/dist.toml` 是 KAT 发布版本入口，发布准备阶段必须校验 Cargo workspace 与 Bundled Python Host 的 package metadata 使用同一版本。后续版本若能声明并校验自定义 global artifact，应删除 global artifact 与 manifest 收尾例外，而不增加第二套发布编排。
 
+本决策评估过 `dist 0.32` 的 package-local [`extra-artifacts`](https://axodotdev.github.io/cargo-dist/book/reference/config.html#extra-artifacts)，但它不能同时满足当前边界。计划级最小复现是在 `release/kat/dist.toml` 临时加入以下配置；`build` 在 plan 和 generate 阶段不会执行，因此不需要保留实验 helper：
+
+```toml
+[[dist.extra-artifacts]]
+artifacts = [
+    "../../target/distrib/release/kat-skill-0.1.0.tar.gz",
+    "../../target/distrib/release/kat-skill-0.1.0.tar.gz.sha256",
+]
+build = ["python", "-c", "raise SystemExit('plan-only probe')"]
+```
+
+固定使用 `dist 0.32.0` 运行 `dist plan --output-format=json`，`releases[0].artifacts` 会同时列出上述两个 extra artifacts 与 `kat-x86_64-pc-windows-msvc.zip`、`kat-x86_64-unknown-linux-gnu.tar.xz`；运行 `dist generate` 后，built-in `build-global-artifacts` 与 `custom-payload-ci` 是共同依赖两个 local payload jobs 的并列 job，`host` 再同时等待二者。把 `release/kat/dist.toml` 的 `binaries` 临时改成 `[]` 后重跑，错误为 `This workspace doesn't have anything for dist to Release!`；恢复 `binaries`、把 `dist-workspace.toml` 的 `targets` 临时改成 `[]` 后重跑，错误为 `specified no targets to build!`。这证明不能通过关闭 generic binary/target 计划只保留 extra artifacts，也不能让 custom PR smoke 消费 built-in global job 随后产生的同一个归档。
+
+构建级 probe 让临时 `build` helper 产生上述两个文件后运行 `dist build --artifacts=global --output-format=json`，只证明 extra artifacts 会被登记和复制；它不消除前述完整 plan 与 job 依赖限制。`dist 0.32` 的 [`ExtraArtifact`](https://github.com/axodotdev/cargo-dist/blob/v0.32.0/cargo-dist/src/tasks.rs) 不关联 checksum，配套 SHA-256 仍必须由构建命令自行产生。托管阶段也仍会公开 `dist-manifest.json`，不满足最终 Release 严格只有 Skill 与配套校验文件的资产契约。基于这些约束，当前 custom global job 与 post-announce 收尾是 `dist 0.32` 生命周期内的最小适配，而不是对 extra-artifacts 的重复实现。
+
 第一阶段的完整载荷矩阵覆盖 glibc 2.28 及以上的 Linux x86_64，并把 Windows 10 及以上的 x86_64 客户端（包括 Windows 11）作为预发布候选目标；Windows 正式支持仍以 [Issue #143](https://github.com/maokelong/kat-rs/issues/143) 要求的干净客户端完整验收为准。Linux 下限服从 DataFusion/PyArrow 官方 `manylinux_2_28_x86_64` wheels，不为扩大兼容面自行构建 native wheel；`scripts/targets/linux-x86_64/` 的路径不把 glibc 版本编码成第二层平台身份。Windows 候选下限服从 CPython 与 Rust MSVC target 共同明确支持的客户端范围，不从 `win_amd64` wheel tag 猜测更旧或更细的 OS build 兼容性；Windows 7/8.1 与 Windows Server 第一版均不进入候选矩阵。Windows Platform Payload Builder 根据最终 CPython、KAT CLI 与 native wheels 的实际依赖，从 Microsoft 官方允许再分发的文件集合中确定并随载荷放置 app-local Visual C++ Runtime DLL 闭包，不维护一份脱离产物的固定 DLL 清单。musl、更旧 glibc 和其他不支持的平台由 Skill 在启动 Payload 前明确拒绝，不使用用户环境作为隐式降级路径。
 
 Windows 依赖闭包不使用 CMake `file(GET_RUNTIME_DEPENDENCIES)`：其[文档化的 Windows 搜索顺序](https://cmake.org/cmake/help/latest/command/file.html#get-runtime-dependencies)在依赖文件同目录之后先搜索 `System32` 与 Windows 目录，最后才搜索调用方提供的 `DIRECTORIES`。KAT 必须让 Bundled Python Host 根目录和 native wheel 自有的私有 DLL 目录优先于构建机已安装的系统级 VC Runtime，否则构建可以错误地由 Builder 状态满足、却在干净客户端缺失。[PR #160 的 Round 1 评审修复证据](https://github.com/maokelong/kat-rs/pull/160#round-1-评审修复证据)记录了精确版本、提交、artifact、复现条件与结果；这些是选型证据，不是需要长期维持的架构约束。Windows Payload Builder 按最终 Payload 的目录规则解析依赖，只接受 Payload 已有文件、锁定的 Microsoft 可再分发来源或经文件身份确认的 Windows 系统组件；未解析项与冲突均失败。
