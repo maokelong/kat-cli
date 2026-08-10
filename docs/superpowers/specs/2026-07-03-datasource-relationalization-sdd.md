@@ -980,6 +980,19 @@ KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
   结果：1 passed，0 failed。
 ```
 
+Issue #53 六类 fixed-result plugin 验收矩阵：
+
+| Plugin | Upstream proto | Config / data root | 公开 Import 契约与代表表 | 真实样本状态 |
+| --- | --- | --- | --- | --- |
+| `cpu-plugin` | `types/plugins/cpu_data/{cpu_plugin_config,cpu_plugin_result}.proto` | `CpuConfig` / `CpuData` | `import_decodes_cpu_config_and_data_into_relational_tables`；`cpu_config`、`cpu_data` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+| `memory-plugin` | `types/plugins/memory_data/{memory_plugin_common,memory_plugin_config,memory_plugin_result}.proto` | `MemoryConfig` / `MemoryData` | `import_decodes_memory_config_and_data_into_relational_tables`；`memory_config`、`memory_data`、`memory_data_processesinfo` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+| `process-plugin` | `types/plugins/process_data/{process_plugin_config,process_plugin_result}.proto` | `ProcessConfig` / `ProcessData` | `import_decodes_process_config_and_data_into_relational_tables`；`process_config`、`process_data_processesinfo` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+| `diskio-plugin` | `types/plugins/diskio_data/{diskio_plugin_config,diskio_plugin_result}.proto` | `DiskioConfig` / `DiskioData` | `import_decodes_diskio_config_and_camel_case_data_fields`；`diskio_config`、`diskio_data_stats_data_cpuinfo` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+| `network-plugin` | `types/plugins/network_data/{network_plugin_config,network_plugin_result}.proto` | `NetworkConfig` / `NetworkDatas` | `import_decodes_network_config_and_data_into_relational_tables`；`network_config`、`network_datas_networkinfo` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+| `gpu-plugin` | `types/plugins/gpu_data/{gpu_plugin_config,gpu_plugin_result}.proto` | `GpuConfig` / `GpuData` | `import_decodes_gpu_config_and_data_into_relational_tables`；`gpu_config`、`gpu_data`、`gpu_data_gpu_data_array` | 当前未取得包含该 plugin 的真实 `.htrace`，Issue #53 真实样本验收未完成。 |
+
+矩阵中的六项合成契约均使用与 upstream wire tag 兼容的 payload，经公开 `import_hitrace` 入口验证 config/data typed decode、关系表名和代表字段值。它们不能替代真实采集验证；在取得对应样本前，Issue #53 的真实 trace checklist 保持未完成。
+
 真实数据通过公开 `kat import hitrace`、Linux release 二进制和 WSL2 ext4 输入/输出导入：
 
 | 样本 | 结果 | 现有功能共存证据 |
