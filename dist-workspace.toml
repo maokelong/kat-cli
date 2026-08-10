@@ -22,3 +22,4 @@ build-local-artifacts = false
 plan-jobs = ["./prepare-payload-ci"]
 local-artifacts-jobs = ["./build-linux-payload-ci", "./build-windows-payload-ci"]
 global-artifacts-jobs = ["./payload-ci"]
+post-announce-jobs = ["./finalize-release-assets"]

@@ -1,0 +1,89 @@
+name: Finalize KAT Release Assets
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-release-assets:
+    name: Keep only the public KAT Skill assets
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Verify and finalize the GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN: ${{ inputs.plan }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/kat-release-assets"
+          mkdir -p "$release_dir"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$release_dir"
+
+          manifest="$release_dir/dist-manifest.json"
+          version=$(jq -er '
+            .releases
+            | map(.app_version)
+            | unique
+            | if length == 1 then .[0] else error("release versions are not unique") end
+          ' <<< "$PLAN")
+          test "$(jq -er '
+            .releases
+            | map(.app_version)
+            | unique
+            | if length == 1 then .[0] else error("manifest versions are not unique") end
+          ' "$manifest")" = "$version"
+          test "$(jq -er '.announcement_tag' "$manifest")" = "$RELEASE_TAG"
+
+          archive="kat-skill-${version}.tar.gz"
+          checksum="${archive}.sha256"
+          expected_before=$(jq -cn \
+            --arg archive "$archive" \
+            --arg checksum "$checksum" \
+            '["dist-manifest.json", $archive, $checksum] | sort')
+
+          tag_object=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")
+          tag_type=$(jq -r '.object.type' <<< "$tag_object")
+          tag_sha=$(jq -r '.object.sha' <<< "$tag_object")
+          while [[ "$tag_type" == tag ]]; do
+            tag_object=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")
+            tag_type=$(jq -r '.object.type' <<< "$tag_object")
+            tag_sha=$(jq -r '.object.sha' <<< "$tag_object")
+          done
+          test "$tag_type" = commit
+          test "$tag_sha" = "$GITHUB_SHA"
+
+          release=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets)
+          test "$(jq -c '[.assets[].name] | sort' <<< "$release")" = "$expected_before"
+          (
+            cd "$release_dir"
+            sha256sum -c "$checksum"
+          )
+
+          gh release delete-asset "$RELEASE_TAG" dist-manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --yes
+
+          expected_after=$(jq -cn \
+            --arg archive "$archive" \
+            --arg checksum "$checksum" \
+            '[$archive, $checksum] | sort')
+          actual_after=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '[.assets[].name] | sort')
+          test "$actual_after" = "$expected_after"

@@ -253,3 +253,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  custom-finalize-release-assets:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/finalize-release-assets.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
