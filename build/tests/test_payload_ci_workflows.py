@@ -30,6 +30,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                     ),
                 )
                 self.assertIn("SCCACHE_GHA_ENABLED=true", workflow)
+                self.assertIn("SCCACHE_IGNORE_SERVER_IO_ERROR=1", workflow)
                 self.assertIn("RUSTC_WRAPPER=sccache", workflow)
                 self.assertIn("sccache --show-stats", workflow)
 

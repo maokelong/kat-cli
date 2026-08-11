@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       cold-build:
-        description: Bypass Rust compilation caches for this run
+        description: 本次运行跳过 Rust 编译缓存
         required: false
         type: boolean
         default: false
