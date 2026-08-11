@@ -1,0 +1,42 @@
+.github/workflows/finalize-release-assets.yml
+  s_233db53bb5a9f2::t_40f23ac9749d47 5-53
+  s_233db53bb5a9f2::t_966c217a9bc3e2 1-4
+  s_233db53bb5a9f2::t_50a7710e450b5e 54-89
+README.md
+  s_233db53bb5a9f2::t_966c217a9bc3e2 38-42
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_233db53bb5a9f2::t_966c217a9bc3e2 11
+.github/workflows/release.yml
+  s_233db53bb5a9f2::t_4f27dcbaf3ef74 256-264
+dist-workspace.toml
+  s_233db53bb5a9f2::t_966c217a9bc3e2 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "b376a612528db7190c16a26d217b1a8a20941b98",
+  "prompts": {
+    "s_233db53bb5a9f2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fea9b-fb57-7a13-af65-49ee84bd977a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 105,
+      "total_deletions": 2,
+      "accepted_lines": 105,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_233db53bb5a9f2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fea9b-fb57-7a13-af65-49ee84bd977a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

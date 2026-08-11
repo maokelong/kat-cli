@@ -1,0 +1,40 @@
+.github/workflows/prepare-payload-ci.yml
+  s_27e3f4be0a1c41::t_4dc3d21f9775c5 25-27
+README.md
+  s_27e3f4be0a1c41::t_4dc3d21f9775c5 37-44,49
+build/tests/test_release_versions.py
+  s_27e3f4be0a1c41::t_963a8ebd5c5d49 1-83
+build/verify_release_versions.py
+  s_27e3f4be0a1c41::t_aba0fb8b434dc7 1-64
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_27e3f4be0a1c41::t_4dc3d21f9775c5 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "fa02cadd1060bddf27305e0fcf3abfcbcefe958c",
+  "prompts": {
+    "s_27e3f4be0a1c41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fe958-d9a5-75f1-b3b7-7ab19532f2f3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 160,
+      "total_deletions": 46,
+      "accepted_lines": 160,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_27e3f4be0a1c41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fe958-d9a5-75f1-b3b7-7ab19532f2f3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

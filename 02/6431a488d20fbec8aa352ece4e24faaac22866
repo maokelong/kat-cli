@@ -1,0 +1,61 @@
+build/requirements-workflow-build.lock.txt
+  s_0d074feffda5fd::t_23562c6d6636ad 1-2
+kat/skill/SKILL.md
+  s_0d074feffda5fd::t_5652a19cd81a2e 74
+build/build_workflow_wheel.py
+  s_0d074feffda5fd::t_23562c6d6636ad 92-94
+kat/platform/cli/tests/inspect.rs
+  s_0d074feffda5fd::t_1aac3bb6063825 458-461
+README.md
+  s_0d074feffda5fd::t_5652a19cd81a2e 5,40,77
+Cargo.toml
+  s_0d074feffda5fd::t_5652a19cd81a2e 10
+docs/superpowers/specs/2026-07-17-kat-cutover-release-design.md
+  s_0d074feffda5fd::t_23562c6d6636ad 26,41
+build/smoke_skill.py
+  s_0d074feffda5fd::t_35d04ffc8ace2e 72-74,150-172,200
+dist-workspace.toml
+  s_0d074feffda5fd::t_23562c6d6636ad 16,19,24-28
+build/tests/test_workflow_wheel.py
+  s_0d074feffda5fd::t_23562c6d6636ad 98-102
+.github/workflows/release-workflow-wheel.yml
+  s_0d074feffda5fd::t_23562c6d6636ad 20,23
+kat/platform/workflow/pyproject.toml
+  s_0d074feffda5fd::t_5652a19cd81a2e 7
+.github/workflows/release-prerelease-gate.yml
+  s_0d074feffda5fd::t_23562c6d6636ad 1-29
+kat/platform/datasource/src/hitrace.rs
+  s_0d074feffda5fd::t_a7a2f4d036c6d2 260-261,269-270,284,287-288,303-305,309-310,329,333-335,337-339,341-343,345-347,349-351,717,858,872,878,881,884,890-891,1766,1778,1782,1790-1791
+  s_0d074feffda5fd::t_3eb93a95ff2340 92-96,100,135-136,257-259,262-268,271-283,285-286,289-302,306-308,311-328,330-332,336,340,344,348,369-370,715-716,718-726,845-846,856-857,859-863,868-871,873-877,879-880,882-883,885-889,1251-1262,1767-1777,1779-1781,1783-1789
+build/tests/test_smoke_skill.py
+  s_0d074feffda5fd::t_35d04ffc8ace2e 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "026431a488d20fbec8aa352ece4e24faaac22866",
+  "prompts": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 318,
+      "total_deletions": 14,
+      "accepted_lines": 318,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

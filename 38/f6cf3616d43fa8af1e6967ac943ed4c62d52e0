@@ -1,0 +1,80 @@
+kat/skill/SKILL.md
+  s_d1744aeb41c9d7::t_b3c7ca18dbf8a6 1-100
+docs/superpowers/specs/2026-07-17-kat-dual-platform-payload-design.md
+  s_d1744aeb41c9d7::t_04ff2ae451148c 1-36
+build/tests/test_smoke_skill.py
+  s_d1744aeb41c9d7::t_caeb30671335b0 1-19
+  s_d1744aeb41c9d7::t_3d91023269095a 20-192
+build/tests/test_windows_payload.py
+  s_d1744aeb41c9d7::t_a1d00580a57c4c 1-123
+  s_d1744aeb41c9d7::t_55829c6834b652 124-594
+kat/skill/references/command-reference.md
+  s_d1744aeb41c9d7::t_b3c7ca18dbf8a6 1-64
+build/build_workflow_wheel.py
+  s_d1744aeb41c9d7::t_bac36c6427e00d 1-141
+  s_d1744aeb41c9d7::t_7658caa34bc450 142-163
+build/payload_builder.py
+  s_d1744aeb41c9d7::t_dec14f0fe636a5 55-473
+  s_d1744aeb41c9d7::t_75f5331f0530bb 1-54
+  s_d1744aeb41c9d7::t_55829c6834b652 474-866
+build/smoke_skill.py
+  s_d1744aeb41c9d7::t_8dcdfa8de36484 1-311
+build/tests/test_workflow_wheel.py
+  s_d1744aeb41c9d7::t_c294d4e70d22d2 3-153
+  s_d1744aeb41c9d7::t_f113c7f3760bbe 1-2
+build/requirements-builder.lock.txt
+  s_d1744aeb41c9d7::t_75f5331f0530bb 1-2
+docs/superpowers/specs/2026-07-30-kat-skill-contract-design.md
+  s_d1744aeb41c9d7::t_e1893a1b8870cf 1-121
+.github/workflows/payload-ci.yml
+  s_d1744aeb41c9d7::t_53baa52e95c852 35-282
+  s_d1744aeb41c9d7::t_d97874a4a78a95 1-34
+.github/workflows/release-linux-payload.yml
+  s_d1744aeb41c9d7::t_53baa52e95c852 1-67
+.github/workflows/release-windows-payload.yml
+  s_d1744aeb41c9d7::t_53baa52e95c852 1-85
+build/build_windows_payload.py
+  s_d1744aeb41c9d7::t_75f5331f0530bb 1-562
+kat/skill/references/analysis-flow.md
+  s_d1744aeb41c9d7::t_6c31b29308a870 9-41
+  s_d1744aeb41c9d7::t_b3c7ca18dbf8a6 1-8
+kat/skill/references/result-contract.md
+  s_d1744aeb41c9d7::t_b3c7ca18dbf8a6 1-44
+build/build_linux_payload.py
+  s_d1744aeb41c9d7::t_75f5331f0530bb 1-243
+build/tests/test_linux_payload.py
+  s_d1744aeb41c9d7::t_a1d00580a57c4c 1-72
+  s_d1744aeb41c9d7::t_55829c6834b652 73-379
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_c1974d15c1df67 1-403
+  s_d1744aeb41c9d7::t_b3c7ca18dbf8a6 404-414
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "38f6cf3616d43fa8af1e6967ac943ed4c62d52e0",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 4719,
+      "total_deletions": 215,
+      "accepted_lines": 4719,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
