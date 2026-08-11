@@ -44,6 +44,7 @@ jobs:
         with:
           name: kat-workflow-wheel
           path: target/kat/workflow-wheel/
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
 
@@ -190,6 +191,7 @@ jobs:
         with:
           name: kat-dual-platform-skill
           path: target/kat/kat-dual-platform-skill.tar.gz
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
 
