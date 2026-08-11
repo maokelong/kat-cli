@@ -20,6 +20,7 @@ mod native_hook_table_builders {
 mod query;
 mod record;
 mod sinks;
+mod table_name;
 mod trace_streamer;
 
 use std::{
@@ -45,6 +46,8 @@ pub use query::TraceDatasource;
 pub use trace_streamer::{
     ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
 };
+
+pub(crate) use table_name::valid_table_name;
 
 #[allow(dead_code)]
 pub(crate) mod proto {
@@ -256,25 +259,6 @@ fn scan_table_candidates(root: &Path) -> Result<Vec<(String, PathBuf)>, DatasetI
     }
     candidates.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(candidates)
-}
-
-pub(crate) fn valid_table_name(name: &str) -> bool {
-    let valid = !name.is_empty()
-        && name.split('_').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        })
-        && name.as_bytes()[0].is_ascii_lowercase();
-    valid && !is_windows_device_name(name)
-}
-
-fn is_windows_device_name(name: &str) -> bool {
-    matches!(name, "con" | "prn" | "aux" | "nul")
-        || (name.len() == 4
-            && (name.starts_with("com") || name.starts_with("lpt"))
-            && matches!(name.as_bytes()[3], b'1'..=b'9'))
 }
 
 fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetInspectionError> {

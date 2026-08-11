@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package fixture.protobuf_source.unsupported.enum_alias_shape;
+
+enum AliasedStatus {
+  option allow_alias = true;
+
+  ALIASED_STATUS_UNSPECIFIED = 0;
+  ALIASED_STATUS_READY = 1;
+  ALIASED_STATUS_RUNNING = 1;
+}
+
+message EnumAliasReachableRoot {
+  AliasedStatus status = 1;
+}
+
+// 绑定该 root 时，AliasedStatus 位于 reachable closure 外，不应阻塞。
+message EnumAliasUnreachableRoot {
+  int32 value = 1;
+}

@@ -1,0 +1,8 @@
+syntax = "proto2";
+
+package fixture.protobuf_source.valid;
+
+message Proto2OptionalRoot {
+  optional int32 count = 1;
+  optional string label = 2;
+}
