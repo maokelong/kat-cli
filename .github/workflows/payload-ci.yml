@@ -64,6 +64,7 @@ jobs:
       - name: Upload the release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          # dist 0.32 会收集 artifacts-*；最终公开输入必须保留此前缀。
           name: artifacts-kat-skill
           path: target/distrib/release/
           compression-level: 0
@@ -71,6 +72,30 @@ jobs:
 
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
+
+  verify-release-artifact:
+    name: Verify the release artifact contract
+    needs: assemble
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download assembled Skill
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: artifacts-kat-skill
+          path: target/kat/artifact
+
+      - name: Verify the exact asset set and SHA-256
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
+        run: |
+          set -euo pipefail
+          cd target/kat/artifact
+          expected=$(printf '%s\n' "$ARTIFACT_NAME" "${ARTIFACT_NAME}.sha256" | sort)
+          actual=$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test "$actual" = "$expected"
+          sha256sum -c "${ARTIFACT_NAME}.sha256"
 
   linux-smoke:
     name: Linux release Skill full-loop smoke
@@ -133,11 +158,21 @@ jobs:
             '
 
   windows-smoke:
-    name: Windows release Skill full-loop smoke
+    name: Windows candidate - builder-image archive smoke
     needs: assemble
     runs-on: windows-2025
 
     steps:
+      - name: Record the candidate validation boundary
+        shell: pwsh
+        run: |
+          @'
+          ### Windows candidate validation boundary
+
+          当前 job 运行在 GitHub 托管的 `windows-2025` builder image，只验证候选归档的装配、重定位、Bundled Python 选择与操作链路。
+          它不构成 #143 要求的 clean-client 验收，也不证明 Windows 10/11 客户端无需系统级 VC Runtime。
+          '@ | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -149,7 +184,7 @@ jobs:
           name: artifacts-kat-skill
           path: target/kat/artifact
 
-      - name: Relocate and verify Import to Query
+      - name: Relocate and verify Import to Query on the builder image
         shell: pwsh
         env:
           ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}

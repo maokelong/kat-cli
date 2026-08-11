@@ -1,8 +1,9 @@
 # kat-rs
 
 KAT 是面向性能分析的可扩展平台。KAT Skill 是唯一面向用户的交付物；其中包含 Skill
-约束、Bundled PACK、短命的 `kat` CLI，以及 Linux/Windows 各自的私有 Workflow Runtime。
-仓库不再交付旧 `kat-rs` CLI、daemon、REST API 或独立的服务端发布面。
+约束、Bundled PACK、短命的 `kat` CLI、Linux x86_64 私有 Workflow Runtime，以及
+Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、daemon、REST API
+或独立的服务端发布面。
 
 项目仍处于 `0.1.0` 的早期演进阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
@@ -38,8 +39,11 @@ Skill 装配、SHA-256 校验和与 GitHub Release；Release 的用户可安装�
 `kat-skill-<version>.tar.gz` 及其校验文件。固定的 `dist 0.32` 不能在发布计划中登记自定义
 global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公开的原生 payload
 归档；生成流水线因此在 `post-announce` 阶段校验最终资产和 SHA-256，再从 Release 删除该
-计划中间产物。PR 复用同一生成流水线但只上传临时 artifact，并在 Linux glibc 2.28 和
-Windows runner 上从最终压缩包完成 Import → Inspect → `kat test` → Run → Query 验证。
+计划中间产物。PR 复用同一生成流水线但只上传临时 artifact。Linux glibc 2.28 job 从最终
+压缩包完成发布资格闭环；Windows job 只在 GitHub 托管的 `windows-2025` builder image
+验证候选归档的装配、重定位、Bundled Python 选择及 Import → Inspect → `kat test` →
+Run → Query 机制链路。该 Windows smoke 不构成无系统级 VC Runtime 的干净客户端验收，
+Windows 10/11 正式支持仍由 [Issue #143](https://github.com/maokelong/kat-rs/issues/143) 跟踪。
 
 发布版本以 [`release/kat/dist.toml`](release/kat/dist.toml) 为入口；Cargo workspace 与
 Workflow Host 的 package metadata 必须同步为该版本，发布准备阶段会拒绝三者不一致。
@@ -51,6 +55,9 @@ python -I -B build/verify_release_versions.py
 dist generate --check
 dist plan
 ```
+
+PR 中生成的 Release workflow 同样会运行固定版本的 `dist plan`；`dist 0.32` 会在该命令
+开始时拒绝过期或被手改的生成 workflow，不另建一套 YAML 同步门禁。
 
 仓库不提交 payload、完整 Skill、wheel 或其他构建产物。
 

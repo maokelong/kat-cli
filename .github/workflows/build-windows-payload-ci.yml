@@ -78,6 +78,7 @@ jobs:
       - name: Upload private Payload input
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          # dist 0.32 会收集 artifacts-*；私有 local input 必须避开此前缀。
           name: kat-windows-payload
           path: target/distrib/
           include-hidden-files: true
