@@ -67,6 +67,7 @@ jobs:
           # dist 0.32 会收集 artifacts-*；最终公开输入必须保留此前缀。
           name: artifacts-kat-skill
           path: target/distrib/release/
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
 

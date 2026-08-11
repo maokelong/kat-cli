@@ -35,6 +35,7 @@ jobs:
         with:
           name: kat-workflow-wheel
           path: target/kat/workflow-wheel/
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
 

@@ -82,5 +82,6 @@ jobs:
           name: kat-windows-payload
           path: target/distrib/
           include-hidden-files: true
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
