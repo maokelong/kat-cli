@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::{
-    decode::profiler::{ProfilerPayloadRoute, ProfilerPluginRoute},
+    decode::profiler::{ProfilerPayloadRoute, ProfilerPluginRoute, roots::FTRACE_ROOT_MESSAGE},
     domains::ftrace::{FtraceCaptureRecord, FtraceEventRecord, FtraceRecord},
     formats::hitrace::profiler::{PluginEnvelope, decode_payload},
     proto::TracePluginResult,
@@ -16,7 +16,7 @@ pub(super) const FTRACE_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
     plugin_name: FTRACE_PLUGIN_NAME,
     config: None,
     data: ProfilerPayloadRoute {
-        root_message: "TracePluginResult",
+        root_message: FTRACE_ROOT_MESSAGE,
         emit: emit_ftrace_payload,
     },
 };

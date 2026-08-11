@@ -4,6 +4,8 @@ mod ftrace_arrow_codegen;
 mod native_hook_arrow_codegen;
 #[path = "build/native_hook_domain_codegen.rs"]
 mod native_hook_domain_codegen;
+#[path = "src/decode/profiler/roots.rs"]
+mod profiler_roots;
 #[path = "build/proto_codegen.rs"]
 mod proto_codegen;
 #[path = "build/relational_descriptor_codegen.rs"]
@@ -17,6 +19,8 @@ use native_hook_domain_codegen::{
     NATIVE_HOOK_PROTO_FILES, NATIVE_HOOK_RESULT_PROTO, generate_native_hook_records,
     native_hook_events_from_descriptor,
 };
+use profiler_roots::RELATIONAL_ROOT_MESSAGES;
+use prost_reflect::DescriptorPool;
 use proto_codegen::{bytes_field_paths, message_in_file, messages_in_file};
 use relational_descriptor_codegen::generate_relational_descriptors;
 
@@ -67,7 +71,10 @@ fn main() {
     let fds = config
         .load_fds(&proto_files, &["proto"])
         .expect("proto descriptors load");
-    generate_relational_descriptors(&fds).expect("relational descriptors are written");
+    let descriptor_pool = DescriptorPool::from_file_descriptor_set(fds.clone())
+        .expect("proto descriptor pool builds");
+    generate_relational_descriptors(&descriptor_pool, RELATIONAL_ROOT_MESSAGES)
+        .expect("relational descriptors are written");
     let event_families = FTRACE_EVENT_FAMILIES
         .iter()
         .map(|spec| EventFamily {
@@ -94,7 +101,7 @@ fn main() {
         config.type_attribute(package, SERDE_DERIVE);
         config.enum_attribute(package, CLIPPY_ENUM_VARIANT_NAMES);
     }
-    for field_path in bytes_field_paths(&fds) {
+    for field_path in bytes_field_paths(&descriptor_pool) {
         config.field_attribute(field_path, "#[serde(with = \"serde_bytes\")]");
     }
     config

@@ -390,13 +390,13 @@ fn decoded_payload_uses_proto_root_as_relational_identity() {
     assert!(plan_exec.contains("payload.root_message"));
     assert_eq!(
         native_hook
-            .matches("root_message: \"NativeHookConfig\"")
+            .matches("root_message: NATIVE_HOOK_CONFIG_ROOT_MESSAGE")
             .count(),
         2
     );
     assert_eq!(
         native_hook
-            .matches("root_message: \"BatchNativeHookData\"")
+            .matches("root_message: NATIVE_HOOK_DATA_ROOT_MESSAGE")
             .count(),
         2
     );
@@ -482,6 +482,14 @@ fn build_script_splits_codegen_by_responsibility() {
         "build.rs should compile the same descriptor data after custom codegen"
     );
     assert!(
+        build_rs.contains("DescriptorPool::from_file_descriptor_set"),
+        "build.rs should use prost-reflect for descriptor traversal"
+    );
+    assert!(
+        build_rs.contains("RELATIONAL_ROOT_MESSAGES"),
+        "relational descriptor generation should be scoped by registered payload roots"
+    );
+    assert!(
         build_rs.contains("PROFILER_ENVELOPE_PROTO_FILES"),
         "build.rs should keep profiler envelope proto inputs explicit"
     );
@@ -497,6 +505,24 @@ fn build_script_splits_codegen_by_responsibility() {
         !build_rs.contains("proto/services/"),
         "offline datasource should not source profiler envelope from service/RPC proto paths"
     );
+}
+
+#[test]
+fn relational_column_plans_are_compiled_only_for_selected_tables() {
+    let plan_exec = source("src/relational/plan_exec.rs");
+    let table_data = source("src/relational/table_data.rs");
+
+    assert!(plan_exec.contains("columns: Vec<ColumnSpec>"));
+    assert!(!table_data.contains("MESSAGE_COLUMN_PLANS"));
+    assert!(!table_data.contains("build_message_column_plans"));
+}
+
+#[test]
+fn relational_plan_rejects_output_table_collisions_before_execution() {
+    let plan_exec = source("src/relational/plan_exec.rs");
+
+    assert!(plan_exec.contains("reject_output_table_collisions(&plan_items)?"));
+    assert!(plan_exec.contains("map to the same Dataset table"));
 }
 
 #[test]

@@ -3,7 +3,10 @@
 use anyhow::Result;
 
 use crate::{
-    decode::profiler::{ProfilerPayloadRoute, ProfilerPluginRoute},
+    decode::profiler::{
+        ProfilerPayloadRoute, ProfilerPluginRoute,
+        roots::{NATIVE_HOOK_CONFIG_ROOT_MESSAGE, NATIVE_HOOK_DATA_ROOT_MESSAGE},
+    },
     domains::native_hook::{
         NativeHookEventContext, NativeHookRecord, native_hook_record_from_event,
     },
@@ -18,11 +21,11 @@ const HOOK_DAEMON_PLUGIN_NAME: &str = "hookdaemon";
 pub(super) const NATIVE_HOOK_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
     plugin_name: NATIVE_HOOK_PLUGIN_NAME,
     config: Some(ProfilerPayloadRoute {
-        root_message: "NativeHookConfig",
+        root_message: NATIVE_HOOK_CONFIG_ROOT_MESSAGE,
         emit: emit_native_hook_config,
     }),
     data: ProfilerPayloadRoute {
-        root_message: "BatchNativeHookData",
+        root_message: NATIVE_HOOK_DATA_ROOT_MESSAGE,
         emit: emit_native_hook_data,
     },
 };
@@ -30,11 +33,11 @@ pub(super) const NATIVE_HOOK_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
 pub(super) const HOOK_DAEMON_ROUTE: ProfilerPluginRoute = ProfilerPluginRoute {
     plugin_name: HOOK_DAEMON_PLUGIN_NAME,
     config: Some(ProfilerPayloadRoute {
-        root_message: "NativeHookConfig",
+        root_message: NATIVE_HOOK_CONFIG_ROOT_MESSAGE,
         emit: emit_native_hook_config,
     }),
     data: ProfilerPayloadRoute {
-        root_message: "BatchNativeHookData",
+        root_message: NATIVE_HOOK_DATA_ROOT_MESSAGE,
         emit: emit_native_hook_data,
     },
 };

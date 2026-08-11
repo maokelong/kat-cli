@@ -32,6 +32,8 @@ pub(super) struct CompiledRootPlan {
 pub(super) struct CompiledPlanItem {
     pub(super) item: ExpansionPlanItem,
     pub(super) parent_table_by_segment: Vec<Option<String>>,
+    columns: Vec<ColumnSpec>,
+    field: Option<&'static FieldDescriptor>,
     needs_parent_index: bool,
 }
 
@@ -73,7 +75,10 @@ impl CompiledRootPlan {
     pub(super) fn new(root_message: &str) -> Result<Self> {
         let plan_items = expansion_plan_for_roots(&[root_message])?;
         reject_output_table_collisions(&plan_items)?;
-        let mut items: Vec<_> = plan_items.into_iter().map(CompiledPlanItem::new).collect();
+        let mut items = plan_items
+            .into_iter()
+            .map(CompiledPlanItem::new)
+            .collect::<Result<Vec<_>>>()?;
         let parent_index_tables = items
             .iter()
             .filter_map(|item| item.item.parent_table.as_ref())
@@ -112,16 +117,31 @@ fn reject_output_table_collisions(items: &[ExpansionPlanItem]) -> Result<()> {
 }
 
 impl CompiledPlanItem {
-    fn new(item: ExpansionPlanItem) -> Self {
+    fn new(item: ExpansionPlanItem) -> Result<Self> {
         let mut parent_table_by_segment = vec![None; item.source_path.len()];
         if let Some(last) = parent_table_by_segment.last_mut() {
             *last = item.parent_table.clone();
         }
-        Self {
+        let (columns, field) = match item.rule {
+            ExpansionRule::RootRecord | ExpansionRule::RepeatedMessage => {
+                (table_columns(&item.source_message)?, None)
+            }
+            ExpansionRule::RepeatedScalar | ExpansionRule::OneofVariant => {
+                let field = leaf_field_descriptor(&item.source_message, &item)?;
+                let columns = match field.field_type {
+                    ProtoFieldType::Message(source_message) => table_columns(source_message)?,
+                    ProtoFieldType::Scalar(_) => value_columns(field)?,
+                };
+                (columns, Some(field))
+            }
+        };
+        Ok(Self {
             item,
             parent_table_by_segment,
+            columns,
+            field,
             needs_parent_index: false,
-        }
+        })
     }
 
     fn optional_child_field(&self) -> Option<(&[String], &str)> {
@@ -273,16 +293,9 @@ impl CompiledOneofVariantGroup {
         self.first_item_index = self.first_item_index.min(item_index);
         self.item_indexes.insert(item_index);
 
-        let field = leaf_field_descriptor(&compiled_item.item.source_message, &compiled_item.item)
-            .expect("oneof variant field descriptor resolves");
-        let columns = match field.field_type {
-            ProtoFieldType::Message(source_message) => {
-                table_columns(source_message).expect("oneof message columns resolve")
-            }
-            ProtoFieldType::Scalar(_) => {
-                value_columns(field).expect("oneof scalar columns resolve")
-            }
-        };
+        let field = compiled_item
+            .field
+            .expect("oneof variant field descriptor is compiled");
         let variant_index = self.variants.len();
         self.variant_by_json_key
             .insert(field_name.to_string(), variant_index);
@@ -291,7 +304,7 @@ impl CompiledOneofVariantGroup {
         self.variants.push(CompiledOneofVariant {
             item: compiled_item.item.clone(),
             field,
-            columns,
+            columns: compiled_item.columns.clone(),
             needs_parent_index: compiled_item.needs_parent_index,
         });
     }
@@ -421,15 +434,21 @@ impl RelationalDatasetSink {
         compiled_item: &CompiledPlanItem,
     ) -> Result<()> {
         let item = &compiled_item.item;
-        let columns = table_columns(&item.source_message)?;
         let row_index = push_row_to_table(
             &self.table_writer,
             &mut self.tables,
             item,
-            &columns,
+            &compiled_item.columns,
             source_index,
             None,
-            |builders| append_table_values(builders, &payload.message, &item.source_message),
+            |builders| {
+                append_table_values(
+                    builders,
+                    &payload.message,
+                    &item.source_message,
+                    &compiled_item.columns,
+                )
+            },
         )?;
         if compiled_item.needs_parent_index {
             self.parent_indexes
@@ -447,8 +466,6 @@ impl RelationalDatasetSink {
         compiled_item: &CompiledPlanItem,
     ) -> Result<()> {
         let item = &compiled_item.item;
-        let field = leaf_field_descriptor(&item.source_message, item)?;
-        let columns = value_columns(field)?;
         let table_writer = &self.table_writer;
         let tables = &mut self.tables;
         let parent_indexes = &self.parent_indexes;
@@ -463,10 +480,12 @@ impl RelationalDatasetSink {
                     table_writer,
                     tables,
                     item,
-                    &columns,
+                    &compiled_item.columns,
                     source_index,
                     source.parent_index,
-                    |builders| append_value_row_values(builders, source.value, field),
+                    |builders| {
+                        append_value_row_values(builders, source.value, &compiled_item.columns)
+                    },
                 )?;
                 Ok(())
             },
@@ -482,7 +501,6 @@ impl RelationalDatasetSink {
         compiled_item: &CompiledPlanItem,
     ) -> Result<()> {
         let item = &compiled_item.item;
-        let columns = table_columns(&item.source_message)?;
         let table_writer = &self.table_writer;
         let tables = &mut self.tables;
         let parent_indexes = &self.parent_indexes;
@@ -498,10 +516,17 @@ impl RelationalDatasetSink {
                     table_writer,
                     tables,
                     item,
-                    &columns,
+                    &compiled_item.columns,
                     source_index,
                     source.parent_index,
-                    |builders| append_table_values(builders, source.value, &item.source_message),
+                    |builders| {
+                        append_table_values(
+                            builders,
+                            source.value,
+                            &item.source_message,
+                            &compiled_item.columns,
+                        )
+                    },
                 )?;
                 if compiled_item.needs_parent_index {
                     pending_parent_indexes.push((source.ordinals, row_index));
@@ -549,10 +574,10 @@ impl RelationalDatasetSink {
                     source.parent_index,
                     |builders| match variant.field.field_type {
                         ProtoFieldType::Message(source_message) => {
-                            append_table_values(builders, value, source_message)
+                            append_table_values(builders, value, source_message, &variant.columns)
                         }
                         ProtoFieldType::Scalar(_) => {
-                            append_value_row_values(builders, value, variant.field)
+                            append_value_row_values(builders, value, &variant.columns)
                         }
                     },
                 )?;
@@ -583,13 +608,9 @@ impl RelationalDatasetSink {
         compiled_item: &CompiledPlanItem,
     ) -> Result<()> {
         let item = &compiled_item.item;
-        let field = leaf_field_descriptor(&item.source_message, item)?;
-        let columns = match field.field_type {
-            super::descriptor::ProtoFieldType::Message(source_message) => {
-                table_columns(source_message)?
-            }
-            super::descriptor::ProtoFieldType::Scalar(_) => value_columns(field)?,
-        };
+        let field = compiled_item
+            .field
+            .expect("oneof variant field descriptor is compiled");
         let table_writer = &self.table_writer;
         let tables = &mut self.tables;
         let parent_indexes = &self.parent_indexes;
@@ -605,15 +626,20 @@ impl RelationalDatasetSink {
                     table_writer,
                     tables,
                     item,
-                    &columns,
+                    &compiled_item.columns,
                     source_index,
                     source.parent_index,
                     |builders| match field.field_type {
                         super::descriptor::ProtoFieldType::Message(source_message) => {
-                            append_table_values(builders, source.value, source_message)
+                            append_table_values(
+                                builders,
+                                source.value,
+                                source_message,
+                                &compiled_item.columns,
+                            )
                         }
                         super::descriptor::ProtoFieldType::Scalar(_) => {
-                            append_value_row_values(builders, source.value, field)
+                            append_value_row_values(builders, source.value, &compiled_item.columns)
                         }
                     },
                 )?;

@@ -13,6 +13,7 @@ datafusion.workspace = true
 directories.workspace = true
 dunce.workspace = true
 futures.workspace = true
+heck.workspace = true
 log.workspace = true
 memmap2.workspace = true
 parquet.workspace = true
@@ -29,7 +30,9 @@ url.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
+heck.workspace = true
 prost-build.workspace = true
+prost-reflect.workspace = true
 prost-types.workspace = true
 protoc-bin-vendored.workspace = true
 

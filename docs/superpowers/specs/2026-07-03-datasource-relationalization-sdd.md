@@ -1,6 +1,6 @@
 # kat-datasource Profiler Payload 关系化架构 SDD
 
-状态：PR 候选设计；本文随当前 PR 的 one-pass 实现接受评议，验证证据见第 11.5 节。
+状态：当前 PR 的实现规范（待合并）；本文描述本 PR 提交 review 的完整 one-pass 实现，验证证据见第 11.5 节。
 
 ## 1. 背景与问题
 
@@ -89,7 +89,9 @@ CLI 继续调用原有 `import_hitrace`。`materializer.rs` 先按 ADR 0020 打�
 
 ### 4.3 Build-time descriptor 摘要
 
-`build/relational_descriptor_codegen.rs` 从项目使用的 proto descriptor 生成精简 Rust 数据。摘要只保留关系化需要的信息：
+`build.rs` 使用 `prost-reflect::DescriptorPool` 读取项目使用的 proto descriptor，`build/relational_descriptor_codegen.rs` 再生成精简 Rust 数据。reflection 只存在于 build-time，不进入 runtime decode 或关系化执行路径。
+
+descriptor 生成以 `decode/profiler/roots.rs` 中的 typed decoder root 清单为入口，只收集这些 root 通过字段类型可达的 message 和 enum。未注册的 profiler envelope 或其他未被关系化 decode 产出的 message 不进入摘要，也不会触发关系化结构限制。摘要只保留关系化需要的信息：
 
 ```text
 message package / name
@@ -103,14 +105,14 @@ oneof group
 
 runtime 不读取 `.proto` 文件，也不解析完整 `FileDescriptorSet`。descriptor 摘要负责说明“数据结构是什么”，转换规则负责说明“这种结构如何成为列或表”。
 
-当前 plan 使用 proto message 短名索引 descriptor。codegen 会拒绝短名冲突，不能在两个 package 或 nested path 中静默绑定到错误 message。
+当前 plan 使用 proto message 短名索引 descriptor。codegen 会在注册 root 可达范围内拒绝短名冲突，不能在两个 package 或 nested path 中静默绑定到错误 message；map 等未支持结构也只在进入该可达范围时拒绝。
 
 descriptor 提取层评估过以下实现：
 
 | 方案 | 评估状态 | 结论 |
 | --- | --- | --- |
-| 直接读取 `prost_types::FileDescriptorSet` | 当前实现 | 不增加额外 build dependency，输出满足当前计划需要。 |
-| build-time `prost-reflect::DescriptorPool` | 已做独立代码实验 | 生成的 `relational_descriptors.rs` 与当前实现逐字节一致，codegen 净减少 86 行；只影响 build-time，不进入 runtime。它有简化价值，但不改变功能或运行时性能，本 PR 不顺手替换，后续可作为独立 cleanup。 |
+| 直接读取 `prost_types::FileDescriptorSet` | 已替换 | 能生成所需摘要，但需要手写 nested message、enum、oneof、bytes 和类型解析。 |
+| build-time `prost-reflect::DescriptorPool` | 当前实现 | 使用成熟 descriptor API，并按共享 typed root 清单裁剪可达结构；只影响 build-time，不进入 runtime。 |
 | runtime `prost-reflect::DynamicMessage` | 未做性能实验 | 会把 typed prost decode 主路径改成 runtime reflection，改变 4.4 的边界，不作为 descriptor codegen 的同层替代方案。 |
 
 ### 4.4 Decode 边界
@@ -746,7 +748,9 @@ RepeatedMessage
 3. 把 oneof group 的 variants 放入同一个 dispatch。
 4. 缓存每张表的列 schema。
 
-这一步只整理 descriptor path 和执行顺序，不写入 plugin 名、event 名或业务判断。
+列 schema 在 `CompiledPlanItem` 构造时，仅为当前 root plan 中真实存在的输出表生成。执行阶段直接复用已编译的 `ColumnSpec`，不会为全部 descriptor 建立全局 message 列缓存，也不会在逐行路径中重新派生 schema。
+
+这一步只整理 descriptor path、列 schema 和执行顺序，不写入 plugin 名、event 名或业务判断。
 
 每个 payload 调用一次 `emit_payload`：
 
@@ -863,6 +867,7 @@ kat/platform/datasource/
     formats/hitrace/                # 读取 .htrace、解析 envelope、分发 plugin
 
     decode/profiler/                # typed prost decode 和 ProfilerPluginRoute 注册
+      roots.rs                      # route 与 build-time codegen 共享的 typed root 清单
 
     record.rs                       # DecodedPayload / TraceRecord 统一边界
     payload_value.rs                # typed message 到通用 PayloadValue
@@ -981,11 +986,19 @@ where e.event = 'alloc_event';
 
 ```text
 cargo test --workspace --all-targets -- --test-threads=1
-  结果：231 passed，0 failed，3 ignored。
+  结果：237 passed，0 failed，20 ignored。
+
+cargo test -p kat-datasource --all-targets
+  结果：107 passed，0 failed，1 ignored。
 
 cargo test -p kat-datasource --test hitrace_import_contract \
   import_decodes_ -- --nocapture
   结果：6 passed，0 failed。
+
+cargo test -p kat-datasource --test hitrace_import_contract \
+  import_preserves_native_hook_structural_rule_contracts_across_flushes \
+  -- --nocapture
+  结果：1 passed，0 failed。
 
 KAT_REAL_HITRACE=<sample> cargo test -p kat-datasource \
   --test hitrace_import_contract real_openharmony_capture_smoke \
@@ -1020,11 +1033,13 @@ Issue #53 六类 fixed-result plugin 验收矩阵：
 
 | 候选 | 功能与输出 | `kat import hitrace` wall-clock，baseline -> candidate | 峰值 RSS 中位数 | 结论 |
 | --- | --- | --- | --- | --- |
-| build-time `prost-reflect::DescriptorPool` | datasource `--all-targets` 通过；生成文件 SHA-256 均为 `cd7e1018eb02e98db289c8da868e7c50ea6ef57119f8876908a98df53623647f`。 | 未做 runtime A/B；候选生成的 runtime Rust 数据逐字节一致。 | 不适用。 | codegen diff 净减少 86 行；可独立清理，但不与本 PR 功能混入。 |
+| build-time `prost-reflect::DescriptorPool` | datasource `--all-targets` 通过；独立实验生成文件与原实现逐字节一致。 | 不进入 runtime，不做性能 A/B。 | 不适用。 | 已采用；同时按共享 typed root 清单裁剪 descriptor 摘要。 |
 | `serde_value::Value` 替换 `PayloadValue` | datasource `--all-targets` 通过；主样本五轮及 memory/native_hook 样本逐文件 SHA-256 一致。 | 中位数 7.37s -> 16.72s，劣化 126.9%；mean/stddev 7.402/0.063s -> 16.760/0.100s。 | 240,488 -> 239,808 KiB，约 -0.3%。 | 语义可行但 CPU 成本不可接受，拒绝。 |
 | `serde_arrow::ArrayBuilder` 替换关系表追加后端 | datasource `--all-targets` 通过；主样本五轮及 memory/native_hook 样本逐文件 SHA-256 一致。 | 中位数 7.37s -> 8.76s，劣化 18.9%；mean/stddev 7.598/0.389s -> 8.802/0.322s。 | 241,112 -> 240,668 KiB，约 -0.2%。 | 单遍累计 `estimated_bytes` 后仍稳定变慢，动态整行 Serde 分派不适合当前路径，拒绝。 |
 
 主样本三个实现均输出 9 张表和 64,063,947 bytes。补充形态验证中，`all_memory_full.htrace` 输出 16 张表、48,178,638 bytes，`native_heap_full.htrace` 输出 15 张表、56,424,818 bytes；两个候选均与 baseline 逐文件 SHA-256 一致。`serde_value` 候选虽然让整体实验 diff 净减少 558 行，但性能显著倒退；`serde_arrow` 候选需要新增动态整行序列化适配，不能只按依赖是否现成判断收益。
+
+采用 build-time `DescriptorPool`、注册 root 可达裁剪、`heck` 命名转换和按 `CompiledPlanItem` 编译列 schema 后，datasource `--all-targets` 通过。WSL2/ext4 release 公开 Import 复验中，主样本仍输出 9 张表、64,063,947 bytes，单次 wall-clock 6.97s，峰值 RSS 244,340 KiB；`native_heap_full.htrace` 仍输出 15 张表、56,424,818 bytes；`all_memory_full.htrace` 仍输出 16 张表、48,178,638 bytes。三份产物的全部 dataset 文件均与保留基线逐文件 SHA-256 一致。
 
 使用 Python `datafusion==54.0.0`、`pyarrow==24.0.0` 查询真实样本导入产物：`hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` 的 nested Struct 可读取 `sched_switch_format.prev_comm/next_comm`；`native_heap_full.htrace` 的 `sym_table` / `str_table` 可读取为 Binary，样本行长度分别为 2,848 / 4,504 bytes；`batch_native_hook_data_events_alloc_event` 的 239,493 行全部可通过 `source_index + parent_index` join 回 `batch_native_hook_data_events` 父表。
 

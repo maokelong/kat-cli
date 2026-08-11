@@ -5,8 +5,8 @@ use std::{
 };
 
 use arrow_array::{
-    Array, BooleanArray, Float64Array, Int32Array, Int64Array, StringArray, UInt32Array,
-    UInt64Array,
+    Array, BinaryArray, BooleanArray, Float64Array, Int32Array, Int64Array, StringArray,
+    StructArray, UInt32Array, UInt64Array,
 };
 use kat_datasource::DatasetWriteTarget;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -142,6 +142,8 @@ struct CpuData {
 struct MemoryConfig {
     #[prost(bool, tag = "1")]
     report_process_tree: bool,
+    #[prost(int32, repeated, tag = "3")]
+    sys_meminfo_counters: Vec<i32>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -162,6 +164,16 @@ struct ProcessInfo {
     pid: i32,
     #[prost(string, tag = "2")]
     name: String,
+    #[prost(message, optional, tag = "5")]
+    cpuinfo: Option<CpuInfo>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct CpuInfo {
+    #[prost(double, tag = "1")]
+    cpu_usage: f64,
+    #[prost(int32, tag = "2")]
+    thread_sum: i32,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -236,6 +248,100 @@ struct GpuDataExt {
     boottime: u64,
     #[prost(uint64, tag = "2")]
     gpu_utilisation: u64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookConfigFixture {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookBatchFixture {
+    #[prost(message, repeated, tag = "1")]
+    events: Vec<NativeHookEventFixture>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookEventFixture {
+    #[prost(uint64, tag = "1")]
+    tv_sec: u64,
+    #[prost(uint64, tag = "2")]
+    tv_nsec: u64,
+    #[prost(oneof = "native_hook_event_fixture::Event", tags = "3, 12, 13, 14")]
+    event: Option<native_hook_event_fixture::Event>,
+}
+
+mod native_hook_event_fixture {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub(super) enum Event {
+        #[prost(message, tag = "3")]
+        Alloc(super::NativeHookAllocFixture),
+        #[prost(message, tag = "12")]
+        SymbolTable(super::NativeHookSymbolTableFixture),
+        #[prost(message, tag = "13")]
+        FrameMap(super::NativeHookFrameMapFixture),
+        #[prost(message, tag = "14")]
+        StackMap(super::NativeHookStackMapFixture),
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookAllocFixture {
+    #[prost(int32, tag = "1")]
+    pid: i32,
+    #[prost(int32, tag = "2")]
+    tid: i32,
+    #[prost(uint64, tag = "3")]
+    addr: u64,
+    #[prost(uint64, tag = "4")]
+    size: u64,
+    #[prost(message, repeated, tag = "5")]
+    frame_info: Vec<NativeHookFrameFixture>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookFrameFixture {
+    #[prost(uint64, tag = "1")]
+    ip: u64,
+    #[prost(string, tag = "3")]
+    symbol_name: String,
+    #[prost(string, tag = "4")]
+    file_path: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookStackMapFixture {
+    #[prost(uint32, tag = "1")]
+    id: u32,
+    #[prost(uint64, repeated, tag = "2")]
+    frame_map_id: Vec<u64>,
+    #[prost(uint64, repeated, tag = "3")]
+    ip: Vec<u64>,
+    #[prost(int32, tag = "4")]
+    pid: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookSymbolTableFixture {
+    #[prost(uint32, tag = "1")]
+    file_path_id: u32,
+    #[prost(bytes = "vec", tag = "5")]
+    sym_table: Vec<u8>,
+    #[prost(bytes = "vec", tag = "6")]
+    str_table: Vec<u8>,
+    #[prost(int32, tag = "7")]
+    pid: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct NativeHookFrameMapFixture {
+    #[prost(uint32, tag = "1")]
+    id: u32,
+    #[prost(message, optional, tag = "2")]
+    frame: Option<NativeHookFrameFixture>,
+    #[prost(int32, tag = "3")]
+    pid: i32,
 }
 
 fn cpu_stats(cpu: u64) -> PerCpuStats {
@@ -352,6 +458,32 @@ where
     root
 }
 
+fn import_native_hook(data: &NativeHookBatchFixture) -> tempfile::TempDir {
+    let root = tempdir().expect("tempdir");
+    let source = root.path().join("nativehook.htrace");
+    let dataset = root.path().join("dataset");
+    let envelopes = [
+        Envelope {
+            name: "nativehook_config".to_owned(),
+            data: NativeHookConfigFixture { pid: 4242 }.encode_to_vec(),
+        }
+        .encode_to_vec(),
+        Envelope {
+            name: "nativehook".to_owned(),
+            data: data.encode_to_vec(),
+        }
+        .encode_to_vec(),
+    ];
+    fs::write(&source, profiler_fixture(envelopes)).expect("Hitrace fixture is written");
+    kat_datasource::import_hitrace(
+        &source,
+        DatasetWriteTarget::write_to_empty(&dataset),
+        |_| Ok(()),
+    )
+    .unwrap_or_else(|error| panic!("nativehook payload imports: {error:#}"));
+    root
+}
+
 fn single_row_batch(root: &tempfile::TempDir, table_name: &str) -> arrow_array::RecordBatch {
     let mut table_batches = batches(
         &root
@@ -449,6 +581,7 @@ fn import_decodes_memory_config_and_data_into_relational_tables() {
         "memory-plugin",
         &MemoryConfig {
             report_process_tree: true,
+            sys_meminfo_counters: vec![1, 2],
         },
         &payload,
     );
@@ -473,6 +606,36 @@ fn import_decodes_memory_config_and_data_into_relational_tables() {
             .downcast_ref::<BooleanArray>()
             .expect("report_process_tree is Boolean")
             .value(0)
+    );
+    let counter_batches =
+        batches(&dataset.join("tables/memory_config_sys_meminfo_counters.parquet"));
+    let counter_values = counter_batches
+        .iter()
+        .flat_map(|batch| {
+            let values = batch
+                .column_by_name("value")
+                .expect("counter value")
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .expect("counter value is Int32")
+                .clone();
+            let names = batch
+                .column_by_name("value_name")
+                .expect("counter value_name")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("counter value_name is Utf8")
+                .clone();
+            (0..batch.num_rows())
+                .map(move |index| (values.value(index), names.value(index).to_owned()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        counter_values,
+        [
+            (1, "PMEM_MEM_TOTAL".to_owned()),
+            (2, "PMEM_MEM_FREE".to_owned()),
+        ]
     );
 
     let root_batches = batches(&dataset.join("tables/memory_data.parquet"));
@@ -560,6 +723,10 @@ fn import_decodes_process_config_and_data_into_relational_tables() {
             processesinfo: vec![ProcessInfo {
                 pid: 2468,
                 name: "system-service".to_owned(),
+                cpuinfo: Some(CpuInfo {
+                    cpu_usage: 37.5,
+                    thread_sum: 12,
+                }),
             }],
         },
     );
@@ -593,6 +760,28 @@ fn import_decodes_process_config_and_data_into_relational_tables() {
             .expect("name is Utf8")
             .value(0),
         "system-service"
+    );
+    let data_schema = data.schema();
+    let cpuinfo_field = data_schema
+        .field_with_name("cpuinfo")
+        .expect("cpuinfo schema field");
+    assert!(cpuinfo_field.is_nullable());
+    let cpuinfo = data
+        .column_by_name("cpuinfo")
+        .expect("cpuinfo")
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .expect("cpuinfo is Struct");
+    assert!(!cpuinfo.is_null(0));
+    assert_eq!(
+        cpuinfo
+            .column_by_name("cpu_usage")
+            .expect("cpu_usage")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("cpu_usage is Float64")
+            .value(0),
+        37.5
     );
 }
 
@@ -694,6 +883,16 @@ fn import_decodes_network_config_and_data_into_relational_tables() {
             .value(0),
         "/proc/net/dev"
     );
+    let pid = single_row_batch(&root, "network_config_pid");
+    assert_eq!(
+        pid.column_by_name("value")
+            .expect("pid value")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("pid value is Int32")
+            .value(0),
+        3141
+    );
 
     let data = single_row_batch(&root, "network_datas_networkinfo");
     assert_eq!(
@@ -776,6 +975,196 @@ fn import_decodes_gpu_config_and_data_into_relational_tables() {
             .value(0),
         55
     );
+}
+
+#[test]
+fn import_preserves_native_hook_structural_rule_contracts_across_flushes() {
+    use native_hook_event_fixture::Event;
+
+    let root = import_native_hook(&NativeHookBatchFixture {
+        events: vec![
+            NativeHookEventFixture {
+                tv_sec: 10,
+                tv_nsec: 1,
+                event: Some(Event::Alloc(NativeHookAllocFixture {
+                    pid: 4242,
+                    tid: 7,
+                    addr: 0x1000,
+                    size: 128,
+                    frame_info: vec![NativeHookFrameFixture {
+                        ip: 0x2000,
+                        symbol_name: "allocate".to_owned(),
+                        file_path: "/system/lib/libsample.so".to_owned(),
+                    }],
+                })),
+            },
+            NativeHookEventFixture {
+                tv_sec: 11,
+                tv_nsec: 2,
+                event: Some(Event::StackMap(NativeHookStackMapFixture {
+                    id: 1,
+                    frame_map_id: Vec::new(),
+                    ip: (0..=65_536).map(|value| 0x3000 + value).collect(),
+                    pid: 4242,
+                })),
+            },
+            NativeHookEventFixture {
+                tv_sec: 12,
+                tv_nsec: 3,
+                event: Some(Event::SymbolTable(NativeHookSymbolTableFixture {
+                    file_path_id: 9,
+                    sym_table: vec![0x00, 0xff, 0x41],
+                    str_table: vec![0x10, 0x20],
+                    pid: 4242,
+                })),
+            },
+            NativeHookEventFixture {
+                tv_sec: 13,
+                tv_nsec: 4,
+                event: Some(Event::FrameMap(NativeHookFrameMapFixture {
+                    id: 2,
+                    frame: Some(NativeHookFrameFixture {
+                        ip: 0x4000,
+                        symbol_name: "render".to_owned(),
+                        file_path: "/system/lib/librender.so".to_owned(),
+                    }),
+                    pid: 4242,
+                })),
+            },
+            NativeHookEventFixture {
+                tv_sec: 14,
+                tv_nsec: 5,
+                event: Some(Event::FrameMap(NativeHookFrameMapFixture {
+                    id: 3,
+                    frame: None,
+                    pid: 4242,
+                })),
+            },
+        ],
+    });
+    let dataset = root.path().join("dataset");
+
+    let event_names = batches(&dataset.join("tables/batch_native_hook_data_events.parquet"))
+        .into_iter()
+        .flat_map(|batch| {
+            let values = batch
+                .column_by_name("event")
+                .expect("event variant")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("event variant is Utf8")
+                .clone();
+            (0..batch.num_rows()).map(move |index| values.value(index).to_owned())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        event_names,
+        [
+            "alloc_event",
+            "stack_map",
+            "symbol_tab",
+            "frame_map",
+            "frame_map"
+        ]
+    );
+
+    let alloc = single_row_batch(&root, "batch_native_hook_data_events_alloc_event");
+    assert_eq!(
+        alloc
+            .column_by_name("parent_index")
+            .expect("alloc parent_index")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("alloc parent_index is UInt64")
+            .value(0),
+        0
+    );
+    let frame = single_row_batch(
+        &root,
+        "batch_native_hook_data_events_alloc_event_frame_info",
+    );
+    assert_eq!(
+        frame
+            .column_by_name("parent_index")
+            .expect("frame parent_index")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("frame parent_index is UInt64")
+            .value(0),
+        0
+    );
+
+    let stack_map = single_row_batch(&root, "batch_native_hook_data_events_stack_map");
+    assert_eq!(
+        stack_map
+            .column_by_name("parent_index")
+            .expect("stack_map parent_index")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("stack_map parent_index is UInt64")
+            .value(0),
+        1
+    );
+    let mut expected_row_index = 0_u64;
+    for batch in batches(&dataset.join("tables/batch_native_hook_data_events_stack_map_ip.parquet"))
+    {
+        let values = batch
+            .column_by_name("value")
+            .expect("ip value")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("ip value is UInt64");
+        let parents = batch
+            .column_by_name("parent_index")
+            .expect("ip parent_index")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("ip parent_index is UInt64");
+        let rows = batch
+            .column_by_name("row_index")
+            .expect("ip row_index")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("ip row_index is UInt64");
+        for index in 0..batch.num_rows() {
+            assert_eq!(parents.value(index), 0);
+            assert_eq!(rows.value(index), expected_row_index);
+            assert_eq!(values.value(index), 0x3000 + expected_row_index);
+            expected_row_index += 1;
+        }
+    }
+    assert_eq!(expected_row_index, 65_537);
+
+    let symbol = single_row_batch(&root, "batch_native_hook_data_events_symbol_tab");
+    assert_eq!(
+        symbol
+            .column_by_name("sym_table")
+            .expect("sym_table")
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .expect("sym_table is Binary")
+            .value(0),
+        [0x00, 0xff, 0x41]
+    );
+
+    let frame_maps =
+        batches(&dataset.join("tables/batch_native_hook_data_events_frame_map.parquet"));
+    assert_eq!(
+        frame_maps
+            .iter()
+            .map(|batch| batch.num_rows())
+            .sum::<usize>(),
+        2
+    );
+    let frame_maps = &frame_maps[0];
+    let frame_struct = frame_maps
+        .column_by_name("frame")
+        .expect("frame Struct")
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .expect("frame is Struct");
+    assert!(!frame_struct.is_null(0));
+    assert!(frame_struct.is_null(1));
 }
 
 #[test]

@@ -1,4 +1,6 @@
-use prost_types::{DescriptorProto, FileDescriptorSet, field_descriptor_proto::Type};
+use heck::{ToSnakeCase, ToUpperCamelCase};
+use prost_reflect::{DescriptorPool, Kind};
+use prost_types::{DescriptorProto, FileDescriptorSet};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProtoMessage {
@@ -6,51 +8,12 @@ pub(crate) struct ProtoMessage {
     pub(crate) table_name: String,
 }
 
-pub(crate) fn bytes_field_paths(fds: &FileDescriptorSet) -> Vec<String> {
-    let mut paths = Vec::new();
-    for file in &fds.file {
-        let package = file.package.as_deref().unwrap_or("");
-        for message in &file.message_type {
-            collect_bytes_field_paths(package, "", message, &mut paths);
-        }
-    }
-    paths
-}
-
-fn collect_bytes_field_paths(
-    package: &str,
-    parent_path: &str,
-    message: &DescriptorProto,
-    paths: &mut Vec<String>,
-) {
-    let message_name = message
-        .name
-        .as_deref()
-        .expect("descriptor message should have a name");
-    let message_path = if parent_path.is_empty() {
-        message_name.to_string()
-    } else {
-        format!("{parent_path}.{message_name}")
-    };
-    let qualified_message = if package.is_empty() {
-        message_path.clone()
-    } else {
-        format!("{package}.{message_path}")
-    };
-
-    for field in &message.field {
-        if field.r#type == Some(Type::Bytes as i32) {
-            let field_name = field
-                .name
-                .as_deref()
-                .expect("descriptor field should have a name");
-            paths.push(format!(".{qualified_message}.{field_name}"));
-        }
-    }
-
-    for nested in &message.nested_type {
-        collect_bytes_field_paths(package, &message_path, nested, paths);
-    }
+pub(crate) fn bytes_field_paths(pool: &DescriptorPool) -> Vec<String> {
+    pool.all_messages()
+        .flat_map(|message| message.fields().collect::<Vec<_>>())
+        .filter(|field| matches!(field.kind(), Kind::Bytes))
+        .map(|field| format!(".{}", field.full_name()))
+        .collect()
 }
 
 pub(crate) fn messages_in_file(fds: &FileDescriptorSet, proto_path: &str) -> Vec<ProtoMessage> {
@@ -94,30 +57,11 @@ pub(crate) fn message_type_name(type_name: &str) -> String {
 }
 
 pub(crate) fn snake_to_upper_camel(name: &str) -> String {
-    let mut camel = String::new();
-    for part in name.split('_').filter(|part| !part.is_empty()) {
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            camel.push(first.to_ascii_uppercase());
-            camel.push_str(chars.as_str());
-        }
-    }
-    camel
+    name.to_upper_camel_case()
 }
 
 pub(crate) fn camel_to_snake(name: &str) -> String {
-    let mut snake = String::new();
-    for (index, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                snake.push('_');
-            }
-            snake.push(ch.to_ascii_lowercase());
-        } else {
-            snake.push(ch);
-        }
-    }
-    snake
+    name.to_snake_case()
 }
 
 fn proto_file<'a>(

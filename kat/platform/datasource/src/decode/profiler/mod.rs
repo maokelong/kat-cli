@@ -1,6 +1,7 @@
 pub(crate) mod fixed_result;
 pub(crate) mod ftrace;
 pub(crate) mod native_hook;
+pub(crate) mod roots;
 
 use anyhow::Result;
 use prost::Message;
@@ -61,6 +62,22 @@ pub(crate) fn source_fact_plugin_decoders() -> Vec<Box<dyn PluginDecoder>> {
 }
 
 pub(crate) fn relational_plugin_decoders() -> Vec<Box<dyn PluginDecoder>> {
+    debug_assert!(PROFILER_PLUGIN_ROUTES.iter().all(|route| {
+        route
+            .config
+            .into_iter()
+            .chain(std::iter::once(route.data))
+            .all(|payload| roots::RELATIONAL_ROOT_MESSAGES.contains(&payload.root_message))
+    }));
+    debug_assert!(roots::RELATIONAL_ROOT_MESSAGES.iter().all(|root| {
+        PROFILER_PLUGIN_ROUTES.iter().any(|route| {
+            route
+                .config
+                .into_iter()
+                .chain(std::iter::once(route.data))
+                .any(|payload| payload.root_message == *root)
+        })
+    }));
     PROFILER_PLUGIN_ROUTES
         .iter()
         .map(new_profiler_plugin_decoder)

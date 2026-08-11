@@ -1,5 +1,12 @@
 use prost::Message;
-use std::{collections::BTreeSet, fs};
+use std::fs;
+
+mod profiler_roots {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/decode/profiler/roots.rs"
+    ));
+}
 
 mod relational {
     pub(crate) mod descriptor {
@@ -26,19 +33,11 @@ mod relational {
 
 #[test]
 fn relational_descriptor_contains_current_profiler_roots() {
-    for root in [
-        "CpuData",
-        "MemoryData",
-        "ProcessData",
-        "DiskioData",
-        "NetworkDatas",
-        "GpuData",
-        "TracePluginResult",
-        "BatchNativeHookData",
-        "NativeHookData",
-        "AllocEvent",
-        "Frame",
-    ] {
+    for root in profiler_roots::RELATIONAL_ROOT_MESSAGES
+        .iter()
+        .copied()
+        .chain(["NativeHookData", "AllocEvent", "Frame"])
+    {
         assert!(
             relational::descriptor::RELATIONAL_DESCRIPTORS
                 .iter()
@@ -46,6 +45,16 @@ fn relational_descriptor_contains_current_profiler_roots() {
             "{root} should be available to relational planning"
         );
     }
+}
+
+#[test]
+fn relational_descriptor_excludes_unregistered_envelope_messages() {
+    assert!(
+        relational::descriptor::RELATIONAL_DESCRIPTORS
+            .iter()
+            .all(|message| message.name != "ProfilerPluginData"),
+        "the profiler envelope is not a registered relational payload root"
+    );
 }
 
 #[test]
@@ -163,45 +172,15 @@ fn generated_bytes_are_binary_and_repeated_numbers_remain_arrays() {
 
 #[test]
 fn registered_payload_roots_have_relational_plans() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let route_files = [
-        "src/decode/profiler/fixed_result/mod.rs",
-        "src/decode/profiler/ftrace/mod.rs",
-        "src/decode/profiler/native_hook/mod.rs",
-    ];
-    let mut roots = BTreeSet::new();
-
-    for relative_path in route_files {
-        let source = fs::read_to_string(format!("{manifest_dir}/{relative_path}"))
-            .unwrap_or_else(|error| panic!("failed to read {relative_path}: {error}"));
-        roots.extend(
-            source
-                .lines()
-                .filter_map(route_root_message)
-                .map(str::to_owned),
-        );
-    }
-
-    assert!(
-        !roots.is_empty(),
-        "profiler routes should declare payload roots"
-    );
-    for root in roots {
-        let plan =
-            relational::plan::expansion_plan_for_roots(&[root.as_str()]).unwrap_or_else(|error| {
-                panic!("registered payload root {root} must have a relational plan: {error:#}")
-            });
+    for root in profiler_roots::RELATIONAL_ROOT_MESSAGES {
+        let plan = relational::plan::expansion_plan_for_roots(&[root]).unwrap_or_else(|error| {
+            panic!("registered payload root {root} must have a relational plan: {error:#}")
+        });
         assert!(
             !plan.is_empty(),
             "registered payload root {root} must produce at least one table"
         );
     }
-}
-
-fn route_root_message(line: &str) -> Option<&str> {
-    line.trim()
-        .strip_prefix("root_message: \"")?
-        .strip_suffix("\",")
 }
 
 #[allow(dead_code)]

@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::OnceLock,
-};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
+use heck::{ToSnakeCase, ToUpperCamelCase};
 use smallvec::SmallVec;
 
 use crate::{payload_value::PayloadValue, record::DecodedPayload};
@@ -19,12 +17,6 @@ use super::{
 };
 
 pub(super) type Ordinals = SmallVec<[usize; 4]>;
-
-struct MessageColumnPlan {
-    columns: Vec<ColumnSpec>,
-}
-
-static MESSAGE_COLUMN_PLANS: OnceLock<HashMap<&'static str, MessageColumnPlan>> = OnceLock::new();
 
 pub(super) struct RowSource<'a> {
     pub(super) value: &'a PayloadValue,
@@ -56,7 +48,7 @@ fn collect_present_child_fields(
                 continue;
             }
             fields.insert(field.name().to_string());
-            fields.insert(upper_camel_to_snake(field.name()));
+            fields.insert(field.name().to_snake_case());
         }
         return;
     };
@@ -235,18 +227,19 @@ fn parent_index_for_table(
 }
 
 pub(super) fn table_columns(message_name: &str) -> Result<Vec<ColumnSpec>> {
-    Ok(message_column_plan(message_name)?.columns.clone())
+    let message = message_descriptor(message_name)?;
+    Ok(columns_for_message(message, &mut Vec::new()))
 }
 
 pub(super) fn append_table_values(
     builders: &mut TableColumnBuilders,
     value: &PayloadValue,
     message_name: &str,
+    columns: &[ColumnSpec],
 ) -> Result<(usize, usize)> {
-    let plan = message_column_plan(message_name)?;
     let mut estimated_bytes = 0usize;
 
-    for (column_index, column) in plan.columns.iter().enumerate() {
+    for (column_index, column) in columns.iter().enumerate() {
         let field_value = json_child(value, &column.source_name).unwrap_or(&PayloadValue::Null);
         estimated_bytes += builders
             .append_payload_value(column_index, column, field_value)
@@ -258,15 +251,14 @@ pub(super) fn append_table_values(
             })?;
     }
 
-    Ok((plan.columns.len(), estimated_bytes))
+    Ok((columns.len(), estimated_bytes))
 }
 
 pub(super) fn append_value_row_values(
     builders: &mut TableColumnBuilders,
     value: &PayloadValue,
-    field: &FieldDescriptor,
+    columns: &[ColumnSpec],
 ) -> Result<(usize, usize)> {
-    let columns = value_columns(field)?;
     let mut estimated_bytes = 0usize;
     for (column_index, column) in columns.iter().enumerate() {
         estimated_bytes += builders.append_payload_value(column_index, column, value)?;
@@ -286,7 +278,7 @@ pub(super) fn oneof_variant_object_value_at<'a>(
 }
 
 pub(super) fn serde_oneof_variant_key(field_name: &str) -> String {
-    snake_to_upper_camel(field_name)
+    field_name.to_upper_camel_case()
 }
 
 pub(super) fn json_child<'a>(
@@ -297,14 +289,14 @@ pub(super) fn json_child<'a>(
         return Some(value);
     }
 
-    let snake_case = upper_camel_to_snake(field_name);
+    let snake_case = field_name.to_snake_case();
     if snake_case != field_name
         && let Some(value) = payload_child(value, snake_case.as_str())
     {
         return Some(value);
     }
 
-    let upper_camel = snake_to_upper_camel(field_name);
+    let upper_camel = field_name.to_upper_camel_case();
     payload_child(value, upper_camel.as_str())
 }
 
@@ -356,24 +348,6 @@ pub(super) fn value_columns(field: &FieldDescriptor) -> Result<Vec<ColumnSpec>> 
         ));
     }
     Ok(columns)
-}
-
-fn message_column_plan(message_name: &str) -> Result<&'static MessageColumnPlan> {
-    MESSAGE_COLUMN_PLANS
-        .get_or_init(build_message_column_plans)
-        .get(message_name)
-        .with_context(|| format!("missing message column plan: {message_name}"))
-}
-
-fn build_message_column_plans() -> HashMap<&'static str, MessageColumnPlan> {
-    RELATIONAL_DESCRIPTORS
-        .iter()
-        .map(|message| {
-            let mut stack = Vec::new();
-            let columns = columns_for_message(message, &mut stack);
-            (message.name, MessageColumnPlan { columns })
-        })
-        .collect()
 }
 
 fn columns_for_message(
@@ -445,7 +419,7 @@ fn oneof_variant_names(message: &MessageDescriptor, oneof_name: &str) -> Vec<One
         .filter(|field| field.oneof_name == Some(oneof_name))
         .map(|field| OneofVariantName {
             field_name: field.name,
-            serialized_name: snake_to_upper_camel(field.name),
+            serialized_name: field.name.to_upper_camel_case(),
         })
         .collect()
 }
@@ -469,31 +443,4 @@ fn message_descriptor(name: &str) -> Result<&'static MessageDescriptor> {
         .iter()
         .find(|message| message.name == name)
         .with_context(|| format!("missing relational message descriptor: {name}"))
-}
-
-fn snake_to_upper_camel(value: &str) -> String {
-    let mut output = String::new();
-    for part in value.split('_').filter(|part| !part.is_empty()) {
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            output.push(first.to_ascii_uppercase());
-            output.extend(chars);
-        }
-    }
-    output
-}
-
-fn upper_camel_to_snake(value: &str) -> String {
-    let mut output = String::new();
-    for (index, ch) in value.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                output.push('_');
-            }
-            output.push(ch.to_ascii_lowercase());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
 }

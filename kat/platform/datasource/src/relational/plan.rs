@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result};
+use heck::ToSnakeCase;
 
 use super::{
     descriptor::{MessageDescriptor, ProtoFieldLabel, ProtoFieldType, RELATIONAL_DESCRIPTORS},
@@ -194,7 +195,7 @@ fn message_descriptor(name: &str) -> Option<&'static MessageDescriptor> {
 }
 
 pub(crate) fn table_name(root_message: &str, path: &[String]) -> String {
-    let mut name = camel_to_snake(root_message);
+    let mut name = root_message.to_snake_case();
     let mut message = message_descriptor(root_message);
     for segment in path {
         if message.is_some_and(|message| is_oneof_group(message, segment)) {
@@ -202,7 +203,7 @@ pub(crate) fn table_name(root_message: &str, path: &[String]) -> String {
         }
 
         name.push('_');
-        name.push_str(&camel_to_snake(segment));
+        name.push_str(&segment.to_snake_case());
 
         if let Some(current_message) = message {
             message = current_message
@@ -223,19 +224,4 @@ fn is_oneof_group(message: &MessageDescriptor, segment: &str) -> bool {
         .fields
         .iter()
         .any(|field| field.oneof_name == Some(segment))
-}
-
-fn camel_to_snake(name: &str) -> String {
-    let mut snake = String::new();
-    for (index, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                snake.push('_');
-            }
-            snake.push(ch.to_ascii_lowercase());
-        } else {
-            snake.push(ch);
-        }
-    }
-    snake
 }

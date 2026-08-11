@@ -1,32 +1,31 @@
-use std::{collections::HashMap, env, fmt::Write as _, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    fmt::Write as _,
+    fs,
+    path::PathBuf,
+};
 
-use prost_types::{
-    DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
-    field_descriptor_proto::{Label, Type},
+use heck::ToShoutySnakeCase;
+use prost_reflect::{
+    Cardinality, DescriptorPool, EnumDescriptor, FieldDescriptor, Kind, MessageDescriptor,
 };
 
 const RELATIONAL_DESCRIPTORS_FILE: &str = "relational_descriptors.rs";
 
-pub(crate) fn generate_relational_descriptors(fds: &FileDescriptorSet) -> std::io::Result<()> {
+pub(crate) fn generate_relational_descriptors(
+    pool: &DescriptorPool,
+    root_messages: &[&str],
+) -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set"));
     fs::write(
         out_dir.join(RELATIONAL_DESCRIPTORS_FILE),
-        render_relational_descriptors(fds),
+        render_relational_descriptors(pool, root_messages),
     )
 }
 
-fn render_relational_descriptors(fds: &FileDescriptorSet) -> String {
-    let mut messages = Vec::new();
-    let mut enums = Vec::new();
-    for file in &fds.file {
-        let package = file.package.as_deref().unwrap_or("");
-        for value in &file.enum_type {
-            collect_enum(package, "", value, &mut enums);
-        }
-        for message in &file.message_type {
-            collect_message(package, "", message, &mut messages, &mut enums);
-        }
-    }
+fn render_relational_descriptors(pool: &DescriptorPool, root_messages: &[&str]) -> String {
+    let (messages, enums) = collect_reachable_descriptors(pool, root_messages);
     reject_ambiguous_message_names(&messages);
 
     let mut output = String::new();
@@ -38,27 +37,22 @@ fn render_relational_descriptors(fds: &FileDescriptorSet) -> String {
          };\n\n",
     );
 
-    for enum_descriptor in &enums {
-        render_enum_values(&mut output, enum_descriptor);
+    for descriptor in &enums {
+        render_enum_values(&mut output, descriptor);
     }
 
     for message in &messages {
-        render_fields(&mut output, message, &enums);
+        render_fields(&mut output, message);
     }
 
     output.push_str("pub(crate) const RELATIONAL_DESCRIPTORS: &[MessageDescriptor] = &[\n");
     for message in &messages {
-        let message_name = message
-            .descriptor
-            .name
-            .as_deref()
-            .expect("descriptor message should have a name");
         writeln!(
             output,
             "    MessageDescriptor {{ package: {:?}, name: {:?}, fields: {} }},",
-            message.package,
-            message_name,
-            fields_const_name(message.package, &message.message_path),
+            message.package_name(),
+            message.name(),
+            fields_const_name(message.package_name(), message_path(message)),
         )
         .expect("write to string");
     }
@@ -67,113 +61,105 @@ fn render_relational_descriptors(fds: &FileDescriptorSet) -> String {
     output
 }
 
-struct DescriptorMessage<'a> {
-    package: &'a str,
-    message_path: String,
-    descriptor: &'a DescriptorProto,
+fn collect_reachable_descriptors(
+    pool: &DescriptorPool,
+    root_messages: &[&str],
+) -> (Vec<MessageDescriptor>, Vec<EnumDescriptor>) {
+    let mut messages = Vec::new();
+    let mut enums = Vec::new();
+    let mut visited_messages = HashSet::new();
+    let mut visited_enums = HashSet::new();
+
+    for root_message in root_messages {
+        collect_reachable_message(
+            resolve_root_message(pool, root_message),
+            &mut messages,
+            &mut enums,
+            &mut visited_messages,
+            &mut visited_enums,
+        );
+    }
+
+    (messages, enums)
 }
 
-struct DescriptorEnum<'a> {
-    package: &'a str,
-    enum_path: String,
-    descriptor: &'a EnumDescriptorProto,
+fn resolve_root_message(pool: &DescriptorPool, root_message: &str) -> MessageDescriptor {
+    let matches = pool
+        .all_messages()
+        .filter(|message| message.name() == root_message)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [message] => message.clone(),
+        [] => panic!("registered relational root message is missing: {root_message}"),
+        _ => panic!("registered relational root message is ambiguous: {root_message}"),
+    }
 }
 
-fn collect_message<'a>(
-    package: &'a str,
-    parent_path: &str,
-    message: &'a DescriptorProto,
-    messages: &mut Vec<DescriptorMessage<'a>>,
-    enums: &mut Vec<DescriptorEnum<'a>>,
+fn collect_reachable_message(
+    message: MessageDescriptor,
+    messages: &mut Vec<MessageDescriptor>,
+    enums: &mut Vec<EnumDescriptor>,
+    visited_messages: &mut HashSet<String>,
+    visited_enums: &mut HashSet<String>,
 ) {
-    let message_name = message
-        .name
-        .as_deref()
-        .expect("descriptor message should have a name");
-    let message_path = if parent_path.is_empty() {
-        message_name.to_string()
-    } else {
-        format!("{parent_path}.{message_name}")
-    };
-    assert!(
-        !message
-            .options
-            .as_ref()
-            .and_then(|options| options.map_entry)
-            .unwrap_or(false),
-        "protobuf map fields are not supported by relational expansion: {package}.{message_path}"
-    );
-    messages.push(DescriptorMessage {
-        package,
-        message_path: message_path.clone(),
-        descriptor: message,
-    });
-
-    for value in &message.enum_type {
-        collect_enum(package, &message_path, value, enums);
+    if !visited_messages.insert(message.full_name().to_string()) {
+        return;
     }
-    for nested in &message.nested_type {
-        collect_message(package, &message_path, nested, messages, enums);
+    assert!(
+        !message.is_map_entry(),
+        "protobuf map fields are not supported by relational expansion: {}",
+        message.full_name()
+    );
+    messages.push(message.clone());
+
+    for field in message.fields() {
+        assert!(
+            !field.is_map(),
+            "protobuf map fields are not supported by relational expansion: {}",
+            field.full_name()
+        );
+        match field.kind() {
+            Kind::Message(child) => {
+                collect_reachable_message(child, messages, enums, visited_messages, visited_enums)
+            }
+            Kind::Enum(descriptor) if visited_enums.insert(descriptor.full_name().to_string()) => {
+                enums.push(descriptor);
+            }
+            _ => {}
+        }
     }
 }
 
-fn reject_ambiguous_message_names(messages: &[DescriptorMessage<'_>]) {
+fn reject_ambiguous_message_names(messages: &[MessageDescriptor]) {
     let mut full_name_by_short_name = HashMap::new();
     for message in messages {
-        let short_name = message
-            .descriptor
-            .name
-            .as_deref()
-            .expect("descriptor message should have a name");
-        let full_name = format!("{}.{}", message.package, message.message_path);
-        if let Some(previous) = full_name_by_short_name.insert(short_name, full_name.clone()) {
+        if let Some(previous) =
+            full_name_by_short_name.insert(message.name(), message.full_name().to_string())
+        {
             panic!(
-                "relational descriptor message name is ambiguous: {short_name} is used by {previous} and {full_name}"
+                "relational descriptor message name is ambiguous: {} is used by {} and {}",
+                message.name(),
+                previous,
+                message.full_name()
             );
         }
     }
 }
 
-fn collect_enum<'a>(
-    package: &'a str,
-    parent_path: &str,
-    descriptor: &'a EnumDescriptorProto,
-    enums: &mut Vec<DescriptorEnum<'a>>,
-) {
-    let enum_name = descriptor
-        .name
-        .as_deref()
-        .expect("enum descriptor should have a name");
-    let enum_path = if parent_path.is_empty() {
-        enum_name.to_string()
-    } else {
-        format!("{parent_path}.{enum_name}")
-    };
-    enums.push(DescriptorEnum {
-        package,
-        enum_path,
-        descriptor,
-    });
-}
-
-fn render_enum_values(output: &mut String, enum_descriptor: &DescriptorEnum<'_>) {
+fn render_enum_values(output: &mut String, descriptor: &EnumDescriptor) {
     writeln!(
         output,
         "const {}: &[EnumValueDescriptor] = &[",
-        enum_values_const_name(enum_descriptor.package, &enum_descriptor.enum_path)
+        enum_values_const_name(descriptor.package_name(), enum_path(descriptor))
     )
     .expect("write to string");
 
-    for value in &enum_descriptor.descriptor.value {
-        let name = value
-            .name
-            .as_deref()
-            .expect("enum value should have a name");
-        let number = value.number.expect("enum value should have a number");
+    for value in descriptor.values() {
         writeln!(
             output,
-            "    EnumValueDescriptor {{ number: {number}, name: {:?} }},",
-            name
+            "    EnumValueDescriptor {{ number: {}, name: {:?} }},",
+            value.number(),
+            value.name()
         )
         .expect("write to string");
     }
@@ -181,36 +167,47 @@ fn render_enum_values(output: &mut String, enum_descriptor: &DescriptorEnum<'_>)
     output.push_str("];\n\n");
 }
 
-fn render_fields(
-    output: &mut String,
-    message: &DescriptorMessage<'_>,
-    enums: &[DescriptorEnum<'_>],
-) {
+fn render_fields(output: &mut String, message: &MessageDescriptor) {
     writeln!(
         output,
         "const {}: &[FieldDescriptor] = &[",
-        fields_const_name(message.package, &message.message_path)
+        fields_const_name(message.package_name(), message_path(message))
     )
     .expect("write to string");
 
-    for field in &message.descriptor.field {
-        let field_name = field
-            .name
-            .as_deref()
-            .expect("descriptor field should have a name");
+    for field in message.fields() {
         writeln!(
             output,
             "    FieldDescriptor {{ name: {:?}, label: {}, field_type: {}, oneof_name: {}, enum_values: {} }},",
-            field_name,
-            render_label(field),
-            render_type(field),
-            render_oneof_name(message.descriptor, field),
-            render_enum_values_ref(field, enums)
+            field.name(),
+            render_label(&field),
+            render_type(&field),
+            render_oneof_name(&field),
+            render_enum_values_ref(&field)
         )
         .expect("write to string");
     }
 
     output.push_str("];\n\n");
+}
+
+fn message_path(message: &MessageDescriptor) -> &str {
+    relative_name(message.package_name(), message.full_name())
+}
+
+fn enum_path(descriptor: &EnumDescriptor) -> &str {
+    relative_name(descriptor.package_name(), descriptor.full_name())
+}
+
+fn relative_name<'a>(package: &str, full_name: &'a str) -> &'a str {
+    if package.is_empty() {
+        full_name
+    } else {
+        full_name
+            .strip_prefix(package)
+            .and_then(|name| name.strip_prefix('.'))
+            .expect("descriptor full name should start with package")
+    }
 }
 
 fn fields_const_name(package: &str, message_path: &str) -> String {
@@ -230,111 +227,57 @@ fn enum_values_const_name(package: &str, enum_path: &str) -> String {
 }
 
 fn identifier_part(name: &str) -> String {
-    let mut output = String::new();
-    for (index, ch) in name
-        .chars()
-        .map(|ch| if ch == '.' { '_' } else { ch })
-        .enumerate()
-    {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                output.push('_');
-            }
-            output.push(ch);
-        } else if ch.is_ascii_alphanumeric() {
-            output.push(ch.to_ascii_uppercase());
-        } else {
-            output.push('_');
-        }
-    }
-    while output.contains("__") {
-        output = output.replace("__", "_");
-    }
-    output.trim_matches('_').to_string()
+    name.chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>()
+        .to_shouty_snake_case()
 }
 
-fn render_label(field: &FieldDescriptorProto) -> &'static str {
-    match field.label.and_then(|label| Label::try_from(label).ok()) {
-        Some(Label::Repeated) => "ProtoFieldLabel::Repeated",
-        _ => "ProtoFieldLabel::Optional",
+fn render_label(field: &FieldDescriptor) -> &'static str {
+    match field.cardinality() {
+        Cardinality::Repeated => "ProtoFieldLabel::Repeated",
+        Cardinality::Optional | Cardinality::Required => "ProtoFieldLabel::Optional",
     }
 }
 
-fn render_type(field: &FieldDescriptorProto) -> String {
-    match field
-        .r#type
-        .and_then(|field_type| Type::try_from(field_type).ok())
-    {
-        Some(Type::Message) => {
-            let type_name = field
-                .type_name
-                .as_deref()
-                .expect("message field should have type_name");
-            format!("ProtoFieldType::Message({:?})", short_type_name(type_name))
+fn render_type(field: &FieldDescriptor) -> String {
+    if field.is_group() {
+        return "ProtoFieldType::Scalar(ProtoScalarType::Bytes)".to_string();
+    }
+
+    match field.kind() {
+        Kind::Message(message) => {
+            format!("ProtoFieldType::Message({:?})", message.name())
         }
-        Some(Type::Enum) => "ProtoFieldType::Scalar(ProtoScalarType::Enum)".to_string(),
-        Some(Type::Bool) => "ProtoFieldType::Scalar(ProtoScalarType::Bool)".to_string(),
-        Some(Type::Int32) | Some(Type::Sint32) | Some(Type::Sfixed32) => {
+        Kind::Enum(_) => "ProtoFieldType::Scalar(ProtoScalarType::Enum)".to_string(),
+        Kind::Bool => "ProtoFieldType::Scalar(ProtoScalarType::Bool)".to_string(),
+        Kind::Int32 | Kind::Sint32 | Kind::Sfixed32 => {
             "ProtoFieldType::Scalar(ProtoScalarType::I32)".to_string()
         }
-        Some(Type::Int64) | Some(Type::Sint64) | Some(Type::Sfixed64) => {
+        Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 => {
             "ProtoFieldType::Scalar(ProtoScalarType::I64)".to_string()
         }
-        Some(Type::Uint32) | Some(Type::Fixed32) => {
-            "ProtoFieldType::Scalar(ProtoScalarType::U32)".to_string()
-        }
-        Some(Type::Uint64) | Some(Type::Fixed64) => {
-            "ProtoFieldType::Scalar(ProtoScalarType::U64)".to_string()
-        }
-        Some(Type::Float) => "ProtoFieldType::Scalar(ProtoScalarType::F32)".to_string(),
-        Some(Type::Double) => "ProtoFieldType::Scalar(ProtoScalarType::F64)".to_string(),
-        Some(Type::String) => "ProtoFieldType::Scalar(ProtoScalarType::String)".to_string(),
-        Some(Type::Bytes) => "ProtoFieldType::Scalar(ProtoScalarType::Bytes)".to_string(),
-        Some(Type::Group) | None => "ProtoFieldType::Scalar(ProtoScalarType::Bytes)".to_string(),
+        Kind::Uint32 | Kind::Fixed32 => "ProtoFieldType::Scalar(ProtoScalarType::U32)".to_string(),
+        Kind::Uint64 | Kind::Fixed64 => "ProtoFieldType::Scalar(ProtoScalarType::U64)".to_string(),
+        Kind::Float => "ProtoFieldType::Scalar(ProtoScalarType::F32)".to_string(),
+        Kind::Double => "ProtoFieldType::Scalar(ProtoScalarType::F64)".to_string(),
+        Kind::String => "ProtoFieldType::Scalar(ProtoScalarType::String)".to_string(),
+        Kind::Bytes => "ProtoFieldType::Scalar(ProtoScalarType::Bytes)".to_string(),
     }
 }
 
-fn render_enum_values_ref(field: &FieldDescriptorProto, enums: &[DescriptorEnum<'_>]) -> String {
-    if field
-        .r#type
-        .and_then(|field_type| Type::try_from(field_type).ok())
-        != Some(Type::Enum)
-    {
-        return "&[]".to_string();
+fn render_enum_values_ref(field: &FieldDescriptor) -> String {
+    match field.kind() {
+        Kind::Enum(descriptor) => {
+            enum_values_const_name(descriptor.package_name(), enum_path(&descriptor))
+        }
+        _ => "&[]".to_string(),
     }
-
-    let Some(type_name) = field.type_name.as_deref() else {
-        return "&[]".to_string();
-    };
-    let normalized = type_name.trim_start_matches('.');
-    enums
-        .iter()
-        .find(|enum_descriptor| {
-            let full_name = format!("{}.{}", enum_descriptor.package, enum_descriptor.enum_path);
-            full_name == normalized
-        })
-        .map(|enum_descriptor| {
-            enum_values_const_name(enum_descriptor.package, &enum_descriptor.enum_path)
-        })
-        .unwrap_or_else(|| "&[]".to_string())
 }
 
-fn render_oneof_name(message: &DescriptorProto, field: &FieldDescriptorProto) -> String {
-    let Some(index) = field.oneof_index else {
-        return "None".to_string();
-    };
-    let oneof = message
-        .oneof_decl
-        .get(index as usize)
-        .and_then(|oneof| oneof.name.as_deref())
-        .expect("field oneof_index should reference a oneof");
-    format!("Some({oneof:?})")
-}
-
-fn short_type_name(type_name: &str) -> &str {
-    type_name
-        .rsplit('.')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(type_name)
+fn render_oneof_name(field: &FieldDescriptor) -> String {
+    field
+        .containing_oneof()
+        .map(|oneof| format!("Some({:?})", oneof.name()))
+        .unwrap_or_else(|| "None".to_string())
 }
