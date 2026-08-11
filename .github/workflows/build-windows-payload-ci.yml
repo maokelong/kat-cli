@@ -95,11 +95,6 @@ jobs:
             -C "target/kat/payloads" windows-x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Report sccache statistics
-        if: always() && steps.sccache.outcome == 'success'
-        continue-on-error: true
-        run: sccache --show-stats
-
       - name: Upload private Payload input
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

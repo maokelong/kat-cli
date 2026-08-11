@@ -77,11 +77,6 @@ jobs:
             -C target/kat/payloads -czf \
             target/distrib/.payload-inputs/linux-x86_64.tar.gz linux-x86_64
 
-      - name: Report sccache statistics
-        if: always() && steps.sccache.outcome == 'success'
-        continue-on-error: true
-        run: sccache --show-stats
-
       - name: Upload private Payload input
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
