@@ -4,6 +4,12 @@ name: Verify dual-platform Skill payload
 
 on:
   workflow_dispatch:
+    inputs:
+      cold-build:
+        description: Bypass Rust compilation caches for this run
+        required: false
+        type: boolean
+        default: false
   pull_request:
     types:
       - labeled
@@ -140,6 +146,7 @@ jobs:
     uses: ./.github/workflows/build-linux-payload-ci.yml
     with:
       workflow-wheel-artifact: kat-workflow-wheel
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
   windows-payload:
     name: Build Windows payload
@@ -149,6 +156,7 @@ jobs:
     uses: ./.github/workflows/build-windows-payload-ci.yml
     with:
       workflow-wheel-artifact: kat-workflow-wheel
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
   assemble:
     name: Assemble the dual-platform Skill
