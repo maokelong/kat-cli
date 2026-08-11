@@ -105,6 +105,14 @@ runtime 不读取 `.proto` 文件，也不解析完整 `FileDescriptorSet`。des
 
 当前 plan 使用 proto message 短名索引 descriptor。codegen 会拒绝短名冲突，不能在两个 package 或 nested path 中静默绑定到错误 message。
 
+descriptor 提取层评估过以下实现：
+
+| 方案 | 评估状态 | 结论 |
+| --- | --- | --- |
+| 直接读取 `prost_types::FileDescriptorSet` | 当前实现 | 不增加额外 build dependency，输出满足当前计划需要。 |
+| build-time `prost-reflect::DescriptorPool` | 已做独立代码实验 | 生成的 `relational_descriptors.rs` 与当前实现逐字节一致，codegen 净减少 86 行；只影响 build-time，不进入 runtime。它有简化价值，但不改变功能或运行时性能，本 PR 不顺手替换，后续可作为独立 cleanup。 |
+| runtime `prost-reflect::DynamicMessage` | 未做性能实验 | 会把 typed prost decode 主路径改成 runtime reflection，改变 4.4 的边界，不作为 descriptor codegen 的同层替代方案。 |
+
 ### 4.4 Decode 边界
 
 `decode/profiler/` 通过一张 `ProfilerPluginRoute` 表登记 plugin 的 config/data typed root。每条 route 只包含：
@@ -174,13 +182,14 @@ Message {
 
 它不是查询结果，也不决定表结构。关系化层按 descriptor 和 plan 读取它。
 
-`PayloadValueSerializer` 只服务于 typed prost message 到内部 `PayloadValue` 的转换，不是对外序列化格式。这里没有直接使用现成通用转换方案，原因如下：
+`PayloadValueSerializer` 只服务于 typed prost message 到内部 `PayloadValue` 的转换，不是对外序列化格式。value tree 评估如下：
 
-| 方案 | 不直接使用的原因 |
-| --- | --- |
-| `serde_json::Value` | bytes 会变成数字数组，无法直接保留 Arrow `Binary` 语义；同时会为字段名和容器创建额外的 owned JSON 中间对象。 |
-| `serde_arrow` | 适合把同构记录写入一张已知 Arrow 表，但本架构需要根据 descriptor 把一份 payload 分发到多张父子表，并维护 `row_index` / `parent_index`，不能直接替代关系化计划和遍历。 |
-| `prost-reflect::DynamicMessage` | 可以运行时反射字段，但会把 decode 主路径改成 runtime reflection，与已确认的 typed prost decode 边界不一致。 |
+| 方案 | 评估状态 | 结论 |
+| --- | --- | --- |
+| 受限的内部 `PayloadValue` | 当前实现 | 保留 binary、数值符号、message/sequence 和 oneof 结构；字段按序存放，访问接口只覆盖关系化需要的能力。 |
+| `serde_json::Value` | 未进入性能 A/B | `serialize_bytes` 会得到数字数组，不能直接保留 Arrow `Binary` 语义；若再增加 bytes 标注和归一化层，就没有形成可直接替换当前树的同语义候选。 |
+| `serde_value::Value` | 已做完整替换和真实数据 A/B | 功能与逐文件输出一致，但主样本中位数由 7.37s 增至 16.72s，劣化 126.9%。其 message 使用 `BTreeMap`，不适合当前大量构造和字段访问，拒绝采用。 |
+| typed message 专用 traversal / codegen | 未实现 | 可减少通用树，但需要为大量 message 生成或维护专用访问代码；在真实 profile 证明收益足以覆盖维护成本前，不扩大为新的 codegen 交付面。 |
 
 因此当前实现使用受限的内部 value tree：保留 binary、数值符号和 message/sequence 结构，只实现关系化遍历需要的 Serde 输入能力。它不承担 JSON、Arrow 或 protobuf 的通用序列化职责。
 
@@ -812,6 +821,10 @@ builders
 4. 队列有界，writer 背压会传回关系化线程。
 5. `estimated_bytes` 是内存占用估算计数，只用于决定何时 flush，不写入 Parquet，也不出现在 schema。
 
+Arrow 追加后端单独评估过 `serde_arrow::ArrayBuilder`。候选实现保留 plan、父子索引、flush 阈值和单 writer，只把逐列手写 builder 改成动态 `SerializeMap` 整行 push，并在同一遍 Serde visitor 中累计 `estimated_bytes`。它通过了 datasource 全量测试，三个真实样本的表清单和全部 dataset 文件 SHA-256 也与当前实现一致；但主样本五组交叉 A/B 的中位数由 7.37s 增至 8.76s，劣化 18.9%。
+
+该候选要求把“逐列追加”接口改成“整行序列化”。`serde_arrow` 已经是仓库依赖，但在这条动态、多表分发路径中没有减少关系化职责，动态整行 Serde 分派也没有性能收益，因此不替换当前直接 Arrow builders。它仍可用于 schema 已知、记录同构且无需跨表分发的其他路径。
+
 ## 8. Dataset Storage 契约
 
 关系化输出遵守 ADR 0020，不建立自己的 catalog、文件命名或目录管理能力。
@@ -1002,6 +1015,16 @@ Issue #53 六类 fixed-result plugin 验收矩阵：
 移除 8 条 `DecodedPayload` 延迟缓冲后，在同一 WSL2 ext4 环境进行了五组 baseline/candidate 交叉 A/B。baseline 二进制 SHA-256 为 `0a3b4739c883a21fd5d609ea1de342bccca6ca3db3280e977857a659f1c29868`，candidate 二进制 SHA-256 为 `4c5fab714b3fb13d65ed630582d1bc85887678a0ef10319a0841d8d626246fd3`。baseline 中位数为 6.98s，candidate 中位数为 6.86s，改善 1.72%；五组 candidate 均更快。峰值 RSS 中位数分别为 240,892 KiB 和 240,716 KiB，没有观察到稳定的内存变化。
 
 主样本两侧均输出 9 张表和 64,063,947 Parquet bytes，全部 dataset 文件 SHA-256 一致。`native_heap_full.htrace` 和 `all_memory_full.htrace` 也分别得到相同表数、Parquet bytes 和逐文件 SHA-256。该改动因此保留，收益主要是删除无执行收益的 payload 保留层，同时未改变输出、顺序和父子索引。
+
+替代实现选型实验以 PR HEAD `fd761611a2fe6b38236de7098052635aa66c1157` 为固定代码基线，在 WSL2 Linux、ext4 输入/输出和 release 二进制下执行。主样本 SHA-256 为 `da6877da3f24db1e4754b9f06bcfb35830fb1fffc2ae827ee306548f2cf9f4b9`，baseline 二进制 SHA-256 为 `06b17946c3df46e0534637f8ec48a35ef153dd8d1138c4e22b3c4b4c65570d2d`。性能比较排除 warmup，并使用五组有效的 baseline/candidate 交叉 A/B：
+
+| 候选 | 功能与输出 | `kat import hitrace` wall-clock，baseline -> candidate | 峰值 RSS 中位数 | 结论 |
+| --- | --- | --- | --- | --- |
+| build-time `prost-reflect::DescriptorPool` | datasource `--all-targets` 通过；生成文件 SHA-256 均为 `cd7e1018eb02e98db289c8da868e7c50ea6ef57119f8876908a98df53623647f`。 | 未做 runtime A/B；候选生成的 runtime Rust 数据逐字节一致。 | 不适用。 | codegen diff 净减少 86 行；可独立清理，但不与本 PR 功能混入。 |
+| `serde_value::Value` 替换 `PayloadValue` | datasource `--all-targets` 通过；主样本五轮及 memory/native_hook 样本逐文件 SHA-256 一致。 | 中位数 7.37s -> 16.72s，劣化 126.9%；mean/stddev 7.402/0.063s -> 16.760/0.100s。 | 240,488 -> 239,808 KiB，约 -0.3%。 | 语义可行但 CPU 成本不可接受，拒绝。 |
+| `serde_arrow::ArrayBuilder` 替换关系表追加后端 | datasource `--all-targets` 通过；主样本五轮及 memory/native_hook 样本逐文件 SHA-256 一致。 | 中位数 7.37s -> 8.76s，劣化 18.9%；mean/stddev 7.598/0.389s -> 8.802/0.322s。 | 241,112 -> 240,668 KiB，约 -0.2%。 | 单遍累计 `estimated_bytes` 后仍稳定变慢，动态整行 Serde 分派不适合当前路径，拒绝。 |
+
+主样本三个实现均输出 9 张表和 64,063,947 bytes。补充形态验证中，`all_memory_full.htrace` 输出 16 张表、48,178,638 bytes，`native_heap_full.htrace` 输出 15 张表、56,424,818 bytes；两个候选均与 baseline 逐文件 SHA-256 一致。`serde_value` 候选虽然让整体实验 diff 净减少 558 行，但性能显著倒退；`serde_arrow` 候选需要新增动态整行序列化适配，不能只按依赖是否现成判断收益。
 
 使用 Python `datafusion==54.0.0`、`pyarrow==24.0.0` 查询真实样本导入产物：`hiprofiler-wechat-coldstart-smartperf-20260523-182338.htrace` 的 nested Struct 可读取 `sched_switch_format.prev_comm/next_comm`；`native_heap_full.htrace` 的 `sym_table` / `str_table` 可读取为 Binary，样本行长度分别为 2,848 / 4,504 bytes；`batch_native_hook_data_events_alloc_event` 的 239,493 行全部可通过 `source_index + parent_index` join 回 `batch_native_hook_data_events` 父表。
 
