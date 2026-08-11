@@ -1,0 +1,76 @@
+kat/platform/datasource/src/dataset_writer.rs
+  s_523f214ca54205::t_659cf44706c57e 183-192
+  s_523f214ca54205::t_ac28521127934e 180-182
+kat/platform/datasource/src/formats/hitrace/profiler/mod.rs
+  s_523f214ca54205::t_0e84226a35b58a 1,18-19,42-60,67
+kat/platform/datasource/tests/plugin_flow_contract.rs
+  s_523f214ca54205::t_129c69fb3e0e30 1,4
+  s_523f214ca54205::t_039e92fb13e5aa 34-36,47-53,65-73,84-85,88-91,94-97,104-106,152-175,188,217-284
+kat/platform/datasource/tests/native_hook_activation_regression_contract.rs
+  s_523f214ca54205::t_b0a055c298883a 3-4,6-7,10,12,40-41,43,45,47-48,51-58,62-81,83,88-91,94-95,98-101
+  s_523f214ca54205::t_cad3ec58f97593 103-174,185,196,228,230-232,234-246,248-249,251-252,255-256,258-259,262-273,275-280,284-285,287-288,291,293,295-296,298,302-336,391,418-463
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_523f214ca54205::t_d046e55ef0791a 104
+kat/platform/datasource/src/lib.rs
+  s_523f214ca54205::t_039e92fb13e5aa 14-16
+  s_523f214ca54205::t_72dcf5fda9cd79 20,24
+kat/platform/datasource/src/materializer.rs
+  s_523f214ca54205::t_76b46c209559d6 155-163,165-194,196-205,207-223,226-227,229-230,232,237-238,240,627,637,643-646,663,665,669-674,691,701,707-710,753,755,759-777,779-827,875,881,888-892,900,905-906
+  s_523f214ca54205::t_6bc644957c3bda 22-25,34,36,122-123,126-127,140
+kat/platform/datasource/tests/native_hook_source_capture_contract.rs
+  s_523f214ca54205::t_7d12324b599063 1-2,11-14,18,87-103
+  s_523f214ca54205::t_78b8e4a69d735c 134-179
+kat/platform/datasource/src/protobuf_source/row.rs
+  s_523f214ca54205::t_d046e55ef0791a 91-92,114-115,123-124
+kat/platform/datasource/tests/native_hook_source_contract/fixture.rs
+  s_523f214ca54205::t_8d2ea0d5ba2dd9 1-2
+  s_523f214ca54205::t_d05715f84a1113 3-247
+kat/platform/datasource/src/formats/hitrace/profiler/claim.rs
+  s_523f214ca54205::t_0e84226a35b58a 1-32
+kat/platform/datasource/src/protobuf_source/spool.rs
+  s_523f214ca54205::t_d046e55ef0791a 351-352
+kat/platform/datasource/src/native_hook_source_capture.rs
+  s_523f214ca54205::t_78b8e4a69d735c 27,33-34,39-47,63-64,92,99,132-139
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_523f214ca54205::t_90c677ee2b42ad 3-36
+  s_523f214ca54205::t_1d85ad3e3e0e5d 331-434
+  s_523f214ca54205::t_3e977d90372282 1-2
+  s_523f214ca54205::t_c90adcc7e374d2 437-715
+  s_523f214ca54205::t_8c8ad60a1cd5b0 435-436
+  s_523f214ca54205::t_6486cfe638fb68 37-330
+kat/platform/datasource/src/formats/hitrace/mod.rs
+  s_523f214ca54205::t_039e92fb13e5aa 27-28,68,74,94,101,105,112,115-121,128,172-175,180
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_523f214ca54205::t_c8b7aaaa481af7 1-2
+  s_523f214ca54205::t_ae3968ad964442 167-399
+  s_523f214ca54205::t_82c37ce50e81d6 3-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ca1641b0f13d4c65af91c8fca85d36c18cbfcd0f",
+  "prompts": {
+    "s_523f214ca54205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee75-a49f-7ae2-9204-31e6f684eda7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2129,
+      "total_deletions": 1250,
+      "accepted_lines": 2129,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_523f214ca54205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee75-a49f-7ae2-9204-31e6f684eda7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
