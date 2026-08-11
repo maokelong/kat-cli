@@ -822,7 +822,8 @@ def _build_cli_binary(
     spec: PlatformSpec,
 ) -> Path:
     environment = dict(os.environ)
-    environment["CARGO_TARGET_DIR"] = str(target_dir)
+    environment.pop("CARGO_TARGET_DIR", None)
+    environment.pop("CARGO_BUILD_TARGET_DIR", None)
     environment.update(spec.cargo_environment)
     command = [
         options.cargo,
@@ -834,6 +835,8 @@ def _build_cli_binary(
         command.append("--offline")
     command.extend(
         [
+            "--target-dir",
+            str(target_dir),
             "--target",
             inputs.rust_target,
             "--manifest-path",
@@ -860,7 +863,9 @@ def build_payload(
     repository = options.repository.resolve()
     inputs = adapter.load_inputs(repository)
     output = options.output.resolve()
+    cargo_cache = repository / "target" / "kat" / "cargo" / adapter.spec.key
     common_inputs = [
+        ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
         ("Workflow Host wheel", options.workflow_wheel),
         ("wheelhouse", options.wheelhouse),
@@ -913,7 +918,7 @@ def build_payload(
         cli = _build_cli_binary(
             options,
             inputs,
-            temporary_root / "cargo-target",
+            cargo_cache,
             spec=adapter.spec,
         )
         shutil.copy2(cli, stage / adapter.spec.cli_filename)
