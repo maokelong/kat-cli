@@ -1,4 +1,4 @@
-# dist local-artifact 阶段调用的发布通道门禁与 Platform Payload 编排。
+# dist local-artifact 阶段与手动冷构建诊断共用的 Platform Payload 编排。
 name: Build KAT Platform Payloads
 
 on:
@@ -8,6 +8,13 @@ on:
         description: Initial dist manifest; the host job regenerates its upload manifest.
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      cold-build:
+        description: 本次运行跳过 Rust 编译缓存
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +23,8 @@ jobs:
   release-channel:
     name: Verify the release channel contract
     runs-on: ubuntu-24.04
+    outputs:
+      plan: ${{ steps.verify.outputs.plan }}
 
     steps:
       - name: Checkout
@@ -39,6 +48,7 @@ jobs:
           python-version: "3.14"
 
       - name: Verify versions and the initial release channel
+        id: verify
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -47,6 +57,15 @@ jobs:
           RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            python -I -B build/verify_release_versions.py
+            version=$(python -I -B -c 'import tomllib; print(tomllib.load(open("release/kat/dist.toml", "rb"))["package"]["version"])')
+            effective_plan=$(jq -cn --arg version "$version" '{releases: [{app_version: $version}]}')
+            echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           version=$(jq -er '
             .releases
             | map(.app_version)
@@ -56,28 +75,30 @@ jobs:
 
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             python -I -B build/verify_release_versions.py
-            exit 0
+          else
+            test "$EVENT_NAME" = "push"
+            test "$RELEASE_REF_TYPE" = "tag"
+            expected_tag="kat/${version}"
+            test "$RELEASE_REF_NAME" = "$expected_tag"
+            test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+            # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
+            # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
+            initial_prerelease=$(jq -er '
+              .announcement_is_prerelease
+              | if type == "boolean" then tostring else error("prerelease state is not boolean") end
+            ' <<< "$PLAN")
+            version_without_build="${version%%+*}"
+            if [[ "$version_without_build" == *-* ]]; then
+              expected_prerelease=true
+            else
+              expected_prerelease=false
+            fi
+            test "$initial_prerelease" = "$expected_prerelease"
+            python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
           fi
 
-          test "$EVENT_NAME" = "push"
-          test "$RELEASE_REF_TYPE" = "tag"
-          expected_tag="kat/${version}"
-          test "$RELEASE_REF_NAME" = "$expected_tag"
-          test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
-          # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
-          # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
-          initial_prerelease=$(jq -er '
-            .announcement_is_prerelease
-            | if type == "boolean" then tostring else error("prerelease state is not boolean") end
-          ' <<< "$PLAN")
-          version_without_build="${version%%+*}"
-          if [[ "$version_without_build" == *-* ]]; then
-            expected_prerelease=true
-          else
-            expected_prerelease=false
-          fi
-          test "$initial_prerelease" = "$expected_prerelease"
-          python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+          effective_plan=$(jq -ce . <<< "$PLAN")
+          echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
 
   prepare:
     name: Prepare shared Payload inputs
@@ -86,14 +107,31 @@ jobs:
 
   build-linux:
     name: Build Linux Payload
-    needs: prepare
+    needs:
+      - release-channel
+      - prepare
     uses: ./.github/workflows/build-linux-payload-ci.yml
     with:
-      plan: ${{ inputs.plan }}
+      plan: ${{ needs.release-channel.outputs.plan }}
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
   build-windows:
     name: Build Windows Payload
-    needs: prepare
+    needs:
+      - release-channel
+      - prepare
     uses: ./.github/workflows/build-windows-payload-ci.yml
     with:
-      plan: ${{ inputs.plan }}
+      plan: ${{ needs.release-channel.outputs.plan }}
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
+
+  manual-assemble-and-smoke:
+    name: Assemble and smoke the manual diagnostic build
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs:
+      - release-channel
+      - build-linux
+      - build-windows
+    uses: ./.github/workflows/payload-ci.yml
+    with:
+      plan: ${{ needs.release-channel.outputs.plan }}

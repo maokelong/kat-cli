@@ -165,7 +165,12 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         )
         self.assertIn("plan-stage manifest 只提供早期信号", orchestrator)
         self.assertIn("needs: release-channel", orchestrator)
-        self.assertEqual(orchestrator.count("needs: prepare"), 2)
+        self.assertEqual(orchestrator.count("      - release-channel"), 3)
+        self.assertEqual(orchestrator.count("      - prepare"), 2)
+        self.assertEqual(
+            orchestrator.count("plan: ${{ needs.release-channel.outputs.plan }}"),
+            3,
+        )
 
         finalizer = FINALIZER_WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(finalizer.count("  finalize-release-assets:"), 1)
@@ -263,7 +268,10 @@ class CiArtifactLifecycleTests(unittest.TestCase):
 
         self.assertIn("workflow_run:", workflow)
         self.assertIn(
-            "workflows:\n      - Release\n    types:",
+            "workflows:\n"
+            "      - Release\n"
+            "      - Build KAT Platform Payloads\n"
+            "    types:",
             workflow,
         )
         self.assertNotIn("Verify dual-platform Skill payload", workflow)

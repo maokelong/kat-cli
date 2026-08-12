@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - Release
+      - Build KAT Platform Payloads
     types:
       - completed
 
