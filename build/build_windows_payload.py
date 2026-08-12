@@ -33,7 +33,10 @@ PLATFORM_SPEC = payload_builder.PlatformSpec(
     private_bin_parts=None,
     private_bin_keep_prefix=None,
     cli_filename="kat.exe",
-    cargo_environment=(("RUSTFLAGS", "-C target-feature=+crt-static"),),
+    cargo_environment=(
+        ("RUSTFLAGS", "-C target-feature=+crt-static"),
+        ("LINK", "/Brepro"),
+    ),
     forbidden_payload_suffixes=frozenset({".msi"}),
     forbidden_payload_prefixes=("vc_redist",),
 )
