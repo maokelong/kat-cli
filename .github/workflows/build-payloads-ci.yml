@@ -1,0 +1,99 @@
+# dist local-artifact 阶段调用的发布通道门禁与 Platform Payload 编排。
+name: Build KAT Platform Payloads
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: Initial dist manifest; the host job regenerates its upload manifest.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-channel:
+    name: Verify the release channel contract
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Record the release checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_checkout=$(git rev-parse HEAD)
+          actual_tree=$(git rev-parse HEAD^{tree})
+          test "$actual_checkout" = "$GITHUB_SHA"
+          echo "KAT_RELEASE_CHECKOUT_SHA=${actual_checkout}"
+          echo "KAT_RELEASE_CHECKOUT_TREE=${actual_tree}"
+
+      - name: Install Python 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Verify versions and the initial release channel
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN: ${{ inputs.plan }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          version=$(jq -er '
+            .releases
+            | map(.app_version)
+            | unique
+            | if length == 1 then .[0] else error("release versions are not unique") end
+          ' <<< "$PLAN")
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            python -I -B build/verify_release_versions.py
+            exit 0
+          fi
+
+          test "$EVENT_NAME" = "push"
+          test "$RELEASE_REF_TYPE" = "tag"
+          expected_tag="kat/${version}"
+          test "$RELEASE_REF_NAME" = "$expected_tag"
+          test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+          # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
+          # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
+          initial_prerelease=$(jq -er '
+            .announcement_is_prerelease
+            | if type == "boolean" then tostring else error("prerelease state is not boolean") end
+          ' <<< "$PLAN")
+          version_without_build="${version%%+*}"
+          if [[ "$version_without_build" == *-* ]]; then
+            expected_prerelease=true
+          else
+            expected_prerelease=false
+          fi
+          test "$initial_prerelease" = "$expected_prerelease"
+          python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+
+  prepare:
+    name: Prepare shared Payload inputs
+    needs: release-channel
+    uses: ./.github/workflows/prepare-payload-ci.yml
+
+  build-linux:
+    name: Build Linux Payload
+    needs: prepare
+    uses: ./.github/workflows/build-linux-payload-ci.yml
+    with:
+      plan: ${{ inputs.plan }}
+
+  build-windows:
+    name: Build Windows Payload
+    needs: prepare
+    uses: ./.github/workflows/build-windows-payload-ci.yml
+    with:
+      plan: ${{ inputs.plan }}

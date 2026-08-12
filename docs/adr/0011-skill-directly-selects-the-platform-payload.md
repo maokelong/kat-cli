@@ -4,7 +4,7 @@ status: accepted
 
 # Skill 直接选择平台载荷
 
-KAT 作为一份原子 Skill 同时携带 Linux x86_64 和 Windows x86_64 的完整 Platform Payload。`SKILL.md` 在每次操作前识别当前 OS、架构和必要运行约束，然后只为 glibc 2.28 及以上的 Linux x86_64 调用 `scripts/targets/linux-x86_64/kat`，只为作为预发布候选的 Windows 10/11 x86_64 客户端调用 `scripts/targets/windows-x86_64/kat.exe`；Windows 正式支持仍以 [Issue #143](https://github.com/maokelong/kat-rs/issues/143) 的干净客户端验收为准，Windows 7/8.1、Windows Server 与其他平台明确拒绝。KAT 不再增加一个无法原生跨 Linux 与 Windows 执行的“通用启动器”，也不持久化平台选择。
+KAT 作为一份原子 Skill 同时携带 Linux x86_64 和 Windows x86_64 的完整 Platform Payload。`SKILL.md` 在每次操作前识别当前 OS、架构和必要运行约束，然后只为 glibc 2.28 及以上的 Linux x86_64 调用 `scripts/targets/linux-x86_64/kat`，只为作为预发布候选的 Windows 10/11 x86_64 客户端调用 `scripts/targets/windows-x86_64/kat.exe`；Windows 正式支持仍以 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 的干净客户端验收为准，Windows 7/8.1、Windows Server 与其他平台明确拒绝。KAT 不再增加一个无法原生跨 Linux 与 Windows 执行的“通用启动器”，也不持久化平台选择。
 
 KAT CLI 只根据 `current_exe()` 返回的自身位置反推出 Skill 根目录：当前可执行文件必须精确位于 `<skill>/scripts/targets/<target>/kat[.exe]`，且 `<skill>/SKILL.md` 必须是普通文件。路径层级不匹配或根级 `SKILL.md` 不成立时，Clap 已识别出的操作以 KAT Response 和同源可读诊断失败；无目标 `kat inspect` 与 `kat inspect --dataset` 不为该失败创建 Operation log。CLI 不接受 `--skill-root`，也不从当前工作目录或环境变量寻找内部资源。整个 Skill 因此可以任意移动，但不能把单个二进制复制到任意位置后继续冒充完整 Skill。
 

@@ -7,6 +7,8 @@ members = ["dist:release/kat"]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
+# 只让 KAT tag namespace 进入 GitHub Release workflow。
+tag-namespace = "kat"
 # The installers to generate for each app
 installers = []
 # Target platforms to build apps for (Rust target-triple syntax)
@@ -19,7 +21,6 @@ checksum = "false"
 source-tarball = false
 pr-run-mode = "upload"
 build-local-artifacts = false
-plan-jobs = ["./prepare-payload-ci"]
-local-artifacts-jobs = ["./build-linux-payload-ci", "./build-windows-payload-ci"]
+local-artifacts-jobs = ["./build-payloads-ci"]
 global-artifacts-jobs = ["./payload-ci"]
 post-announce-jobs = ["./finalize-release-assets"]

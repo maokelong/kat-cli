@@ -1,11 +1,11 @@
-# kat-rs
+# KAT
 
 KAT 是面向性能分析的可扩展平台。KAT Skill 是唯一面向用户的交付物；其中包含 Skill
 约束、Bundled PACK、短命的 `kat` CLI、Linux x86_64 私有 Workflow Runtime，以及
 Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、daemon、REST API
 或独立的服务端发布面。
 
-项目仍处于 `0.1.0` 的早期演进阶段，公共接口和本地布局尚未承诺跨版本兼容。
+项目仍处于 `0.1` 预发布阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
 ## 源码开发边界
 
@@ -34,8 +34,16 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 ## 发布
 
 固定版本的 `dist` 读取 [`dist-workspace.toml`](dist-workspace.toml)，并生成
-`.github/workflows/release.yml`。`v<version>` tag 触发 Linux/Windows payload 构建、唯一
-Skill 装配、SHA-256 校验和与 GitHub Release；Release 的用户可安装资产只有
+`.github/workflows/kat-release.yml`。该 workflow 的 tag trigger 限定为 `kat` namespace；
+这是 cargo-dist 提供的前缀过滤，正式 tag 仍必须精确为 `kat/<version>`。任何仅命中该前缀
+但不符合正式合同的 tag，都会在构建和托管前被发布通道门禁拒绝。日常 PR 只验证临时
+artifact；改动 tag、host、announce、finalizer、公开资产或发布通道时，先把 prerelease RC
+合入集成分支，再按[发布候选演练手册](docs/release-rehearsal.md)，在同一生成 workflow 上发布
+新的 canonical prerelease，完成真实 host → announce → finalizer 与完成态重跑。PR 门禁只
+决定 RC 能否进入 `main`；演练和证据评审通过后才能关闭交付 Issue 或进入 stable promotion。
+符合合同的 stable 或
+prerelease tag 会触发 Linux/Windows payload 构建、唯一 Skill 装配、SHA-256 校验和与
+GitHub Release；prerelease 不得成为 Latest。Release 的用户可安装资产只有
 `kat-skill-<version>.tar.gz` 及其校验文件。固定的 `dist 0.32` 不能在发布计划中登记自定义
 global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公开的原生 payload
 归档；生成流水线因此在 `post-announce` 阶段校验最终资产和 SHA-256，再从 Release 删除该
@@ -43,7 +51,7 @@ global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公�
 压缩包完成发布资格闭环；Windows job 只在 GitHub 托管的 `windows-2025` builder image
 验证候选归档的装配、重定位、Bundled Python 选择及 Import → Inspect → `kat test` →
 Run → Query 机制链路。该 Windows smoke 不构成无系统级 VC Runtime 的干净客户端验收，
-Windows 10/11 正式支持仍由 [Issue #143](https://github.com/maokelong/kat-rs/issues/143) 跟踪。
+Windows 10/11 正式支持仍由 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 跟踪。
 
 发布版本以 [`release/kat/dist.toml`](release/kat/dist.toml) 为入口；Cargo workspace 与
 Workflow Host 的 package metadata 必须同步为该版本，发布准备阶段会拒绝三者不一致。

@@ -14,6 +14,7 @@ VERSION_SOURCES = (
     ("Cargo.toml", ("workspace", "package", "version")),
     ("kat/platform/workflow/pyproject.toml", ("project", "version")),
 )
+TAG_NAMESPACE = "kat"
 
 
 def read_version(repository: Path, relative_path: str, keys: tuple[str, ...]) -> str:
@@ -40,6 +41,12 @@ def verify_release_versions(repository: Path) -> str:
     return release_version
 
 
+def verify_release_tag(tag: str, version: str) -> None:
+    expected = f"{TAG_NAMESPACE}/{version}"
+    if tag != expected:
+        raise ValueError(f"release tag must be exactly {expected}, got {tag}")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -47,16 +54,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=Path(__file__).resolve().parents[1],
     )
+    parser.add_argument(
+        "--tag",
+        help="also require the exact formal release tag kat/<version>",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        version = verify_release_versions(parse_args(argv).repository.resolve())
+        arguments = parse_args(argv)
+        version = verify_release_versions(arguments.repository.resolve())
+        if arguments.tag is not None:
+            verify_release_tag(arguments.tag, version)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         print(f"release version verification failed: {error}", file=sys.stderr)
         return 1
-    print(f"release versions match: {version}")
+    if arguments.tag is None:
+        print(f"release versions match: {version}")
+    else:
+        print(f"release versions and tag match: {arguments.tag}")
     return 0
 
 

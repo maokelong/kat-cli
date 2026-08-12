@@ -41,6 +41,25 @@ jobs:
             --arg checksum "$checksum" \
             '[$archive, $checksum] | sort')
 
+          expected_tag="kat/${version}"
+          test "$RELEASE_TAG" = "$expected_tag"
+          test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+          expected_prerelease=$(jq -er '
+            .announcement_is_prerelease
+            | if type == "boolean" then . else error("prerelease state is not boolean") end
+          ' <<< "$PLAN")
+          release_state=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isImmutable,isPrerelease)
+          jq -e \
+            --arg expected_tag "$expected_tag" \
+            --argjson expected_prerelease "$expected_prerelease" \
+            '.tagName == $expected_tag
+              and .isDraft == false
+              and .isImmutable == false
+              and .isPrerelease == $expected_prerelease' \
+            <<< "$release_state" >/dev/null
+
           tag_sha=$(gh api \
             "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" \
             --jq '.sha')
@@ -77,6 +96,10 @@ jobs:
             | if length == 1 then .[0] else error("manifest versions are not unique") end
           ' "$manifest")" = "$version"
           test "$(jq -er '.announcement_tag' "$manifest")" = "$RELEASE_TAG"
+          jq -e \
+            --argjson expected_prerelease "$expected_prerelease" \
+            '.announcement_is_prerelease == $expected_prerelease' \
+            "$manifest" >/dev/null
 
           gh release delete-asset "$RELEASE_TAG" dist-manifest.json \
             --repo "$GITHUB_REPOSITORY" \
@@ -87,3 +110,43 @@ jobs:
             --json assets \
             --jq '[.assets[].name] | sort')
           test "$actual_after" = "$expected_after"
+
+      - name: Quarantine a failed Release
+        if: ${{ failure() && !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_state=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,tagName)
+          release_id=$(jq -er \
+            --arg expected_tag "$RELEASE_TAG" \
+            'if .tagName != $expected_tag then
+               error("release tag does not match")
+             elif (.databaseId | type) != "number" then
+               error("release database ID is not numeric")
+             else
+               .databaseId
+             end' <<< "$release_state")
+          test "$release_id" -gt 0
+          echo "Quarantine target: release_id=${release_id}, tag=${RELEASE_TAG}" >&2
+
+          jq -cn \
+            '{draft: true, prerelease: true, make_latest: "false"}' |
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --input - >/dev/null
+
+          quarantined=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}")
+          jq -e \
+            --argjson expected_id "$release_id" \
+            --arg expected_tag "$RELEASE_TAG" \
+            '.id == $expected_id
+              and .tag_name == $expected_tag
+              and .draft == true
+              and .prerelease == true' \
+            <<< "$quarantined" >/dev/null
