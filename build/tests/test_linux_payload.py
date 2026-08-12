@@ -22,6 +22,15 @@ import payload_builder
 
 
 class PayloadBuilderTests(unittest.TestCase):
+    def test_windows_payload_uses_reproducible_msvc_linking(self) -> None:
+        windows_environment = dict(
+            build_windows_payload.PLATFORM_SPEC.cargo_environment
+        )
+        linux_environment = dict(build_linux_payload.PLATFORM_SPEC.cargo_environment)
+
+        self.assertEqual(windows_environment["LINK"], "/Brepro")
+        self.assertNotIn("LINK", linux_environment)
+
     def test_cli_build_uses_the_platform_cache_without_target_dir_environment(
         self,
     ) -> None:
