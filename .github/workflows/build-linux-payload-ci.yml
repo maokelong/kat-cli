@@ -4,9 +4,6 @@ name: Build Linux Platform Payload
 on:
   workflow_call:
     inputs:
-      plan:
-        required: true
-        type: string
       cold-build:
         required: false
         type: boolean

@@ -15,6 +15,56 @@ GitHub 的 Create/Update Release API 会比较目标 commit 与默认分支的 w
 演练。本手册选择合并 RC 后演练，不引入 PAT、GitHub App、第二套 rehearsal workflow 或手改
 生成 workflow。
 
+## 当前 `dist 0.32` 发布适配合同
+
+固定版本的 `dist`（原 cargo-dist）继续拥有版本与 tag、原生目标 runner、local/global
+artifact jobs、托管和 GitHub Release。`dist 0.32` 不能发现自定义 global job 产出的 opaque
+Skill，因此当前适配只补足两处工具缺口：自定义 global job 装配最终 Skill 与配套 SHA-256，
+官方 `post-announce` job 收尾公开资产。job 顺序和发布生命周期不由 KAT 重新实现。
+
+生成的 host job 会收集 `artifacts-*`。因此最终 Skill artifact 保留此前缀；只服务装配的
+`kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
+`checksum = "false"` 只阻止 `dist` 为私有原生 payload 规划公开校验文件，不改变最终 Skill
+与 SHA-256 必须由同一个 global job 产出的合同。
+
+`post-announce` finalizer 只接受两种资产状态：
+
+- 发布前态：`dist-manifest.json`、Skill 与 SHA-256；核对 tag、commit、prerelease 状态、
+  下载后 SHA-256 和完整集合后删除 manifest。
+- 完成态：只有 Skill 与 SHA-256；重跑时重新核对并直接成功，不删除或重建 Release。
+
+其他资产集合一律失败。finalizer 已启动后的失败可以把 Release 撤回为 draft prerelease；tag
+一经 push 永久消耗，不移动、不复用。manifest 在 finalizer 前会短暂公开，所以其中不得包含
+秘密。当前拓扑不支持 GitHub Immutable Releases；启用该策略前必须先迁移到成熟工具提供的
+pre-publish 生命周期接缝。
+
+### `extra-artifacts` probe 与退出条件
+
+本适配评估过 `dist 0.32` 的 package-local `extra-artifacts`。计划级 probe 在
+`release/kat/dist.toml` 临时加入：
+
+```toml
+[[dist.extra-artifacts]]
+artifacts = [
+    "../../target/distrib/release/kat-skill-<release-version>.tar.gz",
+    "../../target/distrib/release/kat-skill-<release-version>.tar.gz.sha256",
+]
+build = ["python", "-c", "raise SystemExit('plan-only probe')"]
+```
+
+`dist plan --output-format=json` 仍同时规划两个 generic 原生归档；`dist generate` 仍让 built-in
+global job 与 custom payload job 并列，host 等待两者。把 `binaries` 临时改成 `[]` 会得到
+`This workspace doesn't have anything for dist to Release!`；恢复后把 targets 临时改成 `[]`
+会得到 `specified no targets to build!`。因此不能关闭 generic binary/target 计划来只保留
+extra artifacts。
+
+构建级 probe 只证明 `dist build --artifacts=global` 会登记和复制 helper 生成的文件；
+`ExtraArtifact` 不关联 checksum，托管阶段仍会公开无法描述最终 opaque Skill 的
+`dist-manifest.json`。这些结果是固定 `dist 0.32` 期间采用 custom global job 与 finalizer 的
+适用依据，不是长期架构原则。当稳定版 `dist` 能声明并校验自定义 global artifact、配套
+checksum，并提供公开前完成资产校验的生命周期接缝时，应删除本节适配，而不是增加第二套
+发布编排。
+
 ## 状态与职责
 
 每个 RC 独立记录状态，不得用新 RC 覆盖旧记录：

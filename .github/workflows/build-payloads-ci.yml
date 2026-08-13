@@ -112,7 +112,6 @@ jobs:
       - prepare
     uses: ./.github/workflows/build-linux-payload-ci.yml
     with:
-      plan: ${{ needs.release-channel.outputs.plan }}
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
   build-windows:
@@ -122,7 +121,6 @@ jobs:
       - prepare
     uses: ./.github/workflows/build-windows-payload-ci.yml
     with:
-      plan: ${{ needs.release-channel.outputs.plan }}
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
   manual-assemble-and-smoke:

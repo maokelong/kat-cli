@@ -105,6 +105,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 )
                 self.assertIn("cold-build:", workflow)
                 self.assertIn("if: ${{ !inputs['cold-build'] }}", workflow)
+                self.assertNotIn("plan:", workflow)
 
 
 if __name__ == "__main__":

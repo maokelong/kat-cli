@@ -169,7 +169,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         self.assertEqual(orchestrator.count("      - prepare"), 2)
         self.assertEqual(
             orchestrator.count("plan: ${{ needs.release-channel.outputs.plan }}"),
-            3,
+            1,
         )
 
         finalizer = FINALIZER_WORKFLOW.read_text(encoding="utf-8")
@@ -215,8 +215,14 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         self.assertIn("stable promotion", runbook)
         self.assertIn("rc.N+1", runbook)
 
-        self.assertIn("已合并 merge commit", adr)
-        self.assertIn("Immutable Releases", adr)
+        self.assertIn("已合并 merge commit", runbook)
+        self.assertIn("Immutable Releases", runbook)
+        self.assertIn("kat-workflow-wheel", runbook)
+        self.assertIn("plan-only probe", runbook)
+        self.assertIn("release-rehearsal.md", adr)
+        self.assertIn("应删除该适配", adr)
+        self.assertNotIn("kat-workflow-wheel", adr)
+        self.assertNotIn("plan-only probe", adr)
         self.assertNotIn("kat-skill-0.1.0", adr)
 
     def test_canonical_repository_identity_is_consistent(self) -> None:
