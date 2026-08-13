@@ -2150,6 +2150,7 @@ dependencies = [
  "parquet",
  "prost",
  "prost-build",
+ "prost-reflect",
  "prost-types",
  "protoc-bin-vendored",
  "rusqlite",
@@ -2785,6 +2786,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "prost",
+ "prost-types",
 ]
 
 [[package]]

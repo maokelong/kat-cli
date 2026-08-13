@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use prost_reflect::{DescriptorPool, MessageDescriptor};
+
 use super::{
-    descriptor::{Catalog, MessageDef},
     diagnostic::Diagnostic,
     names,
     plan::{ColumnPlan, ColumnSource, Presence, ProtoField, RelationSource, RelationalPlan},
@@ -56,20 +57,20 @@ impl FieldKey {
 }
 
 pub(super) fn bind(
-    catalog: &Catalog,
+    catalog: &DescriptorPool,
     plan: &RelationalPlan,
 ) -> Result<ProstBindings, Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     let mut root_types = BTreeMap::new();
     for root in &plan.roots {
-        let Some(message) = catalog.message(&root.protobuf_fqn) else {
+        let Some(message) = catalog.get_message_by_name(&root.protobuf_fqn) else {
             diagnostics.push(Diagnostic::root(
                 &root.protobuf_fqn,
                 "root disappeared while creating prost binding",
             ));
             continue;
         };
-        root_types.insert(root.spec_index, message_rust_path(message));
+        root_types.insert(root.spec_index, message_rust_path(&message));
     }
 
     let mut planned_fields = BTreeMap::<FieldKey, ProtoField>::new();
@@ -85,7 +86,7 @@ pub(super) fn bind(
     let mut checked_messages = BTreeSet::new();
     let mut fields = BTreeMap::new();
     for (key, field) in planned_fields {
-        let Some(message) = catalog.message(&field.containing_message_fqn) else {
+        let Some(message) = catalog.get_message_by_name(&field.containing_message_fqn) else {
             diagnostics.push(Diagnostic::message(
                 plan_root_for_message(plan, &field.containing_message_fqn),
                 &field.containing_message_fqn,
@@ -93,22 +94,22 @@ pub(super) fn bind(
             ));
             continue;
         };
-        if checked_messages.insert(message.fqn.clone())
-            && let Err(detail) = validate_message_identifiers(message)
+        if checked_messages.insert(message.full_name().to_string())
+            && let Err(detail) = validate_message_identifiers(&message)
         {
             diagnostics.push(Diagnostic::message(
-                plan_root_for_message(plan, &message.fqn),
-                &message.fqn,
+                plan_root_for_message(plan, message.full_name()),
+                message.full_name(),
                 detail,
             ));
         }
-        match bind_field(message, &field) {
+        match bind_field(&message, &field) {
             Ok(binding) => {
                 fields.insert(key, binding);
             }
             Err(detail) => diagnostics.push(Diagnostic::field(
-                plan_root_for_message(plan, &message.fqn),
-                &message.fqn,
+                plan_root_for_message(plan, message.full_name()),
+                message.full_name(),
                 &field.name,
                 detail,
             )),
@@ -156,29 +157,23 @@ fn relation_source_field(source: &RelationSource) -> Option<&ProtoField> {
     }
 }
 
-fn bind_field(message: &MessageDef, field: &ProtoField) -> Result<FieldBinding, String> {
+fn bind_field(message: &MessageDescriptor, field: &ProtoField) -> Result<FieldBinding, String> {
     let rust_field_ident = names::rust_snake(&field.name);
     let oneof = match &field.presence {
         Presence::Oneof { group_name } => {
-            let group_index = message
-                .descriptor
-                .oneof_decl
-                .iter()
-                .position(|oneof| oneof.name.as_deref() == Some(group_name))
+            let oneof = message
+                .oneofs()
+                .find(|oneof| oneof.name() == group_name)
                 .ok_or_else(|| format!("oneof group {group_name:?} is missing"))?;
             let type_name_conflict = message
-                .descriptor
-                .nested_type
-                .iter()
-                .filter_map(|nested| nested.name.as_deref())
+                .child_messages()
+                .map(|nested| nested.name().to_string())
                 .chain(
                     message
-                        .descriptor
-                        .enum_type
-                        .iter()
-                        .filter_map(|nested| nested.name.as_deref()),
+                        .child_enums()
+                        .map(|nested| nested.name().to_string()),
                 )
-                .any(|name| names::rust_upper_camel(name) == names::rust_upper_camel(group_name));
+                .any(|name| names::rust_upper_camel(&name) == names::rust_upper_camel(group_name));
             let mut rust_oneof_type = names::rust_upper_camel(group_name);
             if type_name_conflict {
                 rust_oneof_type.push_str("OneOf");
@@ -188,25 +183,21 @@ fn bind_field(message: &MessageDef, field: &ProtoField) -> Result<FieldBinding, 
                 .map(str::to_string)
                 .collect::<Vec<_>>();
             message_path.pop();
-            let containing_name = message
-                .nesting
+            let nesting = message_nesting(message);
+            let containing_name = nesting
                 .last()
-                .expect("indexed message has a nesting component");
+                .expect("descriptor message has a nesting component");
             message_path.push(names::rust_snake(containing_name));
             message_path.push(rust_oneof_type);
 
-            let oneof = &message.descriptor.oneof_decl[group_index];
             let mut variants = BTreeMap::new();
-            for descriptor in message.descriptor.field.iter().filter(|descriptor| {
-                !descriptor.proto3_optional.unwrap_or(false)
-                    && descriptor.oneof_index == Some(group_index as i32)
-            }) {
-                let proto_name = descriptor.name.as_deref().unwrap_or_default();
+            for descriptor in oneof.fields() {
+                let proto_name = descriptor.name();
                 let rust_name = names::rust_upper_camel(proto_name);
                 if let Some(previous) = variants.insert(rust_name.clone(), proto_name.to_string()) {
                     return Err(format!(
                         "oneof {:?} variants {:?} and {:?} both bind to Rust variant {:?}",
-                        oneof.name.as_deref().unwrap_or_default(),
+                        oneof.name(),
                         previous,
                         proto_name,
                         rust_name
@@ -227,14 +218,16 @@ fn bind_field(message: &MessageDef, field: &ProtoField) -> Result<FieldBinding, 
     })
 }
 
-fn validate_message_identifiers(message: &MessageDef) -> Result<(), String> {
+fn validate_message_identifiers(message: &MessageDescriptor) -> Result<(), String> {
     let mut struct_fields = BTreeMap::new();
-    for field in &message.descriptor.field {
-        let synthetic = field.proto3_optional.unwrap_or(false);
-        if field.oneof_index.is_some() && !synthetic {
+    for field in message.fields() {
+        if field
+            .containing_oneof()
+            .is_some_and(|oneof| !oneof.is_synthetic())
+        {
             continue;
         }
-        let proto_name = field.name.as_deref().unwrap_or_default();
+        let proto_name = field.name();
         let rust_name = names::rust_snake(proto_name);
         if let Some(previous) = struct_fields.insert(rust_name.clone(), proto_name.to_string()) {
             return Err(format!(
@@ -242,14 +235,11 @@ fn validate_message_identifiers(message: &MessageDef) -> Result<(), String> {
             ));
         }
     }
-    for (oneof_index, oneof) in message.descriptor.oneof_decl.iter().enumerate() {
-        let synthetic = message.descriptor.field.iter().any(|field| {
-            field.proto3_optional.unwrap_or(false) && field.oneof_index == Some(oneof_index as i32)
-        });
-        if synthetic {
+    for oneof in message.oneofs() {
+        if oneof.is_synthetic() {
             continue;
         }
-        let proto_name = oneof.name.as_deref().unwrap_or_default();
+        let proto_name = oneof.name();
         let rust_name = names::rust_snake(proto_name);
         if let Some(previous) = struct_fields.insert(rust_name.clone(), proto_name.to_string()) {
             return Err(format!(
@@ -260,29 +250,32 @@ fn validate_message_identifiers(message: &MessageDef) -> Result<(), String> {
     Ok(())
 }
 
-fn message_rust_path(message: &MessageDef) -> String {
+fn message_rust_path(message: &MessageDescriptor) -> String {
     let mut parts = vec!["crate".to_string(), "proto".to_string()];
     parts.extend(
         message
-            .package
+            .package_name()
             .split('.')
             .filter(|part| !part.is_empty())
             .map(names::rust_snake),
     );
-    for enclosing in message
-        .nesting
-        .iter()
-        .take(message.nesting.len().saturating_sub(1))
-    {
+    let nesting = message_nesting(message);
+    for enclosing in nesting.iter().take(nesting.len().saturating_sub(1)) {
         parts.push(names::rust_snake(enclosing));
     }
-    parts.push(names::rust_upper_camel(
-        message
-            .nesting
-            .last()
-            .expect("indexed message has a nesting component"),
-    ));
+    parts.push(names::rust_upper_camel(message.name()));
     parts.join("::")
+}
+
+fn message_nesting(message: &MessageDescriptor) -> Vec<String> {
+    let mut nesting = vec![message.name().to_string()];
+    let mut parent = message.parent_message();
+    while let Some(message) = parent {
+        nesting.push(message.name().to_string());
+        parent = message.parent_message();
+    }
+    nesting.reverse();
+    nesting
 }
 
 fn plan_root_for_message<'a>(plan: &'a RelationalPlan, message_fqn: &str) -> &'a str {

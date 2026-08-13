@@ -4,7 +4,6 @@
 //! closure、关系计划、prost binding 与 Rust renderer 都留在模块内部，避免
 //! production code 生长出第二套映射规则。
 
-mod descriptor;
 mod diagnostic;
 mod names;
 mod plan;
@@ -13,6 +12,7 @@ mod render;
 
 use std::{error::Error, fmt};
 
+use prost_reflect::DescriptorPool;
 use prost_types::FileDescriptorSet;
 
 use diagnostic::Diagnostic;
@@ -72,9 +72,14 @@ pub(crate) fn compile(
     descriptors: &FileDescriptorSet,
     roots: &[RootSpec<'_>],
 ) -> Result<GeneratedRust, CompileError> {
-    let catalog = descriptor::Catalog::new(descriptors);
-    let relational_plan = plan::build(&catalog, roots).map_err(compile_error)?;
-    let bindings = prost_binding::bind(&catalog, &relational_plan).map_err(compile_error)?;
+    let descriptors =
+        DescriptorPool::from_file_descriptor_set(descriptors.clone()).map_err(|error| {
+            CompileError {
+                messages: vec![format!("invalid protobuf descriptor set: {error}")],
+            }
+        })?;
+    let relational_plan = plan::build(&descriptors, roots).map_err(compile_error)?;
+    let bindings = prost_binding::bind(&descriptors, &relational_plan).map_err(compile_error)?;
     let source = render::render(&relational_plan, &bindings);
     Ok(GeneratedRust { source })
 }

@@ -6,11 +6,14 @@ mod native_hook_arrow_codegen;
 mod native_hook_domain_codegen;
 #[path = "build/proto_codegen.rs"]
 mod proto_codegen;
+#[cfg(feature = "protobuf-source-contract-fixture")]
 #[path = "build/protobuf_source_codegen/mod.rs"]
 mod protobuf_source_codegen;
+#[cfg(feature = "protobuf-source-contract-fixture")]
 #[path = "src/table_name.rs"]
 mod table_name;
 
+#[cfg(feature = "protobuf-source-contract-fixture")]
 use std::{env, fs, path::Path};
 
 use ftrace_arrow_codegen::{
@@ -21,8 +24,10 @@ use native_hook_domain_codegen::{
     NATIVE_HOOK_PROTO_FILES, NATIVE_HOOK_RESULT_PROTO, generate_native_hook_records,
     native_hook_events_from_descriptor, native_hook_serializable_messages,
 };
+#[cfg(feature = "protobuf-source-contract-fixture")]
 use prost::Message;
 use proto_codegen::{message_in_file, messages_in_file};
+#[cfg(feature = "protobuf-source-contract-fixture")]
 use protobuf_source_codegen::{RootSpec, compile as compile_protobuf_source};
 
 const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
@@ -30,7 +35,9 @@ const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
     "proto/ftrace_data/trace_plugin_result.proto",
 ];
 const PROFILER_ENVELOPE_PROTO_FILES: &[&str] = &["proto/profiler/profiler_plugin_data.proto"];
+#[cfg(feature = "protobuf-source-contract-fixture")]
 const PROTOBUF_SOURCE_FIXTURE_DIR: &str = "tests/fixtures/protobuf_source";
+#[cfg(feature = "protobuf-source-contract-fixture")]
 const PROTOBUF_SOURCE_VALID_FIXTURES: &[&str] = &[
     "tests/fixtures/protobuf_source/valid_shapes.proto",
     "tests/fixtures/protobuf_source/valid_proto2_optional.proto",
@@ -39,6 +46,7 @@ const PROTOBUF_SOURCE_VALID_FIXTURES: &[&str] = &[
     "tests/fixtures/protobuf_source/valid_naming.proto",
     "tests/fixtures/protobuf_source/illegal_field_names.proto",
 ];
+#[cfg(feature = "protobuf-source-contract-fixture")]
 const PROTOBUF_SOURCE_PLANNER_FIXTURES: &[&str] = &[
     "tests/fixtures/protobuf_source/name_collision.proto",
     "tests/fixtures/protobuf_source/reserved_relation_names.proto",
@@ -124,6 +132,7 @@ fn main() {
     generate_native_hook_records(&native_hook_events).expect("native hook records are written");
     generate_native_hook_table_builders(&native_hook_events)
         .expect("native hook table builders are written");
+    #[cfg(feature = "protobuf-source-contract-fixture")]
     generate_protobuf_source_fixture(&protoc);
 
     for proto_file in proto_files {
@@ -131,6 +140,7 @@ fn main() {
     }
 }
 
+#[cfg(feature = "protobuf-source-contract-fixture")]
 fn generate_protobuf_source_fixture(protoc: &Path) {
     let output = Path::new(&env::var_os("OUT_DIR").expect("Cargo provides OUT_DIR"))
         .join("protobuf_source_fixture");
@@ -220,6 +230,7 @@ fn generate_protobuf_source_fixture(protoc: &Path) {
     }
 }
 
+#[cfg(feature = "protobuf-source-contract-fixture")]
 fn load_fixture_descriptors(protoc: &Path, proto_files: &[&str]) -> prost_types::FileDescriptorSet {
     let mut config = prost_build::Config::new();
     config.protoc_executable(protoc);

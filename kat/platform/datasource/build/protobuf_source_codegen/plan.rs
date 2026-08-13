@@ -1,16 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use prost_types::{
-    FieldDescriptorProto,
-    field_descriptor_proto::{Label, Type},
+use prost_reflect::{
+    Cardinality, DescriptorPool, EnumDescriptor, FieldDescriptor, Kind, MessageDescriptor,
 };
 
-use super::{
-    RootSpec,
-    descriptor::{Catalog, EnumDef, MessageDef, Syntax},
-    diagnostic::Diagnostic,
-    names,
-};
+use super::{RootSpec, diagnostic::Diagnostic, names};
 
 const RESERVED_TABLES: &[&str] = &[
     "protobuf_enum_symbol",
@@ -143,7 +137,7 @@ pub(super) struct EnumSymbolPlan {
 }
 
 pub(super) fn build(
-    catalog: &Catalog,
+    catalog: &DescriptorPool,
     roots: &[RootSpec<'_>],
 ) -> Result<RelationalPlan, Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
@@ -175,7 +169,7 @@ pub(super) fn build(
 }
 
 struct Builder<'a> {
-    catalog: &'a Catalog,
+    catalog: &'a DescriptorPool,
     relations: Vec<RelationPlan>,
     enum_origins: Vec<EnumOriginPlan>,
     relation_names: BTreeMap<String, String>,
@@ -194,16 +188,9 @@ impl Builder<'_> {
                 "root type must be a canonical protobuf FQN without a leading dot",
             ));
         }
-        if self.catalog.message_is_ambiguous(spec.protobuf_fqn) {
-            return Err(Diagnostic::root(
-                spec.protobuf_fqn,
-                "canonical root FQN is defined more than once",
-            ));
-        }
         let message = self
             .catalog
-            .message(spec.protobuf_fqn)
-            .cloned()
+            .get_message_by_name(spec.protobuf_fqn)
             .ok_or_else(|| {
                 Diagnostic::root(
                     spec.protobuf_fqn,
@@ -237,15 +224,15 @@ impl Builder<'_> {
     fn validate_closure(
         &self,
         root_fqn: &str,
-        message: &MessageDef,
+        message: &MessageDescriptor,
         stack: &mut Vec<String>,
         visited: &mut BTreeSet<String>,
         path_prefix: &[String],
         entered_from_containing_fqn: Option<&str>,
     ) -> Result<(), Diagnostic> {
-        if let Some(cycle_start) = stack.iter().position(|fqn| fqn == &message.fqn) {
+        if let Some(cycle_start) = stack.iter().position(|fqn| fqn == message.full_name()) {
             let mut cycle = stack[cycle_start..].to_vec();
-            cycle.push(message.fqn.clone());
+            cycle.push(message.full_name().to_string());
             return Err(message_shape_diagnostic(
                 root_fqn,
                 message,
@@ -257,25 +244,10 @@ impl Builder<'_> {
                 ),
             ));
         }
-        if visited.contains(&message.fqn) {
+        if visited.contains(message.full_name()) {
             return Ok(());
         }
-        if message.syntax == Syntax::Other {
-            return Err(message_shape_diagnostic(
-                root_fqn,
-                message,
-                path_prefix,
-                entered_from_containing_fqn,
-                "only proto2 and proto3 descriptor syntax is supported",
-            ));
-        }
-        if message
-            .descriptor
-            .options
-            .as_ref()
-            .and_then(|options| options.map_entry)
-            .unwrap_or(false)
-        {
+        if message.is_map_entry() {
             return Err(message_shape_diagnostic(
                 root_fqn,
                 message,
@@ -284,9 +256,9 @@ impl Builder<'_> {
                 "synthetic protobuf map-entry messages cannot be published as roots or relations",
             ));
         }
-        if !message.descriptor.extension.is_empty()
-            || !message.descriptor.extension_range.is_empty()
-            || !self.catalog.extensions_for(&message.fqn).is_empty()
+        if message.child_extensions().next().is_some()
+            || message.extension_ranges().next().is_some()
+            || message.extensions().next().is_some()
         {
             return Err(message_shape_diagnostic(
                 root_fqn,
@@ -297,89 +269,66 @@ impl Builder<'_> {
             ));
         }
 
-        stack.push(message.fqn.clone());
-        let mut fields = message.descriptor.field.iter().collect::<Vec<_>>();
-        fields.sort_by_key(|field| field.number.unwrap_or_default());
+        stack.push(message.full_name().to_string());
+        let mut fields = message.fields().collect::<Vec<_>>();
+        fields.sort_by_key(FieldDescriptor::number);
         let mut numbers = BTreeSet::new();
         let mut names_seen = BTreeSet::new();
         for field in fields {
-            let field_name = field.name.as_deref().unwrap_or("<unnamed>");
+            let field_name = field.name();
             let mut full_path = path_prefix.to_vec();
             full_path.push(field_name.to_string());
             let field_path = full_path.join(".");
-            if !numbers.insert(field.number.unwrap_or_default()) {
+            if !numbers.insert(field.number()) {
                 return Err(Diagnostic::field(
                     root_fqn,
-                    &message.fqn,
+                    message.full_name(),
                     &field_path,
                     "duplicate protobuf field number",
                 ));
             }
-            if !names_seen.insert(field_name) {
+            if !names_seen.insert(field_name.to_string()) {
                 return Err(Diagnostic::field(
                     root_fqn,
-                    &message.fqn,
+                    message.full_name(),
                     &field_path,
                     "duplicate protobuf field name",
                 ));
             }
-            let label = field_label(field).ok_or_else(|| {
-                Diagnostic::field(
-                    root_fqn,
-                    &message.fqn,
-                    &field_path,
-                    "field has an invalid or missing label",
-                )
-            })?;
-            if label == Label::Required {
+            if field.is_required() {
                 return Err(Diagnostic::field(
                     root_fqn,
-                    &message.fqn,
+                    message.full_name(),
                     &field_path,
                     "proto2 required fields are unsupported",
                 ));
             }
-            let field_type = field_type(field).ok_or_else(|| {
-                Diagnostic::field(
-                    root_fqn,
-                    &message.fqn,
-                    &field_path,
-                    "field has an invalid or missing protobuf type",
-                )
-            })?;
-            if field_type == Type::Group {
+            if field.is_group() {
                 return Err(Diagnostic::field(
                     root_fqn,
-                    &message.fqn,
+                    message.full_name(),
                     &field_path,
                     "protobuf group fields are unsupported",
                 ));
             }
-            self.validate_oneof(root_fqn, message, field, &field_path)?;
-
-            match field_type {
-                Type::Message => {
-                    let target = self.message_target(root_fqn, message, field, &field_path)?;
-                    if target
-                        .descriptor
-                        .options
-                        .as_ref()
-                        .and_then(|options| options.map_entry)
-                        .unwrap_or(false)
-                    {
+            match field.kind() {
+                Kind::Message(target) => {
+                    if target.is_map_entry() {
                         return Err(Diagnostic::field(
                             root_fqn,
-                            &message.fqn,
+                            message.full_name(),
                             &field_path,
                             "protobuf map fields are unsupported",
                         ));
                     }
-                    if let Some(cycle_start) = stack.iter().position(|fqn| fqn == &target.fqn) {
+                    if let Some(cycle_start) =
+                        stack.iter().position(|fqn| fqn == target.full_name())
+                    {
                         let mut cycle = stack[cycle_start..].to_vec();
-                        cycle.push(target.fqn.clone());
+                        cycle.push(target.full_name().to_string());
                         return Err(Diagnostic::field(
                             root_fqn,
-                            &message.fqn,
+                            message.full_name(),
                             &field_path,
                             format!(
                                 "recursive message edge is unsupported: {}",
@@ -389,77 +338,49 @@ impl Builder<'_> {
                     }
                     self.validate_closure(
                         root_fqn,
-                        target,
+                        &target,
                         stack,
                         visited,
                         &full_path,
-                        Some(&message.fqn),
+                        Some(message.full_name()),
                     )?;
                 }
-                Type::Enum => {
-                    let enum_def = self.enum_target(root_fqn, message, field, &field_path)?;
-                    self.validate_enum(root_fqn, message, &field_path, enum_def)?;
+                Kind::Enum(enum_def) => {
+                    self.validate_enum(root_fqn, message, &field_path, &enum_def)?;
                 }
                 _ => {}
             }
         }
         stack.pop();
-        visited.insert(message.fqn.clone());
-        Ok(())
-    }
-
-    fn validate_oneof(
-        &self,
-        root_fqn: &str,
-        message: &MessageDef,
-        field: &FieldDescriptorProto,
-        field_path: &str,
-    ) -> Result<(), Diagnostic> {
-        let Some(index) = field.oneof_index else {
-            return Ok(());
-        };
-        let index = usize::try_from(index).ok();
-        if index
-            .and_then(|index| message.descriptor.oneof_decl.get(index))
-            .is_none()
-        {
-            return Err(Diagnostic::field(
-                root_fqn,
-                &message.fqn,
-                field_path,
-                "field refers to a missing oneof declaration",
-            ));
-        }
+        visited.insert(message.full_name().to_string());
         Ok(())
     }
 
     fn validate_enum(
         &self,
         root_fqn: &str,
-        message: &MessageDef,
+        message: &MessageDescriptor,
         field_path: &str,
-        enum_def: &EnumDef,
+        enum_def: &EnumDescriptor,
     ) -> Result<(), Diagnostic> {
         let alias_enabled = enum_def
-            .descriptor
+            .enum_descriptor_proto()
             .options
             .as_ref()
             .and_then(|options| options.allow_alias)
             .unwrap_or(false);
         let mut numbers = BTreeSet::new();
         let duplicated_number = enum_def
-            .descriptor
-            .value
-            .iter()
-            .any(|value| !numbers.insert(value.number.unwrap_or_default()));
+            .values()
+            .any(|value| !numbers.insert(value.number()));
         if alias_enabled || duplicated_number {
             return Err(Diagnostic::field(
                 root_fqn,
-                &message.fqn,
+                message.full_name(),
                 field_path,
                 format!(
                     "enum {:?} uses aliases, which are unsupported",
-                    enum_def.fqn
+                    enum_def.full_name()
                 ),
             ));
         }
@@ -470,7 +391,7 @@ impl Builder<'_> {
         &mut self,
         root_fqn: &str,
         root_table_name: &str,
-        message: &MessageDef,
+        message: &MessageDescriptor,
         relation_path: Vec<String>,
         source: RelationSource,
     ) -> Result<usize, Diagnostic> {
@@ -486,7 +407,7 @@ impl Builder<'_> {
         self.relations.push(RelationPlan {
             slot,
             name: relation_name,
-            message_fqn: message.fqn.clone(),
+            message_fqn: message.full_name().to_string(),
             source,
             columns: Vec::new(),
         });
@@ -509,38 +430,30 @@ impl Builder<'_> {
         root_fqn: &str,
         root_table_name: &str,
         relation_slot: usize,
-        message: &MessageDef,
+        message: &MessageDescriptor,
         relation_path: &[String],
         nullable_ancestor: bool,
         arrow_path: Vec<String>,
     ) -> Result<Vec<ColumnPlan>, Diagnostic> {
-        let mut fields = message.descriptor.field.iter().collect::<Vec<_>>();
-        fields.sort_by_key(|field| field.number.unwrap_or_default());
+        let mut fields = message.fields().collect::<Vec<_>>();
+        fields.sort_by_key(FieldDescriptor::number);
         let mut columns = Vec::new();
         let mut column_names = BTreeSet::new();
         let relation_top_level = arrow_path.is_empty();
 
         for descriptor in fields {
-            let field = self.proto_field(message, descriptor)?;
-            let field_type = field_type(descriptor).expect("closure validation checked field type");
-            let repeated = field_label(descriptor) == Some(Label::Repeated);
+            let field = self.proto_field(&descriptor);
+            let kind = descriptor.kind();
+            let repeated = descriptor.cardinality() == Cardinality::Repeated;
             let user_oneof = matches!(field.presence, Presence::Oneof { .. });
             if repeated {
                 let mut child_path = relation_path.to_vec();
                 child_path.push(field.name.clone());
-                if field_type == Type::Message {
-                    let target = self
-                        .catalog
-                        .resolve_message(
-                            &message.fqn,
-                            descriptor.type_name.as_deref().unwrap_or_default(),
-                        )
-                        .cloned()
-                        .expect("closure validation resolved message");
+                if let Kind::Message(target) = &kind {
                     self.plan_message_relation(
                         root_fqn,
                         root_table_name,
-                        &target,
+                        target,
                         child_path,
                         RelationSource::RepeatedMessage {
                             parent: relation_slot,
@@ -548,7 +461,7 @@ impl Builder<'_> {
                         },
                     )?;
                 } else {
-                    let scalar = scalar_type(field_type).expect("validated scalar type");
+                    let scalar = scalar_type(&kind).expect("validated scalar type");
                     let relation_name = names::relation_name(root_table_name, &child_path);
                     let origin = format!("root {root_fqn} path {}", child_path.join("."));
                     self.register_relation_name(root_fqn, message, &relation_name, &origin)?;
@@ -556,7 +469,7 @@ impl Builder<'_> {
                     self.relations.push(RelationPlan {
                         slot: child_slot,
                         name: relation_name,
-                        message_fqn: message.fqn.clone(),
+                        message_fqn: message.full_name().to_string(),
                         source: RelationSource::RepeatedValue {
                             parent: relation_slot,
                             field: field.clone(),
@@ -570,31 +483,15 @@ impl Builder<'_> {
                             },
                         }],
                     });
-                    if field_type == Type::Enum {
-                        let enum_def = self
-                            .catalog
-                            .resolve_enum(
-                                &message.fqn,
-                                descriptor.type_name.as_deref().unwrap_or_default(),
-                            )
-                            .cloned()
-                            .expect("closure validation resolved enum");
-                        self.register_enum_origin(child_slot, "value", &enum_def);
+                    if let Kind::Enum(enum_def) = &kind {
+                        self.register_enum_origin(child_slot, "value", enum_def);
                     }
                 }
                 continue;
             }
 
-            if field_type == Type::Message {
-                let target = self
-                    .catalog
-                    .resolve_message(
-                        &message.fqn,
-                        descriptor.type_name.as_deref().unwrap_or_default(),
-                    )
-                    .cloned()
-                    .expect("closure validation resolved message");
-                if user_oneof || self.message_has_relations(&target) {
+            if let Kind::Message(target) = &kind {
+                if user_oneof || self.message_has_relations(target) {
                     let mut child_path = relation_path.to_vec();
                     child_path.push(field.name.clone());
                     let source = if user_oneof {
@@ -611,7 +508,7 @@ impl Builder<'_> {
                     self.plan_message_relation(
                         root_fqn,
                         root_table_name,
-                        &target,
+                        target,
                         child_path,
                         source,
                     )?;
@@ -629,7 +526,7 @@ impl Builder<'_> {
                         root_fqn,
                         root_table_name,
                         relation_slot,
-                        &target,
+                        target,
                         relation_path,
                         true,
                         nested_arrow_path,
@@ -653,7 +550,7 @@ impl Builder<'_> {
                 &field.name,
                 relation_top_level,
             )?;
-            let scalar = scalar_type(field_type).expect("validated scalar type");
+            let scalar = scalar_type(&kind).expect("validated scalar type");
             let nullable = nullable_ancestor || !matches!(field.presence, Presence::Implicit);
             let mut origin_path = arrow_path.clone();
             origin_path.push(field.name.clone());
@@ -665,138 +562,75 @@ impl Builder<'_> {
                     value: ScalarValue::Field(field.clone()),
                 },
             });
-            if field_type == Type::Enum {
-                let enum_def = self
-                    .catalog
-                    .resolve_enum(
-                        &message.fqn,
-                        descriptor.type_name.as_deref().unwrap_or_default(),
-                    )
-                    .cloned()
-                    .expect("closure validation resolved enum");
-                self.register_enum_origin(relation_slot, &origin_path.join("."), &enum_def);
+            if let Kind::Enum(enum_def) = &kind {
+                self.register_enum_origin(relation_slot, &origin_path.join("."), enum_def);
             }
         }
         Ok(columns)
     }
 
-    fn message_has_relations(&mut self, message: &MessageDef) -> bool {
-        if let Some(result) = self.relation_memo.get(&message.fqn) {
+    fn message_has_relations(&mut self, message: &MessageDescriptor) -> bool {
+        if let Some(result) = self.relation_memo.get(message.full_name()) {
             return *result;
         }
         // 递归已在此前拒绝；临时写入 false 只用于让 memo 在本次构建期递归中保持完备。
-        self.relation_memo.insert(message.fqn.clone(), false);
-        let result = message.descriptor.field.iter().any(|field| {
-            if field_label(field) == Some(Label::Repeated) {
+        self.relation_memo
+            .insert(message.full_name().to_string(), false);
+        let result = message.fields().any(|field| {
+            if field.cardinality() == Cardinality::Repeated {
                 return true;
             }
-            if field_type(field) != Some(Type::Message) {
-                return false;
-            }
-            if self.user_oneof(message, field).is_some() {
+            if self.user_oneof(&field).is_some() {
                 return true;
             }
-            let Some(target) = field
-                .type_name
-                .as_deref()
-                .and_then(|type_name| self.catalog.resolve_message(&message.fqn, type_name))
-                .cloned()
-            else {
-                return false;
-            };
-            self.message_has_relations(&target)
+            match field.kind() {
+                Kind::Message(target) => self.message_has_relations(&target),
+                _ => false,
+            }
         });
-        self.relation_memo.insert(message.fqn.clone(), result);
+        self.relation_memo
+            .insert(message.full_name().to_string(), result);
         result
     }
 
-    fn proto_field(
-        &self,
-        message: &MessageDef,
-        descriptor: &FieldDescriptorProto,
-    ) -> Result<ProtoField, Diagnostic> {
-        let name = descriptor.name.clone().unwrap_or_default();
-        let presence = if let Some(group_name) = self.user_oneof(message, descriptor) {
+    fn proto_field(&self, descriptor: &FieldDescriptor) -> ProtoField {
+        let presence = if let Some(group_name) = self.user_oneof(descriptor) {
             Presence::Oneof { group_name }
-        } else if descriptor.proto3_optional.unwrap_or(false)
-            || field_type(descriptor) == Some(Type::Message)
-            || (message.syntax == Syntax::Proto2
-                && field_label(descriptor) == Some(Label::Optional))
-        {
+        } else if descriptor.supports_presence() {
             Presence::Explicit
         } else {
             Presence::Implicit
         };
-        Ok(ProtoField {
-            containing_message_fqn: message.fqn.clone(),
-            name,
-            number: descriptor.number.unwrap_or_default(),
+        ProtoField {
+            containing_message_fqn: descriptor.parent_message().full_name().to_string(),
+            name: descriptor.name().to_string(),
+            number: i32::try_from(descriptor.number()).expect("protobuf field number fits i32"),
             presence,
-        })
-    }
-
-    fn user_oneof(&self, message: &MessageDef, field: &FieldDescriptorProto) -> Option<String> {
-        if field.proto3_optional.unwrap_or(false) {
-            return None;
         }
-        let index = usize::try_from(field.oneof_index?).ok()?;
-        message.descriptor.oneof_decl.get(index)?.name.clone()
     }
 
-    fn message_target<'a>(
-        &'a self,
-        root_fqn: &str,
-        message: &MessageDef,
-        field: &FieldDescriptorProto,
+    fn user_oneof(&self, field: &FieldDescriptor) -> Option<String> {
+        field
+            .containing_oneof()
+            .filter(|oneof| !oneof.is_synthetic())
+            .map(|oneof| oneof.name().to_string())
+    }
+
+    fn register_enum_origin(
+        &mut self,
+        relation_slot: usize,
         field_path: &str,
-    ) -> Result<&'a MessageDef, Diagnostic> {
-        let type_name = field.type_name.as_deref().unwrap_or_default();
-        let canonical = self.catalog.canonical_reference(&message.fqn, type_name);
-        self.catalog
-            .resolve_message(&message.fqn, type_name)
-            .ok_or_else(|| {
-                let detail = if self.catalog.message_is_ambiguous(&canonical) {
-                    format!("message type {canonical:?} is defined more than once")
-                } else {
-                    format!("message type {canonical:?} is missing from the descriptor set")
-                };
-                Diagnostic::field(root_fqn, &message.fqn, field_path, detail)
-            })
-    }
-
-    fn enum_target<'a>(
-        &'a self,
-        root_fqn: &str,
-        message: &MessageDef,
-        field: &FieldDescriptorProto,
-        field_path: &str,
-    ) -> Result<&'a EnumDef, Diagnostic> {
-        let type_name = field.type_name.as_deref().unwrap_or_default();
-        let canonical = self.catalog.canonical_reference(&message.fqn, type_name);
-        self.catalog
-            .resolve_enum(&message.fqn, type_name)
-            .ok_or_else(|| {
-                let detail = if self.catalog.enum_is_ambiguous(&canonical) {
-                    format!("enum type {canonical:?} is defined more than once")
-                } else {
-                    format!("enum type {canonical:?} is missing from the descriptor set")
-                };
-                Diagnostic::field(root_fqn, &message.fqn, field_path, detail)
-            })
-    }
-
-    fn register_enum_origin(&mut self, relation_slot: usize, field_path: &str, enum_def: &EnumDef) {
+        enum_def: &EnumDescriptor,
+    ) {
         self.enum_origins.push(EnumOriginPlan {
             relation_slot,
             field_path: field_path.to_string(),
-            enum_fqn: enum_def.fqn.clone(),
+            enum_fqn: enum_def.full_name().to_string(),
             symbols: enum_def
-                .descriptor
-                .value
-                .iter()
+                .values()
                 .map(|value| EnumSymbolPlan {
-                    number: value.number.unwrap_or_default(),
-                    symbol: value.name.clone().unwrap_or_default(),
+                    number: value.number(),
+                    symbol: value.name().to_string(),
                 })
                 .collect(),
         });
@@ -838,21 +672,21 @@ impl Builder<'_> {
     fn register_relation_name(
         &mut self,
         root_fqn: &str,
-        message: &MessageDef,
+        message: &MessageDescriptor,
         relation_name: &str,
         origin: &str,
     ) -> Result<(), Diagnostic> {
         if !names::valid_dataset_name(relation_name) {
             return Err(Diagnostic::message(
                 root_fqn,
-                &message.fqn,
+                message.full_name(),
                 format!("generated relation name {relation_name:?} is illegal"),
             ));
         }
         if RESERVED_TABLES.contains(&relation_name) {
             return Err(Diagnostic::message(
                 root_fqn,
-                &message.fqn,
+                message.full_name(),
                 format!("generated relation name {relation_name:?} is reserved"),
             ));
         }
@@ -862,7 +696,7 @@ impl Builder<'_> {
         {
             return Err(Diagnostic::message(
                 root_fqn,
-                &message.fqn,
+                message.full_name(),
                 format!(
                     "generated relation name {relation_name:?} collides between {previous} and {origin}"
                 ),
@@ -874,7 +708,7 @@ impl Builder<'_> {
 
 fn ensure_unique_column(
     root_fqn: &str,
-    message: &MessageDef,
+    message: &MessageDescriptor,
     names: &mut BTreeSet<String>,
     name: &str,
     relation_top_level: bool,
@@ -882,7 +716,7 @@ fn ensure_unique_column(
     if relation_top_level && names::reserved_relationship_column(name) {
         return Err(Diagnostic::field(
             root_fqn,
-            &message.fqn,
+            message.full_name(),
             name,
             format!(
                 "column name {name:?} is illegal or reserved at relation scope for protobuf relationships"
@@ -894,7 +728,7 @@ fn ensure_unique_column(
     } else {
         Err(Diagnostic::field(
             root_fqn,
-            &message.fqn,
+            message.full_name(),
             name,
             format!("column name {name:?} collides after relational mapping"),
         ))
@@ -903,7 +737,7 @@ fn ensure_unique_column(
 
 fn message_shape_diagnostic(
     root_fqn: &str,
-    message: &MessageDef,
+    message: &MessageDescriptor,
     path_prefix: &[String],
     entered_from_containing_fqn: Option<&str>,
     detail: impl Into<String>,
@@ -914,31 +748,23 @@ fn message_shape_diagnostic(
             root_fqn,
             containing_message_fqn,
             path_prefix.join("."),
-            format!("{detail}; target message {:?}", message.fqn),
+            format!("{detail}; target message {:?}", message.full_name()),
         ),
-        None => Diagnostic::message(root_fqn, &message.fqn, detail),
+        None => Diagnostic::message(root_fqn, message.full_name(), detail),
     }
 }
 
-fn field_type(field: &FieldDescriptorProto) -> Option<Type> {
-    Type::try_from(field.r#type?).ok()
-}
-
-fn field_label(field: &FieldDescriptorProto) -> Option<Label> {
-    Label::try_from(field.label?).ok()
-}
-
-fn scalar_type(field_type: Type) -> Option<ScalarType> {
-    match field_type {
-        Type::Double => Some(ScalarType::Float64),
-        Type::Float => Some(ScalarType::Float32),
-        Type::Int64 | Type::Sint64 | Type::Sfixed64 => Some(ScalarType::Int64),
-        Type::Uint64 | Type::Fixed64 => Some(ScalarType::UInt64),
-        Type::Int32 | Type::Sint32 | Type::Sfixed32 | Type::Enum => Some(ScalarType::Int32),
-        Type::Uint32 | Type::Fixed32 => Some(ScalarType::UInt32),
-        Type::Bool => Some(ScalarType::Boolean),
-        Type::String => Some(ScalarType::Utf8),
-        Type::Bytes => Some(ScalarType::Binary),
-        Type::Message | Type::Group => None,
+fn scalar_type(kind: &Kind) -> Option<ScalarType> {
+    match kind {
+        Kind::Double => Some(ScalarType::Float64),
+        Kind::Float => Some(ScalarType::Float32),
+        Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 => Some(ScalarType::Int64),
+        Kind::Uint64 | Kind::Fixed64 => Some(ScalarType::UInt64),
+        Kind::Int32 | Kind::Sint32 | Kind::Sfixed32 | Kind::Enum(_) => Some(ScalarType::Int32),
+        Kind::Uint32 | Kind::Fixed32 => Some(ScalarType::UInt32),
+        Kind::Bool => Some(ScalarType::Boolean),
+        Kind::String => Some(ScalarType::Utf8),
+        Kind::Bytes => Some(ScalarType::Binary),
+        Kind::Message(_) => None,
     }
 }
