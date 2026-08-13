@@ -1,0 +1,48 @@
+kat/platform/datasource/build/protobuf_source_codegen/plan.rs
+  s_3eb48b5c46c45a::t_1eb950aecbc08a 492,509,527,551,563-564,571,575-578,581,584-587,589-590,594-595,597,602-605,610-614,621,623,625-626,675,682,692,712,724,744,746,750-761
+  s_3eb48b5c46c45a::t_d810f4bfead616 5-8,192-193,195-197,231,233,245,248,257-259,270-272,276,280,283,288,291,296,299,304,307,312-314,317,322-324,326,329,339,343,346-347,353,365,372-373,377,381,408,436-437,443-445,450,454,462,470,484-485,491
+  s_3eb48b5c46c45a::t_ca51482aa0bfdb 3-4
+kat/platform/datasource/build/protobuf_source_codegen/prost_binding.rs
+  s_3eb48b5c46c45a::t_d810f4bfead616 12-13,76,100-101,104-105,109,114-115,167-169,172-173,176-177,179,189-190,192,197-198,203,226-230,233,241-242,245,260,265-266,269,273-283
+  s_3eb48b5c46c45a::t_9d5159db72c287 3-4,6
+kat/platform/datasource/build/protobuf_source_codegen/descriptor.rs
+  s_3eb48b5c46c45a::t_985bd92b77c32f 1-2,4-7,10,14-15,18-19
+kat/platform/datasource/build.rs
+  s_3eb48b5c46c45a::t_94a35d02c3e331 12,16,27,30,38,40,49,135,143,233
+  s_3eb48b5c46c45a::t_6a846f75b7e997 9
+kat/platform/datasource/Cargo.toml
+  s_3eb48b5c46c45a::t_6a846f75b7e997 7-9,37,44,48-52
+Cargo.toml
+  s_3eb48b5c46c45a::t_f4ec58b0241b5b 38
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_3eb48b5c46c45a::t_3fcd229f859577 75-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a7b8f82bb5472a23878e3572e18ebaeb5b3f439d",
+  "prompts": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 202,
+      "total_deletions": 583,
+      "accepted_lines": 202,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
