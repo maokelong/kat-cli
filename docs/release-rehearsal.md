@@ -158,9 +158,10 @@ cargo metadata --locked --no-deps --format-version 1
 dist generate --check
 ```
 
-提交候选后只运行正常 PR 自动门禁。PR 事件中的 host、announce 和 finalizer 必须 skipped；
-build、assemble、双资产校验、Linux 完整闭环和 Windows builder-image candidate smoke 必须
-成功。保存 `Release` run ID、attempt 和完整 jobs JSON。
+提交候选后先确认普通 PR 的 `Release` plan 成功，再添加 `full-ci` 标签。PR 事件中的 host、
+announce 和 finalizer 必须 skipped；`Build KAT Platform Payloads` 的 build、assemble、双资产
+校验、Linux 完整闭环和 Windows builder-image candidate smoke 必须成功。保存两个 workflow 的
+run ID、attempt 和完整 jobs JSON；下文的 `PR_RUN_ID` 指 Payload workflow run。
 
 `build-payloads-ci.yml` 的 release-channel job 会打印唯一 checkout SHA 和 tree。先从指定
 attempt 的日志提取，随后用 tree 对照冻结的 PR merge ref `M`；不能把 PR API 的 head SHA

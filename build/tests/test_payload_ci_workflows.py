@@ -36,7 +36,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 self.assertIn("RUSTC_WRAPPER=sccache", workflow)
                 self.assertNotIn("sccache --show-stats", workflow)
 
-    def test_manual_cold_build_bypasses_both_platform_caches(self) -> None:
+    def test_full_ci_pr_and_manual_dispatch_run_the_payload_pipeline(self) -> None:
         orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
         self.assertRegex(
             orchestrator,
@@ -57,12 +57,47 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             ),
             2,
         )
-        self.assertNotIn("  pull_request:", orchestrator)
+        self.assertIn(
+            "  pull_request:\n"
+            "    types:\n"
+            "      - labeled\n"
+            "      - synchronize\n"
+            "      - reopened\n"
+            "      - ready_for_review\n",
+            orchestrator,
+        )
+        self.assertIn(
+            "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+            orchestrator,
+        )
+        self.assertEqual(
+            orchestrator.count(
+                "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+            ),
+            2,
+        )
+        self.assertEqual(
+            orchestrator.count(
+                "github.event.action != 'labeled' || "
+                "github.event.label.name == 'full-ci'"
+            ),
+            2,
+        )
+        self.assertIn(
+            "  release-channel:\n"
+            "    name: Verify the release channel contract\n"
+            "    if: >-\n"
+            "      github.event_name != 'pull_request' ||",
+            orchestrator,
+        )
         self.assertIn("permissions:\n  contents: read", orchestrator)
         self.assertNotIn("contents: write", orchestrator)
         self.assertNotIn("gh release", orchestrator)
         self.assertLess(
-            orchestrator.index('if [[ "$EVENT_NAME" == "workflow_dispatch" ]]'),
+            orchestrator.index(
+                'if [[ "$EVENT_NAME" == "workflow_dispatch" '
+                '|| "$EVENT_NAME" == "pull_request" ]]'
+            ),
             orchestrator.index("version=$(jq -er"),
         )
         self.assertLess(
@@ -73,9 +108,8 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             orchestrator.index("effective_plan=$(jq -cn"),
         )
         self.assertIn(
-            "  manual-assemble-and-smoke:\n"
-            "    name: Assemble and smoke the manual diagnostic build\n"
-            "    if: ${{ github.event_name == 'workflow_dispatch' }}",
+            "  assemble-and-smoke:\n"
+            "    name: Assemble and smoke the selected candidate\n",
             orchestrator,
         )
         self.assertEqual(

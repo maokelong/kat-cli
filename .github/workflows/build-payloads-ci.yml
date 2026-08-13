@@ -1,4 +1,4 @@
-# dist local-artifact 阶段与手动冷构建诊断共用的 Platform Payload 编排。
+# dist local-artifact 阶段、full-ci PR 与手动冷构建诊断共用的 Platform Payload 编排。
 name: Build KAT Platform Payloads
 
 on:
@@ -15,6 +15,12 @@ on:
         required: false
         type: boolean
         default: false
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
@@ -22,6 +28,10 @@ permissions:
 jobs:
   release-channel:
     name: Verify the release channel contract
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     outputs:
       plan: ${{ steps.verify.outputs.plan }}
@@ -58,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "pull_request" ]]; then
             python -I -B build/verify_release_versions.py
             version=$(python -I -B -c 'import tomllib; print(tomllib.load(open("release/kat/dist.toml", "rb"))["package"]["version"])')
             effective_plan=$(jq -cn --arg version "$version" '{releases: [{app_version: $version}]}')
@@ -73,29 +83,25 @@ jobs:
             | if length == 1 then .[0] else error("release versions are not unique") end
           ' <<< "$PLAN")
 
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            python -I -B build/verify_release_versions.py
+          test "$EVENT_NAME" = "push"
+          test "$RELEASE_REF_TYPE" = "tag"
+          expected_tag="kat/${version}"
+          test "$RELEASE_REF_NAME" = "$expected_tag"
+          test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+          # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
+          # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
+          initial_prerelease=$(jq -er '
+            .announcement_is_prerelease
+            | if type == "boolean" then tostring else error("prerelease state is not boolean") end
+          ' <<< "$PLAN")
+          version_without_build="${version%%+*}"
+          if [[ "$version_without_build" == *-* ]]; then
+            expected_prerelease=true
           else
-            test "$EVENT_NAME" = "push"
-            test "$RELEASE_REF_TYPE" = "tag"
-            expected_tag="kat/${version}"
-            test "$RELEASE_REF_NAME" = "$expected_tag"
-            test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
-            # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
-            # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
-            initial_prerelease=$(jq -er '
-              .announcement_is_prerelease
-              | if type == "boolean" then tostring else error("prerelease state is not boolean") end
-            ' <<< "$PLAN")
-            version_without_build="${version%%+*}"
-            if [[ "$version_without_build" == *-* ]]; then
-              expected_prerelease=true
-            else
-              expected_prerelease=false
-            fi
-            test "$initial_prerelease" = "$expected_prerelease"
-            python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+            expected_prerelease=false
           fi
+          test "$initial_prerelease" = "$expected_prerelease"
+          python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
 
           effective_plan=$(jq -ce . <<< "$PLAN")
           echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
@@ -123,9 +129,13 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
-  manual-assemble-and-smoke:
-    name: Assemble and smoke the manual diagnostic build
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  assemble-and-smoke:
+    name: Assemble and smoke the selected candidate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     needs:
       - release-channel
       - build-linux
