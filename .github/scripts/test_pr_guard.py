@@ -41,7 +41,7 @@ class PrGuardTests(unittest.TestCase):
         self.assertEqual(stats["assets/logo.png"], (0, 0, True))
         self.assertEqual(stats["docs/readme.md"], (7, 0, False))
 
-    def test_has_linked_issue_accepts_closing_issue_urls_only(self) -> None:
+    def test_has_linked_issue_accepts_closing_and_non_closing_references(self) -> None:
         self.assertTrue(
             pr_guard.has_linked_issue(
                 "Closes https://github.com/example/project/issues/42"
@@ -52,11 +52,25 @@ class PrGuardTests(unittest.TestCase):
                 "fixes https://github.com/example/project/issues/43"
             )
         )
-        self.assertFalse(
+        self.assertTrue(pr_guard.has_linked_issue("Refs #44"))
+        self.assertTrue(
             pr_guard.has_linked_issue(
-                "Related https://github.com/example/project/issues/44"
+                "References https://github.com/example/project/issues/45"
             )
         )
+        self.assertFalse(
+            pr_guard.has_linked_issue(
+                "Related https://github.com/example/project/issues/46"
+            )
+        )
+
+    def test_non_closing_issue_reference_satisfies_the_pr_gate(self) -> None:
+        evaluation = pr_guard.evaluate(
+            pr_guard.PullRequestContext(body="Refs #144"),
+            [pr_guard.ChangedFile(path="src/lib.rs", additions=1)],
+        )
+
+        self.assertTrue(evaluation.ok, evaluation.failures)
 
     def test_missing_issue_fails_and_no_issue_needed_bypasses_it(self) -> None:
         changed_files = [pr_guard.ChangedFile(path="src/lib.rs", additions=1)]
@@ -368,15 +382,15 @@ jobs:
         markdown = "# PR Guard\n\n**Status:** FAIL\n"
         previous = os.environ.get("GITHUB_STEP_SUMMARY")
         try:
-            with tempfile.NamedTemporaryFile() as handle:
-                os.environ["GITHUB_STEP_SUMMARY"] = handle.name
+            with tempfile.TemporaryDirectory() as directory:
+                summary_path = Path(directory) / "summary.md"
+                os.environ["GITHUB_STEP_SUMMARY"] = str(summary_path)
                 stdout = StringIO()
 
                 with redirect_stdout(stdout):
                     pr_guard.append_step_summary(markdown)
 
-                handle.seek(0)
-                self.assertEqual(handle.read().decode("utf-8"), markdown)
+                self.assertEqual(summary_path.read_text(encoding="utf-8"), markdown)
                 self.assertEqual(stdout.getvalue(), markdown)
         finally:
             if previous is None:

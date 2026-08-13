@@ -129,11 +129,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     try:
         options = parse_args(argv)
-        build_workflow_wheel(
+        wheel, _ = build_workflow_wheel(
             options.repository,
             None,
             options.output,
             download_cache=options.download_cache,
+        )
+        metadata_version = payload_builder.validate_workflow_wheel_archive(wheel)
+        print(
+            f"Workflow Host wheel: {wheel.name}; "
+            f"METADATA Version: {metadata_version}"
         )
     except (OSError, ValueError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
         print(f"Workflow Host wheel build failed: {error}", file=sys.stderr)

@@ -71,7 +71,7 @@ Data Home 的默认配置文件位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`
 先把本 `SKILL.md` 的父目录解析为绝对 `<skill-root>`，再重新检查当前主机：
 
 - Linux：读取 `uname -m` 与 `getconf GNU_LIBC_VERSION`。仅支持 glibc 2.28 或更高版本的 x86_64，执行 `<skill-root>/scripts/targets/linux-x86_64/kat`。
-- Windows：读取原生架构、系统版本与 `Win32_OperatingSystem.ProductType`。Windows 10/11 x86_64 客户端（`ProductType=1`）是预发布候选目标，执行 `<skill-root>/scripts/targets/windows-x86_64/kat.exe`；正式支持仍需完成 [Issue #143](https://github.com/maokelong/kat-rs/issues/143) 的干净客户端验收。拒绝 Windows Server、Windows 7/8.1。
+- Windows：读取原生架构、系统版本与 `Win32_OperatingSystem.ProductType`。Windows 10/11 x86_64 客户端（`ProductType=1`）是预发布候选目标，执行 `<skill-root>/scripts/targets/windows-x86_64/kat.exe`；正式支持仍需完成 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 的干净客户端验收。拒绝 Windows Server、Windows 7/8.1。
 
 拒绝其他系统、架构、libc 或版本；所选 Payload 缺失时也拒绝，Linux 还需确认可执行位。始终使用这些绝对路径，不持久化选择，不搜索 `PATH`，不回退到系统 Python 或系统 `kat`。
 

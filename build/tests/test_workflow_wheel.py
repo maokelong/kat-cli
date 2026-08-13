@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
@@ -46,6 +48,33 @@ def write_wheel(
 
 
 class WorkflowWheelTests(unittest.TestCase):
+    def test_main_reports_the_normalized_wheel_identity(self) -> None:
+        wheel = Path("kat_workflow-0.1.1rc1-py3-none-any.whl")
+        checksum = wheel.with_name(f"{wheel.name}.sha256")
+        stdout = io.StringIO()
+
+        with (
+            mock.patch.object(
+                workflow_wheel,
+                "build_workflow_wheel",
+                return_value=(wheel, checksum),
+            ),
+            mock.patch.object(
+                workflow_wheel.payload_builder,
+                "validate_workflow_wheel_archive",
+                return_value="0.1.1rc1",
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            result = workflow_wheel.main(["--output", "unused"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            stdout.getvalue(),
+            "Workflow Host wheel: kat_workflow-0.1.1rc1-py3-none-any.whl; "
+            "METADATA Version: 0.1.1rc1\n",
+        )
+
     def test_downloaded_uv_uses_its_locked_layout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -156,6 +185,16 @@ class WorkflowWheelTests(unittest.TestCase):
                     workflow_wheel.payload_builder.validate_workflow_wheel_archive(
                         invalid
                     )
+
+            with self.subTest(case="normalized prerelease identity"):
+                prerelease = root / "kat_workflow-0.1.1rc1-py3-none-any.whl"
+                write_wheel(prerelease, version="0.1.1rc1")
+                self.assertEqual(
+                    workflow_wheel.payload_builder.validate_workflow_wheel_archive(
+                        prerelease
+                    ),
+                    "0.1.1rc1",
+                )
 
             wheel.write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "SHA-256"):

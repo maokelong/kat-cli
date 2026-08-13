@@ -568,7 +568,7 @@ def install_locked_requirements(
     )
 
 
-def validate_workflow_wheel_archive(path: Path) -> None:
+def validate_workflow_wheel_archive(path: Path) -> str:
     match = WORKFLOW_WHEEL_NAME.fullmatch(path.name)
     if match is None or not path.is_file():
         raise ValueError(f"unexpected Workflow Host wheel: {path}")
@@ -601,6 +601,7 @@ def validate_workflow_wheel_archive(path: Path) -> None:
             raise ValueError("Workflow Host wheel must be pure Python")
         if wheel_metadata.get_all("Tag", []) != ["py3-none-any"]:
             raise ValueError("Workflow Host wheel must use the py3-none-any tag")
+    return version
 
 
 def find_workflow_wheel(directory: Path) -> Path:
