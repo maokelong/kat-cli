@@ -1,0 +1,40 @@
+kat/platform/workflow/api/_workflow.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 57-59,65-67
+kat/platform/workflow/runtime/pack.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 21,26,39,64
+kat/platform/workflow/tests/test_authoring_api.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 241-243
+kat/platform/workflow/api/_temporal.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 45-50
+kat/platform/workflow/runtime/inspection.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 33,81,100-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "0c32cfd1893099677d8fd0cc4935c5f77c1c2281",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 24,
+      "total_deletions": 11,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+packs/openharmony-critical-path/compute/critical_path.py
+  s_5a98ce44cbcaef::t_310245450b02ed 94-110,123-126,138,148-153
+crates/kat-rs-cli/Cargo.toml
+  s_5a98ce44cbcaef::t_e54d24406402e5 14
+crates/kat-rs-cli/tests/commands.rs
+  s_5a98ce44cbcaef::t_a34206bb651db5 176-207
+docs/superpowers/plans/2026-07-09-kat-rs-pack-run-mvp-verification.md
+  s_5a98ce44cbcaef::t_ed440728ced42d 32
+crates/kat-rs-cli/src/python_worker.rs
+  s_5a98ce44cbcaef::t_d497d1aaf286aa 3-6,64,98,105-109,113-191,210-213,232-233,257,267-268,270,274,308-354
+python/kat-python-runtime/kat_runtime/pack_loader.py
+  s_5a98ce44cbcaef::t_47c0eeaa0ece09 3-4,18-20,22,25-27,75-108
+crates/kat-rs-datasource/tests/sqlite_dataset_contract.rs
+  s_5a98ce44cbcaef::t_94685a686f99c4 133-156
+python/tests/test_sdk_runtime_contract.py
+  s_5a98ce44cbcaef::t_20deb37a510d6f 168-171,334-335,409,414
+  s_5a98ce44cbcaef::t_d688077d4756ff 128-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "baeacabe108f11726246c946b2e777ec4d48edc0",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 325,
+      "total_deletions": 36,
+      "accepted_lines": 325,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

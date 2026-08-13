@@ -1,0 +1,75 @@
+Cargo.lock
+  s_d2d3dab35a18aa::t_c374adbfb0ae56 2074
+crates/kat-rs-datasource/src/relational/direct_emit.rs
+  s_d2d3dab35a18aa::t_98ce1966e26170 1-31
+crates/kat-rs-datasource/proto/ftrace_data/hmfs.proto
+  s_d2d3dab35a18aa::t_9cfce9817e3f7d 1-58
+crates/kat-rs-datasource/src/relational/table_batch.rs
+  s_d2d3dab35a18aa::t_98ce1966e26170 78-96,99,104,113
+crates/kat-rs-datasource/src/relational/sink.rs
+  s_d2d3dab35a18aa::t_98ce1966e26170 11,110-120
+crates/kat-rs-datasource/proto/ftrace_data/ftrace_event.proto
+  s_d2d3dab35a18aa::t_9cfce9817e3f7d 36,484-487
+crates/kat-rs-datasource/proto/ftrace_data/trace_plugin_result.proto
+  s_d2d3dab35a18aa::t_9cfce9817e3f7d 28,85-89
+crates/kat-rs-datasource/prototypes/generated-direct-emit/README.md
+  s_d2d3dab35a18aa::t_7f02003a9c47b5 33-39
+  s_d2d3dab35a18aa::t_49230f4c685ba3 40-41
+  s_d2d3dab35a18aa::t_6304c9fab337d4 1-20
+  s_d2d3dab35a18aa::t_efbdd65e0d1aa7 21-32
+crates/kat-rs-datasource/Cargo.toml
+  s_d2d3dab35a18aa::t_6e4a6a53bbe84f 30
+crates/kat-rs-datasource/tests/hitrace_architecture_contract.rs
+  s_d2d3dab35a18aa::t_21e1312ac9483c 251,393-394,626
+crates/kat-rs-datasource/prototypes/generated-direct-emit/logical_manifest.py
+  s_d2d3dab35a18aa::t_c5ffac1f127e6f 1-413
+crates/kat-rs-datasource/src/record.rs
+  s_d2d3dab35a18aa::t_41419fd323aa12 5-6,40-41
+  s_d2d3dab35a18aa::t_98ce1966e26170 3-4
+crates/kat-rs-datasource/build.rs
+  s_d2d3dab35a18aa::t_6e4a6a53bbe84f 1-2,6,34,103
+crates/kat-rs-datasource/src/relational/mod.rs
+  s_d2d3dab35a18aa::t_98ce1966e26170 2
+crates/kat-rs-datasource/src/decode/profiler/ftrace/mod.rs
+  s_d2d3dab35a18aa::t_98ce1966e26170 3-4,6-7,9,19,22-33
+crates/kat-rs-datasource/prototypes/generated-direct-emit/REPORT.md
+  s_d2d3dab35a18aa::t_8413e0b7b2fb67 11-127
+  s_d2d3dab35a18aa::t_c2c3c9497b8be8 1-10
+crates/kat-rs-datasource/prototypes/generated-direct-emit/reference-logical-manifest.json
+  s_d2d3dab35a18aa::t_e1716a6d6e4dcc 1-3011
+crates/kat-rs-datasource/prototypes/generated-direct-emit/run-smoke.sh
+  s_d2d3dab35a18aa::t_49230f4c685ba3 92-99
+  s_d2d3dab35a18aa::t_7f02003a9c47b5 1-91
+crates/kat-rs-datasource/build/generated_direct_emit_codegen.rs
+  s_d2d3dab35a18aa::t_49230f4c685ba3 28-1013
+  s_d2d3dab35a18aa::t_8aeb52c9186235 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "64989fa40237cb19df1fb5da21b9a711d54e2b15",
+  "prompts": {
+    "s_d2d3dab35a18aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de46-7ce2-ab90-300777662d7c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 4874,
+      "total_deletions": 125,
+      "accepted_lines": 4874,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d2d3dab35a18aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f85dc-de46-7ce2-ab90-300777662d7c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

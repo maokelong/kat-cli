@@ -1,0 +1,34 @@
+build/build_workflow_wheel.py
+  s_0148f2acc44722::t_3617102d40c587 15,59-61
+build/tests/test_workflow_wheel.py
+  s_0148f2acc44722::t_3617102d40c587 49-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "84dcbf7c253d3a53319fc41618eefa5f72dc47d7",
+  "prompts": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 42,
+      "total_deletions": 1,
+      "accepted_lines": 42,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

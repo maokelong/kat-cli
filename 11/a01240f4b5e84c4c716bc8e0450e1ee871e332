@@ -1,0 +1,37 @@
+kat/packs/kat-openharmony-demo/pack.toml
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 1-4
+docs/adr/0058-trace-streamer-slices-drive-thread-cpu-time.md
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 14-16
+  s_7fdb7d2aa9b65a::t_5d420ea2eaba08 1-3,6,8
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 5,7,9-13,17-19
+kat/platform/cli/tests/trace_streamer_demo.rs
+  s_7fdb7d2aa9b65a::t_1766073d14bf35 7-131,133-169,173-175
+  s_7fdb7d2aa9b65a::t_cffd6a6851b25b 1-6
+  s_7fdb7d2aa9b65a::t_820f0b365deba6 132,170-172
+kat/platform/cli/tests/import.rs
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 219
+kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.json
+  s_7fdb7d2aa9b65a::t_cffd6a6851b25b 1-3,5-10,12-15,17,21-23
+  s_7fdb7d2aa9b65a::t_e9cad28369c3d4 4,11,16,18-20
+kat/platform/datasource/tests/trace_streamer_import.rs
+  s_7fdb7d2aa9b65a::t_2c6dbd4fff8e8b 317-330,332-339
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 26,34,60,177,316
+kat/platform/datasource/src/trace_streamer.rs
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 109,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "11a01240f4b5e84c4c716bc8e0450e1ee871e332",
+  "prompts": {},
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

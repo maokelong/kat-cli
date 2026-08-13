@@ -1,0 +1,38 @@
+kat/platform/workflow/tests/test_authoring_api.py
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 169-180,297
+kat/platform/workflow/runtime/inspection.py
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 107-114,192-196,198-202
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 123-164
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 13,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "838edb5592855a2d19954328f12ee5bfa9cfdbb8",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 75,
+      "total_deletions": 25,
+      "accepted_lines": 75,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

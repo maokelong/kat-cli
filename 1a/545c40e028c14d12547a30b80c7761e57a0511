@@ -1,0 +1,34 @@
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_dc23725e002480::t_04a0d349f53b79 13-27
+dist-workspace.toml
+  s_dc23725e002480::t_04a0d349f53b79 16-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1a545c40e028c14d12547a30b80c7761e57a0511",
+  "prompts": {
+    "s_dc23725e002480": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019feb77-46b5-7720-b164-28ec2c2dc874",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 17,
+      "total_deletions": 29,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_dc23725e002480": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019feb77-46b5-7720-b164-28ec2c2dc874",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

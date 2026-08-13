@@ -1,0 +1,34 @@
+python/tests/test_storage_benchmark_script.py
+  s_5a98ce44cbcaef::t_d142431a7709a6 6-7,134-188
+tools/bench/storage_backends.py
+  s_5a98ce44cbcaef::t_b961cd9803d5ed 153-201,245-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "bc40b57f1726811d495bc571d05755fbfc49dc8a",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 116,
+      "total_deletions": 193,
+      "accepted_lines": 116,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

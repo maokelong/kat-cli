@@ -1,0 +1,41 @@
+build/tests/test_linux_payload.py
+  s_0bb7e8dc4ac9ef::t_da4882fc0f18d2 32-113
+  s_0bb7e8dc4ac9ef::t_93952d11941fd6 5,25-31
+build/tests/test_payload_ci_workflows.py
+  s_0bb7e8dc4ac9ef::t_93952d11941fd6 35
+docs/research/issue-198-sccache-ci-practices.md
+  s_0bb7e8dc4ac9ef::t_da4882fc0f18d2 5-160
+  s_0bb7e8dc4ac9ef::t_9fd2de26e7334f 1-4
+  s_0bb7e8dc4ac9ef::t_dbcd677f4f7b33 161-191
+build/payload_builder.py
+  s_0bb7e8dc4ac9ef::t_3afc3006d9cb89 825-826,838-839,866,868,921
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1dcee1a0504bd869775bc75e3e6012be5d3bbe53",
+  "prompts": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 289,
+      "total_deletions": 48,
+      "accepted_lines": 289,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}
