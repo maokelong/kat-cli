@@ -580,11 +580,10 @@ impl Builder<'_> {
             if field.cardinality() == Cardinality::Repeated {
                 return true;
             }
-            if self.user_oneof(&field).is_some() {
-                return true;
-            }
             match field.kind() {
-                Kind::Message(target) => self.message_has_relations(&target),
+                Kind::Message(target) => {
+                    self.user_oneof(&field).is_some() || self.message_has_relations(&target)
+                }
                 _ => false,
             }
         });

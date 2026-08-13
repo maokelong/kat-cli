@@ -58,6 +58,19 @@ message OneofMatrix {
   }
 }
 
+// 不含 message variant 的 oneof 留在 nullable Struct 中，不形成 child relation。
+message ScalarOneofOnly {
+  oneof selected {
+    sint64 scalar = 1;
+    bytes payload = 2;
+    Lifecycle lifecycle = 3;
+  }
+}
+
+message InlineOneofRoot {
+  ScalarOneofOnly nested = 1;
+}
+
 message RepeatedMatrix {
   repeated fixed64 scalar_values = 1;
   repeated bytes bytes_values = 2;

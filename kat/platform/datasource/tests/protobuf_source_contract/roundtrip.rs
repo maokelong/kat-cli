@@ -593,6 +593,132 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
     );
 }
 
+#[tokio::test]
+async fn scalar_only_oneof_in_singular_message_stays_inline() {
+    use generated_fixture_emitter::{append_inline_oneof_root_root, new_protobuf_source_capture};
+    use proto::fixture::protobuf_source::valid::{
+        InlineOneofRoot, ScalarOneofOnly, scalar_oneof_only::Selected,
+    };
+    use protobuf_source::SpoolOptions;
+
+    let cases = [
+        (2_100, None),
+        (
+            2_101,
+            Some(ScalarOneofOnly {
+                selected: Some(Selected::Scalar(0)),
+            }),
+        ),
+        (
+            2_102,
+            Some(ScalarOneofOnly {
+                selected: Some(Selected::Payload(vec![0x00, 0xff, 0x80])),
+            }),
+        ),
+        (
+            2_103,
+            Some(ScalarOneofOnly {
+                selected: Some(Selected::Lifecycle(77)),
+            }),
+        ),
+    ];
+    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(2, 8))
+        .expect("generated capture is valid");
+    for (parent_row_id, nested) in cases {
+        append_inline_oneof_root_root(&mut capture, parent_row_id, &InlineOneofRoot { nested })
+            .expect("inline oneof fixture root appends");
+    }
+
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_capture(capture, &dataset_path);
+    let context = register_resolved_dataset(&dataset_path)
+        .await
+        .expect("formal Dataset resolver tables register in DataFusion");
+
+    let root_schema = parquet_arrow_schema(&dataset_path, "inline_oneof_root");
+    assert_eq!(root_schema.fields().len(), 2);
+    let nested = root_schema
+        .field_with_name("nested")
+        .expect("relation-free singular message stays inline");
+    assert!(nested.is_nullable());
+    let arrow_schema::DataType::Struct(fields) = nested.data_type() else {
+        panic!("inline oneof wrapper must be an Arrow Struct");
+    };
+    assert_eq!(fields.len(), 3);
+    for (actual, (expected_name, expected_type)) in fields.iter().zip([
+        ("scalar", arrow_schema::DataType::Int64),
+        ("payload", arrow_schema::DataType::Binary),
+        ("lifecycle", arrow_schema::DataType::Int32),
+    ]) {
+        assert_eq!(actual.name(), expected_name);
+        assert_eq!(actual.data_type(), &expected_type);
+        assert!(actual.is_nullable());
+    }
+
+    let resolved = kat_datasource::resolve_dataset(&dataset_path)
+        .expect("published inline oneof Dataset resolves");
+    assert!(
+        resolved
+            .tables()
+            .iter()
+            .all(|table| table.name() != "inline_oneof_root_nested"),
+        "scalar-only oneof wrapper must not produce a child relation"
+    );
+    assert_eq!(
+        query_json(
+            &context,
+            "select _kat_parent_row_id, nested from inline_oneof_root \
+             order by _kat_parent_row_id",
+        )
+        .await,
+        json!([
+            { "_kat_parent_row_id": 2_100, "nested": null },
+            {
+                "_kat_parent_row_id": 2_101,
+                "nested": { "scalar": 0, "payload": null, "lifecycle": null },
+            },
+            {
+                "_kat_parent_row_id": 2_102,
+                "nested": { "scalar": null, "payload": "00ff80", "lifecycle": null },
+            },
+            {
+                "_kat_parent_row_id": 2_103,
+                "nested": { "scalar": null, "payload": null, "lifecycle": 77 },
+            },
+        ])
+    );
+    assert_eq!(
+        query_json(
+            &context,
+            "select origin_table, origin_field_path, enum_number, enum_symbol \
+             from protobuf_enum_symbol \
+             order by enum_number",
+        )
+        .await,
+        json!([
+            {
+                "origin_table": "inline_oneof_root",
+                "origin_field_path": "nested.lifecycle",
+                "enum_number": 0,
+                "enum_symbol": "LIFECYCLE_UNSPECIFIED",
+            },
+            {
+                "origin_table": "inline_oneof_root",
+                "origin_field_path": "nested.lifecycle",
+                "enum_number": 1,
+                "enum_symbol": "LIFECYCLE_STARTED",
+            },
+            {
+                "origin_table": "inline_oneof_root",
+                "origin_field_path": "nested.lifecycle",
+                "enum_number": 2,
+                "enum_symbol": "LIFECYCLE_STOPPED",
+            },
+        ])
+    );
+}
+
 fn parquet_arrow_schema(
     dataset_path: &std::path::Path,
     table_name: &str,

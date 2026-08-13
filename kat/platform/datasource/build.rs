@@ -183,6 +183,10 @@ fn generate_protobuf_source_fixture(protoc: &Path) {
                 "scalar_matrix",
             ),
             RootSpec::new(
+                "fixture.protobuf_source.valid.InlineOneofRoot",
+                "inline_oneof_root",
+            ),
+            RootSpec::new(
                 "fixture.protobuf_source.valid.Proto2OptionalRoot",
                 "proto2_optional_root",
             ),
