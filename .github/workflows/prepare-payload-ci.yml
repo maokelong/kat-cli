@@ -1,0 +1,119 @@
+name: Prepare KAT Platform Payloads
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-wheel:
+    name: Build the single Workflow Host wheel
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Python 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Verify atomic release versions
+        run: python -I -B build/verify_release_versions.py
+
+      - name: Build and hash the private wheel once
+        run: >-
+          python build/build_workflow_wheel.py
+          --output target/kat/workflow-wheel
+
+      - name: Upload the private wheel input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kat-workflow-wheel
+          path: target/kat/workflow-wheel/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  requirements-locks:
+    name: Verify generated platform requirement locks
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.28"
+          enable-cache: false
+
+      - name: Regenerate both platform locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r python_version uv_version < <(
+            python -c 'import json; d=json.load(open("build/runtime-inputs.json")); print(d["python"]["version"], d["uv"]["version"])'
+          )
+          test "$(uv --version | cut -d ' ' -f 2)" = "$uv_version"
+          uv pip compile kat/platform/workflow/pyproject.toml \
+            --python-version "$python_version" \
+            --python-platform x86_64-unknown-linux-gnu \
+            --only-binary :all: \
+            --generate-hashes \
+            --no-config \
+            --no-progress \
+            --output-file build/requirements-linux.lock.txt
+          uv pip compile kat/platform/workflow/pyproject.toml \
+            --python-version "$python_version" \
+            --python-platform x86_64-pc-windows-msvc \
+            --only-binary :all: \
+            --generate-hashes \
+            --no-config \
+            --no-progress \
+            --output-file build/requirements-windows.lock.txt
+          git diff --exit-code -- \
+            build/requirements-linux.lock.txt \
+            build/requirements-windows.lock.txt
+
+  builder-tests:
+    name: Builder tests (${{ matrix.os }})
+    needs: requirements-locks
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install locked Builder dependencies
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          --no-deps
+          --only-binary=:all:
+          --require-hashes
+          -r build/requirements-builder.lock.txt
+
+      - name: Test Builder and Assembly contracts
+        run: python -I -B -m unittest discover -s build/tests -v

@@ -1,12 +1,13 @@
-# CI-only native Builder adapter. It does not own a versioned release.
-name: CI build Windows Platform Payload
+# Native Builder adapter called by dist's local-artifact phase.
+name: Build Windows Platform Payload
 
 on:
   workflow_call:
     inputs:
-      workflow-wheel-artifact:
-        required: true
-        type: string
+      cold-build:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,6 +45,22 @@ jobs:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: x86_64-pc-windows-msvc
 
+      - name: Install sccache
+        id: sccache
+        if: ${{ !inputs['cold-build'] }}
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.16.0"
+
+      - name: Enable sccache
+        if: steps.sccache.outcome == 'success'
+        shell: pwsh
+        run: |
+          "SCCACHE_GHA_ENABLED=true" >> $env:GITHUB_ENV
+          "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> $env:GITHUB_ENV
+          "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+
       - name: Configure MSVC
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
@@ -62,7 +79,7 @@ jobs:
       - name: Download the single Workflow Host wheel
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: ${{ inputs.workflow-wheel-artifact }}
+          name: kat-workflow-wheel
           path: target/kat/workflow-wheel
 
       - name: Build locked Payload
@@ -78,8 +95,10 @@ jobs:
       - name: Upload private Payload input
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: artifacts-kat-windows-payload
+          # dist 0.32 会收集 artifacts-*；私有 local input 必须避开此前缀。
+          name: kat-windows-payload
           path: target/distrib/
           include-hidden-files: true
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error

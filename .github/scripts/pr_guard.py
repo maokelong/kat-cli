@@ -316,7 +316,8 @@ def has_label(labels: set[str], label: str) -> bool:
 
 def has_linked_issue(body: str) -> bool:
     pattern = re.compile(
-        r"(?im)\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+"
+        r"(?im)\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved|"
+        r"ref|refs|reference|references)\s+"
         r"((?:[\w.-]+/[\w.-]+)?#\d+|https://github\.com/[\w.-]+/[\w.-]+/issues/\d+)\b"
     )
     return bool(pattern.search(body or ""))
@@ -587,7 +588,8 @@ def evaluate(
 
     if not has_label(labels, NO_ISSUE_LABEL) and not has_linked_issue(context.body):
         failures.append(
-            f"Missing linked issue. Add a closing keyword such as `Closes #123` or apply `{NO_ISSUE_LABEL}`."
+            "Missing linked issue. Add a reference such as `Refs #123`, use a "
+            f"closing keyword such as `Closes #123`, or apply `{NO_ISSUE_LABEL}`."
         )
 
     if not has_label(labels, LARGE_CHANGE_LABEL):

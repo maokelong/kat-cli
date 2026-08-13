@@ -1,0 +1,34 @@
+name: Clean completed workflow artifacts
+
+on:
+  workflow_run:
+    workflows:
+      - Release
+      - Build KAT Platform Payloads
+    types:
+      - completed
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    name: Delete temporary Actions artifacts
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Delete artifacts from the completed run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate \
+            "/repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].id' |
+            while IFS= read -r artifact_id; do
+              gh api --method DELETE \
+                "/repos/${REPOSITORY}/actions/artifacts/${artifact_id}"
+            done

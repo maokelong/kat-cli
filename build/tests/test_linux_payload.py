@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import stat
 import sys
 import tarfile
@@ -21,6 +22,104 @@ import payload_builder
 
 
 class PayloadBuilderTests(unittest.TestCase):
+    def test_windows_payload_uses_reproducible_msvc_linking(self) -> None:
+        windows_environment = dict(
+            build_windows_payload.PLATFORM_SPEC.cargo_environment
+        )
+        linux_environment = dict(build_linux_payload.PLATFORM_SPEC.cargo_environment)
+
+        self.assertEqual(windows_environment["LINK"], "/Brepro")
+        self.assertNotIn("LINK", linux_environment)
+
+    def test_cli_build_uses_the_platform_cache_without_target_dir_environment(
+        self,
+    ) -> None:
+        for spec, rust_target in (
+            (build_linux_payload.PLATFORM_SPEC, "x86_64-unknown-linux-gnu"),
+            (build_windows_payload.PLATFORM_SPEC, "x86_64-pc-windows-msvc"),
+        ):
+            with (
+                self.subTest(platform=spec.key),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                repository = root / "repository"
+                repository.mkdir()
+                target_dir = repository / "target/kat/cargo" / spec.key
+                options = mock.Mock(
+                    cargo="locked-cargo",
+                    offline=False,
+                    repository=repository,
+                )
+                inputs = mock.Mock(rust_target=rust_target)
+
+                def run(command: list[str], **_: object) -> None:
+                    binary = target_dir / rust_target / "release" / spec.cli_filename
+                    binary.parent.mkdir(parents=True)
+                    binary.write_bytes(b"cli")
+
+                inherited = {
+                    "CARGO_TARGET_DIR": str(root / "caller-target"),
+                    "CARGO_BUILD_TARGET_DIR": str(root / "caller-build-target"),
+                    "KAT_TEST_ENV": "preserved",
+                }
+                with (
+                    mock.patch.dict(os.environ, inherited, clear=True),
+                    mock.patch.object(
+                        payload_builder.subprocess,
+                        "run",
+                        side_effect=run,
+                    ) as cargo,
+                ):
+                    binary = payload_builder._build_cli_binary(
+                        options,
+                        inputs,
+                        target_dir,
+                        spec=spec,
+                    )
+
+                self.assertEqual(
+                    binary,
+                    target_dir / rust_target / "release" / spec.cli_filename,
+                )
+                command = cargo.call_args.args[0]
+                self.assertEqual(
+                    command[command.index("--target-dir") + 1],
+                    str(target_dir),
+                )
+                environment = cargo.call_args.kwargs["env"]
+                self.assertNotIn("CARGO_TARGET_DIR", environment)
+                self.assertNotIn("CARGO_BUILD_TARGET_DIR", environment)
+                self.assertEqual(environment["KAT_TEST_ENV"], "preserved")
+                for name, value in spec.cargo_environment:
+                    self.assertEqual(environment[name], value)
+
+    def test_payload_output_cannot_overlap_the_platform_cargo_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            cargo_cache = repository / "target/kat/cargo/linux-x86_64"
+            adapter = mock.Mock()
+            adapter.spec = build_linux_payload.PLATFORM_SPEC
+            adapter.extra_input_paths.return_value = []
+            for output in (
+                cargo_cache,
+                cargo_cache / "payload",
+                repository / "target",
+            ):
+                options = mock.Mock(
+                    repository=repository,
+                    output=output,
+                    download_cache=None,
+                    workflow_wheel=None,
+                    wheelhouse=None,
+                    python_archive=None,
+                    uv_archive=None,
+                )
+                with self.subTest(output=output), self.assertRaisesRegex(
+                    ValueError, "Cargo cache"
+                ):
+                    payload_builder.build_payload(options, adapter)
+
     def _assert_private_python_and_requirements(
         self,
         module: Any,
