@@ -9,8 +9,6 @@ mod spec;
 mod spool;
 
 pub(crate) use capture::SourceTableCapture;
-pub(crate) use row::RowWriter;
-pub(crate) use spec::{
-    ColumnSlot, EnumOriginSpec, EnumSymbol, RelationSlot, RelationSpec, SpoolOptions,
-};
+pub(crate) use row::{BinaryValue, EstimatedRow, EstimatedValue, add_estimated_bytes};
+pub(crate) use spec::{EnumOriginSpec, EnumSymbol, RelationSlot, RelationSpec, SpoolOptions};
 pub(crate) use spool::PreparedSourceTables;

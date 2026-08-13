@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use arrow_array::{RecordBatch, RecordBatchOptions, builder::make_builder};
 use parquet::arrow::{
     ArrowWriter,
     arrow_reader::{
@@ -15,13 +14,12 @@ use parquet::arrow::{
 
 use crate::dataset_writer::DatasetWriter;
 
-use super::{RelationSlot, RelationSpec, RowWriter, SpoolOptions};
+use super::{EstimatedRow, RelationSpec, SpoolOptions};
 
 pub(super) struct ActiveTable {
-    relation: RelationSlot,
     spec: RelationSpec,
     writer: ArrowWriter<File>,
-    builders: Vec<Box<dyn arrow_array::builder::ArrayBuilder>>,
+    builder: serde_arrow::ArrayBuilder,
     buffered_rows: usize,
     buffered_bytes: usize,
     total_rows: u64,
@@ -29,11 +27,7 @@ pub(super) struct ActiveTable {
 }
 
 impl ActiveTable {
-    pub(super) fn new(
-        relation: RelationSlot,
-        spec: RelationSpec,
-        options: SpoolOptions,
-    ) -> Result<Self> {
+    pub(super) fn new(spec: RelationSpec, options: SpoolOptions) -> Result<Self> {
         let file = tempfile::tempfile().with_context(|| {
             format!(
                 "failed to create bounded protobuf Source spool for table {:?}",
@@ -46,17 +40,12 @@ impl ActiveTable {
                 spec.name
             )
         })?;
-        let builders = spec
-            .schema
-            .fields()
-            .iter()
-            .map(|field| make_builder(field.data_type(), options.max_buffered_rows.min(1_024)))
-            .collect();
+        let builder = serde_arrow::ArrayBuilder::from_arrow(spec.schema.fields())
+            .context("failed to create protobuf Source Arrow row serializer")?;
         Ok(Self {
-            relation,
             spec,
             writer,
-            builders,
+            builder,
             buffered_rows: 0,
             buffered_bytes: 0,
             total_rows: 0,
@@ -64,21 +53,17 @@ impl ActiveTable {
         })
     }
 
-    pub(super) fn append_row(
-        &mut self,
-        append: impl FnOnce(&mut RowWriter<'_>) -> Result<()>,
-    ) -> Result<()> {
-        let mut row_estimated_bytes = 0;
-        {
-            let mut row = RowWriter::new(
-                self.relation,
-                self.spec.schema.fields().as_ref(),
-                &mut self.builders,
-                &mut row_estimated_bytes,
-            )?;
-            append(&mut row)?;
-            row.finish()?;
-        }
+    pub(super) fn append_row<T>(&mut self, row: &T) -> Result<()>
+    where
+        T: EstimatedRow,
+    {
+        let row_estimated_bytes = row.estimated_bytes()?;
+        self.builder.push(row).with_context(|| {
+            format!(
+                "failed to serialize protobuf Source row for table {:?}",
+                self.spec.name
+            )
+        })?;
 
         self.buffered_rows = self
             .buffered_rows
@@ -106,19 +91,12 @@ impl ActiveTable {
         if self.buffered_rows == 0 {
             return Ok(());
         }
-        let columns = self
-            .builders
-            .iter_mut()
-            .map(|builder| builder.finish())
-            .collect();
-        let options = RecordBatchOptions::new().with_row_count(Some(self.buffered_rows));
-        let batch = RecordBatch::try_new_with_options(self.spec.schema.clone(), columns, &options)
-            .with_context(|| {
-                format!(
-                    "failed to build protobuf Source batch for table {:?}",
-                    self.spec.name
-                )
-            })?;
+        let batch = self.builder.to_record_batch().with_context(|| {
+            format!(
+                "failed to build protobuf Source batch for table {:?}",
+                self.spec.name
+            )
+        })?;
         self.writer.write(&batch).with_context(|| {
             format!(
                 "failed to write protobuf Source Parquet spool for table {:?}",

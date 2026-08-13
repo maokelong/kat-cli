@@ -16,10 +16,12 @@ Descriptor-derived Source tables 与 `sched_switch` 等规范化 Trace facts 是
 
 ## 方案选择与后果
 
-本决定比较了三种实现路径：runtime descriptor 加 generic value tree、按 root 手写 Arrow tables，以及 build-time relational plan 加 generated typed emitter。比较重点是运行时是否需要 descriptor 解释、字符串路径查找或通用中间值，Schema 与 emitter 是否共享唯一映射规则，对 prost generated naming 的耦合如何受控，以及新增 root 或 protobuf shape 时的维护与构建诊断成本。
+本决定比较了三种关系映射路径：runtime descriptor 加 generic value tree、按 root 手写 Arrow tables，以及 build-time relational plan 加 generated typed emitter。比较重点是运行时是否需要 descriptor 解释、字符串路径查找或通用中间值，Schema 与 emitter 是否共享唯一映射规则，对 prost generated naming 的耦合如何受控，以及新增 root 或 protobuf shape 时的维护与构建诊断成本。
 
 选择 build-time relational plan 加 generated typed emitter：planner 只把 reachable descriptor closure 转换为关系计划，该计划是 table topology、Schema 和 emitter 的唯一映射真相；prost binding 只把计划连接到 generated Rust types，不决定物理 topology；renderer 只根据计划生成 typed field access，不建立第二套映射规则。这使不支持的 reachable shape 及 Schema/binding 不一致在构建期失败，并使运行时无需遍历 descriptor、查找字符串 field path 或构建 generic value tree。runtime descriptor 方案不依赖 generated naming，但会把映射解释和通用值表示带入运行时；手写 Arrow tables 则会让每个 root 的 generated Rust field access、Schema 与写入逻辑各自直接耦合，重复 descriptor 映射规则并增加漂移风险。
 
-本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。若成熟生态方案将来能同时保持静态 typed emission、唯一关系计划与本决定的来源语义，可重新评估这一实现选择。本决定不据此声称已获得未经 release A/B 验证的性能收益。
+Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Parquet spool。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
+
+本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost、`serde_arrow` 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。本决定不据此声称已获得未经 release A/B 验证的性能收益。
 
 本决定补充 ADR-0024 的直接事件表合同：descriptor-derived 直接解码表不适用其中针对跨记录、可复用规范化 facts 的多消费者门槛，该门槛本身不变。本决定部分取代 ADR-0042 对 `ProfilerPluginData` 来源字段和重复来源读数的发布限制，以及 ADR-0048 中“当前线程 CPU 闭环以外字段不发布”和“ftrace loss statistics 只用于准入、不发布表”的限制；这些内容将来可以出现在另名的 descriptor-derived tables 中，但不进入既有 `sched_switch`，并继续参与原有严格准入。ADR-0042 的时钟语义与换算失败合同、ADR-0048 的 `sched_switch` 与 Workflow 合同，以及 ADR-0020、ADR-0025、ADR-0049、ADR-0051、ADR-0058 和 ADR-0059 的其余决定继续有效。

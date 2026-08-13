@@ -365,14 +365,23 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
 #[test]
 fn capture_preflight_failure_does_not_create_or_publish_the_dataset_target() {
     use generated_fixture_emitter::new_protobuf_source_capture;
-    use protobuf_source::{RelationSlot, SpoolOptions};
+    use protobuf_source::{EstimatedRow, RelationSlot, SpoolOptions};
+
+    #[derive(serde::Serialize)]
+    struct IncompleteRow;
+
+    impl EstimatedRow for IncompleteRow {
+        fn estimated_bytes(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+    }
 
     let directory = tempdir().expect("temporary parent directory is created");
     let dataset_path = directory.path().join("must_not_exist");
     let mut capture =
         new_protobuf_source_capture(SpoolOptions::new(2)).expect("generated capture is valid");
     capture
-        .append_row(RelationSlot::new(0), |_| Ok(()))
+        .append_row(RelationSlot::new(0), &IncompleteRow)
         .expect_err("incomplete row poisons preflight capture");
     try_publish_capture(capture, &dataset_path)
         .expect_err("poisoned capture fails before Dataset begin");

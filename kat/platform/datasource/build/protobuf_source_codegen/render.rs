@@ -17,6 +17,7 @@ pub(super) fn render(plan: &RelationalPlan, bindings: &ProstBindings) -> String 
     .expect("writing generated Rust to String cannot fail");
 
     render_enum_symbol_constants(&mut output, plan);
+    render_row_types(&mut output, plan);
     render_capture_constructor(&mut output, plan);
     for root in &plan.roots {
         let root_type = bindings.root_type(root.spec_index);
@@ -38,6 +39,192 @@ pub(super) fn render(plan: &RelationalPlan, bindings: &ProstBindings) -> String 
         writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
     }
     output
+}
+
+fn render_row_types(output: &mut String, plan: &RelationalPlan) {
+    for relation in &plan.relations {
+        for (slot, column) in relation.columns.iter().enumerate() {
+            render_nested_row_types(output, relation.slot, &[slot], column);
+        }
+        render_row_type(
+            output,
+            &format!("ProtobufSourceRelation{}Row", relation.slot),
+            &relation.columns,
+            true,
+        );
+    }
+}
+
+fn render_nested_row_types(
+    output: &mut String,
+    relation_slot: usize,
+    path: &[usize],
+    column: &ColumnPlan,
+) {
+    let ColumnSource::Struct { fields, .. } = &column.source else {
+        return;
+    };
+    for (slot, field) in fields.iter().enumerate() {
+        let mut child_path = path.to_vec();
+        child_path.push(slot);
+        render_nested_row_types(output, relation_slot, &child_path, field);
+    }
+    render_row_type(output, &nested_row_type(relation_slot, path), fields, false);
+}
+
+fn render_row_type(output: &mut String, name: &str, columns: &[ColumnPlan], top_level: bool) {
+    writeln!(output, "#[derive(serde::Serialize)]\nstruct {name}<'a> {{")
+        .expect("writing generated Rust to String cannot fail");
+    for (slot, column) in columns.iter().enumerate() {
+        writeln!(
+            output,
+            "    #[serde(rename = {})]\n    column_{slot}: {},",
+            literal(&column.name),
+            render_row_field_type(column, name, slot)
+        )
+        .expect("writing generated Rust to String cannot fail");
+    }
+    writeln!(
+        output,
+        "    #[serde(skip)]\n    marker: std::marker::PhantomData<&'a ()>,\n}}"
+    )
+    .expect("writing generated Rust to String cannot fail");
+
+    let trait_name = if top_level {
+        "EstimatedRow"
+    } else {
+        "EstimatedValue"
+    };
+    writeln!(
+        output,
+        "impl<'a> crate::protobuf_source::{trait_name} for {name}<'a> {{\n    fn estimated_bytes(&self) -> anyhow::Result<usize> {{\n        let mut total = {};",
+        if top_level { 0 } else { 1 }
+    )
+    .expect("writing generated Rust to String cannot fail");
+    for slot in 0..columns.len() {
+        writeln!(
+            output,
+            "        crate::protobuf_source::add_estimated_bytes(&mut total, crate::protobuf_source::EstimatedValue::estimated_bytes(&self.column_{slot})?)?;"
+        )
+        .expect("writing generated Rust to String cannot fail");
+    }
+    writeln!(output, "        Ok(total)\n    }}")
+        .expect("writing generated Rust to String cannot fail");
+    if !top_level {
+        writeln!(
+            output,
+            "    fn estimated_null_bytes() -> anyhow::Result<usize> {{\n        let mut total = 1;"
+        )
+        .expect("writing generated Rust to String cannot fail");
+        for (slot, column) in columns.iter().enumerate() {
+            let field_type = render_row_field_type(column, name, slot);
+            writeln!(
+                output,
+                "        crate::protobuf_source::add_estimated_bytes(&mut total, <{field_type} as crate::protobuf_source::EstimatedValue>::estimated_null_bytes()?)?;"
+            )
+            .expect("writing generated Rust to String cannot fail");
+        }
+        writeln!(output, "        Ok(total)\n    }}")
+            .expect("writing generated Rust to String cannot fail");
+    }
+    writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+}
+
+fn render_row_field_type(column: &ColumnPlan, owner: &str, slot: usize) -> String {
+    let base = match &column.source {
+        ColumnSource::RowId | ColumnSource::ParentRowId | ColumnSource::RepeatedIndex => {
+            "u64".to_string()
+        }
+        ColumnSource::Scalar { scalar, .. } => scalar_rendering(*scalar).rust_type.to_string(),
+        ColumnSource::Struct { .. } => {
+            let owner = owner
+                .strip_suffix("Row")
+                .or_else(|| owner.strip_suffix("Struct"))
+                .expect("generated row type has a known suffix");
+            format!("{owner}Column{slot}Struct<'a>")
+        }
+    };
+    if column.nullable {
+        format!("Option<{base}>")
+    } else {
+        base
+    }
+}
+
+fn render_scalar_value(scalar: ScalarType, expression: ScalarExpression<'_>) -> String {
+    let value = expression.value();
+    match scalar_rendering(scalar).access {
+        ScalarAccess::Copy => expression.copy_value(),
+        ScalarAccess::Utf8 => format!("({value}).as_str()"),
+        ScalarAccess::Binary => {
+            format!("crate::protobuf_source::BinaryValue::new(({value}).as_slice())")
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ScalarAccess {
+    Copy,
+    Utf8,
+    Binary,
+}
+
+impl ScalarAccess {
+    fn render_optional(self, scalar: ScalarType, containing_value: &str, field: &str) -> String {
+        match self {
+            Self::Utf8 => format!("{containing_value}.{field}.as_deref()"),
+            Self::Copy | Self::Binary => {
+                let expression =
+                    render_scalar_value(scalar, ScalarExpression::Borrowed("field_value"));
+                format!("{containing_value}.{field}.as_ref().map(|field_value| {expression})")
+            }
+        }
+    }
+}
+
+struct ScalarRendering {
+    arrow_type: &'static str,
+    rust_type: &'static str,
+    access: ScalarAccess,
+}
+
+fn scalar_rendering(scalar: ScalarType) -> ScalarRendering {
+    let (arrow_type, rust_type, access) = match scalar {
+        ScalarType::Boolean => (
+            "arrow_schema::DataType::Boolean",
+            "bool",
+            ScalarAccess::Copy,
+        ),
+        ScalarType::Int32 => ("arrow_schema::DataType::Int32", "i32", ScalarAccess::Copy),
+        ScalarType::Int64 => ("arrow_schema::DataType::Int64", "i64", ScalarAccess::Copy),
+        ScalarType::UInt32 => ("arrow_schema::DataType::UInt32", "u32", ScalarAccess::Copy),
+        ScalarType::UInt64 => ("arrow_schema::DataType::UInt64", "u64", ScalarAccess::Copy),
+        ScalarType::Float32 => ("arrow_schema::DataType::Float32", "f32", ScalarAccess::Copy),
+        ScalarType::Float64 => ("arrow_schema::DataType::Float64", "f64", ScalarAccess::Copy),
+        ScalarType::Utf8 => (
+            "arrow_schema::DataType::Utf8",
+            "&'a str",
+            ScalarAccess::Utf8,
+        ),
+        ScalarType::Binary => (
+            "arrow_schema::DataType::Binary",
+            "crate::protobuf_source::BinaryValue<'a>",
+            ScalarAccess::Binary,
+        ),
+    };
+    ScalarRendering {
+        arrow_type,
+        rust_type,
+        access,
+    }
+}
+
+fn nested_row_type(relation_slot: usize, path: &[usize]) -> String {
+    let suffix = path
+        .iter()
+        .map(|slot| format!("Column{slot}"))
+        .collect::<String>();
+    format!("ProtobufSourceRelation{relation_slot}{suffix}Struct")
 }
 
 fn render_enum_symbol_constants(output: &mut String, plan: &RelationalPlan) {
@@ -117,18 +304,7 @@ fn render_arrow_type(column: &ColumnPlan) -> String {
         ColumnSource::RowId | ColumnSource::ParentRowId | ColumnSource::RepeatedIndex => {
             "arrow_schema::DataType::UInt64".to_string()
         }
-        ColumnSource::Scalar { scalar, .. } => match scalar {
-            ScalarType::Boolean => "arrow_schema::DataType::Boolean",
-            ScalarType::Int32 => "arrow_schema::DataType::Int32",
-            ScalarType::Int64 => "arrow_schema::DataType::Int64",
-            ScalarType::UInt32 => "arrow_schema::DataType::UInt32",
-            ScalarType::UInt64 => "arrow_schema::DataType::UInt64",
-            ScalarType::Float32 => "arrow_schema::DataType::Float32",
-            ScalarType::Float64 => "arrow_schema::DataType::Float64",
-            ScalarType::Utf8 => "arrow_schema::DataType::Utf8",
-            ScalarType::Binary => "arrow_schema::DataType::Binary",
-        }
-        .to_string(),
+        ColumnSource::Scalar { scalar, .. } => scalar_rendering(*scalar).arrow_type.to_string(),
         ColumnSource::Struct { fields, .. } => {
             let fields = fields
                 .iter()
@@ -167,22 +343,28 @@ impl EmitterRenderer<'_> {
             ));
         }
         self.line(&format!(
-            "capture.append_row(crate::protobuf_source::RelationSlot::new({relation_slot}), |row| {{"
+            "let row_{relation_slot} = ProtobufSourceRelation{relation_slot}Row {{"
         ));
         self.indent += 1;
         for (column_slot, column) in relation.columns.iter().enumerate() {
-            self.emit_column(
+            let expression = self.render_column_expression(
                 column,
                 column_slot,
+                relation_slot,
+                &[column_slot],
                 value,
                 parent_row_id,
                 repeated_index,
                 has_row_id.then_some(row_id.as_str()),
             );
+            self.line(&format!("column_{column_slot}: {expression},"));
         }
-        self.line("Ok(())");
+        self.line("marker: std::marker::PhantomData,");
         self.indent -= 1;
-        self.line("})?;");
+        self.line("};");
+        self.line(&format!(
+            "capture.append_row(crate::protobuf_source::RelationSlot::new({relation_slot}), &row_{relation_slot})?;"
+        ));
 
         for child in self.child_relations(relation_slot) {
             self.emit_child(child, value, has_row_id.then_some(row_id.as_str()));
@@ -252,131 +434,97 @@ impl EmitterRenderer<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn emit_column(
-        &mut self,
+    fn render_column_expression(
+        &self,
         column: &ColumnPlan,
         slot: usize,
+        relation_slot: usize,
+        path: &[usize],
         value: &str,
         parent_row_id: &str,
         repeated_index: Option<&str>,
         row_id: Option<&str>,
-    ) {
+    ) -> String {
         match &column.source {
-            ColumnSource::RowId => self.emit_typed("u64", slot, row_id.expect("planned row id")),
-            ColumnSource::ParentRowId => self.emit_typed("u64", slot, parent_row_id),
+            ColumnSource::RowId => row_id.expect("planned row id").to_string(),
+            ColumnSource::ParentRowId => parent_row_id.to_string(),
             ColumnSource::RepeatedIndex => {
-                self.emit_typed("u64", slot, repeated_index.expect("planned repeated index"));
+                repeated_index.expect("planned repeated index").to_string()
             }
             ColumnSource::Scalar {
                 scalar,
                 value: source,
             } => match source {
                 ScalarValue::RelationValue => {
-                    self.emit_scalar_value(*scalar, slot, ScalarExpression::Borrowed(value))
+                    render_scalar_value(*scalar, ScalarExpression::Borrowed(value))
                 }
                 ScalarValue::Field(field) => {
-                    self.emit_field_value(*scalar, slot, value, field);
+                    self.render_field_value(*scalar, column.nullable, value, field)
                 }
             },
             ColumnSource::Struct { field, fields } => {
                 let binding = self.bindings.field(field);
                 let nested_value = format!("struct_value_{}_{}", field.number, slot);
-                self.line(&format!(
-                    "row.struct_(crate::protobuf_source::ColumnSlot::new({slot}), {value}.{}.is_some(), |row| {{",
-                    binding.rust_field_ident
-                ));
-                self.indent += 1;
-                self.line(&format!(
-                    "let {nested_value} = {value}.{}.as_ref().expect(\"Struct closure is called only for a present message\");",
-                    binding.rust_field_ident
-                ));
+                let type_name = nested_row_type(relation_slot, path);
+                let mut members = Vec::new();
                 for (nested_slot, nested) in fields.iter().enumerate() {
-                    self.emit_column(nested, nested_slot, &nested_value, "", None, None);
+                    let mut nested_path = path.to_vec();
+                    nested_path.push(nested_slot);
+                    let expression = self.render_column_expression(
+                        nested,
+                        nested_slot,
+                        relation_slot,
+                        &nested_path,
+                        &nested_value,
+                        "",
+                        None,
+                        None,
+                    );
+                    members.push(format!("column_{nested_slot}: {expression}"));
                 }
-                self.line("Ok(())");
-                self.indent -= 1;
-                self.line("})?;");
+                members.push("marker: std::marker::PhantomData".to_string());
+                format!(
+                    "{value}.{}.as_ref().map(|{nested_value}| {type_name} {{ {} }})",
+                    binding.rust_field_ident,
+                    members.join(", ")
+                )
             }
         }
     }
 
-    fn emit_field_value(
-        &mut self,
+    fn render_field_value(
+        &self,
         scalar: ScalarType,
-        slot: usize,
+        nullable: bool,
         containing_value: &str,
         field: &ProtoField,
-    ) {
+    ) -> String {
         let binding = self.bindings.field(field);
         match (&field.presence, &binding.oneof) {
             (Presence::Oneof { .. }, Some(oneof)) => {
-                let field_value = format!("field_value_{}_{}", field.number, slot);
-                self.line(&format!(
-                    "if let Some({}::{}({field_value})) = {containing_value}.{}.as_ref() {{",
-                    oneof.rust_enum_path, oneof.rust_variant_ident, oneof.rust_group_ident
-                ));
-                self.indent += 1;
-                self.emit_scalar_value(scalar, slot, ScalarExpression::Borrowed(&field_value));
-                self.indent -= 1;
-                self.line("} else {");
-                self.indent += 1;
-                self.emit_null(slot);
-                self.indent -= 1;
-                self.line("}");
+                let expression =
+                    render_scalar_value(scalar, ScalarExpression::Borrowed("field_value"));
+                format!(
+                    "match {containing_value}.{}.as_ref() {{ Some({}::{}(field_value)) => Some({expression}), _ => None }}",
+                    oneof.rust_group_ident, oneof.rust_enum_path, oneof.rust_variant_ident
+                )
             }
-            (Presence::Explicit, None) => {
-                let field_value = format!("field_value_{}_{}", field.number, slot);
-                self.line(&format!(
-                    "if let Some({field_value}) = {containing_value}.{}.as_ref() {{",
-                    binding.rust_field_ident
-                ));
-                self.indent += 1;
-                self.emit_scalar_value(scalar, slot, ScalarExpression::Borrowed(&field_value));
-                self.indent -= 1;
-                self.line("} else {");
-                self.indent += 1;
-                self.emit_null(slot);
-                self.indent -= 1;
-                self.line("}");
-            }
+            (Presence::Explicit, None) => scalar_rendering(scalar).access.render_optional(
+                scalar,
+                containing_value,
+                &binding.rust_field_ident,
+            ),
             (Presence::Implicit, None) => {
                 let expression = format!("{containing_value}.{}", binding.rust_field_ident);
-                self.emit_scalar_value(scalar, slot, ScalarExpression::Direct(&expression));
+                let expression = render_scalar_value(scalar, ScalarExpression::Direct(&expression));
+                if nullable {
+                    format!("Some({expression})")
+                } else {
+                    expression
+                }
             }
             _ => unreachable!("planner and prost binding disagree about field presence"),
         }
-    }
-
-    fn emit_scalar_value(
-        &mut self,
-        scalar: ScalarType,
-        slot: usize,
-        expression: ScalarExpression<'_>,
-    ) {
-        let value = expression.value();
-        match scalar {
-            ScalarType::Boolean => self.emit_typed("bool", slot, &expression.copy_value()),
-            ScalarType::Int32 => self.emit_typed("i32", slot, &expression.copy_value()),
-            ScalarType::Int64 => self.emit_typed("i64", slot, &expression.copy_value()),
-            ScalarType::UInt32 => self.emit_typed("u32", slot, &expression.copy_value()),
-            ScalarType::UInt64 => self.emit_typed("u64", slot, &expression.copy_value()),
-            ScalarType::Float32 => self.emit_typed("f32", slot, &expression.copy_value()),
-            ScalarType::Float64 => self.emit_typed("f64", slot, &expression.copy_value()),
-            ScalarType::Utf8 => self.emit_typed("utf8", slot, &format!("({value}).as_str()")),
-            ScalarType::Binary => self.emit_typed("binary", slot, &format!("({value}).as_slice()")),
-        }
-    }
-
-    fn emit_typed(&mut self, method: &str, slot: usize, value: &str) {
-        self.line(&format!(
-            "row.{method}(crate::protobuf_source::ColumnSlot::new({slot}), {value})?;"
-        ));
-    }
-
-    fn emit_null(&mut self, slot: usize) {
-        self.line(&format!(
-            "row.null(crate::protobuf_source::ColumnSlot::new({slot}))?;"
-        ));
     }
 
     fn child_relations(&self, parent: usize) -> Vec<RelationPlan> {

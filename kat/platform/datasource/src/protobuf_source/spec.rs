@@ -18,19 +18,6 @@ impl RelationSlot {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct ColumnSlot(usize);
-
-impl ColumnSlot {
-    pub(crate) const fn new(index: usize) -> Self {
-        Self(index)
-    }
-
-    pub(super) const fn index(self) -> usize {
-        self.0
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct RelationSpec {
     pub(super) name: &'static str,

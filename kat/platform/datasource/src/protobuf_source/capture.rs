@@ -4,8 +4,7 @@ use anyhow::{Context, Result, bail};
 use arrow_schema::{DataType, Field, Schema};
 
 use super::{
-    ColumnSlot, EnumOriginSpec, PreparedSourceTables, RelationSlot, RelationSpec, RowWriter,
-    SpoolOptions,
+    EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec, SpoolOptions,
     spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
     spool::{ActiveTable, PreparedSourceTable},
 };
@@ -72,23 +71,22 @@ impl SourceTableCapture {
         }
     }
 
-    pub(crate) fn append_row(
-        &mut self,
-        relation: RelationSlot,
-        append: impl FnOnce(&mut RowWriter<'_>) -> Result<()>,
-    ) -> Result<()> {
+    pub(crate) fn append_row<T>(&mut self, relation: RelationSlot, row: &T) -> Result<()>
+    where
+        T: EstimatedRow,
+    {
         self.ensure_healthy()?;
         let options = self.options;
         let result = (|| {
             let state = self.relation_mut(relation)?;
             if state.active.is_none() {
-                state.active = Some(ActiveTable::new(relation, state.spec.clone(), options)?);
+                state.active = Some(ActiveTable::new(state.spec.clone(), options)?);
             }
             state
                 .active
                 .as_mut()
                 .expect("protobuf Source relation spool is initialized")
-                .append_row(append)
+                .append_row(row)
         })();
         if let Err(error) = result {
             self.poisoned = Some(format!(
@@ -120,17 +118,9 @@ impl SourceTableCapture {
             }
         }
         if !enum_definitions.is_empty() {
-            let relation = RelationSlot::new(active_relations.len());
-            let mut table = ActiveTable::new(relation, protobuf_enum_symbol_spec(), self.options)?;
+            let mut table = ActiveTable::new(protobuf_enum_symbol_spec(), self.options)?;
             for definition in enum_definitions {
-                table.append_row(|row| {
-                    row.utf8(ColumnSlot::new(0), definition.origin_table)?;
-                    row.utf8(ColumnSlot::new(1), definition.origin_field_path)?;
-                    row.utf8(ColumnSlot::new(2), definition.enum_type_name)?;
-                    row.i32(ColumnSlot::new(3), definition.enum_number)?;
-                    row.utf8(ColumnSlot::new(4), definition.enum_symbol)?;
-                    Ok(())
-                })?;
+                table.append_row(&definition)?;
             }
             prepared.push(table.prepare()?);
         }
@@ -155,13 +145,31 @@ impl SourceTableCapture {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Serialize)]
 struct EnumDefinition {
     origin_table: &'static str,
     origin_field_path: &'static str,
     enum_type_name: &'static str,
     enum_number: i32,
     enum_symbol: &'static str,
+}
+
+impl EstimatedRow for EnumDefinition {
+    fn estimated_bytes(&self) -> Result<usize> {
+        use super::EstimatedValue;
+
+        let mut total = 0;
+        for bytes in [
+            self.origin_table.estimated_bytes()?,
+            self.origin_field_path.estimated_bytes()?,
+            self.enum_type_name.estimated_bytes()?,
+            self.enum_number.estimated_bytes()?,
+            self.enum_symbol.estimated_bytes()?,
+        ] {
+            super::add_estimated_bytes(&mut total, bytes)?;
+        }
+        Ok(total)
+    }
 }
 
 fn collect_enum_definitions(
