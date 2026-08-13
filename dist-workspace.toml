@@ -16,7 +16,7 @@ targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Where to host releases
 hosting = "github"
 # dist 0.32 的 extra-artifacts 无法同时保留私有原生载荷、配套校验和与
-# PR smoke，因此不能替代自定义 global job；选型证据见 ADR-0002。
+# PR smoke，因此不能替代自定义 global job；probe 证据见 docs/release-rehearsal.md。
 checksum = "false"
 source-tarball = false
 pr-run-mode = "upload"

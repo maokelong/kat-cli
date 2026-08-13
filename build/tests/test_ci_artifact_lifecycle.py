@@ -221,9 +221,17 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         self.assertIn("plan-only probe", runbook)
         self.assertIn("release-rehearsal.md", adr)
         self.assertIn("应删除该适配", adr)
+        self.assertIn("custom hook 调度", adr)
+        self.assertIn("local-artifact adapter 拥有实际原生构建环境", adr)
+        self.assertNotIn("原生目标 runner", adr)
         self.assertNotIn("kat-workflow-wheel", adr)
         self.assertNotIn("plan-only probe", adr)
         self.assertNotIn("kat-skill-0.1.0", adr)
+
+        self.assertIn("build-local-artifacts = false", runbook)
+        self.assertIn('local-artifacts-jobs = ["./build-payloads-ci"]', runbook)
+        self.assertIn(".github/workflows/build-linux-payload-ci.yml", runbook)
+        self.assertIn(".github/workflows/build-windows-payload-ci.yml", runbook)
 
     def test_canonical_repository_identity_is_consistent(self) -> None:
         release_config = tomllib.loads(RELEASE_CONFIG.read_text(encoding="utf-8"))

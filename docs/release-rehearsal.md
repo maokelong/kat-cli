@@ -17,10 +17,17 @@ GitHub 的 Create/Update Release API 会比较目标 commit 与默认分支的 w
 
 ## 当前 `dist 0.32` 发布适配合同
 
-固定版本的 `dist`（原 cargo-dist）继续拥有版本与 tag、原生目标 runner、local/global
-artifact jobs、托管和 GitHub Release。`dist 0.32` 不能发现自定义 global job 产出的 opaque
-Skill，因此当前适配只补足两处工具缺口：自定义 global job 装配最终 Skill 与配套 SHA-256，
-官方 `post-announce` job 收尾公开资产。job 顺序和发布生命周期不由 KAT 重新实现。
+固定版本的 `dist`（原 cargo-dist）继续拥有版本与 tag、发布计划、custom hook 调度、托管和
+GitHub Release。`dist 0.32` 不能发现自定义 global job 产出的 opaque Skill，因此当前适配只
+补足两处工具缺口：自定义 global job 装配最终 Skill 与配套 SHA-256，官方 `post-announce`
+job 收尾公开资产。job 顺序和发布生命周期不由 KAT 重新实现。
+
+`build-local-artifacts = false` 关闭 `dist` 的内建 local artifacts，
+`local-artifacts-jobs = ["./build-payloads-ci"]` 是唯一 local-artifact 接缝。生成 workflow 只
+调度该 hook；`.github/workflows/build-linux-payload-ci.yml` 与
+`.github/workflows/build-windows-payload-ci.yml` 分别是 Linux 和 Windows 有效 runner、
+container 与平台工具链的唯一修改入口。`dist` 计划中未执行的原生 runner matrix 不属于 KAT
+支持矩阵或构建环境合同。
 
 生成的 host job 会收集 `artifacts-*`。因此最终 Skill artifact 保留此前缀；只服务装配的
 `kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
