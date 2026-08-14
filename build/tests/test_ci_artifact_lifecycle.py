@@ -169,7 +169,10 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         self.assertEqual(orchestrator.count("      - release-channel"), 3)
         self.assertEqual(orchestrator.count("      - prepare"), 2)
         self.assertEqual(
-            orchestrator.count("plan: ${{ needs.release-channel.outputs.plan }}"),
+            orchestrator.count(
+                "app-version: ${{ "
+                "needs.release-channel.outputs['app-version'] }}"
+            ),
             1,
         )
 

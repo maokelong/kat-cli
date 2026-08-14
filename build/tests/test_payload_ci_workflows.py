@@ -58,6 +58,84 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             workflow,
         )
 
+    def test_payload_pr_runs_cancel_only_older_runs_for_the_same_pr(self) -> None:
+        workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
+        self.assertIn(
+            "concurrency:\n"
+            "  group: >-\n"
+            "    ${{ github.workflow }}-${{\n"
+            "      github.event_name == 'pull_request' &&\n"
+            "      (github.event.action != 'labeled' || "
+            "github.event.label.name == 'full-ci') &&\n"
+            "      github.event.pull_request.number ||\n"
+            "      github.run_id\n"
+            "    }}\n"
+            "  cancel-in-progress: >-\n"
+            "    ${{\n"
+            "      github.event_name == 'pull_request' &&\n"
+            "      (github.event.action != 'labeled' || "
+            "github.event.label.name == 'full-ci')\n"
+            "    }}\n",
+            workflow,
+        )
+
+    def test_payload_assembly_distinguishes_plan_from_validated_app_version(
+        self,
+    ) -> None:
+        orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
+        self.assertIn(
+            "      plan:\n"
+            "        description: Initial dist manifest; the host job regenerates "
+            "its upload manifest.\n"
+            "        required: true\n"
+            "        type: string\n",
+            orchestrator,
+        )
+        self.assertIn(
+            "    outputs:\n"
+            "      app-version: ${{ steps.verify.outputs.app-version }}\n",
+            orchestrator,
+        )
+        self.assertEqual(
+            orchestrator.count('echo "app-version=${version}" >> "$GITHUB_OUTPUT"'),
+            1,
+        )
+        self.assertNotIn("effective_plan", orchestrator)
+        self.assertIn(
+            "    with:\n"
+            "      app-version: ${{ "
+            "needs.release-channel.outputs['app-version'] }}\n",
+            orchestrator,
+        )
+
+        assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "    inputs:\n"
+            "      plan:\n"
+            "        description: Complete dist manifest for tag publication.\n"
+            "        required: false\n"
+            "        default: \"\"\n"
+            "        type: string\n"
+            "      app-version:\n"
+            "        description: Validated KAT release version for the candidate.\n"
+            "        required: false\n"
+            "        default: \"\"\n"
+            "        type: string\n",
+            assembly,
+        )
+        self.assertIn("PLAN: ${{ inputs.plan }}", assembly)
+        self.assertIn("APP_VERSION: ${{ inputs['app-version'] }}", assembly)
+        self.assertIn(
+            'if [[ -n "$APP_VERSION" ]]; then\n'
+            '            test -z "$PLAN"\n'
+            '            version="$APP_VERSION"\n'
+            "          else\n"
+            '            test -n "$PLAN"\n'
+            "            version=$(jq -er ",
+            assembly,
+        )
+        self.assertIn(".releases | map(.app_version)", assembly)
+
     def test_full_ci_pr_and_manual_dispatch_run_the_payload_pipeline(self) -> None:
         orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
         self.assertRegex(
@@ -103,7 +181,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 "github.event.action != 'labeled' || "
                 "github.event.label.name == 'full-ci'"
             ),
-            2,
+            4,
         )
         self.assertEqual(
             orchestrator.count("github.event.pull_request.draft == false"),
@@ -131,7 +209,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 "python -I -B build/verify_release_versions.py\n"
                 "            version=$(python"
             ),
-            orchestrator.index("effective_plan=$(jq -cn"),
+            orchestrator.index('echo "app-version=${version}"'),
         )
         self.assertIn(
             "  assemble-and-smoke:\n"

@@ -25,6 +25,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci') &&
+      github.event.pull_request.number ||
+      github.run_id
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    }}
+
 jobs:
   release-channel:
     name: Verify the release channel contract
@@ -35,7 +49,7 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     outputs:
-      plan: ${{ steps.verify.outputs.plan }}
+      app-version: ${{ steps.verify.outputs.app-version }}
 
     steps:
       - name: Checkout
@@ -72,40 +86,36 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "pull_request" ]]; then
             python -I -B build/verify_release_versions.py
             version=$(python -I -B -c 'import tomllib; print(tomllib.load(open("release/kat/dist.toml", "rb"))["package"]["version"])')
-            effective_plan=$(jq -cn --arg version "$version" '{releases: [{app_version: $version}]}')
-            echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          version=$(jq -er '
-            .releases
-            | map(.app_version)
-            | unique
-            | if length == 1 then .[0] else error("release versions are not unique") end
-          ' <<< "$PLAN")
-
-          test "$EVENT_NAME" = "push"
-          test "$RELEASE_REF_TYPE" = "tag"
-          expected_tag="kat/${version}"
-          test "$RELEASE_REF_NAME" = "$expected_tag"
-          test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
-          # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
-          # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
-          initial_prerelease=$(jq -er '
-            .announcement_is_prerelease
-            | if type == "boolean" then tostring else error("prerelease state is not boolean") end
-          ' <<< "$PLAN")
-          version_without_build="${version%%+*}"
-          if [[ "$version_without_build" == *-* ]]; then
-            expected_prerelease=true
           else
-            expected_prerelease=false
-          fi
-          test "$initial_prerelease" = "$expected_prerelease"
-          python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+            version=$(jq -er '
+              .releases
+              | map(.app_version)
+              | unique
+              | if length == 1 then .[0] else error("release versions are not unique") end
+            ' <<< "$PLAN")
 
-          effective_plan=$(jq -ce . <<< "$PLAN")
-          echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
+            test "$EVENT_NAME" = "push"
+            test "$RELEASE_REF_TYPE" = "tag"
+            expected_tag="kat/${version}"
+            test "$RELEASE_REF_NAME" = "$expected_tag"
+            test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+            # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
+            # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
+            initial_prerelease=$(jq -er '
+              .announcement_is_prerelease
+              | if type == "boolean" then tostring else error("prerelease state is not boolean") end
+            ' <<< "$PLAN")
+            version_without_build="${version%%+*}"
+            if [[ "$version_without_build" == *-* ]]; then
+              expected_prerelease=true
+            else
+              expected_prerelease=false
+            fi
+            test "$initial_prerelease" = "$expected_prerelease"
+            python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+          fi
+
+          echo "app-version=${version}" >> "$GITHUB_OUTPUT"
 
   prepare:
     name: Prepare shared Payload inputs
@@ -144,4 +154,4 @@ jobs:
       - build-windows
     uses: ./.github/workflows/payload-ci.yml
     with:
-      plan: ${{ needs.release-channel.outputs.plan }}
+      app-version: ${{ needs.release-channel.outputs['app-version'] }}

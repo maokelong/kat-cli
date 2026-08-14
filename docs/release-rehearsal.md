@@ -29,6 +29,11 @@ job 收尾公开资产。job 顺序和发布生命周期不由 KAT 重新实现�
 container 与平台工具链的唯一修改入口。`dist` 计划中未执行的原生 runner matrix 不属于 KAT
 支持矩阵或构建环境合同。
 
+`plan` 输入始终表示 `dist` 生成的完整 manifest。PR 和手动 Payload 验证不伪造 manifest，
+而是在发布通道校验后只向装配阶段传递 `app-version`；`payload-ci.yml` 强制完整 `plan` 与
+显式 `app-version` 恰有一个。两种入口统一为同一个已校验版本后，装配与 smoke 不读取其他
+发布计划字段。
+
 生成的 host job 会收集 `artifacts-*`。因此最终 Skill artifact 保留此前缀；只服务装配的
 `kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
 `checksum = "false"` 只阻止 `dist` 为私有原生 payload 规划公开校验文件，不改变最终 Skill

@@ -39,7 +39,8 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 但不符合正式合同的 tag，都会在构建和托管前被发布通道门禁拒绝。日常 PR 只运行固定版本的
 `dist plan`，不构建或上传 Payload；带 `full-ci` 标签的 PR 由 `Full CI` 和独立的
 `Build KAT Platform Payloads` workflow 执行双平台测试、Payload 构建、Skill 装配与 smoke，
-并只上传临时验证产物。改动 tag、host、announce、finalizer、公开资产或发布通道时，先把
+并只上传临时验证产物；同一 PR 推送新提交时会取消仍在执行的旧 Payload 验证。改动 tag、
+host、announce、finalizer、公开资产或发布通道时，先把
 prerelease RC 合入集成分支，再按[发布候选演练手册](docs/release-rehearsal.md)，在同一生成
 workflow 上发布新的 canonical prerelease，完成真实 host → announce → finalizer 与完成态
 重跑。PR 门禁只决定 RC 能否进入 `main`；演练和证据评审通过后才能关闭交付 Issue 或进入
