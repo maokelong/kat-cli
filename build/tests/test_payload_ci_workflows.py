@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_ORCHESTRATOR = REPOSITORY / ".github/workflows/build-payloads-ci.yml"
+FULL_CI_WORKFLOW = REPOSITORY / ".github/workflows/full-ci.yml"
 ASSEMBLY_WORKFLOW = REPOSITORY / ".github/workflows/payload-ci.yml"
 SCCACHE_ACTION = (
     "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
@@ -35,6 +36,26 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 self.assertIn("SCCACHE_IGNORE_SERVER_IO_ERROR=1", workflow)
                 self.assertIn("RUSTC_WRAPPER=sccache", workflow)
                 self.assertNotIn("sccache --show-stats", workflow)
+
+    def test_full_ci_ignores_unrelated_labeled_events(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "  pull_request:\n"
+            "    types:\n"
+            "      - labeled\n"
+            "      - synchronize\n"
+            "      - reopened\n"
+            "      - ready_for_review\n",
+            workflow,
+        )
+        self.assertIn(
+            "    if: >-\n"
+            "      github.event_name == 'workflow_dispatch' ||\n"
+            "      (contains(github.event.pull_request.labels.*.name, 'full-ci') &&\n"
+            "      (github.event.action != 'labeled' || "
+            "github.event.label.name == 'full-ci'))\n",
+            workflow,
+        )
 
     def test_full_ci_pr_and_manual_dispatch_run_the_payload_pipeline(self) -> None:
         orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
