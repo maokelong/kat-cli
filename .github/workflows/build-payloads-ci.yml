@@ -30,7 +30,8 @@ jobs:
     name: Verify the release channel contract
     if: >-
       github.event_name != 'pull_request' ||
-      (contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     outputs:
@@ -134,6 +135,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
       contains(github.event.pull_request.labels.*.name, 'full-ci') &&
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     needs:

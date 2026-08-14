@@ -37,7 +37,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 self.assertIn("RUSTC_WRAPPER=sccache", workflow)
                 self.assertNotIn("sccache --show-stats", workflow)
 
-    def test_full_ci_ignores_unrelated_labeled_events(self) -> None:
+    def test_full_ci_ignores_draft_and_unrelated_labeled_events(self) -> None:
         workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
             "  pull_request:\n"
@@ -51,7 +51,8 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertIn(
             "    if: >-\n"
             "      github.event_name == 'workflow_dispatch' ||\n"
-            "      (contains(github.event.pull_request.labels.*.name, 'full-ci') &&\n"
+            "      (github.event.pull_request.draft == false &&\n"
+            "      contains(github.event.pull_request.labels.*.name, 'full-ci') &&\n"
             "      (github.event.action != 'labeled' || "
             "github.event.label.name == 'full-ci'))\n",
             workflow,
@@ -102,6 +103,10 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 "github.event.action != 'labeled' || "
                 "github.event.label.name == 'full-ci'"
             ),
+            2,
+        )
+        self.assertEqual(
+            orchestrator.count("github.event.pull_request.draft == false"),
             2,
         )
         self.assertIn(
