@@ -17,6 +17,14 @@ mod mmap;
 mod native_hook_table_builders {
     include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
 }
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+mod protobuf_source;
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+#[path = "../build/protobuf_source_codegen/mod.rs"]
+mod protobuf_source_codegen;
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+#[path = "../tests/protobuf_source_contract/mod.rs"]
+mod protobuf_source_contract_tests;
 mod query;
 mod record;
 mod sinks;
@@ -63,6 +71,20 @@ pub(crate) mod proto {
 
     pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginResult};
     pub(crate) use kat::native_hook::{BatchNativeHookData, NativeHookConfig};
+
+    #[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/protobuf_source_fixture/fixture_proto.rs"
+    ));
+}
+
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+mod generated_fixture_emitter {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/protobuf_source_fixture/fixture_emitter.rs"
+    ));
 }
 
 pub struct DatasetInspection {

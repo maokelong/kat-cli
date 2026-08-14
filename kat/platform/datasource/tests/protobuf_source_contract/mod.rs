@@ -7,35 +7,11 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 use url::Url;
 
-#[allow(dead_code)]
-#[path = "../src/dataset_writer.rs"]
-mod dataset_writer;
-#[path = "../src/protobuf_source/mod.rs"]
-mod protobuf_source;
-#[path = "../build/protobuf_source_codegen/mod.rs"]
-mod protobuf_source_codegen;
-#[path = "../src/table_name.rs"]
-mod table_name;
+use crate as kat_datasource;
+use crate::{
+    dataset_writer, generated_fixture_emitter, proto, protobuf_source, protobuf_source_codegen,
+};
 
-pub(crate) use table_name::valid_table_name;
-
-#[allow(dead_code)]
-pub(crate) mod proto {
-    include!(concat!(
-        env!("OUT_DIR"),
-        "/protobuf_source_fixture/fixture_proto.rs"
-    ));
-}
-
-#[allow(dead_code)]
-mod generated_fixture_emitter {
-    include!(concat!(
-        env!("OUT_DIR"),
-        "/protobuf_source_fixture/fixture_emitter.rs"
-    ));
-}
-
-#[path = "protobuf_source_contract/roundtrip.rs"]
 mod roundtrip;
 
 use protobuf_source_codegen::{RootSpec, compile};
