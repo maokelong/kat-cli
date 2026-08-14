@@ -1,8 +1,9 @@
 # 发布候选演练
 
-本手册证明 KAT 的 tag-only 发布拓扑可以由后续维护者重复执行。日常 PR 只验证临时
-artifact；改动 release tag、host、announce、finalizer、公开资产集合或发布通道时，必须把
-代码作为 prerelease RC 合入 `main`，再用同一份 `dist` 生成 workflow 完成一次真实演练。
+本手册证明 KAT 的 tag-only 发布拓扑可以由后续维护者重复执行。普通 PR 只验证 Release
+plan；带 `full-ci` 标签的 ready PR 才构建并验证临时 artifact。改动 release tag、host、
+announce、finalizer、公开资产集合或发布通道时，必须把代码作为 prerelease RC 合入
+`main`，再用同一份 `dist` 生成 workflow 完成一次真实演练。
 这里的“可重复”指流程、拓扑和合同可重复，不承诺 runner、外部 action 或构建产物位级复现。
 
 PR 门禁只决定 RC 代码能否进入集成分支；真实 tag 演练与证据评审决定能否关闭交付 Issue、
