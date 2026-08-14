@@ -1,0 +1,34 @@
+build/tests/test_payload_ci_workflows.py
+  s_93311db4e75add::t_66d61c932f138d 61-81
+.github/workflows/full-ci.yml
+  s_93311db4e75add::t_50a4b7a40c1c29 16-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f95e0674ebf2d40df92c55c82770a37c0f8a2522",
+  "prompts": {
+    "s_93311db4e75add": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fff29-7271-7333-9bca-c4ba4cae60e9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 33,
+      "total_deletions": 2,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_93311db4e75add": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fff29-7271-7333-9bca-c4ba4cae60e9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
