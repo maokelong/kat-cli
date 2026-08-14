@@ -9,6 +9,23 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_ORCHESTRATOR = REPOSITORY / ".github/workflows/build-payloads-ci.yml"
 FULL_CI_WORKFLOW = REPOSITORY / ".github/workflows/full-ci.yml"
 ASSEMBLY_WORKFLOW = REPOSITORY / ".github/workflows/payload-ci.yml"
+PR_VALIDATION_CONCURRENCY = (
+    "concurrency:\n"
+    "  group: >-\n"
+    "    ${{ github.workflow }}-${{\n"
+    "      github.event_name == 'pull_request' &&\n"
+    "      (github.event.action != 'labeled' || "
+    "github.event.label.name == 'full-ci') &&\n"
+    "      github.event.pull_request.number ||\n"
+    "      github.run_id\n"
+    "    }}\n"
+    "  cancel-in-progress: >-\n"
+    "    ${{\n"
+    "      github.event_name == 'pull_request' &&\n"
+    "      (github.event.action != 'labeled' || "
+    "github.event.label.name == 'full-ci')\n"
+    "    }}\n"
+)
 SCCACHE_ACTION = (
     "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
 )
@@ -58,26 +75,13 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             workflow,
         )
 
+    def test_full_ci_unrelated_labels_do_not_cancel_active_validation(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
+
     def test_payload_pr_runs_cancel_only_older_runs_for_the_same_pr(self) -> None:
         workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
-        self.assertIn(
-            "concurrency:\n"
-            "  group: >-\n"
-            "    ${{ github.workflow }}-${{\n"
-            "      github.event_name == 'pull_request' &&\n"
-            "      (github.event.action != 'labeled' || "
-            "github.event.label.name == 'full-ci') &&\n"
-            "      github.event.pull_request.number ||\n"
-            "      github.run_id\n"
-            "    }}\n"
-            "  cancel-in-progress: >-\n"
-            "    ${{\n"
-            "      github.event_name == 'pull_request' &&\n"
-            "      (github.event.action != 'labeled' || "
-            "github.event.label.name == 'full-ci')\n"
-            "    }}\n",
-            workflow,
-        )
+        self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
 
     def test_payload_assembly_distinguishes_plan_from_validated_app_version(
         self,
