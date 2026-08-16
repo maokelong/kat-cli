@@ -7,7 +7,25 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_ORCHESTRATOR = REPOSITORY / ".github/workflows/build-payloads-ci.yml"
+FULL_CI_WORKFLOW = REPOSITORY / ".github/workflows/full-ci.yml"
 ASSEMBLY_WORKFLOW = REPOSITORY / ".github/workflows/payload-ci.yml"
+PR_VALIDATION_CONCURRENCY = (
+    "concurrency:\n"
+    "  group: >-\n"
+    "    ${{ github.workflow }}-${{\n"
+    "      github.event_name == 'pull_request' &&\n"
+    "      (github.event.action != 'labeled' || "
+    "github.event.label.name == 'full-ci') &&\n"
+    "      github.event.pull_request.number ||\n"
+    "      github.run_id\n"
+    "    }}\n"
+    "  cancel-in-progress: >-\n"
+    "    ${{\n"
+    "      github.event_name == 'pull_request' &&\n"
+    "      (github.event.action != 'labeled' || "
+    "github.event.label.name == 'full-ci')\n"
+    "    }}\n"
+)
 SCCACHE_ACTION = (
     "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
 )
@@ -36,7 +54,93 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 self.assertIn("RUSTC_WRAPPER=sccache", workflow)
                 self.assertNotIn("sccache --show-stats", workflow)
 
-    def test_manual_cold_build_bypasses_both_platform_caches(self) -> None:
+    def test_full_ci_ignores_draft_and_unrelated_labeled_events(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "  pull_request:\n"
+            "    types:\n"
+            "      - labeled\n"
+            "      - synchronize\n"
+            "      - reopened\n"
+            "      - ready_for_review\n",
+            workflow,
+        )
+        self.assertIn(
+            "    if: >-\n"
+            "      github.event_name == 'workflow_dispatch' ||\n"
+            "      (github.event.pull_request.draft == false &&\n"
+            "      contains(github.event.pull_request.labels.*.name, 'full-ci') &&\n"
+            "      (github.event.action != 'labeled' || "
+            "github.event.label.name == 'full-ci'))\n",
+            workflow,
+        )
+
+    def test_full_ci_unrelated_labels_do_not_cancel_active_validation(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
+
+    def test_payload_pr_runs_cancel_only_older_runs_for_the_same_pr(self) -> None:
+        workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
+        self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
+
+    def test_payload_assembly_distinguishes_plan_from_validated_app_version(
+        self,
+    ) -> None:
+        orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
+        self.assertIn(
+            "      plan:\n"
+            "        description: Initial dist manifest; the host job regenerates "
+            "its upload manifest.\n"
+            "        required: true\n"
+            "        type: string\n",
+            orchestrator,
+        )
+        self.assertIn(
+            "    outputs:\n"
+            "      app-version: ${{ steps.verify.outputs.app-version }}\n",
+            orchestrator,
+        )
+        self.assertEqual(
+            orchestrator.count('echo "app-version=${version}" >> "$GITHUB_OUTPUT"'),
+            1,
+        )
+        self.assertNotIn("effective_plan", orchestrator)
+        self.assertIn(
+            "    with:\n"
+            "      app-version: ${{ "
+            "needs.release-channel.outputs['app-version'] }}\n",
+            orchestrator,
+        )
+
+        assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "    inputs:\n"
+            "      plan:\n"
+            "        description: Complete dist manifest for tag publication.\n"
+            "        required: false\n"
+            "        default: \"\"\n"
+            "        type: string\n"
+            "      app-version:\n"
+            "        description: Validated KAT release version for the candidate.\n"
+            "        required: false\n"
+            "        default: \"\"\n"
+            "        type: string\n",
+            assembly,
+        )
+        self.assertIn("PLAN: ${{ inputs.plan }}", assembly)
+        self.assertIn("APP_VERSION: ${{ inputs['app-version'] }}", assembly)
+        self.assertIn(
+            'if [[ -n "$APP_VERSION" ]]; then\n'
+            '            test -z "$PLAN"\n'
+            '            version="$APP_VERSION"\n'
+            "          else\n"
+            '            test -n "$PLAN"\n'
+            "            version=$(jq -er ",
+            assembly,
+        )
+        self.assertIn(".releases | map(.app_version)", assembly)
+
+    def test_full_ci_pr_and_manual_dispatch_run_the_payload_pipeline(self) -> None:
         orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
         self.assertRegex(
             orchestrator,
@@ -57,12 +161,51 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             ),
             2,
         )
-        self.assertNotIn("  pull_request:", orchestrator)
+        self.assertIn(
+            "  pull_request:\n"
+            "    types:\n"
+            "      - labeled\n"
+            "      - synchronize\n"
+            "      - reopened\n"
+            "      - ready_for_review\n",
+            orchestrator,
+        )
+        self.assertIn(
+            "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+            orchestrator,
+        )
+        self.assertEqual(
+            orchestrator.count(
+                "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+            ),
+            2,
+        )
+        self.assertEqual(
+            orchestrator.count(
+                "github.event.action != 'labeled' || "
+                "github.event.label.name == 'full-ci'"
+            ),
+            4,
+        )
+        self.assertEqual(
+            orchestrator.count("github.event.pull_request.draft == false"),
+            2,
+        )
+        self.assertIn(
+            "  release-channel:\n"
+            "    name: Verify the release channel contract\n"
+            "    if: >-\n"
+            "      github.event_name != 'pull_request' ||",
+            orchestrator,
+        )
         self.assertIn("permissions:\n  contents: read", orchestrator)
         self.assertNotIn("contents: write", orchestrator)
         self.assertNotIn("gh release", orchestrator)
         self.assertLess(
-            orchestrator.index('if [[ "$EVENT_NAME" == "workflow_dispatch" ]]'),
+            orchestrator.index(
+                'if [[ "$EVENT_NAME" == "workflow_dispatch" '
+                '|| "$EVENT_NAME" == "pull_request" ]]'
+            ),
             orchestrator.index("version=$(jq -er"),
         )
         self.assertLess(
@@ -70,12 +213,11 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 "python -I -B build/verify_release_versions.py\n"
                 "            version=$(python"
             ),
-            orchestrator.index("effective_plan=$(jq -cn"),
+            orchestrator.index('echo "app-version=${version}"'),
         )
         self.assertIn(
-            "  manual-assemble-and-smoke:\n"
-            "    name: Assemble and smoke the manual diagnostic build\n"
-            "    if: ${{ github.event_name == 'workflow_dispatch' }}",
+            "  assemble-and-smoke:\n"
+            "    name: Assemble and smoke the selected candidate\n",
             orchestrator,
         )
         self.assertEqual(

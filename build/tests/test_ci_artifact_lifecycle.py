@@ -46,6 +46,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         config = tomllib.loads(DIST_WORKSPACE.read_text(encoding="utf-8"))
         dist = config["dist"]
         self.assertEqual(dist["tag-namespace"], "kat")
+        self.assertEqual(dist["pr-run-mode"], "plan")
         self.assertNotIn("plan-jobs", dist)
         self.assertEqual(dist["local-artifacts-jobs"], ["./build-payloads-ci"])
         self.assertTrue(RELEASE_WORKFLOW.is_file())
@@ -168,7 +169,10 @@ class CiArtifactLifecycleTests(unittest.TestCase):
         self.assertEqual(orchestrator.count("      - release-channel"), 3)
         self.assertEqual(orchestrator.count("      - prepare"), 2)
         self.assertEqual(
-            orchestrator.count("plan: ${{ needs.release-channel.outputs.plan }}"),
+            orchestrator.count(
+                "app-version: ${{ "
+                "needs.release-channel.outputs['app-version'] }}"
+            ),
             1,
         )
 

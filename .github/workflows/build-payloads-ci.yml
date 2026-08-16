@@ -1,4 +1,4 @@
-# dist local-artifact 阶段与手动冷构建诊断共用的 Platform Payload 编排。
+# dist local-artifact 阶段、full-ci PR 与手动冷构建诊断共用的 Platform Payload 编排。
 name: Build KAT Platform Payloads
 
 on:
@@ -15,16 +15,41 @@ on:
         required: false
         type: boolean
         default: false
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
 
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci') &&
+      github.event.pull_request.number ||
+      github.run_id
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    }}
+
 jobs:
   release-channel:
     name: Verify the release channel contract
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     outputs:
-      plan: ${{ steps.verify.outputs.plan }}
+      app-version: ${{ steps.verify.outputs.app-version }}
 
     steps:
       - name: Checkout
@@ -58,24 +83,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "pull_request" ]]; then
             python -I -B build/verify_release_versions.py
             version=$(python -I -B -c 'import tomllib; print(tomllib.load(open("release/kat/dist.toml", "rb"))["package"]["version"])')
-            effective_plan=$(jq -cn --arg version "$version" '{releases: [{app_version: $version}]}')
-            echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          version=$(jq -er '
-            .releases
-            | map(.app_version)
-            | unique
-            | if length == 1 then .[0] else error("release versions are not unique") end
-          ' <<< "$PLAN")
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            python -I -B build/verify_release_versions.py
           else
+            version=$(jq -er '
+              .releases
+              | map(.app_version)
+              | unique
+              | if length == 1 then .[0] else error("release versions are not unique") end
+            ' <<< "$PLAN")
+
             test "$EVENT_NAME" = "push"
             test "$RELEASE_REF_TYPE" = "tag"
             expected_tag="kat/${version}"
@@ -97,8 +115,7 @@ jobs:
             python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
           fi
 
-          effective_plan=$(jq -ce . <<< "$PLAN")
-          echo "plan=${effective_plan}" >> "$GITHUB_OUTPUT"
+          echo "app-version=${version}" >> "$GITHUB_OUTPUT"
 
   prepare:
     name: Prepare shared Payload inputs
@@ -123,13 +140,18 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
 
-  manual-assemble-and-smoke:
-    name: Assemble and smoke the manual diagnostic build
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  assemble-and-smoke:
+    name: Assemble and smoke the selected candidate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     needs:
       - release-channel
       - build-linux
       - build-windows
     uses: ./.github/workflows/payload-ci.yml
     with:
-      plan: ${{ needs.release-channel.outputs.plan }}
+      app-version: ${{ needs.release-channel.outputs['app-version'] }}

@@ -13,15 +13,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci') &&
+      github.event.pull_request.number ||
+      github.run_id
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    }}
 
 jobs:
   full-test:
     name: full-test (${{ matrix.os }})
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'full-ci')
+      (github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ${{ matrix.os }}
 
     strategy:

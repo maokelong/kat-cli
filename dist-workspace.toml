@@ -19,7 +19,7 @@ hosting = "github"
 # PR smoke，因此不能替代自定义 global job；probe 证据见 docs/release-rehearsal.md。
 checksum = "false"
 source-tarball = false
-pr-run-mode = "upload"
+pr-run-mode = "plan"
 build-local-artifacts = false
 local-artifacts-jobs = ["./build-payloads-ci"]
 global-artifacts-jobs = ["./payload-ci"]
