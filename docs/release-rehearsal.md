@@ -1,8 +1,9 @@
 # 发布候选演练
 
-本手册证明 KAT 的 tag-only 发布拓扑可以由后续维护者重复执行。日常 PR 只验证临时
-artifact；改动 release tag、host、announce、finalizer、公开资产集合或发布通道时，必须把
-代码作为 prerelease RC 合入 `main`，再用同一份 `dist` 生成 workflow 完成一次真实演练。
+本手册证明 KAT 的 tag-only 发布拓扑可以由后续维护者重复执行。普通 PR 只验证 Release
+plan；带 `full-ci` 标签的 ready PR 才构建并验证临时 artifact。改动 release tag、host、
+announce、finalizer、公开资产集合或发布通道时，必须把代码作为 prerelease RC 合入
+`main`，再用同一份 `dist` 生成 workflow 完成一次真实演练。
 这里的“可重复”指流程、拓扑和合同可重复，不承诺 runner、外部 action 或构建产物位级复现。
 
 PR 门禁只决定 RC 代码能否进入集成分支；真实 tag 演练与证据评审决定能否关闭交付 Issue、
@@ -28,6 +29,11 @@ job 收尾公开资产。job 顺序和发布生命周期不由 KAT 重新实现�
 `.github/workflows/build-windows-payload-ci.yml` 分别是 Linux 和 Windows 有效 runner、
 container 与平台工具链的唯一修改入口。`dist` 计划中未执行的原生 runner matrix 不属于 KAT
 支持矩阵或构建环境合同。
+
+`plan` 输入始终表示 `dist` 生成的完整 manifest。PR 和手动 Payload 验证不伪造 manifest，
+而是在发布通道校验后只向装配阶段传递 `app-version`；`payload-ci.yml` 强制完整 `plan` 与
+显式 `app-version` 恰有一个。两种入口统一为同一个已校验版本后，装配与 smoke 不读取其他
+发布计划字段。
 
 生成的 host job 会收集 `artifacts-*`。因此最终 Skill artifact 保留此前缀；只服务装配的
 `kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
@@ -158,9 +164,10 @@ cargo metadata --locked --no-deps --format-version 1
 dist generate --check
 ```
 
-提交候选后只运行正常 PR 自动门禁。PR 事件中的 host、announce 和 finalizer 必须 skipped；
-build、assemble、双资产校验、Linux 完整闭环和 Windows builder-image candidate smoke 必须
-成功。保存 `Release` run ID、attempt 和完整 jobs JSON。
+提交候选后先确认普通 PR 的 `Release` plan 成功，再添加 `full-ci` 标签。PR 事件中的 host、
+announce 和 finalizer 必须 skipped；`Build KAT Platform Payloads` 的 build、assemble、双资产
+校验、Linux 完整闭环和 Windows builder-image candidate smoke 必须成功。保存两个 workflow 的
+run ID、attempt 和完整 jobs JSON；下文的 `PR_RUN_ID` 指 Payload workflow run。
 
 `build-payloads-ci.yml` 的 release-channel job 会打印唯一 checkout SHA 和 tree。先从指定
 attempt 的日志提取，随后用 tree 对照冻结的 PR merge ref `M`；不能把 PR API 的 head SHA
