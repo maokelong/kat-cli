@@ -11,10 +11,9 @@ use crate::{
 };
 
 pub(crate) use envelope::{PluginEnvelope, PluginEnvelopeKind};
+pub(crate) use framing::for_each_profiler_envelope_frame;
 pub(crate) use payload::decode_payload;
 pub(crate) use registry::{PluginDecoder, PluginDecoderSpec, PluginPayloadRegistry};
-
-use framing::for_each_profiler_envelope_frame;
 
 pub(crate) fn decode_plugin_section_body(
     section_body: &[u8],

@@ -4,9 +4,14 @@
 //! 枚举字段路径只作为定义表的输出值，不用于解释输入数据。
 
 mod capture;
+pub(crate) mod native_hook;
 mod row;
 mod spec;
 mod spool;
+
+#[cfg(all(test, not(doctest)))]
+#[path = "../../tests/native_hook_source_capture_contract/mod.rs"]
+mod native_hook_contract_tests;
 
 pub(crate) use capture::SourceTableCapture;
 pub(crate) use row::{BinaryValue, EstimatedRow, EstimatedValue, add_estimated_bytes};

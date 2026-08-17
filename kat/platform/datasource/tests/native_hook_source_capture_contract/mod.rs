@@ -6,79 +6,11 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 use url::Url;
 
+use crate::{
+    dataset_writer, formats, generated_native_hook_source_emitter, proto,
+    protobuf_source::{self, native_hook as native_hook_source},
+};
 use proto::kat::hitrace::profiler_plugin_data::ClockId;
-
-#[allow(dead_code)]
-#[path = "../src/dataset_writer.rs"]
-mod dataset_writer;
-#[path = "../src/protobuf_source/native_hook.rs"]
-mod native_hook_source;
-#[allow(dead_code)]
-#[path = "../src/protobuf_source/mod.rs"]
-mod protobuf_source;
-#[path = "../src/table_name.rs"]
-mod table_name;
-
-pub(crate) use table_name::valid_table_name;
-
-#[allow(dead_code)]
-pub(crate) mod proto {
-    pub(crate) mod kat {
-        pub(crate) mod hitrace {
-            include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
-        }
-
-        pub(crate) mod native_hook {
-            include!(concat!(env!("OUT_DIR"), "/kat.native_hook.rs"));
-        }
-    }
-
-    pub(crate) use kat::hitrace::ProfilerPluginData;
-    pub(crate) use kat::native_hook::{BatchNativeHookData, NativeHookConfig};
-}
-
-pub(crate) mod formats {
-    pub(crate) mod hitrace {
-        #[allow(dead_code)]
-        pub(crate) mod file {
-            include!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/formats/hitrace/file.rs"
-            ));
-        }
-
-        pub(crate) mod profiler {
-            #[allow(dead_code)]
-            mod envelope {
-                include!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/src/formats/hitrace/profiler/envelope.rs"
-                ));
-            }
-            mod framing {
-                include!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/src/formats/hitrace/profiler/framing.rs"
-                ));
-            }
-            mod payload {
-                include!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/src/formats/hitrace/profiler/payload.rs"
-                ));
-            }
-
-            pub(crate) use envelope::{PluginEnvelope, PluginEnvelopeKind};
-            pub(crate) use framing::for_each_profiler_envelope_frame;
-            pub(crate) use payload::decode_payload;
-        }
-    }
-}
-
-#[allow(dead_code)]
-mod generated_native_hook_source_emitter {
-    include!(concat!(env!("OUT_DIR"), "/native_hook_source_emitter.rs"));
-}
 
 #[test]
 fn generated_native_hook_source_contract_is_available() {
@@ -203,7 +135,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             .expect("empty data roots do not require clock admission"),
         &dataset_path,
     );
-    let resolved = kat_datasource::resolve_dataset(&dataset_path)
+    let resolved = crate::resolve_dataset(&dataset_path)
         .expect("formal Dataset resolver accepts the dormant capture");
     assert_eq!(
         resolved
@@ -783,7 +715,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     publish_prepared(prepared, &dataset_path);
-    let resolved = kat_datasource::resolve_dataset(&dataset_path)
+    let resolved = crate::resolve_dataset(&dataset_path)
         .expect("formal Dataset resolver accepts full Native Hook topology");
     let actual_tables = resolved
         .tables()
@@ -1845,7 +1777,7 @@ fn parquet_arrow_schema(
 ) -> arrow_schema::SchemaRef {
     use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
 
-    let resolved = kat_datasource::resolve_dataset(dataset_path)
+    let resolved = crate::resolve_dataset(dataset_path)
         .expect("published Native Hook Dataset resolves for schema inspection");
     let table = resolved
         .tables()
@@ -2076,7 +2008,7 @@ fn publish_prepared(
 async fn register_resolved_dataset(
     dataset_path: &std::path::Path,
 ) -> anyhow::Result<SessionContext> {
-    let resolved = kat_datasource::resolve_dataset(dataset_path)?;
+    let resolved = crate::resolve_dataset(dataset_path)?;
     let context = SessionContext::new();
     for table in resolved.tables() {
         let url = Url::from_file_path(table.path()).map_err(|()| {
