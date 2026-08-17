@@ -1,0 +1,60 @@
+kat/platform/datasource/build.rs
+  s_523f214ca54205::t_828078bc9b6372 111,140-163
+kat/platform/datasource/build/protobuf_source_codegen/names.rs
+  s_523f214ca54205::t_53c65c81e502c1 11-14
+kat/platform/datasource/src/formats/hitrace/profiler/envelope.rs
+  s_523f214ca54205::t_b85c581baf5c88 17-25,48-51
+kat/platform/datasource/tests/native_hook_production_off_contract.rs
+  s_523f214ca54205::t_87e535d0b0310a 79-283
+  s_523f214ca54205::t_c13a8b2e8e1577 1-78
+  s_523f214ca54205::t_fdb76428094bf9 284-419
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_37171b90581a73::t_6ed143f1801acd 64-80,133-152
+  s_523f214ca54205::t_53c65c81e502c1 3-5,13,15,43-63
+kat/platform/datasource/tests/native_hook_source_capture_contract.rs
+  s_523f214ca54205::t_cb8154a14a6c1a 433-2109
+  s_523f214ca54205::t_643d36d1eb6d28 122-432
+  s_523f214ca54205::t_2ba3224807316b 1-121
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_37171b90581a73::t_11a3f9497ee04b 1-295
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_523f214ca54205::t_56601e448d3f9e 255,288-299,305-313
+  s_523f214ca54205::t_53c65c81e502c1 314-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "27f710dadce13c17754d4d59319cedde0fb32202",
+  "prompts": {
+    "s_37171b90581a73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffe28-5fea-7a00-9a5a-634f815bf533",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 332,
+      "total_deletions": 15,
+      "accepted_lines": 332,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_37171b90581a73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffe28-5fea-7a00-9a5a-634f815bf533",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_523f214ca54205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee75-a49f-7ae2-9204-31e6f684eda7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
