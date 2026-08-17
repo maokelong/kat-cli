@@ -1,5 +1,7 @@
 use std::fmt::Write;
 
+use prost_reflect::EnumDescriptor;
+
 use super::{
     plan::{
         ColumnPlan, ColumnSource, Presence, ProtoField, RelationPlan, RelationSource,
@@ -250,7 +252,7 @@ fn render_enum_symbol_constants(output: &mut String, plan: &RelationalPlan) {
 fn render_capture_constructor(output: &mut String, plan: &RelationalPlan) {
     writeln!(
         output,
-        "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
+        "pub(crate) fn protobuf_source_specs() -> (\n    Vec<crate::protobuf_source::RelationSpec>,\n    Vec<crate::protobuf_source::EnumOriginSpec>,\n) {{"
     )
     .expect("writing generated Rust to String cannot fail");
     writeln!(output, "    let relations = vec![")
@@ -283,9 +285,53 @@ fn render_capture_constructor(output: &mut String, plan: &RelationalPlan) {
         .expect("writing generated Rust to String cannot fail");
     }
     writeln!(output, "    ];").expect("writing generated Rust to String cannot fail");
+    writeln!(output, "    (relations, enum_origins)\n}}\n")
+        .expect("writing generated Rust to String cannot fail");
+    writeln!(
+        output,
+        "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
+    )
+    .expect("writing generated Rust to String cannot fail");
+    writeln!(
+        output,
+        "    let (relations, enum_origins) = protobuf_source_specs();"
+    )
+    .expect("writing generated Rust to String cannot fail");
     writeln!(
         output,
         "    crate::protobuf_source::SourceTableCapture::new(relations, enum_origins, options)\n}}\n"
+    )
+    .expect("writing generated Rust to String cannot fail");
+}
+
+pub(super) fn render_enum_symbol_accessor(
+    output: &mut String,
+    accessor_name: &str,
+    enum_def: &EnumDescriptor,
+) {
+    writeln!(
+        output,
+        "pub(crate) fn {accessor_name}() -> (&'static str, &'static [crate::protobuf_source::EnumSymbol]) {{"
+    )
+    .expect("writing generated Rust to String cannot fail");
+    writeln!(
+        output,
+        "    const SYMBOLS: &[crate::protobuf_source::EnumSymbol] = &["
+    )
+    .expect("writing generated Rust to String cannot fail");
+    for symbol in enum_def.values() {
+        writeln!(
+            output,
+            "        crate::protobuf_source::EnumSymbol::new({}, {}),",
+            symbol.number(),
+            literal(symbol.name())
+        )
+        .expect("writing generated Rust to String cannot fail");
+    }
+    writeln!(
+        output,
+        "    ];\n    ({}, SYMBOLS)\n}}\n",
+        literal(enum_def.full_name())
     )
     .expect("writing generated Rust to String cannot fail");
 }

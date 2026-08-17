@@ -6,14 +6,11 @@ mod native_hook_arrow_codegen;
 mod native_hook_domain_codegen;
 #[path = "build/proto_codegen.rs"]
 mod proto_codegen;
-#[cfg(feature = "protobuf-source-contract-fixture")]
 #[path = "build/protobuf_source_codegen/mod.rs"]
 mod protobuf_source_codegen;
-#[cfg(feature = "protobuf-source-contract-fixture")]
 #[path = "src/table_name.rs"]
 mod table_name;
 
-#[cfg(feature = "protobuf-source-contract-fixture")]
 use std::{env, fs, path::Path};
 
 use ftrace_arrow_codegen::{
@@ -27,7 +24,6 @@ use native_hook_domain_codegen::{
 #[cfg(feature = "protobuf-source-contract-fixture")]
 use prost::Message;
 use proto_codegen::{message_in_file, messages_in_file};
-#[cfg(feature = "protobuf-source-contract-fixture")]
 use protobuf_source_codegen::{RootSpec, compile as compile_protobuf_source};
 
 const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
@@ -112,6 +108,7 @@ fn main() {
             config.type_attribute(&path, "#[derive(serde::Serialize, serde::Deserialize)]");
         }
     }
+    generate_native_hook_source_emitter(&fds);
     config.field_attribute(
         ".kat.hitrace.ProfilerPluginData.data",
         "#[serde(with = \"serde_bytes\")]",
@@ -138,6 +135,30 @@ fn main() {
     for proto_file in proto_files {
         println!("cargo:rerun-if-changed={proto_file}");
     }
+}
+
+fn generate_native_hook_source_emitter(descriptors: &prost_types::FileDescriptorSet) {
+    let generated = compile_protobuf_source(
+        descriptors,
+        &[
+            RootSpec::new(
+                "kat.native_hook.BatchNativeHookData",
+                "batch_native_hook_data",
+            ),
+            RootSpec::new("kat.native_hook.NativeHookConfig", "native_hook_config"),
+        ],
+    )
+    .expect("Native Hook protobuf Source roots compile")
+    .with_enum_symbol_accessor(
+        descriptors,
+        "kat.hitrace.ProfilerPluginData.ClockId",
+        "profiler_clock_id_symbols",
+    )
+    .expect("ProfilerPluginData ClockId symbols compile");
+    let output = Path::new(&env::var_os("OUT_DIR").expect("Cargo provides OUT_DIR"))
+        .join("native_hook_source_emitter.rs");
+    fs::write(output, generated.into_source())
+        .expect("Native Hook protobuf Source emitter is written");
 }
 
 #[cfg(feature = "protobuf-source-contract-fixture")]
