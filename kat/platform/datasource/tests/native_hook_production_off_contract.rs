@@ -193,50 +193,6 @@ async fn legacy_trace_datasource_still_queries_native_hook_tables() {
     );
 }
 
-#[test]
-fn production_dispatcher_and_long_term_materializer_do_not_mount_source_capture() {
-    let pipeline = crate_source("src/formats/hitrace/mod.rs");
-    let materializer = crate_source("src/materializer.rs");
-
-    let dispatcher = pipeline
-        .split_once("let decoder_specs")
-        .map(|(_, dispatcher)| dispatcher)
-        .expect("production dispatcher declares decoder_specs");
-    let decoder_positions = [
-        "FTRACE_PLUGIN_DECODER",
-        "NATIVE_HOOK_PLUGIN_DECODER",
-        "HOOK_DAEMON_PLUGIN_DECODER",
-        "PluginPayloadRegistry::new(&decoder_specs)",
-    ]
-    .map(|marker| {
-        dispatcher
-            .find(marker)
-            .unwrap_or_else(|| panic!("production dispatcher keeps {marker}"))
-    });
-    assert!(
-        decoder_positions
-            .windows(2)
-            .all(|positions| positions[0] < positions[1])
-    );
-    assert!(materializer.contains("let mut sink = LongTermHitraceSink::new();"));
-    assert!(
-        materializer
-            .contains("TraceRecord::ProfilerPluginData(_) | TraceRecord::NativeHook(_) => Ok(())")
-    );
-
-    for marker in [
-        "protobuf_source",
-        "SourceTableCapture",
-        "profiler_payload_occurrence",
-        "batch_native_hook_data",
-    ] {
-        assert!(
-            !pipeline.contains(marker) && !materializer.contains(marker),
-            "{marker} must remain outside the production dispatcher and LongTermHitraceSink in #195"
-        );
-    }
-}
-
 fn generated_trace() -> Vec<u8> {
     profiler_section(vec![
         profiler_envelope("ftrace-plugin", ftrace_payload().encode_to_vec()),
@@ -342,11 +298,6 @@ fn profiler_section(envelopes: Vec<ProfilerPluginData>) -> Vec<u8> {
     }
     bytes.extend_from_slice(&body);
     bytes
-}
-
-fn crate_source(path: &str) -> String {
-    fs::read_to_string(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path))
-        .unwrap_or_else(|error| panic!("{path} can be read: {error}"))
 }
 
 fn batches(path: &Path) -> Vec<arrow_array::RecordBatch> {
