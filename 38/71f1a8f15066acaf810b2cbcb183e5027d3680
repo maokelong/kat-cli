@@ -1,0 +1,35 @@
+kat/platform/datasource/tests/native_hook_source_capture_contract.rs
+  s_f12d815ba82522::t_f8a1d725072afd 342,349,356,363,370,377,384,391,398,405,412,419,462,492,581,609-612,659-665,677,690-694,700,702,723,735,747
+  s_f12d815ba82522::t_da352e51527d0f 9-10,126,138,150,162,261,271,281,291
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_f12d815ba82522::t_da352e51527d0f 12,208,215,240,246-249,254,257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3871f1a8f15066acaf810b2cbcb183e5027d3680",
+  "prompts": {
+    "s_f12d815ba82522": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00d87-fd7f-74d1-b251-39a609e97c77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 57,
+      "total_deletions": 12,
+      "accepted_lines": 57,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_f12d815ba82522": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00d87-fd7f-74d1-b251-39a609e97c77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
