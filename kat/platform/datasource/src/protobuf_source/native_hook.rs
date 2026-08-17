@@ -9,7 +9,7 @@ use crate::{
         append_batch_native_hook_data_root, append_native_hook_config_root,
         profiler_clock_id_symbols, protobuf_source_specs,
     },
-    proto::{BatchNativeHookData, NativeHookConfig},
+    proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
     protobuf_source::{
         EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec,
         SourceTableCapture, SpoolOptions,
@@ -205,14 +205,14 @@ impl NativeHookClockAdmission {
             bail!(
                 "Native Hook config clock {:?} expects profiler envelope clock_id {}, but observed {envelope_clock}",
                 config_clock.config_name,
-                config_clock.envelope_clock_id
+                config_clock.envelope_clock as i32
             );
         }
         Ok(())
     }
 
     fn mismatched_envelope_clock(&self, config_clock: NativeHookClock) -> Option<i32> {
-        let expected = config_clock.envelope_clock_id;
+        let expected = config_clock.envelope_clock as i32;
         self.first_event_envelope_clock
             .filter(|observed| *observed != expected)
             .or_else(|| {
@@ -237,24 +237,24 @@ fn remember_first_difference<T: Copy + Eq>(
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct NativeHookClock {
     config_name: &'static str,
-    envelope_clock_id: i32,
+    envelope_clock: ClockId,
 }
 
 impl NativeHookClock {
     fn parse(value: &str) -> Option<Self> {
         match value {
-            "" | "realtime" => Some(Self::new("realtime", 0)),
-            "mono" => Some(Self::new("mono", 1)),
-            "mono_raw" => Some(Self::new("mono_raw", 4)),
-            "boot" => Some(Self::new("boot", 7)),
+            "" | "realtime" => Some(Self::new("realtime", ClockId::ClockidRealtime)),
+            "mono" => Some(Self::new("mono", ClockId::ClockidMonotonic)),
+            "mono_raw" => Some(Self::new("mono_raw", ClockId::ClockidMonotonicRaw)),
+            "boot" => Some(Self::new("boot", ClockId::ClockidBoottime)),
             _ => None,
         }
     }
 
-    const fn new(config_name: &'static str, envelope_clock_id: i32) -> Self {
+    const fn new(config_name: &'static str, envelope_clock: ClockId) -> Self {
         Self {
             config_name,
-            envelope_clock_id,
+            envelope_clock,
         }
     }
 }

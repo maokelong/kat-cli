@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 use url::Url;
 
+use proto::kat::hitrace::profiler_plugin_data::ClockId;
+
 #[allow(dead_code)]
 #[path = "../src/dataset_writer.rs"]
 mod dataset_writer;
@@ -121,7 +123,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             "nativehook",
             EnvelopeProvenance {
                 status: 11,
-                clock_id: 0,
+                clock_id: ClockId::ClockidRealtime as i32,
                 tv_sec: 101,
                 tv_nsec: 201,
                 version: "data-a",
@@ -133,7 +135,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             "hookdaemon",
             EnvelopeProvenance {
                 status: 12,
-                clock_id: 1,
+                clock_id: ClockId::ClockidMonotonic as i32,
                 tv_sec: 102,
                 tv_nsec: 202,
                 version: "data-b",
@@ -145,7 +147,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             "nativehook_config",
             EnvelopeProvenance {
                 status: 13,
-                clock_id: 4,
+                clock_id: ClockId::ClockidMonotonicRaw as i32,
                 tv_sec: 103,
                 tv_nsec: 203,
                 version: "config-a",
@@ -157,7 +159,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             "hookdaemon_config",
             EnvelopeProvenance {
                 status: 14,
-                clock_id: 7,
+                clock_id: ClockId::ClockidBoottime as i32,
                 tv_sec: 104,
                 tv_nsec: 204,
                 version: "config-b",
@@ -256,7 +258,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
                 "_kat_row_id": 0,
                 "envelope_name": "nativehook",
                 "status": 11,
-                "clock_id": 0,
+                "clock_id": ClockId::ClockidRealtime as i32,
                 "tv_sec": 101,
                 "tv_nsec": 201,
                 "version": "data-a",
@@ -266,7 +268,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
                 "_kat_row_id": 1,
                 "envelope_name": "hookdaemon",
                 "status": 12,
-                "clock_id": 1,
+                "clock_id": ClockId::ClockidMonotonic as i32,
                 "tv_sec": 102,
                 "tv_nsec": 202,
                 "version": "data-b",
@@ -276,7 +278,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
                 "_kat_row_id": 2,
                 "envelope_name": "nativehook_config",
                 "status": 13,
-                "clock_id": 4,
+                "clock_id": ClockId::ClockidMonotonicRaw as i32,
                 "tv_sec": 103,
                 "tv_nsec": 203,
                 "version": "config-a",
@@ -286,7 +288,7 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
                 "_kat_row_id": 3,
                 "envelope_name": "hookdaemon_config",
                 "status": 14,
-                "clock_id": 7,
+                "clock_id": ClockId::ClockidBoottime as i32,
                 "tv_sec": 104,
                 "tv_nsec": 204,
                 "version": "config-b",
@@ -337,84 +339,84 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 0,
+                "enum_number": ClockId::ClockidRealtime as i32,
                 "enum_symbol": "CLOCKID_REALTIME",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 1,
+                "enum_number": ClockId::ClockidMonotonic as i32,
                 "enum_symbol": "CLOCKID_MONOTONIC",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 2,
+                "enum_number": ClockId::ClockidProcessCputimeId as i32,
                 "enum_symbol": "CLOCKID_PROCESS_CPUTIME_ID",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 3,
+                "enum_number": ClockId::ClockidThreadCputimeId as i32,
                 "enum_symbol": "CLOCKID_THREAD_CPUTIME_ID",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 4,
+                "enum_number": ClockId::ClockidMonotonicRaw as i32,
                 "enum_symbol": "CLOCKID_MONOTONIC_RAW",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 5,
+                "enum_number": ClockId::ClockidRealtimeCoarse as i32,
                 "enum_symbol": "CLOCKID_REALTIME_COARSE",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 6,
+                "enum_number": ClockId::ClockidMonotonicCoarse as i32,
                 "enum_symbol": "CLOCKID_MONOTONIC_COARSE",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 7,
+                "enum_number": ClockId::ClockidBoottime as i32,
                 "enum_symbol": "CLOCKID_BOOTTIME",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 8,
+                "enum_number": ClockId::ClockidRealtimeAlarm as i32,
                 "enum_symbol": "CLOCKID_REALTIME_ALARM",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 9,
+                "enum_number": ClockId::ClockidBoottimeAlarm as i32,
                 "enum_symbol": "CLOCKID_BOOTTIME_ALARM",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 10,
+                "enum_number": ClockId::ClockidSgiCycle as i32,
                 "enum_symbol": "CLOCKID_SGI_CYCLE",
             },
             {
                 "origin_table": "profiler_payload_occurrence",
                 "origin_field_path": "clock_id",
                 "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": 11,
+                "enum_number": ClockId::ClockidTai as i32,
                 "enum_symbol": "CLOCKID_TAI",
             },
         ])
@@ -457,7 +459,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             kind,
             payload,
             status: 0,
-            clock_id: 0,
+            clock_id: ClockId::ClockidRealtime as i32,
             tv_sec: 0,
             tv_nsec: 0,
             version: "",
@@ -487,7 +489,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             kind: wrong_kind,
             payload: &[0xff],
             status: 0,
-            clock_id: 0,
+            clock_id: ClockId::ClockidRealtime as i32,
             tv_sec: 0,
             tv_nsec: 0,
             version: "",
@@ -576,7 +578,7 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
     let message = profiler_message_with_provenance(
         "nativehook",
         EnvelopeProvenance {
-            clock_id: 7,
+            clock_id: ClockId::ClockidBoottime as i32,
             ..Default::default()
         },
         batch.encode_to_vec(),
@@ -604,9 +606,10 @@ fn clock_admission_accepts_late_mono_config_and_rejects_unknown_clock() {
     use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
-    for (clock, expected_clock_id, should_succeed) in
-        [("mono", 1, true), ("unsupported-clock", 1, false)]
-    {
+    for (clock, expected_clock_id, should_succeed) in [
+        ("mono", ClockId::ClockidMonotonic as i32, true),
+        ("unsupported-clock", ClockId::ClockidMonotonic as i32, false),
+    ] {
         let batch = proto::BatchNativeHookData {
             events: vec![proto::kat::native_hook::NativeHookData {
                 tv_sec: 7,
@@ -653,7 +656,13 @@ fn clock_admission_accepts_late_mono_config_and_rejects_unknown_clock() {
 
 #[test]
 fn clock_admission_rejects_event_envelope_mismatch() {
-    let error = match finish_clock_fixture(&[1, 4], &["mono"]) {
+    let error = match finish_clock_fixture(
+        &[
+            ClockId::ClockidMonotonic as i32,
+            ClockId::ClockidMonotonicRaw as i32,
+        ],
+        &["mono"],
+    ) {
         Ok(_) => panic!("one mismatched event envelope clock must fail admission"),
         Err(error) => error,
     };
@@ -665,7 +674,7 @@ fn clock_admission_rejects_event_envelope_mismatch() {
 
 #[test]
 fn clock_admission_rejects_conflicting_supported_configs() {
-    let error = match finish_clock_fixture(&[1], &["mono", "boot"]) {
+    let error = match finish_clock_fixture(&[ClockId::ClockidMonotonic as i32], &["mono", "boot"]) {
         Ok(_) => panic!("conflicting supported config clocks must fail admission"),
         Err(error) => error,
     };
@@ -678,19 +687,19 @@ fn clock_admission_rejects_conflicting_supported_configs() {
 #[test]
 fn clock_admission_supports_all_values_equivalence_and_eventless_gating() {
     for (clock, clock_id) in [
-        ("", 0),
-        ("realtime", 0),
-        ("mono", 1),
-        ("mono_raw", 4),
-        ("boot", 7),
+        ("", ClockId::ClockidRealtime as i32),
+        ("realtime", ClockId::ClockidRealtime as i32),
+        ("mono", ClockId::ClockidMonotonic as i32),
+        ("mono_raw", ClockId::ClockidMonotonicRaw as i32),
+        ("boot", ClockId::ClockidBoottime as i32),
     ] {
         finish_clock_fixture(&[clock_id], &[clock]).unwrap_or_else(|error| {
             panic!("supported eventful clock {clock:?}/{clock_id} must pass: {error:#}")
         });
     }
-    finish_clock_fixture(&[0], &["", "realtime"])
+    finish_clock_fixture(&[ClockId::ClockidRealtime as i32], &["", "realtime"])
         .expect("empty and realtime are equivalent duplicate configs");
-    finish_clock_fixture(&[1], &["mono", "mono"])
+    finish_clock_fixture(&[ClockId::ClockidMonotonic as i32], &["mono", "mono"])
         .expect("an identical supported clock can be repeated");
 
     finish_empty_clock_fixture(&[99], &["unsupported-clock", "mono", "boot"])
@@ -711,7 +720,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "nativehook",
             EnvelopeProvenance {
                 status: 21,
-                clock_id: 7,
+                clock_id: ClockId::ClockidBoottime as i32,
                 tv_sec: 501,
                 tv_nsec: 601,
                 version: "topology-a",
@@ -723,7 +732,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "hookdaemon",
             EnvelopeProvenance {
                 status: 22,
-                clock_id: 7,
+                clock_id: ClockId::ClockidBoottime as i32,
                 tv_sec: 502,
                 tv_nsec: 602,
                 version: "topology-b",
@@ -735,7 +744,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "hookdaemon_config",
             EnvelopeProvenance {
                 status: 23,
-                clock_id: 7,
+                clock_id: ClockId::ClockidBoottime as i32,
                 tv_sec: 503,
                 tv_nsec: 603,
                 version: "topology-config",
