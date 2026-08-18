@@ -1,0 +1,54 @@
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_ee625a6c63e96e::t_43eda982569167 18-52
+kat/platform/datasource/src/protobuf_source/profiler_occurrence.rs
+  s_ee625a6c63e96e::t_43eda982569167 1-16
+  s_ee625a6c63e96e::t_c82e97b670be74 17-133
+kat/platform/datasource/build.rs
+  s_ee625a6c63e96e::t_6b5c2e5d1f319a 27-29,143
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_ee625a6c63e96e::t_bb49f219bb8b38 6,10,21,29
+  s_ee625a6c63e96e::t_a7eda6063ada90 60-64,70-74
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_ee625a6c63e96e::t_bb49f219bb8b38 16
+  s_ee625a6c63e96e::t_0fe80b5ad95582 17,19,21,23-44
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_ee625a6c63e96e::t_43eda982569167 8,17
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_ee625a6c63e96e::t_6b5c2e5d1f319a 109,113-118
+  s_ee625a6c63e96e::t_93b600649fbd07 119-130,140
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_ee625a6c63e96e::t_07edad547bfcbf 11,21-23
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_ee625a6c63e96e::t_93b600649fbd07 17-25,35,264-275,278,313,316-326
+  s_ee625a6c63e96e::t_a7eda6063ada90 13-14
+  s_ee625a6c63e96e::t_6b5c2e5d1f319a 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "8e32bcc6518259de1cb3ac97472b273aadb6597f",
+  "prompts": {
+    "s_ee625a6c63e96e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a013be-c6e5-7c41-bf9e-993aa9d25a29",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 277,
+      "total_deletions": 178,
+      "accepted_lines": 277,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_ee625a6c63e96e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a013be-c6e5-7c41-bf9e-993aa9d25a29",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
