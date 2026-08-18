@@ -17,7 +17,6 @@ mod mmap;
 mod native_hook_table_builders {
     include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
 }
-#[allow(dead_code)]
 mod protobuf_source;
 #[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
 #[path = "../build/protobuf_source_codegen/mod.rs"]
@@ -91,7 +90,6 @@ mod generated_fixture_emitter {
 mod generated_profiler_source_emitter {
     include!(concat!(env!("OUT_DIR"), "/profiler_source_emitter.rs"));
 }
-
 pub struct DatasetInspection {
     path: PathBuf,
     tables: Vec<TableInspection>,

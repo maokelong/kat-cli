@@ -326,6 +326,8 @@ impl PreparedSourceTables {
         Self { tables }
     }
 
+    // 该只读观察点用于验证 preflight 边界；production drain 不应为消费计数而增加分支。
+    #[allow(dead_code)]
     pub(crate) fn preflighted_row_group_count(&self, table: &str) -> Option<usize> {
         self.tables
             .iter()
