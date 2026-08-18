@@ -289,7 +289,7 @@ fn render_capture_constructor(output: &mut String, plan: &RelationalPlan) {
         .expect("writing generated Rust to String cannot fail");
     writeln!(
         output,
-        "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
+        "// 完整 descriptor codegen 合同保留通用构造器；production Native Hook 需追加 envelope relation，改用 specs 构造。\n#[allow(dead_code)]\npub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
     )
     .expect("writing generated Rust to String cannot fail");
     writeln!(

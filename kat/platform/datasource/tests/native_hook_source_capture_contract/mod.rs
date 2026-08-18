@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use anyhow::Context;
 use arrow_array::RecordBatch;
 use arrow_json::writer::{JsonArray, WriterBuilder};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
@@ -7,10 +10,26 @@ use tempfile::tempdir;
 use url::Url;
 
 use crate::{
-    dataset_writer, formats, generated_native_hook_source_emitter, proto,
-    protobuf_source::{self, native_hook as native_hook_source},
+    dataset_writer, formats, generated_native_hook_source_emitter, proto, protobuf_source,
 };
 use proto::kat::hitrace::profiler_plugin_data::ClockId;
+
+static BATCH_TYPED_DECODES: AtomicUsize = AtomicUsize::new(0);
+static CONFIG_TYPED_DECODES: AtomicUsize = AtomicUsize::new(0);
+
+fn counting_decode_batch(
+    envelope: &formats::hitrace::profiler::PluginEnvelope<'_>,
+) -> anyhow::Result<proto::BatchNativeHookData> {
+    BATCH_TYPED_DECODES.fetch_add(1, Ordering::Relaxed);
+    formats::hitrace::profiler::decode_payload(envelope)
+}
+
+fn counting_decode_config(
+    envelope: &formats::hitrace::profiler::PluginEnvelope<'_>,
+) -> anyhow::Result<proto::NativeHookConfig> {
+    CONFIG_TYPED_DECODES.fetch_add(1, Ordering::Relaxed);
+    formats::hitrace::profiler::decode_payload(envelope)
+}
 
 #[test]
 fn generated_native_hook_source_contract_is_available() {
@@ -20,11 +39,7 @@ fn generated_native_hook_source_contract_is_available() {
     };
 
     let (relations, enum_origins) = protobuf_source_specs();
-    assert_eq!(
-        relations.len(),
-        native_hook_relation_names().len(),
-        "the generated contract must remain exactly 25 data plus 3 config relations; the runtime topology test locks their names"
-    );
+    assert_eq!(relations.len(), native_hook_relation_names().len());
     assert_eq!(enum_origins.len(), 3);
     let (clock_enum_fqn, clock_symbols) = profiler_clock_id_symbols();
     assert_eq!(clock_enum_fqn, "kat.hitrace.ProfilerPluginData.ClockId");
@@ -42,11 +57,56 @@ fn generated_native_hook_source_contract_is_available() {
     ) -> anyhow::Result<()> = append_native_hook_config_root;
 }
 
+#[test]
+fn profiler_capture_invokes_each_bound_root_typed_decoder_once() {
+    BATCH_TYPED_DECODES.store(0, Ordering::Relaxed);
+    CONFIG_TYPED_DECODES.store(0, Ordering::Relaxed);
+    let mut capture = protobuf_source::native_hook::NativeHookSourceCapture::with_decoders(
+        protobuf_source::SpoolOptions::new(2),
+        counting_decode_batch,
+        counting_decode_config,
+    )
+    .expect("capture accepts narrow typed decoder spies");
+    for route in ["nativehook", "hookdaemon"] {
+        let data = profiler_message(route, proto::BatchNativeHookData::default().encode_to_vec());
+        assert!(
+            capture
+                .try_claim(
+                    &formats::hitrace::profiler::PluginEnvelope::from_profiler_plugin_data(
+                        &data, 1_024,
+                    ),
+                )
+                .expect("data payload is claimed")
+        );
+    }
+    assert_eq!(BATCH_TYPED_DECODES.load(Ordering::Relaxed), 2);
+    assert_eq!(CONFIG_TYPED_DECODES.load(Ordering::Relaxed), 0);
+
+    for route in ["nativehook_config", "hookdaemon_config"] {
+        let config = profiler_message(route, proto::NativeHookConfig::default().encode_to_vec());
+        assert!(
+            capture
+                .try_claim(
+                    &formats::hitrace::profiler::PluginEnvelope::from_profiler_plugin_data(
+                        &config, 2_048,
+                    ),
+                )
+                .expect("config payload is claimed")
+        );
+    }
+    assert_eq!(BATCH_TYPED_DECODES.load(Ordering::Relaxed), 2);
+    assert_eq!(CONFIG_TYPED_DECODES.load(Ordering::Relaxed), 2);
+
+    capture
+        .finish()
+        .expect("spy-decoded default roots pass preflight");
+}
+
 #[tokio::test]
-async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
+async fn profiler_capture_claims_only_four_native_hook_routes_and_publishes_empty_roots() {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let empty_data = proto::BatchNativeHookData::default().encode_to_vec();
     let default_config = proto::NativeHookConfig::default().encode_to_vec();
@@ -99,6 +159,8 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             },
             default_config,
         ),
+        profiler_message("ftrace-plugin", vec![0x80]),
+        profiler_message("ftrace-plugin_config", vec![0x80]),
         profiler_message("nativehookx", vec![0xff]),
         profiler_message("hookdaemonx", vec![0xff]),
         profiler_message("nativehook_config_extra", vec![0xff]),
@@ -120,6 +182,8 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             ("hookdaemon".to_string(), true),
             ("nativehook_config".to_string(), true),
             ("hookdaemon_config".to_string(), true),
+            ("ftrace-plugin".to_string(), false),
+            ("ftrace-plugin_config".to_string(), false),
             ("nativehookx".to_string(), false),
             ("hookdaemonx".to_string(), false),
             ("nativehook_config_extra".to_string(), false),
@@ -355,11 +419,475 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
     );
 }
 
+struct RealNativeHookWireCensus {
+    batch_roots: i64,
+    config_roots: i64,
+    events: i64,
+    alloc_events: i64,
+    free_events: i64,
+    mmap_events: i64,
+    munmap_events: i64,
+    tag_events: i64,
+    file_paths: i64,
+    thread_names: i64,
+    maps_info: i64,
+    symbol_tabs: i64,
+    stack_maps: i64,
+    stack_ips: i64,
+    none_events: i64,
+    first_parent_row_id: u64,
+    first_parent_event: Value,
+    first_stack_row_id: u64,
+    first_stack_ips: Value,
+    config_values: Value,
+    variant_samples: Vec<(&'static str, &'static str, Value)>,
+}
+
+fn census_real_native_hook_wire(
+    path: &std::path::Path,
+) -> anyhow::Result<RealNativeHookWireCensus> {
+    use formats::hitrace::{
+        file::{HIPROFILER_PROTOBUF_BIN, read_profiler_section},
+        profiler::for_each_profiler_envelope_frame,
+    };
+    use proto::kat::native_hook::native_hook_data::Event;
+
+    let bytes = std::fs::read(path)?;
+    let mut batch_roots = 0_i64;
+    let mut config_roots = 0_i64;
+    let mut events = 0_i64;
+    let mut alloc_events = 0_i64;
+    let mut free_events = 0_i64;
+    let mut mmap_events = 0_i64;
+    let mut munmap_events = 0_i64;
+    let mut tag_events = 0_i64;
+    let mut file_paths = 0_i64;
+    let mut thread_names = 0_i64;
+    let mut maps_info = 0_i64;
+    let mut symbol_tabs = 0_i64;
+    let mut stack_maps = 0_i64;
+    let mut stack_ips = 0_i64;
+    let mut none_events = 0_i64;
+    let mut first_parent_row_id = 0_u64;
+    let mut first_parent_event = Value::Null;
+    let mut first_stack_row_id = 0_u64;
+    let mut first_stack_ips = Value::Null;
+    let mut config_values = Vec::new();
+    let mut alloc_sample = None;
+    let mut free_sample = None;
+    let mut mmap_sample = None;
+    let mut munmap_sample = None;
+    let mut tag_sample = None;
+    let mut file_path_sample = None;
+    let mut thread_name_sample = None;
+    let mut maps_info_sample = None;
+    let mut symbol_tab_sample = None;
+    let mut stack_sample = None;
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let section = read_profiler_section(&bytes, offset)?;
+        if section.header.data_type == HIPROFILER_PROTOBUF_BIN {
+            for_each_profiler_envelope_frame(section.body(&bytes), |message, _| {
+                match message.name.as_str() {
+                    "nativehook" | "hookdaemon" => {
+                        let batch = proto::BatchNativeHookData::decode(message.data.as_slice())?;
+                        let root_row_id = u64::try_from(batch_roots)?;
+                        batch_roots += 1;
+                        for (repeated_index, event) in batch.events.into_iter().enumerate() {
+                            let event_row_id = u64::try_from(events)?;
+                            events += 1;
+                            match event.event {
+                                Some(Event::AllocEvent(value)) => {
+                                    alloc_events += 1;
+                                    if alloc_sample.is_none() {
+                                        first_parent_row_id = event_row_id;
+                                        first_parent_event = json!({
+                                            "_kat_parent_row_id": root_row_id,
+                                            "_kat_repeated_index": repeated_index,
+                                            "tv_sec": event.tv_sec,
+                                            "tv_nsec": event.tv_nsec,
+                                        });
+                                    }
+                                    alloc_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "pid": value.pid,
+                                            "tid": value.tid,
+                                            "addr": value.addr,
+                                            "size": value.size,
+                                            "thread_name_id": value.thread_name_id,
+                                            "stack_id": value.stack_id,
+                                        })
+                                    });
+                                }
+                                Some(Event::FreeEvent(value)) => {
+                                    free_events += 1;
+                                    free_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "pid": value.pid,
+                                            "tid": value.tid,
+                                            "addr": value.addr,
+                                            "thread_name_id": value.thread_name_id,
+                                            "stack_id": value.stack_id,
+                                        })
+                                    });
+                                }
+                                Some(Event::MmapEvent(value)) => {
+                                    mmap_events += 1;
+                                    mmap_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "pid": value.pid,
+                                            "tid": value.tid,
+                                            "addr": value.addr,
+                                            "type": value.r#type,
+                                            "size": value.size,
+                                            "thread_name_id": value.thread_name_id,
+                                            "stack_id": value.stack_id,
+                                        })
+                                    });
+                                }
+                                Some(Event::MunmapEvent(value)) => {
+                                    munmap_events += 1;
+                                    munmap_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "pid": value.pid,
+                                            "tid": value.tid,
+                                            "addr": value.addr,
+                                            "size": value.size,
+                                            "thread_name_id": value.thread_name_id,
+                                            "stack_id": value.stack_id,
+                                        })
+                                    });
+                                }
+                                Some(Event::TagEvent(value)) => {
+                                    tag_events += 1;
+                                    tag_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "addr": value.addr,
+                                            "size": value.size,
+                                            "tag": value.tag,
+                                            "pid": value.pid,
+                                        })
+                                    });
+                                }
+                                Some(Event::FilePath(value)) => {
+                                    file_paths += 1;
+                                    file_path_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "id": value.id,
+                                            "name": value.name,
+                                            "pid": value.pid,
+                                        })
+                                    });
+                                }
+                                Some(Event::ThreadNameMap(value)) => {
+                                    thread_names += 1;
+                                    thread_name_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "id": value.id,
+                                            "name": value.name,
+                                            "pid": value.pid,
+                                        })
+                                    });
+                                }
+                                Some(Event::MapsInfo(value)) => {
+                                    maps_info += 1;
+                                    maps_info_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "pid": value.pid,
+                                            "start": value.start,
+                                            "end": value.end,
+                                            "offset": value.offset,
+                                            "file_path_id": value.file_path_id,
+                                        })
+                                    });
+                                }
+                                Some(Event::SymbolTab(value)) => {
+                                    symbol_tabs += 1;
+                                    symbol_tab_sample.get_or_insert_with(|| json!({
+                                        "_kat_parent_row_id": event_row_id,
+                                        "file_path_id": value.file_path_id,
+                                        "text_exec_vaddr": value.text_exec_vaddr,
+                                        "text_exec_vaddr_file_offset": value.text_exec_vaddr_file_offset,
+                                        "sym_entry_size": value.sym_entry_size,
+                                        "sym_table": hex_bytes(&value.sym_table),
+                                        "str_table": hex_bytes(&value.str_table),
+                                        "pid": value.pid,
+                                    }));
+                                }
+                                Some(Event::StackMap(value)) => {
+                                    let stack_row_id = u64::try_from(stack_maps)?;
+                                    stack_maps += 1;
+                                    stack_ips += i64::try_from(value.ip.len())?;
+                                    stack_sample.get_or_insert_with(|| {
+                                        json!({
+                                            "_kat_parent_row_id": event_row_id,
+                                            "id": value.id,
+                                            "pid": value.pid,
+                                        })
+                                    });
+                                    if first_stack_ips.is_null() && !value.ip.is_empty() {
+                                        first_stack_row_id = stack_row_id;
+                                        first_stack_ips = Value::Array(
+                                            value
+                                                .ip
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(index, value)| {
+                                                    json!({
+                                                        "_kat_parent_row_id": stack_row_id,
+                                                        "_kat_repeated_index": index,
+                                                        "value": value,
+                                                    })
+                                                })
+                                                .collect(),
+                                        );
+                                    }
+                                }
+                                None => none_events += 1,
+                                Some(_) => {}
+                            }
+                        }
+                    }
+                    "nativehook_config" | "hookdaemon_config" => {
+                        let config = proto::NativeHookConfig::decode(message.data.as_slice())?;
+                        config_roots += 1;
+                        config_values.push(json!({
+                            "pid": config.pid,
+                            "clock": config.clock,
+                            "sample_interval": config.sample_interval,
+                        }));
+                    }
+                    _ => {}
+                }
+                Ok(())
+            })?;
+        }
+        offset = section.end;
+    }
+    anyhow::ensure!(
+        !first_stack_ips.is_null(),
+        "real Native Hook has no stack IPs"
+    );
+    let variant_samples = vec![
+        (
+            "batch_native_hook_data_events_alloc_event",
+            "_kat_parent_row_id, pid, tid, addr, size, thread_name_id, stack_id",
+            alloc_sample.context("real Native Hook has no alloc_event")?,
+        ),
+        (
+            "batch_native_hook_data_events_free_event",
+            "_kat_parent_row_id, pid, tid, addr, thread_name_id, stack_id",
+            free_sample.context("real Native Hook has no free_event")?,
+        ),
+        (
+            "batch_native_hook_data_events_mmap_event",
+            "_kat_parent_row_id, pid, tid, addr, type, size, thread_name_id, stack_id",
+            mmap_sample.context("real Native Hook has no mmap_event")?,
+        ),
+        (
+            "batch_native_hook_data_events_munmap_event",
+            "_kat_parent_row_id, pid, tid, addr, size, thread_name_id, stack_id",
+            munmap_sample.context("real Native Hook has no munmap_event")?,
+        ),
+        (
+            "batch_native_hook_data_events_stack_map",
+            "_kat_parent_row_id, id, pid",
+            stack_sample.context("real Native Hook has no stack_map")?,
+        ),
+        (
+            "batch_native_hook_data_events_tag_event",
+            "_kat_parent_row_id, addr, size, tag, pid",
+            tag_sample.context("real Native Hook has no tag_event")?,
+        ),
+        (
+            "batch_native_hook_data_events_file_path",
+            "_kat_parent_row_id, id, name, pid",
+            file_path_sample.context("real Native Hook has no file_path")?,
+        ),
+        (
+            "batch_native_hook_data_events_thread_name_map",
+            "_kat_parent_row_id, id, name, pid",
+            thread_name_sample.context("real Native Hook has no thread_name_map")?,
+        ),
+        (
+            "batch_native_hook_data_events_maps_info",
+            "_kat_parent_row_id, pid, \"start\", \"end\", \"offset\", file_path_id",
+            maps_info_sample.context("real Native Hook has no maps_info")?,
+        ),
+        (
+            "batch_native_hook_data_events_symbol_tab",
+            "_kat_parent_row_id, file_path_id, text_exec_vaddr, text_exec_vaddr_file_offset, \
+             sym_entry_size, sym_table, str_table, pid",
+            symbol_tab_sample.context("real Native Hook has no symbol_tab")?,
+        ),
+    ];
+    Ok(RealNativeHookWireCensus {
+        batch_roots,
+        config_roots,
+        events,
+        alloc_events,
+        free_events,
+        mmap_events,
+        munmap_events,
+        tag_events,
+        file_paths,
+        thread_names,
+        maps_info,
+        symbol_tabs,
+        stack_maps,
+        stack_ips,
+        none_events,
+        first_parent_row_id,
+        first_parent_event,
+        first_stack_row_id,
+        first_stack_ips,
+        config_values: Value::Array(config_values),
+        variant_samples,
+    })
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[tokio::test]
+#[ignore = "requires KAT_REAL_NATIVE_HOOK_SOURCE to name the reviewed real capture"]
+async fn formal_import_real_native_hook_keeps_existing_root_counts() -> anyhow::Result<()> {
+    let path = std::env::var_os("KAT_REAL_NATIVE_HOOK_SOURCE")
+        .ok_or_else(|| anyhow::anyhow!("KAT_REAL_NATIVE_HOOK_SOURCE is required"))?;
+    let wire = census_real_native_hook_wire(std::path::Path::new(&path))?;
+    let directory = tempdir()?;
+    let dataset_path = directory.path().join("dataset");
+    crate::import_hitrace(
+        &path,
+        crate::DatasetWriteTarget::write_to_empty(&dataset_path),
+        |_| Ok(()),
+    )?;
+    assert_eq!(crate::resolve_dataset(&dataset_path)?.tables().len(), 18);
+    let context = register_resolved_dataset(&dataset_path).await?;
+
+    for (table, expected) in [
+        (
+            "profiler_payload_occurrence",
+            wire.batch_roots + wire.config_roots,
+        ),
+        ("batch_native_hook_data", wire.batch_roots),
+        ("native_hook_config", wire.config_roots),
+        ("batch_native_hook_data_events", wire.events),
+        (
+            "batch_native_hook_data_events_alloc_event",
+            wire.alloc_events,
+        ),
+        ("batch_native_hook_data_events_free_event", wire.free_events),
+        ("batch_native_hook_data_events_mmap_event", wire.mmap_events),
+        (
+            "batch_native_hook_data_events_munmap_event",
+            wire.munmap_events,
+        ),
+        ("batch_native_hook_data_events_tag_event", wire.tag_events),
+        ("batch_native_hook_data_events_file_path", wire.file_paths),
+        (
+            "batch_native_hook_data_events_thread_name_map",
+            wire.thread_names,
+        ),
+        ("batch_native_hook_data_events_maps_info", wire.maps_info),
+        ("batch_native_hook_data_events_symbol_tab", wire.symbol_tabs),
+        ("batch_native_hook_data_events_stack_map", wire.stack_maps),
+        ("batch_native_hook_data_events_stack_map_ip", wire.stack_ips),
+    ] {
+        assert_eq!(
+            query_json(&context, &format!("select count(*) as rows from {table}")).await,
+            json!([{"rows": expected}]),
+            "unexpected real Native Hook row count for {table}"
+        );
+    }
+
+    assert_eq!(wire.batch_roots, 6_613);
+    assert_eq!(wire.config_roots, 1);
+    assert_eq!(wire.events, 243_791);
+    assert_eq!(wire.alloc_events, 114_976);
+    assert_eq!(wire.free_events, 117_976);
+    assert_eq!(wire.mmap_events, 64);
+    assert_eq!(wire.munmap_events, 65);
+    assert_eq!(wire.stack_maps, 8_408);
+    assert_eq!(wire.stack_ips, 282_982);
+    assert_eq!(
+        wire.alloc_events
+            + wire.free_events
+            + wire.mmap_events
+            + wire.munmap_events
+            + wire.tag_events
+            + wire.file_paths
+            + wire.thread_names
+            + wire.maps_info
+            + wire.symbol_tabs
+            + wire.stack_maps
+            + wire.none_events,
+        wire.events,
+        "real Native Hook census must classify every active oneof or explicit absence"
+    );
+
+    for (table, columns, expected) in wire.variant_samples {
+        assert_eq!(
+            query_json(
+                &context,
+                &format!("select {columns} from {table} order by _kat_parent_row_id limit 1"),
+            )
+            .await,
+            json!([expected]),
+            "real Native Hook oneof values drifted in {table}"
+        );
+    }
+    assert_eq!(
+        query_json(
+            &context,
+            &format!(
+                "select _kat_parent_row_id, _kat_repeated_index, tv_sec, tv_nsec \
+                 from batch_native_hook_data_events where _kat_row_id = {}",
+                wire.first_parent_row_id
+            ),
+        )
+        .await,
+        json!([wire.first_parent_event])
+    );
+    assert_eq!(
+        query_json(
+            &context,
+            &format!(
+                "select _kat_parent_row_id, _kat_repeated_index, value \
+                 from batch_native_hook_data_events_stack_map_ip \
+                 where _kat_parent_row_id = {} order by _kat_repeated_index",
+                wire.first_stack_row_id
+            ),
+        )
+        .await,
+        wire.first_stack_ips
+    );
+    assert_eq!(
+        query_json(
+            &context,
+            "select pid, clock, sample_interval from native_hook_config order by _kat_row_id",
+        )
+        .await,
+        wire.config_values
+    );
+
+    Ok(())
+}
+
 #[test]
 fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
     use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let data_payload = proto::BatchNativeHookData::default().encode_to_vec();
     let config_payload = proto::NativeHookConfig::default().encode_to_vec();
@@ -399,7 +927,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             section_start: 1_024,
         };
         let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
+            .expect("profiler source capture is valid");
         assert!(
             capture
                 .try_claim(&envelope)
@@ -414,6 +942,8 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
         ("hookdaemon", PluginEnvelopeKind::Config),
         ("nativehook_config", PluginEnvelopeKind::Data),
         ("hookdaemon_config", PluginEnvelopeKind::Data),
+        ("ftrace-plugin", PluginEnvelopeKind::Data),
+        ("ftrace-plugin_config", PluginEnvelopeKind::Config),
     ] {
         let envelope = PluginEnvelope {
             plugin_name: "nativehook",
@@ -429,7 +959,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             section_start: 2_048,
         };
         let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
+            .expect("profiler source capture is valid");
         assert!(
             !capture
                 .try_claim(&envelope)
@@ -445,12 +975,12 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
 #[test]
 fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let unbound = profiler_message("nativehook-near", vec![0xff]);
     let mut healthy = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+        .expect("profiler source capture is valid");
     assert!(
         !healthy
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&unbound, 1_024))
@@ -471,7 +1001,7 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
 
     let malformed_bound = profiler_message("nativehook", vec![0xff]);
     let mut poisoned = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+        .expect("profiler source capture is valid");
     let first_error = poisoned
         .try_claim(&PluginEnvelope::from_profiler_plugin_data(
             &malformed_bound,
@@ -497,8 +1027,8 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
 #[test]
 fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let batch = proto::BatchNativeHookData {
         events: vec![proto::kat::native_hook::NativeHookData {
@@ -516,7 +1046,7 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
         batch.encode_to_vec(),
     );
     let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+        .expect("profiler source capture is valid");
     assert!(
         capture
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&message, 1_024))
@@ -535,8 +1065,8 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
 #[test]
 fn clock_admission_accepts_late_mono_config_and_rejects_unknown_clock() {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     for (clock, expected_clock_id, should_succeed) in [
         ("mono", ClockId::ClockidMonotonic as i32, true),
@@ -565,7 +1095,7 @@ fn clock_admission_accepts_late_mono_config_and_rejects_unknown_clock() {
             profiler_message("nativehook_config", config.encode_to_vec()),
         ]);
         let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
+            .expect("profiler source capture is valid");
         for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
             let envelope =
                 PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
@@ -642,8 +1172,8 @@ fn clock_admission_supports_all_values_equivalence_and_eventless_gating() {
 
 #[tokio::test]
 async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relations_with_rows() {
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let (first_batch, second_batch) = full_native_hook_batches();
     let config = full_native_hook_config("boot");
@@ -688,7 +1218,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     .concat();
 
     let mut capture = NativeHookSourceCapture::new(SpoolOptions::with_limits(1, 128))
-        .expect("dormant Native Hook capture is valid");
+        .expect("profiler source capture is valid");
     assert_eq!(
         claim_profiler_file(&mut capture, &trace_file).expect("OHOSPROF sections decode and claim"),
         3
@@ -1853,8 +2383,8 @@ fn finish_clock_fixture_with_events(
     has_event_element: bool,
 ) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
+    use protobuf_source::native_hook::NativeHookSourceCapture;
 
     let batch = proto::BatchNativeHookData {
         events: has_event_element
@@ -1958,7 +2488,7 @@ fn profiler_section(messages: impl IntoIterator<Item = proto::ProfilerPluginData
 }
 
 fn claim_profiler_file(
-    capture: &mut native_hook_source::NativeHookSourceCapture,
+    capture: &mut protobuf_source::native_hook::NativeHookSourceCapture,
     bytes: &[u8],
 ) -> anyhow::Result<usize> {
     use formats::hitrace::{
@@ -1998,10 +2528,10 @@ fn publish_prepared(
     use dataset_writer::{DatasetWriteTarget, DatasetWriter};
 
     let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(dataset_path))
-        .expect("Dataset writer begins after dormant capture preflight");
+        .expect("Dataset writer begins after profiler capture preflight");
     prepared
         .write_into(&mut writer)
-        .expect("prepared dormant tables write to Dataset");
+        .expect("prepared profiler tables write to Dataset");
     writer.finish().expect("Dataset publishes");
 }
 
