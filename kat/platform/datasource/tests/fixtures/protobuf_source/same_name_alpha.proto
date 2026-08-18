@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package fixture.protobuf_source.alpha;
+
+message SharedRoot {
+  int32 alpha_value = 1;
+}

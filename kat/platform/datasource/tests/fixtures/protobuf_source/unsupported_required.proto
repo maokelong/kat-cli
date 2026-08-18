@@ -1,0 +1,12 @@
+syntax = "proto2";
+
+package fixture.protobuf_source.unsupported.required_shape;
+
+message RequiredReachableRoot {
+  required string value = 1;
+}
+
+// 绑定该 root 时，required field 位于 reachable closure 外，不应阻塞。
+message RequiredUnreachableRoot {
+  optional string value = 1;
+}
