@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 
 use crate::{
     formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind, decode_payload},
-    generated_native_hook_source_emitter::{
+    generated_profiler_source_emitter::{
         append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     },
     proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},

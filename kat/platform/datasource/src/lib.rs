@@ -88,8 +88,8 @@ mod generated_fixture_emitter {
 }
 
 #[allow(dead_code)]
-mod generated_native_hook_source_emitter {
-    include!(concat!(env!("OUT_DIR"), "/native_hook_source_emitter.rs"));
+mod generated_profiler_source_emitter {
+    include!(concat!(env!("OUT_DIR"), "/profiler_source_emitter.rs"));
 }
 
 pub struct DatasetInspection {

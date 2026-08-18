@@ -22,6 +22,8 @@ Descriptor-derived Source tables 与 `sched_switch` 等规范化 Trace facts 是
 
 Profiler envelope provenance 不扩展成通用 projection language。它由一个私有 capture adapter 在 descriptor-derived layout 外追加固定 occurrence relation，并复用构建期生成的 descriptor enum symbols。Relational plan 与 capture adapter 分别是各自作用域的唯一合同来源；adapter 必须隐藏 relation vector、slot 和 origin 组合，使 Native Hook、ftrace、fixed-result 等 bound roots 只依赖同一 `append bound payload` Interface。这个例外避免把排除 transport `data` 的投影伪装成完整 `ProfilerPluginData` root，也避免为单一固定 provenance 合同扩大 planner 的表达面。
 
+Profiler Source 生成 artifact 按共享 profiler 边界命名和挂载；当前只编译 Native Hook roots，后续 ftrace、fixed-result roots 继续扩展同一个 artifact。共享 occurrence adapter 不得反向依赖任一 root 专属命名空间。
+
 Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Parquet spool。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
 
 本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost、`serde_arrow` 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。本决定不据此声称已获得未经 release A/B 验证的性能收益。

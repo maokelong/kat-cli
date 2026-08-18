@@ -110,7 +110,7 @@ fn main() {
             config.type_attribute(&path, "#[derive(serde::Serialize, serde::Deserialize)]");
         }
     }
-    generate_native_hook_source_emitter(&fds);
+    generate_profiler_source_emitter(&fds);
     config.field_attribute(
         ".kat.hitrace.ProfilerPluginData.data",
         "#[serde(with = \"serde_bytes\")]",
@@ -139,7 +139,7 @@ fn main() {
     }
 }
 
-fn generate_native_hook_source_emitter(descriptors: &prost_types::FileDescriptorSet) {
+fn generate_profiler_source_emitter(descriptors: &prost_types::FileDescriptorSet) {
     let generated = compile_for_profiler_capture(
         descriptors,
         &[
@@ -158,9 +158,9 @@ fn generate_native_hook_source_emitter(descriptors: &prost_types::FileDescriptor
     )
     .expect("ProfilerPluginData ClockId symbols compile");
     let output = Path::new(&env::var_os("OUT_DIR").expect("Cargo provides OUT_DIR"))
-        .join("native_hook_source_emitter.rs");
+        .join("profiler_source_emitter.rs");
     fs::write(output, generated.into_source())
-        .expect("Native Hook protobuf Source emitter is written");
+        .expect("profiler protobuf Source emitter is written");
 }
 
 #[cfg(feature = "protobuf-source-contract-fixture")]

@@ -10,7 +10,7 @@ use arrow_schema::{DataType, Field, Schema};
 
 use crate::{
     formats::hitrace::profiler::PluginEnvelope,
-    generated_native_hook_source_emitter::profiler_clock_id_symbols,
+    generated_profiler_source_emitter::profiler_clock_id_symbols,
 };
 
 use super::{
