@@ -106,9 +106,28 @@ impl Error for CompileError {}
 /// 把固定 descriptors 编译成 schemas 与 direct typed emitters。
 ///
 /// `build.rs` 与 build-contract tests 只共享这一个入口。
+#[cfg(feature = "protobuf-source-contract-fixture")]
 pub(crate) fn compile(
     descriptors: &FileDescriptorSet,
     roots: &[RootSpec<'_>],
+) -> Result<GeneratedRust, CompileError> {
+    compile_with_layout(descriptors, roots, render::CaptureLayout::Standalone)
+}
+
+/// 为 profiler capture adapter 编译 descriptor-derived roots，不生成可绕过 adapter 的
+/// standalone capture constructor。
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn compile_for_profiler_capture(
+    descriptors: &FileDescriptorSet,
+    roots: &[RootSpec<'_>],
+) -> Result<GeneratedRust, CompileError> {
+    compile_with_layout(descriptors, roots, render::CaptureLayout::ProfilerPayload)
+}
+
+fn compile_with_layout(
+    descriptors: &FileDescriptorSet,
+    roots: &[RootSpec<'_>],
+    capture_layout: render::CaptureLayout,
 ) -> Result<GeneratedRust, CompileError> {
     let descriptors =
         DescriptorPool::from_file_descriptor_set(descriptors.clone()).map_err(|error| {
@@ -118,7 +137,7 @@ pub(crate) fn compile(
         })?;
     let relational_plan = plan::build(&descriptors, roots).map_err(compile_error)?;
     let bindings = prost_binding::bind(&descriptors, &relational_plan).map_err(compile_error)?;
-    let source = render::render(&relational_plan, &bindings);
+    let source = render::render(&relational_plan, &bindings, capture_layout);
     Ok(GeneratedRust { source })
 }
 

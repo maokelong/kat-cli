@@ -10,7 +10,19 @@ use super::{
     prost_binding::ProstBindings,
 };
 
-pub(super) fn render(plan: &RelationalPlan, bindings: &ProstBindings) -> String {
+#[derive(Clone, Copy)]
+pub(super) enum CaptureLayout {
+    #[cfg(feature = "protobuf-source-contract-fixture")]
+    Standalone,
+    #[cfg_attr(test, allow(dead_code))]
+    ProfilerPayload,
+}
+
+pub(super) fn render(
+    plan: &RelationalPlan,
+    bindings: &ProstBindings,
+    capture_layout: CaptureLayout,
+) -> String {
     let mut output = String::new();
     writeln!(
         output,
@@ -20,7 +32,7 @@ pub(super) fn render(plan: &RelationalPlan, bindings: &ProstBindings) -> String 
 
     render_enum_symbol_constants(&mut output, plan);
     render_row_types(&mut output, plan);
-    render_capture_constructor(&mut output, plan);
+    render_capture_layout(&mut output, plan, capture_layout);
     for root in &plan.roots {
         let root_type = bindings.root_type(root.spec_index);
         writeln!(
@@ -249,10 +261,21 @@ fn render_enum_symbol_constants(output: &mut String, plan: &RelationalPlan) {
     }
 }
 
-fn render_capture_constructor(output: &mut String, plan: &RelationalPlan) {
+fn render_capture_layout(
+    output: &mut String,
+    plan: &RelationalPlan,
+    capture_layout: CaptureLayout,
+) {
+    let layout_type = match capture_layout {
+        #[cfg(feature = "protobuf-source-contract-fixture")]
+        CaptureLayout::Standalone => "crate::protobuf_source::SourceTableLayout",
+        CaptureLayout::ProfilerPayload => {
+            "crate::protobuf_source::profiler_occurrence::ProfilerPayloadLayout"
+        }
+    };
     writeln!(
         output,
-        "pub(crate) fn protobuf_source_specs() -> (\n    Vec<crate::protobuf_source::RelationSpec>,\n    Vec<crate::protobuf_source::EnumOriginSpec>,\n) {{"
+        "pub(crate) fn protobuf_source_layout() -> {layout_type} {{"
     )
     .expect("writing generated Rust to String cannot fail");
     writeln!(output, "    let relations = vec![")
@@ -285,23 +308,22 @@ fn render_capture_constructor(output: &mut String, plan: &RelationalPlan) {
         .expect("writing generated Rust to String cannot fail");
     }
     writeln!(output, "    ];").expect("writing generated Rust to String cannot fail");
-    writeln!(output, "    (relations, enum_origins)\n}}\n")
+    writeln!(
+        output,
+        "    {layout_type}::from_generated(relations, enum_origins)\n}}\n"
+    )
+    .expect("writing generated Rust to String cannot fail");
+    #[cfg(feature = "protobuf-source-contract-fixture")]
+    if matches!(capture_layout, CaptureLayout::Standalone) {
+        writeln!(
+            output,
+            "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
+        )
         .expect("writing generated Rust to String cannot fail");
-    writeln!(
-        output,
-        "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
-    )
-    .expect("writing generated Rust to String cannot fail");
-    writeln!(
-        output,
-        "    let (relations, enum_origins) = protobuf_source_specs();"
-    )
-    .expect("writing generated Rust to String cannot fail");
-    writeln!(
-        output,
-        "    crate::protobuf_source::SourceTableCapture::new(relations, enum_origins, options)\n}}\n"
-    )
-    .expect("writing generated Rust to String cannot fail");
+        writeln!(output, "    protobuf_source_layout().into_capture(options)")
+            .expect("writing generated Rust to String cannot fail");
+        writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+    }
 }
 
 pub(super) fn render_enum_symbol_accessor(

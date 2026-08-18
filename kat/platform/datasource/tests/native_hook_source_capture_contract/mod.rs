@@ -13,22 +13,35 @@ use crate::{
 use proto::kat::hitrace::profiler_plugin_data::ClockId;
 
 #[test]
-fn generated_native_hook_source_contract_is_available() {
+fn profiler_capture_composes_generated_roots_without_exposing_specs() {
+    use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
     use generated_native_hook_source_emitter::{
-        append_batch_native_hook_data_root, append_native_hook_config_root,
-        profiler_clock_id_symbols, protobuf_source_specs,
+        append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     };
+    use protobuf_source::{SpoolOptions, profiler_occurrence::ProfilerPayloadCapture};
 
-    let (relations, enum_origins) = protobuf_source_specs();
-    assert_eq!(
-        relations.len(),
-        native_hook_relation_names().len(),
-        "the generated contract must remain exactly 25 data plus 3 config relations; the runtime topology test locks their names"
-    );
-    assert_eq!(enum_origins.len(), 3);
-    let (clock_enum_fqn, clock_symbols) = profiler_clock_id_symbols();
-    assert_eq!(clock_enum_fqn, "kat.hitrace.ProfilerPluginData.ClockId");
-    assert_eq!(clock_symbols.len(), 12);
+    let mut capture = ProfilerPayloadCapture::new(protobuf_source_layout(), SpoolOptions::new(1))
+        .expect("generated roots and the profiler occurrence adapter compose");
+    let envelope = PluginEnvelope {
+        plugin_name: "nativehook",
+        envelope_name: "nativehook",
+        kind: PluginEnvelopeKind::Data,
+        payload: &[],
+        status: 0,
+        clock_id: ClockId::ClockidRealtime as i32,
+        tv_sec: 0,
+        tv_nsec: 0,
+        version: "",
+        sample_interval: 0,
+        section_start: 0,
+    };
+    capture
+        .append_bound_payload(
+            &envelope,
+            &proto::BatchNativeHookData::default(),
+            append_batch_native_hook_data_root,
+        )
+        .expect("the adapter owns occurrence and root emission ordering");
 
     let _append_data: fn(
         &mut protobuf_source::SourceTableCapture,

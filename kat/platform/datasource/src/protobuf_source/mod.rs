@@ -5,6 +5,7 @@
 
 mod capture;
 pub(crate) mod native_hook;
+pub(crate) mod profiler_occurrence;
 mod row;
 mod spec;
 mod spool;
@@ -13,7 +14,7 @@ mod spool;
 #[path = "../../tests/native_hook_source_capture_contract/mod.rs"]
 mod native_hook_contract_tests;
 
-pub(crate) use capture::SourceTableCapture;
+pub(crate) use capture::{SourceTableCapture, SourceTableLayout};
 pub(crate) use row::{BinaryValue, EstimatedRow, EstimatedValue, add_estimated_bytes};
 pub(crate) use spec::{EnumOriginSpec, EnumSymbol, RelationSlot, RelationSpec, SpoolOptions};
 pub(crate) use spool::PreparedSourceTables;

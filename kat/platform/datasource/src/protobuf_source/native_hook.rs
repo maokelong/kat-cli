@@ -1,22 +1,15 @@
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
-use arrow_schema::{DataType, Field, Schema};
 
 use crate::{
     formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind, decode_payload},
     generated_native_hook_source_emitter::{
-        append_batch_native_hook_data_root, append_native_hook_config_root,
-        profiler_clock_id_symbols, protobuf_source_specs,
+        append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     },
     proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
     protobuf_source::{
-        EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec,
-        SourceTableCapture, SpoolOptions,
+        PreparedSourceTables, SpoolOptions, profiler_occurrence::ProfilerPayloadCapture,
     },
 };
-
-const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
 
 enum NativeHookRoot {
     BatchData,
@@ -25,27 +18,15 @@ enum NativeHookRoot {
 
 /// Native Hook roots 与 profiler envelope provenance 的 dormant capture。
 pub(crate) struct NativeHookSourceCapture {
-    capture: SourceTableCapture,
-    occurrence: RelationSlot,
+    capture: ProfilerPayloadCapture,
     terminal_error: Option<String>,
     clock_admission: NativeHookClockAdmission,
 }
 
 impl NativeHookSourceCapture {
     pub(crate) fn new(options: SpoolOptions) -> Result<Self> {
-        let (mut relations, mut enum_origins) = protobuf_source_specs();
-        let occurrence = RelationSlot::new(relations.len());
-        relations.push(profiler_payload_occurrence_spec());
-        let (clock_enum_fqn, clock_symbols) = profiler_clock_id_symbols();
-        enum_origins.push(EnumOriginSpec::new(
-            occurrence,
-            "clock_id",
-            clock_enum_fqn,
-            clock_symbols,
-        ));
         Ok(Self {
-            capture: SourceTableCapture::new(relations, enum_origins, options)?,
-            occurrence,
+            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options)?,
             terminal_error: None,
             clock_admission: NativeHookClockAdmission::default(),
         })
@@ -76,35 +57,25 @@ impl NativeHookSourceCapture {
         match root {
             NativeHookRoot::BatchData => {
                 let value: BatchNativeHookData = decode_payload(envelope)?;
-                let occurrence_row_id = self.append_occurrence(envelope)?;
-                append_batch_native_hook_data_root(&mut self.capture, occurrence_row_id, &value)?;
+                self.capture.append_bound_payload(
+                    envelope,
+                    &value,
+                    append_batch_native_hook_data_root,
+                )?;
                 self.clock_admission
                     .observe_batch(&value, envelope.clock_id);
             }
             NativeHookRoot::Config => {
                 let value: NativeHookConfig = decode_payload(envelope)?;
-                let occurrence_row_id = self.append_occurrence(envelope)?;
-                append_native_hook_config_root(&mut self.capture, occurrence_row_id, &value)?;
+                self.capture.append_bound_payload(
+                    envelope,
+                    &value,
+                    append_native_hook_config_root,
+                )?;
                 self.clock_admission.observe_config(&value);
             }
         }
         Ok(())
-    }
-
-    fn append_occurrence(&mut self, envelope: &PluginEnvelope<'_>) -> Result<u64> {
-        let row_id = self.capture.allocate_row_id(self.occurrence)?;
-        let row = ProfilerPayloadOccurrenceRow {
-            row_id,
-            envelope_name: envelope.envelope_name,
-            status: envelope.status,
-            clock_id: envelope.clock_id,
-            tv_sec: envelope.tv_sec,
-            tv_nsec: envelope.tv_nsec,
-            version: envelope.version,
-            sample_interval: envelope.sample_interval,
-        };
-        self.capture.append_row(self.occurrence, &row)?;
-        Ok(row_id)
     }
 
     fn ensure_healthy(&self) -> Result<()> {
@@ -112,40 +83,6 @@ impl NativeHookSourceCapture {
             bail!("Native Hook Source capture is poisoned by an earlier failure: {source}");
         }
         Ok(())
-    }
-}
-
-#[derive(serde::Serialize)]
-struct ProfilerPayloadOccurrenceRow<'a> {
-    #[serde(rename = "_kat_row_id")]
-    row_id: u64,
-    envelope_name: &'a str,
-    status: u32,
-    clock_id: i32,
-    tv_sec: u64,
-    tv_nsec: u64,
-    version: &'a str,
-    sample_interval: u32,
-}
-
-impl EstimatedRow for ProfilerPayloadOccurrenceRow<'_> {
-    fn estimated_bytes(&self) -> Result<usize> {
-        use crate::protobuf_source::EstimatedValue;
-
-        let mut total = 0;
-        for bytes in [
-            self.row_id.estimated_bytes()?,
-            self.envelope_name.estimated_bytes()?,
-            self.status.estimated_bytes()?,
-            self.clock_id.estimated_bytes()?,
-            self.tv_sec.estimated_bytes()?,
-            self.tv_nsec.estimated_bytes()?,
-            self.version.estimated_bytes()?,
-            self.sample_interval.estimated_bytes()?,
-        ] {
-            crate::protobuf_source::add_estimated_bytes(&mut total, bytes)?;
-        }
-        Ok(total)
     }
 }
 
@@ -268,20 +205,4 @@ fn native_hook_root(envelope: &PluginEnvelope<'_>) -> Option<NativeHookRoot> {
         | ("hookdaemon_config", PluginEnvelopeKind::Config) => Some(NativeHookRoot::Config),
         _ => None,
     }
-}
-
-fn profiler_payload_occurrence_spec() -> RelationSpec {
-    RelationSpec::new(
-        PROFILER_PAYLOAD_OCCURRENCE,
-        Arc::new(Schema::new(vec![
-            Field::new("_kat_row_id", DataType::UInt64, false),
-            Field::new("envelope_name", DataType::Utf8, false),
-            Field::new("status", DataType::UInt32, false),
-            Field::new("clock_id", DataType::Int32, false),
-            Field::new("tv_sec", DataType::UInt64, false),
-            Field::new("tv_nsec", DataType::UInt64, false),
-            Field::new("version", DataType::Utf8, false),
-            Field::new("sample_interval", DataType::UInt32, false),
-        ])),
-    )
 }

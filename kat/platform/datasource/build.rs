@@ -24,7 +24,9 @@ use native_hook_domain_codegen::{
 #[cfg(feature = "protobuf-source-contract-fixture")]
 use prost::Message;
 use proto_codegen::{message_in_file, messages_in_file};
-use protobuf_source_codegen::{RootSpec, compile as compile_protobuf_source};
+#[cfg(feature = "protobuf-source-contract-fixture")]
+use protobuf_source_codegen::compile as compile_protobuf_source;
+use protobuf_source_codegen::{RootSpec, compile_for_profiler_capture};
 
 const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
     "proto/ftrace_data/ftrace_event.proto",
@@ -138,7 +140,7 @@ fn main() {
 }
 
 fn generate_native_hook_source_emitter(descriptors: &prost_types::FileDescriptorSet) {
-    let generated = compile_protobuf_source(
+    let generated = compile_for_profiler_capture(
         descriptors,
         &[
             RootSpec::new(
