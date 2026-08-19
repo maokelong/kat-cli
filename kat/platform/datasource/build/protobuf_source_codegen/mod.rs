@@ -1,8 +1,8 @@
 //! 固定 descriptor 驱动的 protobuf Source-table compiler。
 //!
-//! 这个仅供构建期使用的模块有意只暴露 [`compile`] 一个操作。Descriptor
-//! closure、关系计划、prost binding 与 Rust renderer 都留在模块内部，避免
-//! production code 生长出第二套映射规则。
+//! 这个仅供构建期使用的模块暴露 root [`compile`]，以及在生成结果上追加 plan 外
+//! 手写 relation 所需枚举定义的窄操作。Descriptor closure、关系计划、prost binding
+//! 与 Rust renderer 都留在模块内部，避免 production code 生长出第二套映射规则。
 
 mod diagnostic;
 mod names;
@@ -10,9 +10,9 @@ mod plan;
 mod prost_binding;
 mod render;
 
-use std::{error::Error, fmt};
+use std::{collections::BTreeSet, error::Error, fmt};
 
-use prost_reflect::DescriptorPool;
+use prost_reflect::{DescriptorPool, EnumDescriptor};
 use prost_types::FileDescriptorSet;
 
 use diagnostic::Diagnostic;
@@ -40,6 +40,44 @@ pub(crate) struct GeneratedRust {
 }
 
 impl GeneratedRust {
+    /// 为 plan 外手写的 relation 输出 descriptor 驱动的完整枚举定义，不把该 relation 伪装成 protobuf root。
+    pub(crate) fn with_enum_symbol_accessor(
+        mut self,
+        descriptors: &FileDescriptorSet,
+        enum_fqn: &str,
+        accessor_name: &str,
+    ) -> Result<Self, CompileError> {
+        if !names::valid_generated_function_name(accessor_name) {
+            return Err(enum_compile_error(
+                enum_fqn,
+                format!(
+                    "generated enum-symbol accessor name {accessor_name:?} must be a safe lower_snake Rust identifier"
+                ),
+            ));
+        }
+        if enum_fqn.starts_with('.') || enum_fqn.is_empty() {
+            return Err(enum_compile_error(
+                enum_fqn,
+                "enum type must be a canonical protobuf FQN without a leading dot",
+            ));
+        }
+        let descriptors =
+            DescriptorPool::from_file_descriptor_set(descriptors.clone()).map_err(|error| {
+                enum_compile_error(enum_fqn, format!("invalid descriptor set: {error}"))
+            })?;
+        let enum_def = descriptors.get_enum_by_name(enum_fqn).ok_or_else(|| {
+            enum_compile_error(
+                enum_fqn,
+                "canonical enum FQN does not identify an enum in the descriptor set",
+            )
+        })?;
+        if enum_uses_aliases(&enum_def) {
+            return Err(enum_compile_error(enum_fqn, "enum aliases are unsupported"));
+        }
+        render::render_enum_symbol_accessor(&mut self.source, accessor_name, &enum_def);
+        Ok(self)
+    }
+
     pub(crate) fn into_source(self) -> String {
         self.source
     }
@@ -68,9 +106,28 @@ impl Error for CompileError {}
 /// 把固定 descriptors 编译成 schemas 与 direct typed emitters。
 ///
 /// `build.rs` 与 build-contract tests 只共享这一个入口。
+#[cfg(feature = "protobuf-source-contract-fixture")]
 pub(crate) fn compile(
     descriptors: &FileDescriptorSet,
     roots: &[RootSpec<'_>],
+) -> Result<GeneratedRust, CompileError> {
+    compile_with_layout(descriptors, roots, render::CaptureLayout::Standalone)
+}
+
+/// 为 profiler capture adapter 编译 descriptor-derived roots，不生成可绕过 adapter 的
+/// standalone capture constructor。
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn compile_for_profiler_capture(
+    descriptors: &FileDescriptorSet,
+    roots: &[RootSpec<'_>],
+) -> Result<GeneratedRust, CompileError> {
+    compile_with_layout(descriptors, roots, render::CaptureLayout::ProfilerPayload)
+}
+
+fn compile_with_layout(
+    descriptors: &FileDescriptorSet,
+    roots: &[RootSpec<'_>],
+    capture_layout: render::CaptureLayout,
 ) -> Result<GeneratedRust, CompileError> {
     let descriptors =
         DescriptorPool::from_file_descriptor_set(descriptors.clone()).map_err(|error| {
@@ -80,7 +137,7 @@ pub(crate) fn compile(
         })?;
     let relational_plan = plan::build(&descriptors, roots).map_err(compile_error)?;
     let bindings = prost_binding::bind(&descriptors, &relational_plan).map_err(compile_error)?;
-    let source = render::render(&relational_plan, &bindings);
+    let source = render::render(&relational_plan, &bindings, capture_layout);
     Ok(GeneratedRust { source })
 }
 
@@ -91,4 +148,24 @@ fn compile_error(diagnostics: Vec<Diagnostic>) -> CompileError {
             .map(|diagnostic| diagnostic.to_string())
             .collect(),
     }
+}
+
+fn enum_compile_error(enum_fqn: &str, detail: impl fmt::Display) -> CompileError {
+    CompileError {
+        messages: vec![format!("protobuf enum {enum_fqn:?}: {detail}")],
+    }
+}
+
+fn enum_uses_aliases(enum_def: &EnumDescriptor) -> bool {
+    let alias_enabled = enum_def
+        .enum_descriptor_proto()
+        .options
+        .as_ref()
+        .and_then(|options| options.allow_alias)
+        .unwrap_or(false);
+    let mut numbers = BTreeSet::new();
+    alias_enabled
+        || enum_def
+            .values()
+            .any(|value| !numbers.insert(value.number()))
 }

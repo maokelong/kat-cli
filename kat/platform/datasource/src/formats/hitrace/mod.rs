@@ -1,6 +1,6 @@
 //! `.htrace` profiler container format adapter.
 
-mod file;
+pub(crate) mod file;
 pub(crate) mod profiler;
 
 use std::{

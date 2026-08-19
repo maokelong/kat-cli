@@ -662,6 +662,42 @@ fn planner_requires_canonical_exact_root_fqns_and_distinguishes_same_short_names
 }
 
 #[test]
+fn enum_symbol_accessor_reuses_descriptor_validation_and_requires_a_safe_name() {
+    let descriptors = fixture_descriptors();
+    let root = RootSpec::new("fixture.protobuf_source.valid.EmptyRoot", "empty_root");
+    let enum_fqn = "fixture.protobuf_source.valid.Lifecycle";
+
+    let _generated_source = compile(&descriptors, &[root])
+        .expect("fixture root compiles")
+        .with_enum_symbol_accessor(&descriptors, enum_fqn, "fixture_lifecycle_symbols")
+        .expect("canonical non-aliased enum and safe accessor compile")
+        .into_source();
+
+    for invalid_name in ["NotSnake", "two__segments", "fn"] {
+        let message = compile(&descriptors, &[root])
+            .expect("fixture root compiles")
+            .with_enum_symbol_accessor(&descriptors, enum_fqn, invalid_name)
+            .expect_err("unsafe generated Rust accessor name is rejected")
+            .to_string();
+        assert!(
+            message.contains(invalid_name) && message.contains("lower_snake"),
+            "missing accessor-name diagnostic: {message}"
+        );
+    }
+
+    let aliased = "fixture.protobuf_source.unsupported.enum_alias_shape.AliasedStatus";
+    let message = compile(&descriptors, &[root])
+        .expect("fixture root compiles")
+        .with_enum_symbol_accessor(&descriptors, aliased, "aliased_status_symbols")
+        .expect_err("standalone enum accessor shares root-plan alias rejection")
+        .to_string();
+    assert!(
+        message.contains(aliased) && message.contains("aliases"),
+        "missing shared enum-alias diagnostic: {message}"
+    );
+}
+
+#[test]
 fn planner_rejects_illegal_root_and_field_names() {
     let descriptors = fixture_descriptors();
     let valid_root = "fixture.protobuf_source.valid.EmptyRoot";

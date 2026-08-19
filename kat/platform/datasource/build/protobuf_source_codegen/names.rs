@@ -8,6 +8,10 @@ pub(super) fn reserved_relationship_column(name: &str) -> bool {
     RESERVED_COLUMNS.contains(&name)
 }
 
+pub(super) fn valid_generated_function_name(name: &str) -> bool {
+    valid_dataset_name(name) && rust_snake(name) == name
+}
+
 pub(super) fn relation_name(root: &str, path: &[String]) -> String {
     if path.is_empty() {
         root.to_string()

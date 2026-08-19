@@ -15,6 +15,41 @@ struct RelationState {
     next_row_id: Option<u64>,
 }
 
+/// 构建期生成的 descriptor-derived relation 布局。
+///
+/// 调用者只能把它整体交给 capture adapter 或直接构造 capture，不能读取、重排或追加
+/// relation slots。Plan 外 provenance relation 由所属 adapter 在本模块内部组合。
+pub(crate) struct SourceTableLayout {
+    relations: Vec<RelationSpec>,
+    enum_origins: Vec<EnumOriginSpec>,
+}
+
+impl SourceTableLayout {
+    pub(crate) fn from_generated(
+        relations: Vec<RelationSpec>,
+        enum_origins: Vec<EnumOriginSpec>,
+    ) -> Self {
+        Self {
+            relations,
+            enum_origins,
+        }
+    }
+
+    pub(super) fn append_relation(&mut self, relation: RelationSpec) -> RelationSlot {
+        let slot = RelationSlot::new(self.relations.len());
+        self.relations.push(relation);
+        slot
+    }
+
+    pub(super) fn append_enum_origin(&mut self, origin: EnumOriginSpec) {
+        self.enum_origins.push(origin);
+    }
+
+    pub(crate) fn into_capture(self, options: SpoolOptions) -> Result<SourceTableCapture> {
+        SourceTableCapture::new(self.relations, self.enum_origins, options)
+    }
+}
+
 pub(crate) struct SourceTableCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,

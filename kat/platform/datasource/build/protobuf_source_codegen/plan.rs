@@ -4,7 +4,7 @@ use prost_reflect::{
     Cardinality, DescriptorPool, EnumDescriptor, FieldDescriptor, Kind, MessageDescriptor,
 };
 
-use super::{RootSpec, diagnostic::Diagnostic, names};
+use super::{RootSpec, diagnostic::Diagnostic, enum_uses_aliases, names};
 
 const RESERVED_TABLES: &[&str] = &[
     "protobuf_enum_symbol",
@@ -363,17 +363,7 @@ impl Builder<'_> {
         field_path: &str,
         enum_def: &EnumDescriptor,
     ) -> Result<(), Diagnostic> {
-        let alias_enabled = enum_def
-            .enum_descriptor_proto()
-            .options
-            .as_ref()
-            .and_then(|options| options.allow_alias)
-            .unwrap_or(false);
-        let mut numbers = BTreeSet::new();
-        let duplicated_number = enum_def
-            .values()
-            .any(|value| !numbers.insert(value.number()));
-        if alias_enabled || duplicated_number {
+        if enum_uses_aliases(enum_def) {
             return Err(Diagnostic::field(
                 root_fqn,
                 message.full_name(),
