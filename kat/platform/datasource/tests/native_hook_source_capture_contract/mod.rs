@@ -20,6 +20,7 @@ use native_hook_fixture::{
     native_hook_frame, native_hook_relation_names,
 };
 
+mod ftrace;
 mod real_sample;
 
 #[tokio::test]
@@ -79,8 +80,6 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             },
             default_config,
         ),
-        profiler_message("ftrace-plugin", vec![0x80]),
-        profiler_message("ftrace-plugin_config", vec![0x80]),
         profiler_message("nativehookx", vec![0xff]),
         profiler_message("hookdaemonx", vec![0xff]),
         profiler_message("nativehook_config_extra", vec![0xff]),
@@ -102,8 +101,6 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             ("hookdaemon".to_string(), true),
             ("nativehook_config".to_string(), true),
             ("hookdaemon_config".to_string(), true),
-            ("ftrace-plugin".to_string(), false),
-            ("ftrace-plugin_config".to_string(), false),
             ("nativehookx".to_string(), false),
             ("hookdaemonx".to_string(), false),
             ("nativehook_config_extra".to_string(), false),

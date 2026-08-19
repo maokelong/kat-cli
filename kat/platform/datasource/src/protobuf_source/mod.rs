@@ -12,7 +12,7 @@ mod spool;
 
 #[cfg(all(test, not(doctest)))]
 #[path = "../../tests/native_hook_source_capture_contract/mod.rs"]
-mod native_hook_contract_tests;
+mod native_hook_source_capture_contract_tests;
 
 pub(crate) use capture::{SourceTableCapture, SourceTableLayout};
 pub(crate) use row::{BinaryValue, EstimatedRow, EstimatedValue, add_estimated_bytes};

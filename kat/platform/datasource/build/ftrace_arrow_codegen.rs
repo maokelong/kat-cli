@@ -1,6 +1,6 @@
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
-use crate::proto_codegen::{ProtoMessage, camel_to_snake};
+use crate::proto_codegen::ProtoMessage;
 
 const FTRACE_EVENT_TABLE_BUILDERS_FILE: &str = "ftrace_event_table_builders.rs";
 const FTRACE_TABLE_SET_NAME: &str = "FtraceTableSet";
@@ -39,6 +39,7 @@ fn render_ftrace_event_table_builders(families: &[EventFamily<'_>]) -> String {
     output.push_str("use crate::{\n");
     output.push_str("    domains::ftrace::{FtraceEventRecord, FtraceRecord},\n");
     output.push_str("    proto::kat::hitrace::{\n");
+    output.push_str("        ftrace_event,\n");
     for family in families {
         for message in &family.messages {
             writeln!(output, "        {},", message.name).expect("write to string");
@@ -165,13 +166,13 @@ fn render_event_family_table_builders(output: &mut String, family: &EventFamily<
     for message in &family.messages {
         writeln!(
             output,
-            "        if let Some(message) = event.{}.clone() {{",
-            event_field_name(message)
+            "        if let Some(ftrace_event::Event::{}(message)) = event.event.as_ref() {{",
+            message.name
         )
         .expect("write to string");
         writeln!(
             output,
-            "            self.{}.push(meta.clone(), message)?;",
+            "            self.{}.push(meta.clone(), message.clone())?;",
             message.table_name
         )
         .expect("write to string");
@@ -207,8 +208,4 @@ fn render_event_family_table_builders(output: &mut String, family: &EventFamily<
     output.push_str("        ])\n");
     output.push_str("    }\n");
     output.push_str("}\n");
-}
-
-fn event_field_name(message: &ProtoMessage) -> String {
-    camel_to_snake(&message.name)
 }

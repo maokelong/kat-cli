@@ -3,9 +3,13 @@ use anyhow::{Result, bail};
 use crate::{
     formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind, decode_payload},
     generated_profiler_source_emitter::{
-        append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
+        append_batch_native_hook_data_root, append_native_hook_config_root,
+        append_trace_plugin_config_root, append_trace_plugin_result_root, protobuf_source_layout,
     },
-    proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
+    proto::{
+        BatchNativeHookData, NativeHookConfig, TracePluginConfig, TracePluginResult,
+        kat::hitrace::profiler_plugin_data::ClockId,
+    },
     protobuf_source::{
         PreparedSourceTables, SpoolOptions, profiler_occurrence::ProfilerPayloadCapture,
     },
@@ -14,6 +18,8 @@ use crate::{
 enum NativeHookRoot {
     BatchData,
     Config,
+    FtraceData,
+    FtraceConfig,
 }
 
 /// Native Hook roots 与 profiler envelope provenance 的正式 capture。
@@ -33,6 +39,7 @@ impl NativeHookSourceCapture {
     }
 
     /// 只认领四条固定 Native Hook route；未绑定 payload 不会被解码。
+    /// ftrace 作为 Native Hook 分支，另认领两条固定 route。
     pub(crate) fn try_claim(&mut self, envelope: &PluginEnvelope<'_>) -> Result<bool> {
         self.ensure_healthy()?;
         let Some(root) = native_hook_root(envelope) else {
@@ -73,6 +80,22 @@ impl NativeHookSourceCapture {
                     append_native_hook_config_root,
                 )?;
                 self.clock_admission.observe_config(&value);
+            }
+            NativeHookRoot::FtraceData => {
+                let value: TracePluginResult = decode_payload(envelope)?;
+                self.capture.append_bound_payload(
+                    envelope,
+                    &value,
+                    append_trace_plugin_result_root,
+                )?;
+            }
+            NativeHookRoot::FtraceConfig => {
+                let value: TracePluginConfig = decode_payload(envelope)?;
+                self.capture.append_bound_payload(
+                    envelope,
+                    &value,
+                    append_trace_plugin_config_root,
+                )?;
             }
         }
         Ok(())
@@ -203,6 +226,8 @@ fn native_hook_root(envelope: &PluginEnvelope<'_>) -> Option<NativeHookRoot> {
         }
         ("nativehook_config", PluginEnvelopeKind::Config)
         | ("hookdaemon_config", PluginEnvelopeKind::Config) => Some(NativeHookRoot::Config),
+        ("ftrace-plugin", PluginEnvelopeKind::Data) => Some(NativeHookRoot::FtraceData),
+        ("ftrace-plugin_config", PluginEnvelopeKind::Config) => Some(NativeHookRoot::FtraceConfig),
         _ => None,
     }
 }
