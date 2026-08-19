@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 #[ignore = "requires KAT_REAL_NATIVE_HOOK_HITRACE to name a real Native Hook capture"]
-async fn real_native_hook_capture_matches_independent_typed_census() {
+async fn real_native_hook_capture_and_formal_import_match_independent_typed_census() {
     use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
@@ -48,15 +48,52 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
         .map(|table| table.name().to_string())
         .collect::<std::collections::BTreeSet<_>>();
 
+    assert_census_dataset(&context, &actual_tables, &census).await;
+
+    let formal_dataset_path = directory.path().join("formal-dataset");
+    crate::import_hitrace(
+        &source,
+        crate::DatasetWriteTarget::write_to_empty(&formal_dataset_path),
+        |_| Ok(()),
+    )
+    .expect("formal import accepts the reviewed real Native Hook capture");
+    let formal_context = register_resolved_dataset(&formal_dataset_path)
+        .await
+        .expect("formal real-sample Dataset registers in DataFusion");
+    let formal_tables = crate::resolve_dataset(&formal_dataset_path)
+        .expect("formal real-sample Dataset resolves")
+        .tables()
+        .iter()
+        .map(|table| table.name().to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_census_dataset(&formal_context, &formal_tables, &census).await;
+
+    eprintln!(
+        "real Native Hook census: file={} bytes={} envelopes={} data_roots={} config_roots={} events={} relations={:?}",
+        source.display(),
+        bytes.len(),
+        census.claimed_envelopes,
+        census.data_roots,
+        census.config_roots,
+        census.events,
+        census.relation_rows
+    );
+}
+
+async fn assert_census_dataset(
+    context: &SessionContext,
+    actual_tables: &std::collections::BTreeSet<String>,
+    census: &RealNativeHookCensus,
+) {
     assert_table_count(
-        &context,
+        context,
         "profiler_payload_occurrence",
         census.claimed_envelopes,
     )
     .await;
-    assert_table_count(&context, "batch_native_hook_data", census.data_roots).await;
-    assert_table_count(&context, "native_hook_config", census.config_roots).await;
-    assert_table_count(&context, "batch_native_hook_data_events", census.events).await;
+    assert_table_count(context, "batch_native_hook_data", census.data_roots).await;
+    assert_table_count(context, "native_hook_config", census.config_roots).await;
+    assert_table_count(context, "batch_native_hook_data_events", census.events).await;
     for (&table, &expected) in &census.relation_rows {
         if expected == 0 {
             assert!(
@@ -64,12 +101,12 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
                 "zero-row relation {table:?} must not be published"
             );
         } else {
-            assert_table_count(&context, table, expected).await;
+            assert_table_count(context, table, expected).await;
         }
     }
     assert_eq!(
         query_json(
-            &context,
+            context,
             "select 'data' as kind, root._kat_row_id as root_id, \
              root._kat_parent_row_id as occurrence_id, occurrence.envelope_name \
              from batch_native_hook_data root \
@@ -106,7 +143,7 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
         .join(", ");
     assert_eq!(
         query_json(
-            &context,
+            context,
             &format!(
                 "select _kat_row_id as row_id, _kat_parent_row_id as root_id, \
                  _kat_repeated_index as repeated_index, tv_sec, tv_nsec \
@@ -121,7 +158,7 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
     for (&table, expected) in &census.representative_variant_links {
         assert_eq!(
             query_json(
-                &context,
+                context,
                 &format!(
                     "select _kat_parent_row_id as event_id from {table} \
                      order by _kat_parent_row_id limit 1"
@@ -141,7 +178,7 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
         .expect("StackMap row id is UInt64");
     assert_eq!(
         query_json(
-            &context,
+            context,
             &format!(
                 "select _kat_parent_row_id as stack_id, \
                  _kat_repeated_index as repeated_index, value \
@@ -152,17 +189,6 @@ async fn real_native_hook_capture_matches_independent_typed_census() {
         .await,
         Value::Array(expected_stack_ips.clone()),
         "representative StackMap IP values must retain parent and repeated order"
-    );
-
-    eprintln!(
-        "real Native Hook census: file={} bytes={} envelopes={} data_roots={} config_roots={} events={} relations={:?}",
-        source.display(),
-        bytes.len(),
-        census.claimed_envelopes,
-        census.data_roots,
-        census.config_roots,
-        census.events,
-        census.relation_rows
     );
 }
 

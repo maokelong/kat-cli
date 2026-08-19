@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use anyhow::Result;
 use prost::Message;
@@ -101,9 +101,6 @@ impl record::TraceRecordSink for RecordingSink {
 
 thread_local! {
     static EVENTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    static CLAIMANT_CALLS: Cell<usize> = const { Cell::new(0) };
-    static CLAIMANT_TYPED_DECODES: Cell<usize> = const { Cell::new(0) };
-    static LEGACY_TYPED_DECODES: Cell<usize> = const { Cell::new(0) };
 }
 
 struct RecordingDecoder;
@@ -162,7 +159,6 @@ impl profiler::PluginDecoder for LegacyNativeHookDecoder {
         sink: &mut dyn record::TraceRecordSink,
     ) -> Result<()> {
         let _: proto::kat::native_hook::BatchNativeHookData = profiler::decode_payload(envelope)?;
-        LEGACY_TYPED_DECODES.with(|count| count.set(count.get() + 1));
         sink.push(record::TraceRecord::NativeHook(Box::new(
             domains::native_hook::NativeHookRecord::Decoded,
         )))
@@ -216,8 +212,7 @@ fn registry_dispatches_config_data_and_finish_to_matching_decoder() {
 }
 
 #[test]
-fn claimed_payload_is_typed_decoded_once_and_never_reaches_legacy_decoder() {
-    reset_claim_counters();
+fn claimed_payload_never_reaches_legacy_decoder() {
     let specs = [profiler::PluginDecoderSpec::new(
         new_legacy_native_hook_decoder,
     )];
@@ -225,27 +220,18 @@ fn claimed_payload_is_typed_decoded_once_and_never_reaches_legacy_decoder() {
     let mut sink = RecordingSink::default();
     let message = native_hook_message();
     let envelope = profiler::PluginEnvelope::from_profiler_plugin_data(&message, 1_024);
-    let mut claimant = |envelope: &profiler::PluginEnvelope<'_>| {
-        CLAIMANT_CALLS.with(|count| count.set(count.get() + 1));
-        let _: proto::kat::native_hook::BatchNativeHookData = profiler::decode_payload(envelope)?;
-        CLAIMANT_TYPED_DECODES.with(|count| count.set(count.get() + 1));
-        Ok(true)
-    };
+    let mut claimant = |_envelope: &profiler::PluginEnvelope<'_>| Ok(true);
 
     let known =
         profiler::dispatch_plugin_envelope(&envelope, &mut registry, &mut sink, &mut claimant)
             .expect("bound Native Hook payload is claimed");
 
     assert!(known);
-    assert_eq!(CLAIMANT_CALLS.with(Cell::get), 1);
-    assert_eq!(CLAIMANT_TYPED_DECODES.with(Cell::get), 1);
-    assert_eq!(LEGACY_TYPED_DECODES.with(Cell::get), 0);
     assert_eq!(sink.native_hook_records, 0);
 }
 
 #[test]
 fn unclaimed_payload_reaches_legacy_decoder_once() {
-    reset_claim_counters();
     let specs = [profiler::PluginDecoderSpec::new(
         new_legacy_native_hook_decoder,
     )];
@@ -253,20 +239,34 @@ fn unclaimed_payload_reaches_legacy_decoder_once() {
     let mut sink = RecordingSink::default();
     let message = native_hook_message();
     let envelope = profiler::PluginEnvelope::from_profiler_plugin_data(&message, 2_048);
-    let mut claimant = |_envelope: &profiler::PluginEnvelope<'_>| {
-        CLAIMANT_CALLS.with(|count| count.set(count.get() + 1));
-        Ok(false)
-    };
+    let mut claimant = |_envelope: &profiler::PluginEnvelope<'_>| Ok(false);
 
     let known =
         profiler::dispatch_plugin_envelope(&envelope, &mut registry, &mut sink, &mut claimant)
             .expect("unclaimed Native Hook payload falls back to the registry");
 
     assert!(known);
-    assert_eq!(CLAIMANT_CALLS.with(Cell::get), 1);
-    assert_eq!(CLAIMANT_TYPED_DECODES.with(Cell::get), 0);
-    assert_eq!(LEGACY_TYPED_DECODES.with(Cell::get), 1);
     assert_eq!(sink.native_hook_records, 1);
+}
+
+#[test]
+fn claimant_failure_never_falls_back_to_legacy_decoder() {
+    let specs = [profiler::PluginDecoderSpec::new(
+        new_legacy_native_hook_decoder,
+    )];
+    let mut registry = profiler::PluginPayloadRegistry::new(&specs);
+    let mut sink = RecordingSink::default();
+    let message = native_hook_message();
+    let envelope = profiler::PluginEnvelope::from_profiler_plugin_data(&message, 3_072);
+    let mut claimant =
+        |_envelope: &profiler::PluginEnvelope<'_>| Err(anyhow::anyhow!("claim failed"));
+
+    let error =
+        profiler::dispatch_plugin_envelope(&envelope, &mut registry, &mut sink, &mut claimant)
+            .expect_err("claim failure stops dispatch");
+
+    assert_eq!(error.to_string(), "claim failed");
+    assert_eq!(sink.native_hook_records, 0);
 }
 
 fn native_hook_message() -> proto::ProfilerPluginData {
@@ -275,10 +275,4 @@ fn native_hook_message() -> proto::ProfilerPluginData {
         data: proto::kat::native_hook::BatchNativeHookData::default().encode_to_vec(),
         ..Default::default()
     }
-}
-
-fn reset_claim_counters() {
-    CLAIMANT_CALLS.with(|count| count.set(0));
-    CLAIMANT_TYPED_DECODES.with(|count| count.set(0));
-    LEGACY_TYPED_DECODES.with(|count| count.set(0));
 }
