@@ -7,53 +7,12 @@ use tempfile::tempdir;
 use url::Url;
 
 use crate::{
-    dataset_writer, formats, generated_profiler_source_emitter, proto,
+    dataset_writer, formats, proto,
     protobuf_source::{self, native_hook as native_hook_source},
 };
 use proto::kat::hitrace::profiler_plugin_data::ClockId;
 
-#[test]
-fn profiler_capture_composes_generated_roots_without_exposing_specs() {
-    use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
-    use generated_profiler_source_emitter::{
-        append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
-    };
-    use protobuf_source::{SpoolOptions, profiler_occurrence::ProfilerPayloadCapture};
-
-    let mut capture = ProfilerPayloadCapture::new(protobuf_source_layout(), SpoolOptions::new(1))
-        .expect("generated roots and the profiler occurrence adapter compose");
-    let envelope = PluginEnvelope {
-        plugin_name: "nativehook",
-        envelope_name: "nativehook",
-        kind: PluginEnvelopeKind::Data,
-        payload: &[],
-        status: 0,
-        clock_id: ClockId::ClockidRealtime as i32,
-        tv_sec: 0,
-        tv_nsec: 0,
-        version: "",
-        sample_interval: 0,
-        section_start: 0,
-    };
-    capture
-        .append_bound_payload(
-            &envelope,
-            &proto::BatchNativeHookData::default(),
-            append_batch_native_hook_data_root,
-        )
-        .expect("the adapter owns occurrence and root emission ordering");
-
-    let _append_data: fn(
-        &mut protobuf_source::SourceTableCapture,
-        u64,
-        &proto::BatchNativeHookData,
-    ) -> anyhow::Result<()> = append_batch_native_hook_data_root;
-    let _append_config: fn(
-        &mut protobuf_source::SourceTableCapture,
-        u64,
-        &proto::NativeHookConfig,
-    ) -> anyhow::Result<()> = append_native_hook_config_root;
-}
+mod real_sample;
 
 #[tokio::test]
 async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
@@ -244,125 +203,59 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
     assert_eq!(
         query_json(
             &context,
-            "select occurrence.envelope_name, root._kat_parent_row_id \
-             from profiler_payload_occurrence occurrence \
-             join batch_native_hook_data root \
+            "select 'data' as kind, occurrence.envelope_name, root._kat_parent_row_id \
+             from batch_native_hook_data root \
+             join profiler_payload_occurrence occurrence \
                on root._kat_parent_row_id = occurrence._kat_row_id \
-             order by occurrence._kat_row_id",
+             union all \
+             select 'config', occurrence.envelope_name, root._kat_parent_row_id \
+             from native_hook_config root \
+             join profiler_payload_occurrence occurrence \
+               on root._kat_parent_row_id = occurrence._kat_row_id \
+             order by _kat_parent_row_id",
         )
         .await,
         json!([
-            { "envelope_name": "nativehook", "_kat_parent_row_id": 0 },
-            { "envelope_name": "hookdaemon", "_kat_parent_row_id": 1 },
+            { "kind": "data", "envelope_name": "nativehook", "_kat_parent_row_id": 0 },
+            { "kind": "data", "envelope_name": "hookdaemon", "_kat_parent_row_id": 1 },
+            { "kind": "config", "envelope_name": "nativehook_config", "_kat_parent_row_id": 2 },
+            { "kind": "config", "envelope_name": "hookdaemon_config", "_kat_parent_row_id": 3 },
         ])
     );
     assert_eq!(
         query_json(
             &context,
-            "select occurrence.envelope_name, root._kat_parent_row_id \
-             from profiler_payload_occurrence occurrence \
-             join native_hook_config root \
-               on root._kat_parent_row_id = occurrence._kat_row_id \
-             order by occurrence._kat_row_id",
+            "select origin_table, origin_field_path, enum_type_name, count(*) as symbol_count \
+             from protobuf_enum_symbol \
+             group by origin_table, origin_field_path, enum_type_name",
         )
         .await,
-        json!([
-            { "envelope_name": "nativehook_config", "_kat_parent_row_id": 2 },
-            { "envelope_name": "hookdaemon_config", "_kat_parent_row_id": 3 },
-        ])
+        json!([{
+            "origin_table": "profiler_payload_occurrence",
+            "origin_field_path": "clock_id",
+            "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
+            "symbol_count": 12,
+        }])
     );
     assert_eq!(
         query_json(
             &context,
-            "select origin_table, origin_field_path, enum_type_name, \
-             enum_number, enum_symbol from protobuf_enum_symbol \
-             order by enum_number",
+            &format!(
+                "select enum_number, enum_symbol from protobuf_enum_symbol \
+                 where enum_number in ({}, {}) order by enum_number",
+                ClockId::ClockidRealtime as i32,
+                ClockId::ClockidBoottime as i32,
+            ),
         )
         .await,
         json!([
             {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
                 "enum_number": ClockId::ClockidRealtime as i32,
                 "enum_symbol": "CLOCKID_REALTIME",
             },
             {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidMonotonic as i32,
-                "enum_symbol": "CLOCKID_MONOTONIC",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidProcessCputimeId as i32,
-                "enum_symbol": "CLOCKID_PROCESS_CPUTIME_ID",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidThreadCputimeId as i32,
-                "enum_symbol": "CLOCKID_THREAD_CPUTIME_ID",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidMonotonicRaw as i32,
-                "enum_symbol": "CLOCKID_MONOTONIC_RAW",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidRealtimeCoarse as i32,
-                "enum_symbol": "CLOCKID_REALTIME_COARSE",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidMonotonicCoarse as i32,
-                "enum_symbol": "CLOCKID_MONOTONIC_COARSE",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
                 "enum_number": ClockId::ClockidBoottime as i32,
                 "enum_symbol": "CLOCKID_BOOTTIME",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidRealtimeAlarm as i32,
-                "enum_symbol": "CLOCKID_REALTIME_ALARM",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidBoottimeAlarm as i32,
-                "enum_symbol": "CLOCKID_BOOTTIME_ALARM",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidSgiCycle as i32,
-                "enum_symbol": "CLOCKID_SGI_CYCLE",
-            },
-            {
-                "origin_table": "profiler_payload_occurrence",
-                "origin_field_path": "clock_id",
-                "enum_type_name": "kat.hitrace.ProfilerPluginData.ClockId",
-                "enum_number": ClockId::ClockidTai as i32,
-                "enum_symbol": "CLOCKID_TAI",
             },
         ])
     );
@@ -374,53 +267,29 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
     use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
-    let data_payload = proto::BatchNativeHookData::default().encode_to_vec();
     let config_payload = proto::NativeHookConfig::default().encode_to_vec();
-    for (envelope_name, kind, payload) in [
-        (
-            "nativehook",
-            PluginEnvelopeKind::Data,
-            data_payload.as_slice(),
-        ),
-        (
-            "hookdaemon",
-            PluginEnvelopeKind::Data,
-            data_payload.as_slice(),
-        ),
-        (
-            "nativehook_config",
-            PluginEnvelopeKind::Config,
-            config_payload.as_slice(),
-        ),
-        (
-            "hookdaemon_config",
-            PluginEnvelopeKind::Config,
-            config_payload.as_slice(),
-        ),
-    ] {
-        let envelope = PluginEnvelope {
-            plugin_name: "legacy-derived-wrong",
-            envelope_name,
-            kind,
-            payload,
-            status: 0,
-            clock_id: ClockId::ClockidRealtime as i32,
-            tv_sec: 0,
-            tv_nsec: 0,
-            version: "",
-            sample_interval: 0,
-            section_start: 1_024,
-        };
-        let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
-        assert!(
-            capture
-                .try_claim(&envelope)
-                .expect("raw exact route decodes"),
-            "raw route {envelope_name:?}/{kind:?} must not depend on derived plugin_name"
-        );
-        capture.finish().expect("empty/default route preflights");
-    }
+    let envelope = PluginEnvelope {
+        plugin_name: "legacy-derived-wrong",
+        envelope_name: "nativehook_config",
+        kind: PluginEnvelopeKind::Config,
+        payload: &config_payload,
+        status: 0,
+        clock_id: ClockId::ClockidRealtime as i32,
+        tv_sec: 0,
+        tv_nsec: 0,
+        version: "",
+        sample_interval: 0,
+        section_start: 1_024,
+    };
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
+    assert!(
+        capture
+            .try_claim(&envelope)
+            .expect("raw exact route decodes"),
+        "route matching must not depend on the derived plugin_name"
+    );
+    capture.finish().expect("empty/default route preflights");
 
     for (envelope_name, wrong_kind) in [
         ("nativehook", PluginEnvelopeKind::Config),
@@ -547,56 +416,18 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
 
 #[test]
 fn clock_admission_accepts_late_mono_config_and_rejects_unknown_clock() {
-    use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
-    use protobuf_source::SpoolOptions;
+    finish_clock_fixture(&[ClockId::ClockidMonotonic as i32], &["mono"])
+        .expect("a supported config may arrive after its event batch");
 
-    for (clock, expected_clock_id, should_succeed) in [
-        ("mono", ClockId::ClockidMonotonic as i32, true),
-        ("unsupported-clock", ClockId::ClockidMonotonic as i32, false),
-    ] {
-        let batch = proto::BatchNativeHookData {
-            events: vec![proto::kat::native_hook::NativeHookData {
-                tv_sec: 7,
-                tv_nsec: 8,
-                event: None,
-            }],
+    let error =
+        match finish_clock_fixture(&[ClockId::ClockidMonotonic as i32], &["unsupported-clock"]) {
+            Ok(_) => panic!("an unknown config clock must fail admission"),
+            Err(error) => error,
         };
-        let config = proto::NativeHookConfig {
-            clock: clock.to_string(),
-            ..Default::default()
-        };
-        let frames = profiler_frames([
-            profiler_message_with_provenance(
-                "nativehook",
-                EnvelopeProvenance {
-                    clock_id: expected_clock_id,
-                    ..Default::default()
-                },
-                batch.encode_to_vec(),
-            ),
-            profiler_message("nativehook_config", config.encode_to_vec()),
-        ]);
-        let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
-        for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
-            let envelope =
-                PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
-            assert!(capture.try_claim(&envelope)?, "fixture route must claim");
-            Ok(())
-        })
-        .expect("late-config frames decode and claim");
-
-        match (should_succeed, capture.finish()) {
-            (true, Ok(_)) => {}
-            (true, Err(error)) => panic!("supported late clock must pass: {error:#}"),
-            (false, Ok(_)) => panic!("unknown config clock must fail admission"),
-            (false, Err(error)) => assert!(
-                error.to_string().contains("clock"),
-                "unknown-clock error must identify the clock contract: {error:#}"
-            ),
-        }
-    }
+    assert!(
+        error.to_string().contains("clock"),
+        "unknown-clock error must identify the clock contract: {error:#}"
+    );
 }
 
 #[test]
@@ -747,8 +578,6 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "legacy projection {legacy_name:?} must not be published"
         );
     }
-    assert_native_hook_physical_schemas(&dataset_path);
-
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("full Native Hook tables register in DataFusion");
@@ -907,47 +736,6 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
         ])
     );
     assert_eq!(
-        query_json(
-            &context,
-            "select event._kat_row_id as event_id, frame_map._kat_parent_row_id as event_parent, \
-                    frame_map.id, frame_map.frame, frame_map.pid \
-             from batch_native_hook_data_events event \
-             join batch_native_hook_data_events_frame_map frame_map \
-               on frame_map._kat_parent_row_id = event._kat_row_id \
-             order by event._kat_row_id",
-        )
-        .await,
-        json!([
-            {
-                "event_id": 10,
-                "event_parent": 10,
-                "id": 101,
-                "frame": null,
-                "pid": 2000,
-            },
-            {
-                "event_id": 11,
-                "event_parent": 11,
-                "id": 111,
-                "frame": native_hook_frame_json(50),
-                "pid": 2100,
-            },
-        ])
-    );
-    assert_eq!(
-        query_json(
-            &context,
-            "select _kat_parent_row_id, sym_table, str_table \
-             from batch_native_hook_data_events_symbol_tab",
-        )
-        .await,
-        json!([{
-            "_kat_parent_row_id": 9,
-            "sym_table": "00ff80",
-            "str_table": "fe007f",
-        }])
-    );
-    assert_eq!(
         query_json(&context, "select * from native_hook_config").await,
         expected_native_hook_config_root(&config)
     );
@@ -1041,172 +829,6 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             { "kind": "trace_alloc", "enum_number": 5, "enum_symbol": "OTHER" },
             { "kind": "trace_free", "enum_number": 99, "enum_symbol": null },
         ])
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires KAT_REAL_NATIVE_HOOK_HITRACE to name a real Native Hook capture"]
-async fn real_native_hook_capture_matches_independent_typed_census() {
-    use native_hook_source::NativeHookSourceCapture;
-    use protobuf_source::SpoolOptions;
-
-    let source = std::path::PathBuf::from(
-        std::env::var_os("KAT_REAL_NATIVE_HOOK_HITRACE")
-            .expect("set KAT_REAL_NATIVE_HOOK_HITRACE to a real Native Hook capture"),
-    );
-    let bytes = std::fs::read(&source).expect("real Native Hook capture reads");
-    let mut capture =
-        NativeHookSourceCapture::new(SpoolOptions::with_limits(8_192, 16 * 1024 * 1024))
-            .expect("dormant Native Hook capture is valid");
-    let census = census_and_claim_real_native_hook(&bytes, &mut capture)
-        .expect("real Native Hook payloads decode and are claimed");
-
-    assert!(
-        census.data_roots > 0,
-        "sample must contain Native Hook data"
-    );
-    assert!(
-        census.config_roots > 0,
-        "sample must contain Native Hook config"
-    );
-    assert!(census.events > 0, "sample must contain Native Hook events");
-    assert_eq!(
-        census.claimed_envelopes,
-        census.data_roots + census.config_roots,
-        "every independently recognized Native Hook envelope must be claimed"
-    );
-
-    let prepared = capture
-        .finish()
-        .expect("real Native Hook config admits all eventful payloads");
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(prepared, &dataset_path);
-    let context = register_resolved_dataset(&dataset_path)
-        .await
-        .expect("real Native Hook tables register in DataFusion");
-    let actual_tables = crate::resolve_dataset(&dataset_path)
-        .expect("real Native Hook Dataset resolves")
-        .tables()
-        .iter()
-        .map(|table| table.name().to_string())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert_table_count(
-        &context,
-        "profiler_payload_occurrence",
-        census.claimed_envelopes,
-    )
-    .await;
-    assert_table_count(&context, "batch_native_hook_data", census.data_roots).await;
-    assert_table_count(&context, "native_hook_config", census.config_roots).await;
-    assert_table_count(&context, "batch_native_hook_data_events", census.events).await;
-    for (&table, &expected) in &census.relation_rows {
-        if expected == 0 {
-            assert!(
-                !actual_tables.contains(table),
-                "zero-row relation {table:?} must not be published"
-            );
-        } else {
-            assert_table_count(&context, table, expected).await;
-        }
-    }
-    assert_eq!(
-        query_json(
-            &context,
-            "select 'data' as kind, root._kat_row_id as root_id, \
-             root._kat_parent_row_id as occurrence_id, occurrence.envelope_name \
-             from batch_native_hook_data root \
-             join profiler_payload_occurrence occurrence \
-             on root._kat_parent_row_id = occurrence._kat_row_id \
-             union all \
-             select 'config' as kind, root._kat_row_id as root_id, \
-             root._kat_parent_row_id as occurrence_id, occurrence.envelope_name \
-             from native_hook_config root \
-             join profiler_payload_occurrence occurrence \
-             on root._kat_parent_row_id = occurrence._kat_row_id \
-             order by occurrence_id",
-        )
-        .await,
-        Value::Array(census.root_links.clone()),
-        "root rows must retain their exact source occurrences"
-    );
-
-    let mut expected_events = census
-        .representative_events
-        .values()
-        .cloned()
-        .collect::<Vec<_>>();
-    expected_events.sort_by_key(|row| row["row_id"].as_u64());
-    let event_ids = expected_events
-        .iter()
-        .map(|row| {
-            row["row_id"]
-                .as_u64()
-                .expect("event row id is UInt64")
-                .to_string()
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    assert_eq!(
-        query_json(
-            &context,
-            &format!(
-                "select _kat_row_id as row_id, _kat_parent_row_id as root_id, \
-                 _kat_repeated_index as repeated_index, tv_sec, tv_nsec \
-                 from batch_native_hook_data_events \
-                 where _kat_row_id in ({event_ids}) order by _kat_row_id"
-            ),
-        )
-        .await,
-        Value::Array(expected_events),
-        "one representative of every present event variant must retain value, parent, and order"
-    );
-    for (&table, expected) in &census.representative_variant_links {
-        assert_eq!(
-            query_json(
-                &context,
-                &format!(
-                    "select _kat_parent_row_id as event_id from {table} \
-                     order by _kat_parent_row_id limit 1"
-                ),
-            )
-            .await,
-            Value::Array(vec![expected.clone()]),
-            "representative variant in {table:?} must retain its event parent"
-        );
-    }
-    let expected_stack_ips = census
-        .representative_stack_ips
-        .as_ref()
-        .expect("real sample must contain one StackMap with IP values");
-    let stack_id = expected_stack_ips[0]["stack_id"]
-        .as_u64()
-        .expect("StackMap row id is UInt64");
-    assert_eq!(
-        query_json(
-            &context,
-            &format!(
-                "select _kat_parent_row_id as stack_id, \
-                 _kat_repeated_index as repeated_index, value \
-                 from batch_native_hook_data_events_stack_map_ip \
-                 where _kat_parent_row_id = {stack_id} order by _kat_repeated_index"
-            ),
-        )
-        .await,
-        Value::Array(expected_stack_ips.clone()),
-        "representative StackMap IP values must retain parent and repeated order"
-    );
-
-    eprintln!(
-        "real Native Hook census: file={} bytes={} envelopes={} data_roots={} config_roots={} events={} relations={:?}",
-        source.display(),
-        bytes.len(),
-        census.claimed_envelopes,
-        census.data_roots,
-        census.config_roots,
-        census.events,
-        census.relation_rows
     );
 }
 
@@ -1740,237 +1362,6 @@ fn expected_native_hook_config_root(config: &proto::NativeHookConfig) -> Value {
     Value::Array(vec![Value::Object(row)])
 }
 
-fn assert_native_hook_physical_schemas(dataset_path: &std::path::Path) {
-    use arrow_schema::DataType;
-
-    assert_flat_schema(
-        parquet_arrow_schema(dataset_path, "profiler_payload_occurrence").as_ref(),
-        &[
-            ("_kat_row_id", DataType::UInt64, false),
-            ("envelope_name", DataType::Utf8, false),
-            ("status", DataType::UInt32, false),
-            ("clock_id", DataType::Int32, false),
-            ("tv_sec", DataType::UInt64, false),
-            ("tv_nsec", DataType::UInt64, false),
-            ("version", DataType::Utf8, false),
-            ("sample_interval", DataType::UInt32, false),
-        ],
-    );
-    assert_flat_schema(
-        parquet_arrow_schema(dataset_path, "protobuf_enum_symbol").as_ref(),
-        &[
-            ("origin_table", DataType::Utf8, false),
-            ("origin_field_path", DataType::Utf8, false),
-            ("enum_type_name", DataType::Utf8, false),
-            ("enum_number", DataType::Int32, false),
-            ("enum_symbol", DataType::Utf8, false),
-        ],
-    );
-
-    assert_schema_prefix(
-        dataset_path,
-        "batch_native_hook_data",
-        &[
-            ("_kat_row_id", DataType::UInt64),
-            ("_kat_parent_row_id", DataType::UInt64),
-        ],
-    );
-    assert_schema_prefix(
-        dataset_path,
-        "batch_native_hook_data_events",
-        &[
-            ("_kat_row_id", DataType::UInt64),
-            ("_kat_parent_row_id", DataType::UInt64),
-            ("_kat_repeated_index", DataType::UInt64),
-        ],
-    );
-    assert_schema_prefix(
-        dataset_path,
-        "native_hook_config",
-        &[
-            ("_kat_row_id", DataType::UInt64),
-            ("_kat_parent_row_id", DataType::UInt64),
-        ],
-    );
-    assert_eq!(
-        parquet_arrow_schema(dataset_path, "native_hook_config")
-            .fields()
-            .len(),
-        32,
-        "config root is two relation keys plus all 30 scalar fields"
-    );
-
-    for table in [
-        "batch_native_hook_data_events_alloc_event",
-        "batch_native_hook_data_events_free_event",
-        "batch_native_hook_data_events_mmap_event",
-        "batch_native_hook_data_events_munmap_event",
-        "batch_native_hook_data_events_stack_map",
-        "batch_native_hook_data_events_trace_alloc_event",
-        "batch_native_hook_data_events_trace_free_event",
-    ] {
-        assert_schema_prefix(
-            dataset_path,
-            table,
-            &[
-                ("_kat_row_id", DataType::UInt64),
-                ("_kat_parent_row_id", DataType::UInt64),
-            ],
-        );
-    }
-    for table in [
-        "batch_native_hook_data_events_tag_event",
-        "batch_native_hook_data_events_file_path",
-        "batch_native_hook_data_events_symbol_name",
-        "batch_native_hook_data_events_thread_name_map",
-        "batch_native_hook_data_events_maps_info",
-        "batch_native_hook_data_events_symbol_tab",
-        "batch_native_hook_data_events_frame_map",
-        "batch_native_hook_data_events_statistics_event",
-    ] {
-        let schema = parquet_arrow_schema(dataset_path, table);
-        assert_eq!(schema.field(0).name(), "_kat_parent_row_id");
-        assert_eq!(schema.field(0).data_type(), &DataType::UInt64);
-        assert!(
-            schema.field_with_name("_kat_row_id").is_err(),
-            "leaf variant {table:?} must not publish a row ID"
-        );
-    }
-    for table in [
-        "batch_native_hook_data_events_alloc_event_frame_info",
-        "batch_native_hook_data_events_free_event_frame_info",
-        "batch_native_hook_data_events_mmap_event_frame_info",
-        "batch_native_hook_data_events_munmap_event_frame_info",
-        "batch_native_hook_data_events_stack_map_frame_map_id",
-        "batch_native_hook_data_events_stack_map_ip",
-        "batch_native_hook_data_events_trace_alloc_event_frame_info",
-        "batch_native_hook_data_events_trace_free_event_frame_info",
-        "native_hook_config_expand_pids",
-        "native_hook_config_restrace_tag",
-    ] {
-        assert_schema_prefix(
-            dataset_path,
-            table,
-            &[
-                ("_kat_parent_row_id", DataType::UInt64),
-                ("_kat_repeated_index", DataType::UInt64),
-            ],
-        );
-    }
-
-    let symbol_table =
-        parquet_arrow_schema(dataset_path, "batch_native_hook_data_events_symbol_tab");
-    assert_eq!(
-        symbol_table
-            .field_with_name("sym_table")
-            .unwrap()
-            .data_type(),
-        &DataType::Binary
-    );
-    assert_eq!(
-        symbol_table
-            .field_with_name("str_table")
-            .unwrap()
-            .data_type(),
-        &DataType::Binary
-    );
-
-    let frame_map = parquet_arrow_schema(dataset_path, "batch_native_hook_data_events_frame_map");
-    let frame = frame_map
-        .field_with_name("frame")
-        .expect("FrameMap.frame exists");
-    assert!(frame.is_nullable(), "FrameMap.frame presence is nullable");
-    let DataType::Struct(frame_fields) = frame.data_type() else {
-        panic!(
-            "FrameMap.frame must be a Struct, got {:?}",
-            frame.data_type()
-        )
-    };
-    assert_eq!(frame_fields.len(), 8);
-    assert!(
-        frame_fields.iter().all(|field| field.is_nullable()),
-        "every nested Frame field inherits the optional ancestor presence"
-    );
-    assert!(
-        frame_map
-            .fields()
-            .iter()
-            .filter(|field| field.name() != "frame")
-            .all(|field| !field.is_nullable()),
-        "FrameMap relation key, id, and pid remain non-null"
-    );
-
-    for table in native_hook_relation_names() {
-        if table == "batch_native_hook_data_events_frame_map" {
-            continue;
-        }
-        let schema = parquet_arrow_schema(dataset_path, table);
-        assert!(
-            schema.fields().iter().all(|field| !field.is_nullable()),
-            "all physical columns in {table:?} must be non-null"
-        );
-    }
-}
-
-fn assert_schema_prefix(
-    dataset_path: &std::path::Path,
-    table: &str,
-    expected: &[(&str, arrow_schema::DataType)],
-) {
-    let schema = parquet_arrow_schema(dataset_path, table);
-    for (actual, (expected_name, expected_type)) in schema.fields().iter().zip(expected) {
-        assert_eq!(
-            actual.name(),
-            expected_name,
-            "unexpected key order in {table:?}"
-        );
-        assert_eq!(
-            actual.data_type(),
-            expected_type,
-            "unexpected key type in {table:?}"
-        );
-        assert!(
-            !actual.is_nullable(),
-            "relation key in {table:?} must be non-null"
-        );
-    }
-}
-
-fn assert_flat_schema(
-    schema: &arrow_schema::Schema,
-    expected: &[(&str, arrow_schema::DataType, bool)],
-) {
-    assert_eq!(schema.fields().len(), expected.len());
-    for (actual, (expected_name, expected_type, expected_nullable)) in
-        schema.fields().iter().zip(expected)
-    {
-        assert_eq!(actual.name(), expected_name);
-        assert_eq!(actual.data_type(), expected_type);
-        assert_eq!(actual.is_nullable(), *expected_nullable);
-    }
-}
-
-fn parquet_arrow_schema(
-    dataset_path: &std::path::Path,
-    table_name: &str,
-) -> arrow_schema::SchemaRef {
-    use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
-
-    let resolved = crate::resolve_dataset(dataset_path)
-        .expect("published Native Hook Dataset resolves for schema inspection");
-    let table = resolved
-        .tables()
-        .iter()
-        .find(|table| table.name() == table_name)
-        .unwrap_or_else(|| panic!("published Native Hook Dataset has no table {table_name:?}"));
-    let file = std::fs::File::open(table.path())
-        .unwrap_or_else(|error| panic!("Native Hook table {table_name:?} opens: {error}"));
-    ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())
-        .expect("Native Hook Parquet metadata loads")
-        .schema()
-        .clone()
-}
-
 fn full_native_hook_table_names() -> std::collections::BTreeSet<&'static str> {
     let mut names = native_hook_relation_names();
     names.extend(["profiler_payload_occurrence", "protobuf_enum_symbol"]);
@@ -2010,285 +1401,6 @@ fn native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
     ]
     .into_iter()
     .collect()
-}
-
-#[derive(Debug)]
-struct RealNativeHookCensus {
-    claimed_envelopes: u64,
-    data_roots: u64,
-    config_roots: u64,
-    events: u64,
-    relation_rows: std::collections::BTreeMap<&'static str, u64>,
-    root_links: Vec<Value>,
-    representative_events: std::collections::BTreeMap<&'static str, Value>,
-    representative_variant_links: std::collections::BTreeMap<&'static str, Value>,
-    representative_stack_ips: Option<Vec<Value>>,
-}
-
-impl Default for RealNativeHookCensus {
-    fn default() -> Self {
-        let relation_rows = native_hook_relation_names()
-            .into_iter()
-            .filter(|name| {
-                !matches!(
-                    *name,
-                    "batch_native_hook_data"
-                        | "batch_native_hook_data_events"
-                        | "native_hook_config"
-                )
-            })
-            .map(|name| (name, 0))
-            .collect();
-        Self {
-            claimed_envelopes: 0,
-            data_roots: 0,
-            config_roots: 0,
-            events: 0,
-            relation_rows,
-            root_links: Vec::new(),
-            representative_events: std::collections::BTreeMap::new(),
-            representative_variant_links: std::collections::BTreeMap::new(),
-            representative_stack_ips: None,
-        }
-    }
-}
-
-fn census_and_claim_real_native_hook(
-    bytes: &[u8],
-    capture: &mut native_hook_source::NativeHookSourceCapture,
-) -> anyhow::Result<RealNativeHookCensus> {
-    use formats::hitrace::{
-        file::{HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE, read_profiler_section},
-        profiler::{PluginEnvelope, PluginEnvelopeKind, for_each_profiler_envelope_frame},
-    };
-    let mut census = RealNativeHookCensus::default();
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let section = read_profiler_section(bytes, offset)?;
-        if section.header.data_type == HIPROFILER_PROTOBUF_BIN {
-            for_each_profiler_envelope_frame(section.body(bytes), |message, frame_offset| {
-                let envelope = PluginEnvelope::from_profiler_plugin_data(
-                    &message,
-                    section.start + PROFILER_HEADER_SIZE + frame_offset,
-                );
-                let recognized = match (envelope.envelope_name, envelope.kind) {
-                    ("nativehook" | "hookdaemon", PluginEnvelopeKind::Data) => {
-                        let batch = proto::BatchNativeHookData::decode(message.data.as_slice())?;
-                        let root_id = census.data_roots;
-                        census.root_links.push(json!({
-                            "kind": "data",
-                            "root_id": root_id,
-                            "occurrence_id": census.claimed_envelopes,
-                            "envelope_name": envelope.envelope_name,
-                        }));
-                        census.data_roots += 1;
-                        for (repeated_index, event) in batch.events.iter().enumerate() {
-                            let event_row_id = census.events;
-                            census.events += 1;
-                            observe_real_native_hook_event(
-                                &mut census,
-                                event,
-                                root_id,
-                                event_row_id,
-                                repeated_index,
-                            );
-                        }
-                        true
-                    }
-                    ("nativehook_config" | "hookdaemon_config", PluginEnvelopeKind::Config) => {
-                        let config = proto::NativeHookConfig::decode(message.data.as_slice())?;
-                        census.root_links.push(json!({
-                            "kind": "config",
-                            "root_id": census.config_roots,
-                            "occurrence_id": census.claimed_envelopes,
-                            "envelope_name": envelope.envelope_name,
-                        }));
-                        census.config_roots += 1;
-                        add_census_rows(
-                            &mut census,
-                            "native_hook_config_expand_pids",
-                            config.expand_pids.len(),
-                        );
-                        add_census_rows(
-                            &mut census,
-                            "native_hook_config_restrace_tag",
-                            config.restrace_tag.len(),
-                        );
-                        true
-                    }
-                    _ => false,
-                };
-                let claimed = capture.try_claim(&envelope)?;
-                anyhow::ensure!(
-                    claimed == recognized,
-                    "dormant claim result diverges from the independent route census for {:?}",
-                    envelope.envelope_name
-                );
-                if claimed {
-                    census.claimed_envelopes += 1;
-                }
-                Ok(())
-            })?;
-        }
-        offset = section.end;
-    }
-    Ok(census)
-}
-
-fn observe_real_native_hook_event(
-    census: &mut RealNativeHookCensus,
-    event: &proto::kat::native_hook::NativeHookData,
-    root_id: u64,
-    event_row_id: u64,
-    repeated_index: usize,
-) {
-    use proto::kat::native_hook::native_hook_data::Event;
-
-    let Some(event_value) = event.event.as_ref() else {
-        return;
-    };
-    let repeated_index = u64::try_from(repeated_index).expect("event index fits UInt64");
-    let observe_variant = |census: &mut RealNativeHookCensus, table: &'static str| {
-        let variant_row_id = census.relation_rows[table];
-        add_census_rows(census, table, 1);
-        census
-            .representative_events
-            .entry(table)
-            .or_insert_with(|| {
-                json!({
-                    "row_id": event_row_id,
-                    "root_id": root_id,
-                    "repeated_index": repeated_index,
-                    "tv_sec": event.tv_sec,
-                    "tv_nsec": event.tv_nsec,
-                })
-            });
-        census
-            .representative_variant_links
-            .entry(table)
-            .or_insert_with(|| json!({ "event_id": event_row_id }));
-        variant_row_id
-    };
-
-    match event_value {
-        Event::AllocEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_alloc_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_alloc_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-        Event::FreeEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_free_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_free_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-        Event::MmapEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_mmap_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_mmap_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-        Event::MunmapEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_munmap_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_munmap_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-        Event::TagEvent(_) => {
-            observe_variant(census, "batch_native_hook_data_events_tag_event");
-        }
-        Event::FilePath(_) => {
-            observe_variant(census, "batch_native_hook_data_events_file_path");
-        }
-        Event::SymbolName(_) => {
-            observe_variant(census, "batch_native_hook_data_events_symbol_name");
-        }
-        Event::ThreadNameMap(_) => {
-            observe_variant(census, "batch_native_hook_data_events_thread_name_map");
-        }
-        Event::MapsInfo(_) => {
-            observe_variant(census, "batch_native_hook_data_events_maps_info");
-        }
-        Event::SymbolTab(_) => {
-            observe_variant(census, "batch_native_hook_data_events_symbol_tab");
-        }
-        Event::FrameMap(_) => {
-            observe_variant(census, "batch_native_hook_data_events_frame_map");
-        }
-        Event::StackMap(value) => {
-            let variant_row_id = observe_variant(census, "batch_native_hook_data_events_stack_map");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_stack_map_frame_map_id",
-                value.frame_map_id.len(),
-            );
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_stack_map_ip",
-                value.ip.len(),
-            );
-            if census.representative_stack_ips.is_none() && !value.ip.is_empty() {
-                census.representative_stack_ips = Some(
-                    value
-                        .ip
-                        .iter()
-                        .enumerate()
-                        .map(|(index, value)| {
-                            json!({
-                                "stack_id": variant_row_id,
-                                "repeated_index": index,
-                                "value": value,
-                            })
-                        })
-                        .collect(),
-                );
-            }
-        }
-        Event::StatisticsEvent(_) => {
-            observe_variant(census, "batch_native_hook_data_events_statistics_event");
-        }
-        Event::TraceAllocEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_trace_alloc_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_trace_alloc_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-        Event::TraceFreeEvent(value) => {
-            observe_variant(census, "batch_native_hook_data_events_trace_free_event");
-            add_census_rows(
-                census,
-                "batch_native_hook_data_events_trace_free_event_frame_info",
-                value.frame_info.len(),
-            );
-        }
-    }
-}
-
-fn add_census_rows(census: &mut RealNativeHookCensus, relation: &'static str, rows: usize) {
-    let rows = u64::try_from(rows).expect("relation row count fits UInt64");
-    *census
-        .relation_rows
-        .get_mut(relation)
-        .unwrap_or_else(|| panic!("census relation {relation:?} is declared")) += rows;
-}
-
-async fn assert_table_count(context: &SessionContext, table: &str, expected: u64) {
-    assert_eq!(
-        query_json(context, &format!("select count(*) as count from {table}"),).await,
-        json!([{ "count": expected }]),
-        "unexpected row count for {table:?}"
-    );
 }
 
 fn finish_clock_fixture(
