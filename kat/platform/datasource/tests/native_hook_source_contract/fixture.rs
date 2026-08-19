@@ -1,6 +1,51 @@
 use crate::proto;
 use prost::Message;
 
+pub(super) fn full_native_hook_table_names() -> std::collections::BTreeSet<&'static str> {
+    [
+        "batch_native_hook_data",
+        "batch_native_hook_data_events",
+        "batch_native_hook_data_events_alloc_event",
+        "batch_native_hook_data_events_alloc_event_frame_info",
+        "batch_native_hook_data_events_free_event",
+        "batch_native_hook_data_events_free_event_frame_info",
+        "batch_native_hook_data_events_mmap_event",
+        "batch_native_hook_data_events_mmap_event_frame_info",
+        "batch_native_hook_data_events_munmap_event",
+        "batch_native_hook_data_events_munmap_event_frame_info",
+        "batch_native_hook_data_events_tag_event",
+        "batch_native_hook_data_events_file_path",
+        "batch_native_hook_data_events_symbol_name",
+        "batch_native_hook_data_events_thread_name_map",
+        "batch_native_hook_data_events_maps_info",
+        "batch_native_hook_data_events_symbol_tab",
+        "batch_native_hook_data_events_frame_map",
+        "batch_native_hook_data_events_stack_map",
+        "batch_native_hook_data_events_stack_map_frame_map_id",
+        "batch_native_hook_data_events_stack_map_ip",
+        "batch_native_hook_data_events_statistics_event",
+        "batch_native_hook_data_events_trace_alloc_event",
+        "batch_native_hook_data_events_trace_alloc_event_frame_info",
+        "batch_native_hook_data_events_trace_free_event",
+        "batch_native_hook_data_events_trace_free_event_frame_info",
+        "native_hook_config",
+        "native_hook_config_expand_pids",
+        "native_hook_config_restrace_tag",
+        "profiler_payload_occurrence",
+        "protobuf_enum_symbol",
+    ]
+    .into_iter()
+    .collect()
+}
+
+#[allow(dead_code)]
+pub(super) fn native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
+    let mut names = full_native_hook_table_names();
+    names.remove("profiler_payload_occurrence");
+    names.remove("protobuf_enum_symbol");
+    names
+}
+
 pub(super) fn profiler_section(
     envelopes: impl IntoIterator<Item = proto::kat::hitrace::ProfilerPluginData>,
 ) -> Vec<u8> {

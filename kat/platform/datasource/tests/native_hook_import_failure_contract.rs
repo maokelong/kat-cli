@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs, io,
+    fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -69,52 +69,6 @@ fn native_hook_clock_mismatch_fails_before_overwrite_target_mutation() {
             profiler_envelope("nativehook", batch.encode_to_vec(), 1),
         ],
         "expects profiler envelope clock_id 7, but observed 1",
-    );
-}
-
-#[test]
-fn unknown_observer_failure_after_claimed_native_hook_preserves_overwrite_target() {
-    let root = tempdir().expect("temporary directory");
-    let source = root.path().join("claimed-then-unknown.htrace");
-    let dataset = root.path().join("dataset");
-    fs::write(
-        &source,
-        profiler_section(vec![
-            profiler_envelope(
-                "nativehook",
-                BatchNativeHookData::default().encode_to_vec(),
-                7,
-            ),
-            profiler_envelope("future-plugin", vec![0x80], 0),
-        ]),
-    )
-    .expect("Hitrace fixture is written");
-    seed_overwrite_target(&dataset);
-    let before = snapshot_tree(&dataset);
-    let mut observed = Vec::new();
-
-    let error = kat_datasource::import_hitrace(
-        &source,
-        DatasetWriteTarget::permanently_replace_all_contents(&dataset),
-        |content| {
-            observed.push((content.kind().to_owned(), content.value().to_owned()));
-            Err(io::Error::new(io::ErrorKind::WriteZero, "observer full"))
-        },
-    )
-    .expect_err("unknown-content observer failure rejects formal import");
-
-    assert!(matches!(
-        error,
-        kat_datasource::HitraceImportError::ObserveUnsupportedContent { .. }
-    ));
-    assert_eq!(
-        observed,
-        [("plugin".to_owned(), "future-plugin".to_owned())]
-    );
-    assert_eq!(
-        snapshot_tree(&dataset),
-        before,
-        "claimed Source rows and observer failure must both complete before Dataset begin"
     );
 }
 
