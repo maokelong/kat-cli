@@ -15,7 +15,10 @@ use proto::kat::hitrace::profiler_plugin_data::ClockId;
 #[allow(dead_code)]
 #[path = "../native_hook_source_contract/fixture.rs"]
 mod native_hook_fixture;
-use native_hook_fixture::{full_native_hook_batches, full_native_hook_config, native_hook_frame};
+use native_hook_fixture::{
+    full_native_hook_batches, full_native_hook_config, full_native_hook_table_names,
+    native_hook_frame, native_hook_relation_names,
+};
 
 mod real_sample;
 
@@ -1126,47 +1129,6 @@ fn expected_native_hook_config_root(config: &proto::NativeHookConfig) -> Value {
     row.insert("_kat_row_id".to_string(), json!(0));
     row.insert("_kat_parent_row_id".to_string(), json!(2));
     Value::Array(vec![Value::Object(row)])
-}
-
-fn full_native_hook_table_names() -> std::collections::BTreeSet<&'static str> {
-    let mut names = native_hook_relation_names();
-    names.extend(["profiler_payload_occurrence", "protobuf_enum_symbol"]);
-    names
-}
-
-fn native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
-    [
-        "batch_native_hook_data",
-        "batch_native_hook_data_events",
-        "batch_native_hook_data_events_alloc_event",
-        "batch_native_hook_data_events_alloc_event_frame_info",
-        "batch_native_hook_data_events_free_event",
-        "batch_native_hook_data_events_free_event_frame_info",
-        "batch_native_hook_data_events_mmap_event",
-        "batch_native_hook_data_events_mmap_event_frame_info",
-        "batch_native_hook_data_events_munmap_event",
-        "batch_native_hook_data_events_munmap_event_frame_info",
-        "batch_native_hook_data_events_tag_event",
-        "batch_native_hook_data_events_file_path",
-        "batch_native_hook_data_events_symbol_name",
-        "batch_native_hook_data_events_thread_name_map",
-        "batch_native_hook_data_events_maps_info",
-        "batch_native_hook_data_events_symbol_tab",
-        "batch_native_hook_data_events_frame_map",
-        "batch_native_hook_data_events_stack_map",
-        "batch_native_hook_data_events_stack_map_frame_map_id",
-        "batch_native_hook_data_events_stack_map_ip",
-        "batch_native_hook_data_events_statistics_event",
-        "batch_native_hook_data_events_trace_alloc_event",
-        "batch_native_hook_data_events_trace_alloc_event_frame_info",
-        "batch_native_hook_data_events_trace_free_event",
-        "batch_native_hook_data_events_trace_free_event_frame_info",
-        "native_hook_config",
-        "native_hook_config_expand_pids",
-        "native_hook_config_restrace_tag",
-    ]
-    .into_iter()
-    .collect()
 }
 
 fn finish_clock_fixture(
