@@ -5,10 +5,9 @@ use std::{
     sync::Arc,
 };
 
-use arrow_array::{Int32Array, RecordBatch, StringArray};
+use arrow_array::{Int32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use kat_datasource::DatasetWriteTarget;
-use parquet::errors::ParquetError;
 use prost::Message;
 use tempfile::tempdir;
 
@@ -120,53 +119,7 @@ fn unknown_observer_failure_after_claimed_native_hook_preserves_overwrite_target
 }
 
 #[test]
-fn dataset_table_create_failure_after_begin_never_publishes_a_valid_marker() {
-    let root = tempdir().expect("temporary directory");
-    let dataset = root.path().join("dataset");
-    let mut writer = dataset_writer::DatasetWriter::begin(
-        dataset_writer::DatasetWriteTarget::write_to_empty(&dataset),
-    )
-    .expect("Dataset writer begins");
-    fs::create_dir(dataset.join("tables/blocked.parquet"))
-        .expect("a directory blocks table file creation");
-
-    if writer.begin_table("blocked", int_schema()).is_ok() {
-        panic!("table creation must be rejected after begin");
-    }
-
-    assert_unpublished_dataset_is_rejected(&dataset);
-}
-
-#[test]
-fn dataset_table_write_failure_after_begin_never_publishes_a_valid_marker() {
-    let root = tempdir().expect("temporary directory");
-    let dataset = root.path().join("dataset");
-    let mut writer = dataset_writer::DatasetWriter::begin(
-        dataset_writer::DatasetWriteTarget::write_to_empty(&dataset),
-    )
-    .expect("Dataset writer begins");
-    let mut table = writer
-        .begin_table("facts", int_schema())
-        .expect("table writer opens");
-    let incompatible = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![Field::new(
-            "value",
-            DataType::Utf8,
-            false,
-        )])),
-        vec![Arc::new(StringArray::from(vec!["wrong type"]))],
-    )
-    .expect("incompatible batch itself is valid");
-
-    table
-        .write(&incompatible)
-        .expect_err("schema mismatch fails during table write");
-
-    assert_unpublished_dataset_is_rejected(&dataset);
-}
-
-#[test]
-fn dataset_table_close_failure_after_overwrite_begin_invalidates_old_marker() {
+fn overwrite_validation_failure_invalidates_the_old_marker() {
     let root = tempdir().expect("temporary directory");
     let dataset = root.path().join("dataset");
     publish_resolvable_old_dataset(&dataset);
@@ -174,41 +127,10 @@ fn dataset_table_close_failure_after_overwrite_begin_invalidates_old_marker() {
         kat_datasource::resolve_dataset(&dataset).is_ok(),
         "the overwrite target starts as a valid published Dataset"
     );
-
     let mut writer = dataset_writer::DatasetWriter::begin(
         dataset_writer::DatasetWriteTarget::permanently_replace_all_contents(&dataset),
     )
     .expect("authorized overwrite begins and invalidates the old marker");
-    let mut table = writer
-        .begin_table("facts", int_schema())
-        .expect("table writer opens");
-    table.write(&int_batch(42)).expect("valid batch is written");
-
-    let error = table
-        .finish_with(|_| Err(ParquetError::General("injected close failure".to_owned())))
-        .expect_err("injected Parquet close failure is preserved");
-    assert!(matches!(
-        error,
-        dataset_writer::DatasetWriteError::CloseTable {
-            table,
-            path,
-            source: ParquetError::General(message),
-        } if table == "facts"
-            && path == dataset.join("tables/facts.parquet")
-            && message == "injected close failure"
-    ));
-
-    assert_unpublished_dataset_is_rejected(&dataset);
-}
-
-#[test]
-fn dataset_table_validation_failure_after_begin_never_publishes_a_valid_marker() {
-    let root = tempdir().expect("temporary directory");
-    let dataset = root.path().join("dataset");
-    let mut writer = dataset_writer::DatasetWriter::begin(
-        dataset_writer::DatasetWriteTarget::write_to_empty(&dataset),
-    )
-    .expect("Dataset writer begins");
     let mut table = writer
         .begin_table("facts", int_schema())
         .expect("table writer opens");

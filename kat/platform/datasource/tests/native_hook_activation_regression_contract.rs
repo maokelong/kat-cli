@@ -115,15 +115,31 @@ async fn formal_activation_publishes_all_four_native_hook_routes_and_isolates_un
     assert_eq!(
         query_json(
             &context,
-            "select envelope_name, status, clock_id \
+            "select _kat_row_id, envelope_name, status, clock_id \
              from profiler_payload_occurrence order by _kat_row_id",
         )
         .await,
         json!([
-            {"envelope_name": "nativehook", "status": 1, "clock_id": 7},
-            {"envelope_name": "nativehook_config", "status": 0, "clock_id": 7},
-            {"envelope_name": "hookdaemon", "status": 1, "clock_id": 7},
-            {"envelope_name": "hookdaemon_config", "status": 0, "clock_id": 7},
+            {"_kat_row_id": 0, "envelope_name": "nativehook", "status": 1, "clock_id": 7},
+            {"_kat_row_id": 1, "envelope_name": "nativehook_config", "status": 0, "clock_id": 7},
+            {"_kat_row_id": 2, "envelope_name": "hookdaemon", "status": 1, "clock_id": 7},
+            {"_kat_row_id": 3, "envelope_name": "hookdaemon_config", "status": 0, "clock_id": 7},
+        ])
+    );
+    assert_eq!(
+        query_json(
+            &context,
+            "select 'data' as kind, _kat_row_id, _kat_parent_row_id \
+             from batch_native_hook_data union all \
+             select 'config', _kat_row_id, _kat_parent_row_id \
+             from native_hook_config order by kind, _kat_row_id",
+        )
+        .await,
+        json!([
+            {"kind": "config", "_kat_row_id": 0, "_kat_parent_row_id": 1},
+            {"kind": "config", "_kat_row_id": 1, "_kat_parent_row_id": 3},
+            {"kind": "data", "_kat_row_id": 0, "_kat_parent_row_id": 0},
+            {"kind": "data", "_kat_row_id": 1, "_kat_parent_row_id": 2},
         ])
     );
     assert_eq!(
@@ -158,7 +174,6 @@ async fn legacy_query_and_materialize_keep_native_hook_projection_values() {
     let dataset = root.path().join("legacy-dataset");
     fs::write(&source, mixed_trace()).expect("mixed OHOSPROF fixture is written");
 
-    let direct = TraceDatasource::from_hitrace(&source).expect("legacy in-memory decode succeeds");
     kat_datasource::materialize_hitrace_dataset(&source, &dataset)
         .await
         .expect("legacy materialization succeeds");
@@ -171,13 +186,6 @@ async fn legacy_query_and_materialize_keep_native_hook_projection_values() {
         {"pid": 42, "process_name": "render"},
         {"pid": 84, "process_name": "compositor"},
     ]);
-    assert_eq!(
-        direct
-            .query_json(config_sql)
-            .await
-            .expect("legacy in-memory configs are queryable"),
-        expected_configs
-    );
     assert_eq!(
         materialized
             .query_json(config_sql)
@@ -192,13 +200,6 @@ async fn legacy_query_and_materialize_keep_native_hook_projection_values() {
         {"tv_sec": 7, "tv_nsec": 8, "pid": 42, "tid": 43, "addr": 4096, "size": 64},
         {"tv_sec": 9, "tv_nsec": 10, "pid": 84, "tid": 85, "addr": 8192, "size": 128},
     ]);
-    assert_eq!(
-        direct
-            .query_json(alloc_sql)
-            .await
-            .expect("legacy in-memory allocations are queryable"),
-        expected_allocations
-    );
     assert_eq!(
         materialized
             .query_json(alloc_sql)

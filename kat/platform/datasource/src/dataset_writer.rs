@@ -177,19 +177,14 @@ impl DatasetTableWriter {
     }
 
     pub(crate) fn finish(self) -> Result<(), DatasetWriteError> {
-        self.finish_with(|writer| writer.close().map(|_| ()))
-    }
-
-    // Parquet close I/O 故障无法跨平台稳定构造；仅隔离 close 调用并让 production 复用同一错误映射。
-    pub(crate) fn finish_with(
-        self,
-        close: impl FnOnce(ArrowWriter<File>) -> Result<(), ParquetError>,
-    ) -> Result<(), DatasetWriteError> {
-        close(self.writer).map_err(|source| DatasetWriteError::CloseTable {
-            table: self.table,
-            path: self.path,
-            source,
-        })
+        self.writer
+            .close()
+            .map_err(|source| DatasetWriteError::CloseTable {
+                table: self.table,
+                path: self.path,
+                source,
+            })?;
+        Ok(())
     }
 }
 

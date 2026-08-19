@@ -24,17 +24,6 @@ pub(super) fn profiler_section(
     bytes
 }
 
-pub(super) fn batches(path: &std::path::Path) -> Vec<arrow_array::RecordBatch> {
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-
-    ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(path).expect("Parquet file opens"))
-        .expect("Parquet metadata reads")
-        .build()
-        .expect("Parquet reader builds")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("Parquet batches read")
-}
-
 pub(super) fn full_native_hook_batches() -> (
     proto::kat::native_hook::BatchNativeHookData,
     proto::kat::native_hook::BatchNativeHookData,

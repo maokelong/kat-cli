@@ -21,27 +21,14 @@ pub(crate) struct NativeHookSourceCapture {
     capture: ProfilerPayloadCapture,
     terminal_error: Option<String>,
     clock_admission: NativeHookClockAdmission,
-    decode_batch: fn(&PluginEnvelope<'_>) -> Result<BatchNativeHookData>,
-    decode_config: fn(&PluginEnvelope<'_>) -> Result<NativeHookConfig>,
 }
 
 impl NativeHookSourceCapture {
     pub(crate) fn new(options: SpoolOptions) -> Result<Self> {
-        Self::with_decoders(options, decode_payload, decode_payload)
-    }
-
-    /// 仅供私有合同验证 typed decode 次数；正式 Import 始终通过 `new` 固定默认 decoder。
-    pub(crate) fn with_decoders(
-        options: SpoolOptions,
-        decode_batch: fn(&PluginEnvelope<'_>) -> Result<BatchNativeHookData>,
-        decode_config: fn(&PluginEnvelope<'_>) -> Result<NativeHookConfig>,
-    ) -> Result<Self> {
         Ok(Self {
             capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options)?,
             terminal_error: None,
             clock_admission: NativeHookClockAdmission::default(),
-            decode_batch,
-            decode_config,
         })
     }
 
@@ -69,7 +56,7 @@ impl NativeHookSourceCapture {
     fn claim(&mut self, root: NativeHookRoot, envelope: &PluginEnvelope<'_>) -> Result<()> {
         match root {
             NativeHookRoot::BatchData => {
-                let value = (self.decode_batch)(envelope)?;
+                let value: BatchNativeHookData = decode_payload(envelope)?;
                 self.capture.append_bound_payload(
                     envelope,
                     &value,
@@ -79,7 +66,7 @@ impl NativeHookSourceCapture {
                     .observe_batch(&value, envelope.clock_id);
             }
             NativeHookRoot::Config => {
-                let value = (self.decode_config)(envelope)?;
+                let value: NativeHookConfig = decode_payload(envelope)?;
                 self.capture.append_bound_payload(
                     envelope,
                     &value,
