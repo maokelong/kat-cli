@@ -20,9 +20,9 @@ Descriptor-derived Source tables 与 `sched_switch` 等规范化 Trace facts 是
 
 选择 build-time relational plan 加 generated typed emitter：planner 只把 reachable descriptor closure 转换为关系计划，该计划是 descriptor-derived payload roots 及 descendants 的 table topology、Schema、emitter 和 enum origin 的唯一映射真相；prost binding 只把计划连接到 generated Rust types，不决定物理 topology；renderer 只根据计划生成 typed field access，不建立第二套映射规则。这使不支持的 reachable shape 及 Schema/binding 不一致在构建期失败，并使运行时无需遍历 descriptor、查找字符串 field path 或构建 generic value tree。runtime descriptor 方案不依赖 generated naming，但会把映射解释和通用值表示带入运行时；手写 Arrow tables 则会让每个 root 的 generated Rust field access、Schema 与写入逻辑各自直接耦合，重复 descriptor 映射规则并增加漂移风险。
 
-Profiler envelope provenance 不扩展成通用 projection language。它由一个私有 capture adapter 在 descriptor-derived layout 外追加固定 occurrence relation，并复用构建期生成的 descriptor enum symbols。Relational plan 与 capture adapter 分别是各自作用域的唯一合同来源；adapter 必须隐藏 relation vector、slot 和 origin 组合，使 Native Hook、ftrace、fixed-result 等 bound roots 只依赖同一 `append bound payload` Interface。这个例外避免把排除 transport `data` 的投影伪装成完整 `ProfilerPluginData` root，也避免为单一固定 provenance 合同扩大 planner 的表达面。
+Profiler envelope provenance 不扩展成通用 projection language。当前 Native Hook capture 由一个私有 capture adapter 在 descriptor-derived layout 外追加固定 occurrence relation，并复用构建期生成的 descriptor enum symbols。Relational plan 与 capture adapter 分别是当前作用域的唯一合同来源；adapter 隐藏 relation vector、slot 和 origin 组合，使 Native Hook bound roots 只依赖 `append bound payload` Interface。这个例外避免把排除 transport `data` 的投影伪装成完整 `ProfilerPluginData` root，也避免为单一固定 provenance 合同扩大 planner 的表达面。其他 profiler roots 是否复用该 adapter，由对应交付根据实际约束决定。
 
-Profiler Source 生成 artifact 按共享 profiler 边界命名和挂载；当前只编译 Native Hook roots，后续 ftrace、fixed-result roots 继续扩展同一个 artifact。共享 occurrence adapter 不得反向依赖任一 root 专属命名空间。
+当前 Profiler Source 生成 artifact 按 profiler 边界命名和挂载，并只编译 Native Hook roots。这记录本次实现布局，不要求后续 ftrace、fixed-result roots 复用该 artifact；对应交付可以根据实际约束选择生成边界。
 
 Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Parquet spool。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
 
