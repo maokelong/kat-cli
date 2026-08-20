@@ -12,13 +12,13 @@ use parquet::arrow::{
     },
 };
 
-use crate::dataset_writer::DatasetWriter;
+use crate::dataset_writer::{DatasetTableFactory, DatasetTableWriter, DatasetWriter};
 
 use super::{EstimatedRow, RelationSpec, SpoolOptions};
 
 pub(super) struct ActiveTable {
     spec: RelationSpec,
-    writer: ArrowWriter<File>,
+    writer: SpoolWriter,
     builder: serde_arrow::ArrayBuilder,
     buffered_rows: usize,
     buffered_bytes: usize,
@@ -26,20 +26,45 @@ pub(super) struct ActiveTable {
     options: SpoolOptions,
 }
 
+enum SpoolWriter {
+    Temporary(ArrowWriter<File>),
+    Staged(DatasetTableWriter),
+}
+
 impl ActiveTable {
-    pub(super) fn new(spec: RelationSpec, options: SpoolOptions) -> Result<Self> {
-        let file = tempfile::tempfile().with_context(|| {
-            format!(
-                "failed to create bounded protobuf Source spool for table {:?}",
-                spec.name
-            )
-        })?;
-        let writer = ArrowWriter::try_new(file, spec.schema.clone(), None).with_context(|| {
-            format!(
-                "failed to open protobuf Source Parquet spool for table {:?}",
-                spec.name
-            )
-        })?;
+    pub(super) fn new(
+        spec: RelationSpec,
+        options: SpoolOptions,
+        staging: Option<&DatasetTableFactory>,
+    ) -> Result<Self> {
+        let writer = match staging {
+            Some(factory) => SpoolWriter::Staged(
+                factory
+                    .begin_table(spec.name, spec.schema.clone())
+                    .with_context(|| {
+                        format!(
+                            "failed to open staged protobuf Source table {:?}",
+                            spec.name
+                        )
+                    })?,
+            ),
+            None => {
+                let file = tempfile::tempfile().with_context(|| {
+                    format!(
+                        "failed to create bounded protobuf Source spool for table {:?}",
+                        spec.name
+                    )
+                })?;
+                SpoolWriter::Temporary(
+                    ArrowWriter::try_new(file, spec.schema.clone(), None).with_context(|| {
+                        format!(
+                            "failed to open protobuf Source Parquet spool for table {:?}",
+                            spec.name
+                        )
+                    })?,
+                )
+            }
+        };
         let builder = serde_arrow::ArrayBuilder::from_arrow(spec.schema.fields())
             .context("failed to create protobuf Source Arrow row serializer")?;
         Ok(Self {
@@ -97,24 +122,34 @@ impl ActiveTable {
                 self.spec.name
             )
         })?;
-        self.writer.write(&batch).with_context(|| {
-            format!(
-                "failed to write protobuf Source Parquet spool for table {:?}",
-                self.spec.name
-            )
-        })?;
-        self.writer.flush().with_context(|| {
-            format!(
-                "failed to finish protobuf Source Parquet row group for table {:?}",
-                self.spec.name
-            )
-        })?;
+        match &mut self.writer {
+            SpoolWriter::Temporary(writer) => writer.write(&batch).with_context(|| {
+                format!(
+                    "failed to write protobuf Source Parquet spool for table {:?}",
+                    self.spec.name
+                )
+            })?,
+            SpoolWriter::Staged(writer) => writer.write(&batch).with_context(|| {
+                format!(
+                    "failed to write staged protobuf Source table {:?}",
+                    self.spec.name
+                )
+            })?,
+        }
+        if let SpoolWriter::Temporary(writer) = &mut self.writer {
+            writer.flush().with_context(|| {
+                format!(
+                    "failed to finish protobuf Source Parquet row group for table {:?}",
+                    self.spec.name
+                )
+            })?;
+        }
         self.buffered_rows = 0;
         self.buffered_bytes = 0;
         Ok(())
     }
 
-    pub(super) fn prepare(mut self) -> Result<PreparedSourceTable> {
+    pub(super) fn prepare(mut self) -> Result<Option<PreparedSourceTable>> {
         if !self.has_rows() {
             bail!(
                 "cannot prepare empty protobuf Source table {:?}",
@@ -122,7 +157,18 @@ impl ActiveTable {
             );
         }
         self.flush()?;
-        let mut file = self.writer.into_inner().with_context(|| {
+        let SpoolWriter::Temporary(writer) = self.writer else {
+            if let SpoolWriter::Staged(writer) = self.writer {
+                writer.finish().with_context(|| {
+                    format!(
+                        "failed to finish staged protobuf Source table {:?}",
+                        self.spec.name
+                    )
+                })?;
+            }
+            return Ok(None);
+        };
+        let mut file = writer.into_inner().with_context(|| {
             format!(
                 "failed to finish protobuf Source Parquet spool for table {:?}",
                 self.spec.name
@@ -205,11 +251,11 @@ impl ActiveTable {
                     self.spec.name
                 )
             })?;
-        Ok(PreparedSourceTable {
+        Ok(Some(PreparedSourceTable {
             spec: self.spec,
             reader,
             preflighted_row_group_count: row_group_count,
-        })
+        }))
     }
 }
 
@@ -221,6 +267,7 @@ pub(super) fn spool_limit_reached(
     buffered_rows >= options.max_buffered_rows || buffered_bytes >= options.max_buffered_bytes
 }
 
+#[allow(dead_code)]
 pub(super) struct PreparedSourceTable {
     spec: RelationSpec,
     reader: ParquetRecordBatchReader,
@@ -335,6 +382,7 @@ impl PreparedSourceTables {
             .map(|prepared| prepared.preflighted_row_group_count)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn write_into(mut self, writer: &mut DatasetWriter) -> Result<()> {
         for prepared in &mut self.tables {
             let mut table = writer

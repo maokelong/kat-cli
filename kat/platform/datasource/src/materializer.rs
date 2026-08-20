@@ -28,11 +28,11 @@ use parquet::arrow::{
 use crate::{
     arrow_table::ArrowTable,
     dataset::{DatasetTableWriter, DatasetWriter},
-    dataset_writer::{DatasetWriteTarget, DatasetWriter as ManagedDatasetWriter},
+    dataset_writer::{DatasetPublication, DatasetTableFactory, DatasetWriteTarget},
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
     formats::{hitrace, langfuse},
     proto::kat::hitrace::FtraceCpuStatsMsg,
-    protobuf_source::{PreparedSourceTables, SpoolOptions, native_hook::NativeHookSourceCapture},
+    protobuf_source::{SpoolOptions, native_hook::NativeHookSourceCapture},
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
@@ -116,10 +116,13 @@ fn import_hitrace_inner(
     target: DatasetWriteTarget,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    // 先让迁移后的 Hitrace format/domain pipeline 完成解析与完整性校验，再授权覆盖目标。
-    let mut sink = LongTermHitraceSink::new();
-    let mut source_capture = NativeHookSourceCapture::new(SpoolOptions::default())
+    let publication = DatasetPublication::stage(target)
+        .map_err(anyhow::Error::from)
         .map_err(HitraceImportError::import)?;
+    let mut sink = LongTermHitraceSink::new();
+    let mut source_capture =
+        NativeHookSourceCapture::new_staged(SpoolOptions::default(), publication.table_factory())
+            .map_err(HitraceImportError::import)?;
     let mut observer_failure = None;
     let decoded_report = {
         let mut claim =
@@ -151,14 +154,14 @@ fn import_hitrace_inner(
         }
     };
     let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
-    let source_tables = source_capture
+    source_capture
         .finish()
         .context("failed to prepare profiler Source tables")
         .map_err(HitraceImportError::import)?;
-    let prepared = decoded
-        .prepare(source_tables)
-        .map_err(HitraceImportError::import)?;
-    prepared.publish(target).map_err(HitraceImportError::import)
+    let prepared = decoded.prepare().map_err(HitraceImportError::import)?;
+    prepared
+        .publish(publication)
+        .map_err(HitraceImportError::import)
 }
 
 struct DecodedLongTermHitrace {
@@ -177,13 +180,12 @@ struct PreparedImport {
     header_clock_snapshots: Vec<RecordBatch>,
     clock_snapshots: Option<ParquetRecordBatchReader>,
     sched_switches: Option<(ParquetRecordBatchReader, FtraceClock)>,
-    source_tables: PreparedSourceTables,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
 }
 
 impl DecodedLongTermHitrace {
-    fn prepare(self, source_tables: PreparedSourceTables) -> Result<PreparedImport> {
+    fn prepare(self) -> Result<PreparedImport> {
         let clock_domains = clock_domain_batch(&self.clock_domains)?;
         let header_clock_snapshots = self
             .header_clock_snapshots
@@ -209,7 +211,6 @@ impl DecodedLongTermHitrace {
             header_clock_snapshots,
             clock_snapshots,
             sched_switches,
-            source_tables,
             unsupported_plugins: self.unsupported_plugins,
             unsupported_section_types: self.unsupported_section_types,
         })
@@ -217,19 +218,14 @@ impl DecodedLongTermHitrace {
 }
 
 impl PreparedImport {
-    fn publish(self, target: DatasetWriteTarget) -> Result<ImportedHitrace> {
-        let mut writer = ManagedDatasetWriter::begin(target)?;
-        write_clock_domains(&mut writer, self.clock_domains)?;
-        write_clock_snapshots(
-            &mut writer,
-            self.header_clock_snapshots,
-            self.clock_snapshots,
-        )?;
+    fn publish(self, publication: DatasetPublication) -> Result<ImportedHitrace> {
+        let tables = publication.table_factory();
+        write_clock_domains(&tables, self.clock_domains)?;
+        write_clock_snapshots(&tables, self.header_clock_snapshots, self.clock_snapshots)?;
         if let Some((switches, clock)) = self.sched_switches {
-            write_sched_switches(&mut writer, switches, clock)?;
+            write_sched_switches(&tables, switches, clock)?;
         }
-        self.source_tables.write_into(&mut writer)?;
-        let path = writer.finish()?;
+        let path = publication.publish()?;
 
         Ok(ImportedHitrace {
             path,
@@ -887,7 +883,7 @@ fn clock_domain_batch(domains: &BTreeMap<String, String>) -> Result<RecordBatch>
     )?)
 }
 
-fn write_clock_domains(writer: &mut ManagedDatasetWriter, batch: RecordBatch) -> Result<()> {
+fn write_clock_domains(writer: &DatasetTableFactory, batch: RecordBatch) -> Result<()> {
     let mut table = writer.begin_table("clock_domain", batch.schema())?;
     table.write(&batch)?;
     table.finish()?;
@@ -895,7 +891,7 @@ fn write_clock_domains(writer: &mut ManagedDatasetWriter, batch: RecordBatch) ->
 }
 
 fn write_clock_snapshots(
-    writer: &mut ManagedDatasetWriter,
+    writer: &DatasetTableFactory,
     header_snapshots: Vec<RecordBatch>,
     mut snapshots: Option<ParquetRecordBatchReader>,
 ) -> Result<()> {
@@ -914,7 +910,7 @@ fn write_clock_snapshots(
 }
 
 fn write_sched_switches(
-    writer: &mut ManagedDatasetWriter,
+    writer: &DatasetTableFactory,
     mut switches: ParquetRecordBatchReader,
     clock: FtraceClock,
 ) -> Result<()> {

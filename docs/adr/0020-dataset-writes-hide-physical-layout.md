@@ -21,3 +21,5 @@ Dataset Storage 把 Dataset 识别、目标形态和删除授权分开。解析 
 覆盖采用破坏式 fail-fast 语义：确认目标有效后即可删除旧 Dataset 内容，后续解码、写入或验证一旦失败便立即返回错误，不恢复旧内容。第一版不承诺 best-effort 保护、备份、回滚、崩溃恢复、并发锁、临时产物清理或原子替换；内部是否使用临时目录只是实现细节，不构成可观察保证。
 
 重复数据的领域含义属于 Datasource，通用 Dataset mutation 只拥有物理写入和安全提交的机械能力。第一版不支持 Dataset extension，不实现去重算法，也不增加 `DedupPolicy`、主键元数据、hook、CLI 参数或假想存储 Adapter；将来有真实规则时在内部 seam 接入，不改变 Skill、KAT CLI 或 Data Import 的外层 Interface。
+
+Dataset Storage 可以在 canonical target 的直接子目录 `.kat-staging-<random>/tables/` 中构建候选表。该目录不含 marker，读取侧忽略它；候选构建失败时，已发布 Dataset 保持可识别，临时目录仅做 best-effort 清理。发布先校验已关闭的候选 Parquet，再删除旧 marker、清空除本次 staging 外的目标内容、把候选 `tables` 移到最终位置，最后创建 `.kat-dataset`。发布阶段不回滚旧内容；任一步失败都不得留下有效 marker。

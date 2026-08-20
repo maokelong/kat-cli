@@ -3,6 +3,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use arrow_schema::{DataType, Field, Schema};
 
+use crate::dataset_writer::DatasetTableFactory;
+
 use super::{
     EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec, SpoolOptions,
     spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
@@ -46,7 +48,15 @@ impl SourceTableLayout {
     }
 
     pub(crate) fn into_capture(self, options: SpoolOptions) -> Result<SourceTableCapture> {
-        SourceTableCapture::new(self.relations, self.enum_origins, options)
+        SourceTableCapture::new(self.relations, self.enum_origins, options, None)
+    }
+
+    pub(crate) fn into_staged_capture(
+        self,
+        options: SpoolOptions,
+        tables: DatasetTableFactory,
+    ) -> Result<SourceTableCapture> {
+        SourceTableCapture::new(self.relations, self.enum_origins, options, Some(tables))
     }
 }
 
@@ -54,6 +64,7 @@ pub(crate) struct SourceTableCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,
     options: SpoolOptions,
+    tables: Option<DatasetTableFactory>,
     poisoned: Option<String>,
 }
 
@@ -62,6 +73,7 @@ impl SourceTableCapture {
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
         options: SpoolOptions,
+        tables: Option<DatasetTableFactory>,
     ) -> Result<Self> {
         options.validate()?;
         validate_specs(&relations, &enum_origins)?;
@@ -76,6 +88,7 @@ impl SourceTableCapture {
                 .collect(),
             enum_origins,
             options,
+            tables,
             poisoned: None,
         })
     }
@@ -112,10 +125,15 @@ impl SourceTableCapture {
     {
         self.ensure_healthy()?;
         let options = self.options;
+        let tables = self.tables.clone();
         let result = (|| {
             let state = self.relation_mut(relation)?;
             if state.active.is_none() {
-                state.active = Some(ActiveTable::new(state.spec.clone(), options)?);
+                state.active = Some(ActiveTable::new(
+                    state.spec.clone(),
+                    options,
+                    tables.as_ref(),
+                )?);
             }
             state
                 .active
@@ -148,16 +166,24 @@ impl SourceTableCapture {
 
         let mut prepared = Vec::<PreparedSourceTable>::new();
         for state in self.relations {
-            if let Some(table) = state.active {
-                prepared.push(table.prepare()?);
+            if let Some(table) = state.active
+                && let Some(table) = table.prepare()?
+            {
+                prepared.push(table);
             }
         }
         if !enum_definitions.is_empty() {
-            let mut table = ActiveTable::new(protobuf_enum_symbol_spec(), self.options)?;
+            let mut table = ActiveTable::new(
+                protobuf_enum_symbol_spec(),
+                self.options,
+                self.tables.as_ref(),
+            )?;
             for definition in enum_definitions {
                 table.append_row(&definition)?;
             }
-            prepared.push(table.prepare()?);
+            if let Some(table) = table.prepare()? {
+                prepared.push(table);
+            }
         }
 
         Ok(PreparedSourceTables::new(prepared))

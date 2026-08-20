@@ -121,6 +121,83 @@ fn dataset_marker_failure_after_begin_never_publishes_a_valid_marker() {
     assert_unpublished_dataset_is_rejected(&dataset);
 }
 
+#[test]
+fn staged_publication_keeps_old_dataset_until_tables_are_ready_then_removes_staging() {
+    let root = tempdir().expect("temporary directory");
+    let dataset = root.path().join("dataset");
+    publish_resolvable_old_dataset(&dataset);
+    let before = snapshot_tree(&dataset);
+
+    let publication = dataset_writer::DatasetPublication::stage(
+        dataset_writer::DatasetWriteTarget::permanently_replace_all_contents(&dataset),
+    )
+    .expect("staging starts without replacing the old Dataset");
+    let staging_entries = fs::read_dir(&dataset)
+        .expect("target remains readable")
+        .map(|entry| entry.expect("target entry reads").file_name())
+        .filter(|name| name.to_string_lossy().starts_with(".kat-staging-"))
+        .collect::<Vec<_>>();
+    assert_eq!(staging_entries.len(), 1, "one target-local staging exists");
+    for (path, entry) in &before {
+        match entry {
+            SnapshotEntry::Directory => assert!(dataset.join(path).is_dir()),
+            SnapshotEntry::File(bytes) => assert_eq!(
+                fs::read(dataset.join(path)).expect("old Dataset entry remains readable"),
+                *bytes
+            ),
+        }
+    }
+
+    let tables = publication.table_factory();
+    let mut table = tables
+        .begin_table("facts", int_schema())
+        .expect("staged table opens");
+    table.write(&int_batch(42)).expect("staged batch writes");
+    table.finish().expect("staged table closes");
+    publication.publish().expect("staged Dataset publishes");
+
+    assert!(kat_datasource::resolve_dataset(&dataset).is_ok());
+    assert!(!dataset.join("tables/old_facts.parquet").exists());
+    assert!(dataset.join("tables/facts.parquet").is_file());
+    assert!(
+        fs::read_dir(&dataset)
+            .expect("published target reads")
+            .all(|entry| !entry
+                .expect("published target entry reads")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".kat-staging-")),
+        "successful publication removes its exact staging directory"
+    );
+}
+
+#[test]
+fn dropping_unpublished_candidate_removes_only_its_staging_directory() {
+    let root = tempdir().expect("temporary directory");
+    let dataset = root.path().join("dataset");
+    let publication = dataset_writer::DatasetPublication::stage(
+        dataset_writer::DatasetWriteTarget::write_to_empty(&dataset),
+    )
+    .expect("staging starts");
+    assert_eq!(
+        fs::read_dir(&dataset).expect("target reads").count(),
+        1,
+        "target contains only this publication's staging directory"
+    );
+
+    drop(publication);
+
+    assert!(
+        dataset.is_dir(),
+        "Drop does not remove the canonical target"
+    );
+    assert_eq!(
+        fs::read_dir(&dataset).expect("target still reads").count(),
+        0,
+        "Drop removes exactly its staging directory"
+    );
+}
+
 fn assert_pre_begin_rejection_preserves_target(
     fixture_name: &str,
     envelopes: Vec<ProfilerPluginData>,

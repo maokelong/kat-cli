@@ -429,7 +429,7 @@ fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
     assert!(log.contains("unsupported plugin \"future-plugin\" at byte "));
     assert!(log.contains("status: failure"));
-    assert!(!dataset.exists());
+    assert!(!dataset.join(".kat-dataset").is_file());
 }
 
 #[test]

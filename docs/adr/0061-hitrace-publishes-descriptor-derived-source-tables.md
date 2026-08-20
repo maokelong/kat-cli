@@ -29,3 +29,5 @@ Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成�
 本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost、`serde_arrow` 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。本决定不据此声称已获得未经 release A/B 验证的性能收益。
 
 本决定补充 ADR-0024 的直接事件表合同：descriptor-derived 直接解码表不适用其中针对跨记录、可复用规范化 facts 的多消费者门槛，该门槛本身不变。本决定部分取代 ADR-0042 对 `ProfilerPluginData` 来源字段和重复来源读数的发布限制，以及 ADR-0048 中“当前线程 CPU 闭环以外字段不发布”和“ftrace loss statistics 只用于准入、不发布表”的限制；这些内容将来可以出现在另名的 descriptor-derived tables 中，但不进入既有 `sched_switch`，并继续参与原有严格准入。ADR-0042 的时钟语义与换算失败合同、ADR-0048 的 `sched_switch` 与 Workflow 合同，以及 ADR-0020、ADR-0025、ADR-0049、ADR-0051、ADR-0058 和 ADR-0059 的其余决定继续有效。
+
+Native Hook 的运行期 capture 直接取得 Dataset Storage 提供的候选表 writer：decode 和 emit 产生的 `RecordBatch` 写入目标内隔离 staging 的最终 Parquet，成功发布时不再回读并重写 Source 表。时钟准入、解码或写入失败发生在发布替换前；失败只丢弃候选，不改变旧 Dataset 的有效 marker。该决定不改变现有 ftrace 表合同，也不建立通用 Parquet adoption Interface。
