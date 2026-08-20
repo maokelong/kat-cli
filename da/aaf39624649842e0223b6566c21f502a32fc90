@@ -1,0 +1,32 @@
+kat/platform/datasource/tests/native_hook_source_capture_contract/real_sample.rs
+  s_be3eb03347c4f6::t_b04feabda92c4e 5,70-78,81,88-89,206-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "daaaf39624649842e0223b6566c21f502a32fc90",
+  "prompts": {
+    "s_be3eb03347c4f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01a1b-9325-7631-99fc-fc0878a8c882",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 105,
+      "total_deletions": 12,
+      "accepted_lines": 105,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_be3eb03347c4f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01a1b-9325-7631-99fc-fc0878a8c882",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
