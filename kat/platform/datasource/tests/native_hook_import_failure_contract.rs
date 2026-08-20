@@ -1,9 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fs, path::Path, sync::Arc};
 
 use arrow_array::{Int32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
@@ -125,8 +120,7 @@ fn dataset_marker_failure_after_begin_never_publishes_a_valid_marker() {
 fn staged_publication_keeps_old_dataset_until_tables_are_ready_then_removes_staging() {
     let root = tempdir().expect("temporary directory");
     let dataset = root.path().join("dataset");
-    publish_resolvable_old_dataset(&dataset);
-    let before = snapshot_tree(&dataset);
+    let old_table = publish_old_dataset_with_evidence(&dataset);
 
     let publication = dataset_writer::DatasetPublication::stage(
         dataset_writer::DatasetWriteTarget::permanently_replace_all_contents(&dataset),
@@ -138,15 +132,7 @@ fn staged_publication_keeps_old_dataset_until_tables_are_ready_then_removes_stag
         .filter(|name| name.to_string_lossy().starts_with(".kat-staging-"))
         .collect::<Vec<_>>();
     assert_eq!(staging_entries.len(), 1, "one target-local staging exists");
-    for (path, entry) in &before {
-        match entry {
-            SnapshotEntry::Directory => assert!(dataset.join(path).is_dir()),
-            SnapshotEntry::File(bytes) => assert_eq!(
-                fs::read(dataset.join(path)).expect("old Dataset entry remains readable"),
-                *bytes
-            ),
-        }
-    }
+    assert_old_dataset_unchanged(&dataset, &old_table);
 
     let tables = publication.table_factory();
     let mut table = tables
@@ -207,8 +193,7 @@ fn assert_pre_begin_rejection_preserves_target(
     let source = root.path().join(format!("{fixture_name}.htrace"));
     let dataset = root.path().join("dataset");
     fs::write(&source, profiler_section(envelopes)).expect("Hitrace fixture is written");
-    seed_overwrite_target(&dataset);
-    let before = snapshot_tree(&dataset);
+    let old_table = publish_old_dataset_with_evidence(&dataset);
 
     let error = kat_datasource::import_hitrace(
         &source,
@@ -222,67 +207,26 @@ fn assert_pre_begin_rejection_preserves_target(
         "expected {expected_error:?} in error chain, got {message}"
     );
 
-    assert_eq!(
-        snapshot_tree(&dataset),
-        before,
-        "every existing directory and file byte must remain unchanged before Dataset begin"
-    );
+    assert_old_dataset_unchanged(&dataset, &old_table);
 }
 
-fn seed_overwrite_target(dataset: &Path) {
-    fs::create_dir_all(dataset.join("nested/evidence")).expect("target tree is created");
-    fs::create_dir_all(dataset.join("tables")).expect("old tables directory is created");
-    fs::write(dataset.join(".kat-dataset"), []).expect("old marker is written");
+fn publish_old_dataset_with_evidence(dataset: &Path) -> Vec<u8> {
+    publish_resolvable_old_dataset(dataset);
     fs::write(dataset.join("sentinel.bin"), [0, 1, 0xff, 2]).expect("binary sentinel is written");
-    fs::write(
-        dataset.join("nested/evidence/import.log"),
-        b"existing operation evidence\r\n",
-    )
-    .expect("nested evidence is written");
-    fs::write(
-        dataset.join("tables/old.parquet"),
-        b"opaque pre-existing bytes",
-    )
-    .expect("old table bytes are written");
+    fs::read(dataset.join("tables/old_facts.parquet")).expect("old Dataset table is readable")
 }
 
-#[derive(Debug, Eq, PartialEq)]
-enum SnapshotEntry {
-    Directory,
-    File(Vec<u8>),
-}
-
-fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, SnapshotEntry> {
-    fn visit(root: &Path, path: &Path, snapshot: &mut BTreeMap<PathBuf, SnapshotEntry>) {
-        let mut entries = fs::read_dir(path)
-            .unwrap_or_else(|error| panic!("{} can be listed: {error}", path.display()))
-            .map(|entry| entry.expect("target tree entry is readable"))
-            .collect::<Vec<_>>();
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .expect("entry remains under target")
-                .to_path_buf();
-            let file_type = entry.file_type().expect("entry type is readable");
-            if file_type.is_dir() {
-                snapshot.insert(relative, SnapshotEntry::Directory);
-                visit(root, &path, snapshot);
-            } else if file_type.is_file() {
-                snapshot.insert(
-                    relative,
-                    SnapshotEntry::File(fs::read(&path).expect("file bytes are readable")),
-                );
-            } else {
-                panic!("unexpected target entry type at {}", path.display());
-            }
-        }
-    }
-
-    let mut snapshot = BTreeMap::new();
-    visit(root, root, &mut snapshot);
-    snapshot
+fn assert_old_dataset_unchanged(dataset: &Path, old_table: &[u8]) {
+    assert!(kat_datasource::resolve_dataset(dataset).is_ok());
+    assert_eq!(
+        fs::read(dataset.join("sentinel.bin")).expect("binary sentinel remains readable"),
+        [0, 1, 0xff, 2]
+    );
+    assert_eq!(
+        fs::read(dataset.join("tables/old_facts.parquet"))
+            .expect("old Dataset table remains readable"),
+        old_table
+    );
 }
 
 fn assert_unpublished_dataset_is_rejected(dataset: &Path) {

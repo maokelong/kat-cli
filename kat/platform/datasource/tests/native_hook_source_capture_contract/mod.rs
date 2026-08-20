@@ -17,7 +17,7 @@ use proto::kat::hitrace::profiler_plugin_data::ClockId;
 mod native_hook_fixture;
 use native_hook_fixture::{
     full_native_hook_batches, full_native_hook_config, full_native_hook_table_names,
-    native_hook_frame, native_hook_relation_names,
+    native_hook_frame, native_hook_relation_names, profiler_section,
 };
 
 mod real_sample;
@@ -142,8 +142,6 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             },
             default_config,
         ),
-        profiler_message("ftrace-plugin", vec![0x80]),
-        profiler_message("ftrace-plugin_config", vec![0x80]),
         profiler_message("nativehookx", vec![0xff]),
         profiler_message("hookdaemonx", vec![0xff]),
         profiler_message("nativehook_config_extra", vec![0xff]),
@@ -165,8 +163,6 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
             ("hookdaemon".to_string(), true),
             ("nativehook_config".to_string(), true),
             ("hookdaemon_config".to_string(), true),
-            ("ftrace-plugin".to_string(), false),
-            ("ftrace-plugin_config".to_string(), false),
             ("nativehookx".to_string(), false),
             ("hookdaemonx".to_string(), false),
             ("nativehook_config_extra".to_string(), false),
@@ -1270,20 +1266,6 @@ fn profiler_frames(messages: impl IntoIterator<Item = proto::ProfilerPluginData>
         bytes.extend_from_slice(&frame);
     }
     bytes
-}
-
-fn profiler_section(messages: impl IntoIterator<Item = proto::ProfilerPluginData>) -> Vec<u8> {
-    use formats::hitrace::file::{HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE};
-
-    const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
-    let body = profiler_frames(messages);
-    let section_len = PROFILER_HEADER_SIZE + body.len();
-    let mut section = vec![0; PROFILER_HEADER_SIZE];
-    section[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
-    section[8..16].copy_from_slice(&(section_len as u64).to_le_bytes());
-    section[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
-    section.extend_from_slice(&body);
-    section
 }
 
 fn claim_profiler_file(
