@@ -6,9 +6,9 @@ use arrow_schema::{DataType, Field, Schema};
 use crate::dataset_writer::DatasetTableFactory;
 
 use super::{
-    EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec, SpoolOptions,
+    EnumOriginSpec, EstimatedRow, RelationSlot, RelationSpec, SpoolOptions,
     spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
-    spool::{ActiveTable, PreparedSourceTable},
+    spool::ActiveTable,
 };
 
 struct RelationState {
@@ -47,16 +47,12 @@ impl SourceTableLayout {
         self.enum_origins.push(origin);
     }
 
-    pub(crate) fn into_capture(self, options: SpoolOptions) -> Result<SourceTableCapture> {
-        SourceTableCapture::new(self.relations, self.enum_origins, options, None)
-    }
-
-    pub(crate) fn into_staged_capture(
+    pub(crate) fn into_capture(
         self,
         options: SpoolOptions,
         tables: DatasetTableFactory,
     ) -> Result<SourceTableCapture> {
-        SourceTableCapture::new(self.relations, self.enum_origins, options, Some(tables))
+        SourceTableCapture::new(self.relations, self.enum_origins, options, tables)
     }
 }
 
@@ -64,7 +60,7 @@ pub(crate) struct SourceTableCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,
     options: SpoolOptions,
-    tables: Option<DatasetTableFactory>,
+    tables: DatasetTableFactory,
     poisoned: Option<String>,
 }
 
@@ -73,7 +69,7 @@ impl SourceTableCapture {
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
         options: SpoolOptions,
-        tables: Option<DatasetTableFactory>,
+        tables: DatasetTableFactory,
     ) -> Result<Self> {
         options.validate()?;
         validate_specs(&relations, &enum_origins)?;
@@ -129,11 +125,7 @@ impl SourceTableCapture {
         let result = (|| {
             let state = self.relation_mut(relation)?;
             if state.active.is_none() {
-                state.active = Some(ActiveTable::new(
-                    state.spec.clone(),
-                    options,
-                    tables.as_ref(),
-                )?);
+                state.active = Some(ActiveTable::new(state.spec.clone(), options, &tables)?);
             }
             state
                 .active
@@ -151,7 +143,7 @@ impl SourceTableCapture {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         if let Some(source) = self.poisoned {
             bail!("protobuf Source capture is poisoned by an earlier failure: {source}");
         }
@@ -159,34 +151,25 @@ impl SourceTableCapture {
         let active_relations = self
             .relations
             .iter()
-            .map(|state| state.active.as_ref().is_some_and(ActiveTable::has_rows))
+            .map(|state| state.active.is_some())
             .collect::<Vec<_>>();
         let enum_definitions =
             collect_enum_definitions(&self.relations, &active_relations, &self.enum_origins);
 
-        let mut prepared = Vec::<PreparedSourceTable>::new();
         for state in self.relations {
-            if let Some(table) = state.active
-                && let Some(table) = table.prepare()?
-            {
-                prepared.push(table);
+            if let Some(table) = state.active {
+                table.finish()?;
             }
         }
         if !enum_definitions.is_empty() {
-            let mut table = ActiveTable::new(
-                protobuf_enum_symbol_spec(),
-                self.options,
-                self.tables.as_ref(),
-            )?;
+            let mut table =
+                ActiveTable::new(protobuf_enum_symbol_spec(), self.options, &self.tables)?;
             for definition in enum_definitions {
                 table.append_row(&definition)?;
             }
-            if let Some(table) = table.prepare()? {
-                prepared.push(table);
-            }
+            table.finish()?;
         }
-
-        Ok(PreparedSourceTables::new(prepared))
+        Ok(())
     }
 
     fn ensure_healthy(&self) -> Result<()> {

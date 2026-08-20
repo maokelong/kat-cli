@@ -7,9 +7,7 @@ use crate::{
         append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     },
     proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
-    protobuf_source::{
-        PreparedSourceTables, SpoolOptions, profiler_occurrence::ProfilerPayloadCapture,
-    },
+    protobuf_source::{SpoolOptions, profiler_occurrence::ProfilerPayloadCapture},
 };
 
 enum NativeHookRoot {
@@ -25,18 +23,9 @@ pub(crate) struct NativeHookSourceCapture {
 }
 
 impl NativeHookSourceCapture {
-    #[allow(dead_code)]
-    pub(crate) fn new(options: SpoolOptions) -> Result<Self> {
+    pub(crate) fn new(options: SpoolOptions, tables: DatasetTableFactory) -> Result<Self> {
         Ok(Self {
-            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options)?,
-            terminal_error: None,
-            clock_admission: NativeHookClockAdmission::default(),
-        })
-    }
-
-    pub(crate) fn new_staged(options: SpoolOptions, tables: DatasetTableFactory) -> Result<Self> {
-        Ok(Self {
-            capture: ProfilerPayloadCapture::new_staged(protobuf_source_layout(), options, tables)?,
+            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options, tables)?,
             terminal_error: None,
             clock_admission: NativeHookClockAdmission::default(),
         })
@@ -57,7 +46,7 @@ impl NativeHookSourceCapture {
         Ok(true)
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         self.ensure_healthy()?;
         self.clock_admission.validate()?;
         self.capture.finish()

@@ -17,4 +17,3 @@ mod native_hook_contract_tests;
 pub(crate) use capture::{SourceTableCapture, SourceTableLayout};
 pub(crate) use row::{BinaryValue, EstimatedRow, EstimatedValue, add_estimated_bytes};
 pub(crate) use spec::{EnumOriginSpec, EnumSymbol, RelationSlot, RelationSpec, SpoolOptions};
-pub(crate) use spool::PreparedSourceTables;

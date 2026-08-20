@@ -22,10 +22,73 @@ use native_hook_fixture::{
 
 mod real_sample;
 
+struct NativeHookCaptureFixture {
+    _directory: tempfile::TempDir,
+    dataset_path: std::path::PathBuf,
+    publication: dataset_writer::DatasetPublication,
+    capture: native_hook_source::NativeHookSourceCapture,
+}
+
+impl NativeHookCaptureFixture {
+    fn new(options: protobuf_source::SpoolOptions) -> anyhow::Result<Self> {
+        use dataset_writer::{DatasetPublication, DatasetWriteTarget};
+
+        let directory = tempdir()?;
+        let dataset_path = directory.path().join("dataset");
+        let publication =
+            DatasetPublication::stage(DatasetWriteTarget::write_to_empty(&dataset_path))?;
+        let capture =
+            native_hook_source::NativeHookSourceCapture::new(options, publication.table_factory())?;
+        Ok(Self {
+            _directory: directory,
+            dataset_path,
+            publication,
+            capture,
+        })
+    }
+
+    fn finish(self) -> anyhow::Result<()> {
+        self.capture.finish()
+    }
+
+    fn publish(self) -> anyhow::Result<PublishedDataset> {
+        self.capture.finish()?;
+        self.publication.publish()?;
+        Ok(PublishedDataset {
+            _directory: self._directory,
+            path: self.dataset_path,
+        })
+    }
+}
+
+impl std::ops::Deref for NativeHookCaptureFixture {
+    type Target = native_hook_source::NativeHookSourceCapture;
+
+    fn deref(&self) -> &Self::Target {
+        &self.capture
+    }
+}
+
+impl std::ops::DerefMut for NativeHookCaptureFixture {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.capture
+    }
+}
+
+struct PublishedDataset {
+    _directory: tempfile::TempDir,
+    path: std::path::PathBuf,
+}
+
+impl PublishedDataset {
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
 #[tokio::test]
-async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
+async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let empty_data = proto::BatchNativeHookData::default().encode_to_vec();
@@ -86,8 +149,8 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         profiler_message("nativehook_config_extra", vec![0xff]),
         profiler_message("hookdaemon_config_config", vec![0xff]),
     ]);
-    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        .expect("staged Native Hook capture is valid");
     let mut claims = Vec::new();
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
         let envelope = PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
@@ -111,16 +174,12 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         ]
     );
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(
-        capture
-            .finish()
-            .expect("empty data roots do not require clock admission"),
-        &dataset_path,
-    );
-    let resolved = crate::resolve_dataset(&dataset_path)
-        .expect("formal Dataset resolver accepts the dormant capture");
+    let dataset = capture
+        .publish()
+        .expect("empty data roots publish without clock admission");
+    let dataset_path = dataset.path();
+    let resolved = crate::resolve_dataset(dataset_path)
+        .expect("formal Dataset resolver accepts the staged capture");
     assert_eq!(
         resolved
             .tables()
@@ -137,9 +196,9 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         .collect()
     );
 
-    let context = register_resolved_dataset(&dataset_path)
+    let context = register_resolved_dataset(dataset_path)
         .await
-        .expect("dormant capture tables register in DataFusion");
+        .expect("staged capture tables register in DataFusion");
     let occurrence = context
         .table("profiler_payload_occurrence")
         .await
@@ -276,7 +335,6 @@ async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
 #[test]
 fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
     use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let config_payload = proto::NativeHookConfig::default().encode_to_vec();
@@ -293,15 +351,15 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
         sample_interval: 0,
         section_start: 1_024,
     };
-    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        .expect("staged Native Hook capture is valid");
     assert!(
         capture
             .try_claim(&envelope)
             .expect("raw exact route decodes"),
         "route matching must not depend on the derived plugin_name"
     );
-    capture.finish().expect("empty/default route preflights");
+    capture.finish().expect("empty/default route closes");
 
     for (envelope_name, wrong_kind) in [
         ("nativehook", PluginEnvelopeKind::Config),
@@ -322,8 +380,8 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             sample_interval: 0,
             section_start: 2_048,
         };
-        let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-            .expect("dormant Native Hook capture is valid");
+        let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+            .expect("staged Native Hook capture is valid");
         assert!(
             !capture
                 .try_claim(&envelope)
@@ -339,12 +397,11 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
 #[test]
 fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let unbound = profiler_message("nativehook-near", vec![0xff]);
-    let mut healthy = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+    let mut healthy = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        .expect("staged Native Hook capture is valid");
     assert!(
         !healthy
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&unbound, 1_024))
@@ -359,13 +416,11 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&valid, 2_048))
             .expect("unbound malformed input does not poison later claims")
     );
-    healthy
-        .finish()
-        .expect("healthy empty-root capture passes preflight");
+    healthy.finish().expect("healthy empty-root capture closes");
 
     let malformed_bound = profiler_message("nativehook", vec![0xff]);
-    let mut poisoned = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+    let mut poisoned = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        .expect("staged Native Hook capture is valid");
     let first_error = poisoned
         .try_claim(&PluginEnvelope::from_profiler_plugin_data(
             &malformed_bound,
@@ -391,7 +446,6 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
 #[test]
 fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let batch = proto::BatchNativeHookData {
@@ -409,8 +463,8 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
         },
         batch.encode_to_vec(),
     );
-    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
-        .expect("dormant Native Hook capture is valid");
+    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        .expect("staged Native Hook capture is valid");
     assert!(
         capture
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&message, 1_024))
@@ -498,7 +552,6 @@ fn clock_admission_supports_all_values_equivalence_and_eventless_gating() {
 
 #[tokio::test]
 async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relations_with_rows() {
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let (first_batch, second_batch) = full_native_hook_batches();
@@ -543,35 +596,17 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     ]
     .concat();
 
-    let mut capture = NativeHookSourceCapture::new(SpoolOptions::with_limits(1, 128))
-        .expect("dormant Native Hook capture is valid");
+    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::with_limits(1, 128))
+        .expect("staged Native Hook capture is valid");
     assert_eq!(
         claim_profiler_file(&mut capture, &trace_file).expect("OHOSPROF sections decode and claim"),
         3
     );
-    let prepared = capture
-        .finish()
-        .expect("boot config admits both eventful data envelopes");
-    assert_eq!(
-        prepared.preflighted_row_group_count("batch_native_hook_data"),
-        Some(2),
-        "tiny row bound must flush each data parent independently"
-    );
-    assert_eq!(
-        prepared.preflighted_row_group_count("batch_native_hook_data_events"),
-        Some(17),
-        "tiny row bound must flush events while preserving all parents and indexes"
-    );
-    assert_eq!(
-        prepared.preflighted_row_group_count("profiler_payload_occurrence"),
-        Some(3),
-        "envelope provenance must cross the same bounded-spool path"
-    );
-
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(prepared, &dataset_path);
-    let resolved = crate::resolve_dataset(&dataset_path)
+    let dataset = capture
+        .publish()
+        .expect("boot config admits and publishes both eventful data envelopes");
+    let dataset_path = dataset.path();
+    let resolved = crate::resolve_dataset(dataset_path)
         .expect("formal Dataset resolver accepts full Native Hook topology");
     let actual_tables = resolved
         .tables()
@@ -590,7 +625,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "legacy projection {legacy_name:?} must not be published"
         );
     }
-    let context = register_resolved_dataset(&dataset_path)
+    let context = register_resolved_dataset(dataset_path)
         .await
         .expect("full Native Hook tables register in DataFusion");
     assert_eq!(
@@ -1131,17 +1166,14 @@ fn expected_native_hook_config_root(config: &proto::NativeHookConfig) -> Value {
     Value::Array(vec![Value::Object(row)])
 }
 
-fn finish_clock_fixture(
-    event_clock_ids: &[i32],
-    config_clocks: &[&str],
-) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
+fn finish_clock_fixture(event_clock_ids: &[i32], config_clocks: &[&str]) -> anyhow::Result<()> {
     finish_clock_fixture_with_events(event_clock_ids, config_clocks, true)
 }
 
 fn finish_empty_clock_fixture(
     event_clock_ids: &[i32],
     config_clocks: &[&str],
-) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
+) -> anyhow::Result<()> {
     finish_clock_fixture_with_events(event_clock_ids, config_clocks, false)
 }
 
@@ -1149,9 +1181,8 @@ fn finish_clock_fixture_with_events(
     event_clock_ids: &[i32],
     config_clocks: &[&str],
     has_event_element: bool,
-) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
+) -> anyhow::Result<()> {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
     let batch = proto::BatchNativeHookData {
@@ -1188,7 +1219,7 @@ fn finish_clock_fixture_with_events(
         )
     }));
     let frames = profiler_frames(messages);
-    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))?;
+    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))?;
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
         let envelope = PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
         anyhow::ensure!(
@@ -1287,20 +1318,6 @@ fn claim_profiler_file(
         offset = section.end;
     }
     Ok(claimed)
-}
-
-fn publish_prepared(
-    prepared: protobuf_source::PreparedSourceTables,
-    dataset_path: &std::path::Path,
-) {
-    use dataset_writer::{DatasetWriteTarget, DatasetWriter};
-
-    let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(dataset_path))
-        .expect("Dataset writer begins after dormant capture preflight");
-    prepared
-        .write_into(&mut writer)
-        .expect("prepared dormant tables write to Dataset");
-    writer.finish().expect("Dataset publishes");
 }
 
 async fn register_resolved_dataset(

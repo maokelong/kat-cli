@@ -121,7 +121,7 @@ fn import_hitrace_inner(
         .map_err(HitraceImportError::import)?;
     let mut sink = LongTermHitraceSink::new();
     let mut source_capture =
-        NativeHookSourceCapture::new_staged(SpoolOptions::default(), publication.table_factory())
+        NativeHookSourceCapture::new(SpoolOptions::default(), publication.table_factory())
             .map_err(HitraceImportError::import)?;
     let mut observer_failure = None;
     let decoded_report = {
@@ -156,7 +156,7 @@ fn import_hitrace_inner(
     let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
     source_capture
         .finish()
-        .context("failed to prepare profiler Source tables")
+        .context("failed to close staged profiler Source tables")
         .map_err(HitraceImportError::import)?;
     let prepared = decoded.prepare().map_err(HitraceImportError::import)?;
     prepared

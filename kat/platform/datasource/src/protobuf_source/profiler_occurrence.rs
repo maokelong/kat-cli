@@ -14,8 +14,7 @@ use crate::{
 };
 
 use super::{
-    EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSpec, SourceTableCapture,
-    SourceTableLayout, SpoolOptions,
+    EnumOriginSpec, EstimatedRow, RelationSpec, SourceTableCapture, SourceTableLayout, SpoolOptions,
 };
 
 const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
@@ -38,23 +37,10 @@ pub(crate) struct ProfilerPayloadCapture {
 }
 
 impl ProfilerPayloadCapture {
-    #[allow(dead_code)]
-    pub(crate) fn new(layout: ProfilerPayloadLayout, options: SpoolOptions) -> Result<Self> {
-        Self::build(layout, options, None)
-    }
-
-    pub(crate) fn new_staged(
+    pub(crate) fn new(
         layout: ProfilerPayloadLayout,
         options: SpoolOptions,
         tables: DatasetTableFactory,
-    ) -> Result<Self> {
-        Self::build(layout, options, Some(tables))
-    }
-
-    fn build(
-        layout: ProfilerPayloadLayout,
-        options: SpoolOptions,
-        tables: Option<DatasetTableFactory>,
     ) -> Result<Self> {
         let mut layout = layout.0;
         let occurrence = layout.append_relation(profiler_payload_occurrence_spec());
@@ -66,10 +52,7 @@ impl ProfilerPayloadCapture {
             clock_symbols,
         ));
         Ok(Self {
-            capture: match tables {
-                Some(tables) => layout.into_staged_capture(options, tables)?,
-                None => layout.into_capture(options)?,
-            },
+            capture: layout.into_capture(options, tables)?,
             occurrence,
         })
     }
@@ -97,7 +80,7 @@ impl ProfilerPayloadCapture {
         emit_root(&mut self.capture, row_id, value)
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         self.capture.finish()
     }
 }

@@ -2,20 +2,13 @@ use super::*;
 
 #[tokio::test]
 #[ignore = "requires KAT_REAL_NATIVE_HOOK_HITRACE to name a real Native Hook capture"]
-async fn real_native_hook_capture_and_formal_import_match_independent_typed_census() {
-    use native_hook_source::NativeHookSourceCapture;
-    use protobuf_source::SpoolOptions;
-
+async fn formal_native_hook_import_matches_independent_typed_census() {
     let source = std::path::PathBuf::from(
         std::env::var_os("KAT_REAL_NATIVE_HOOK_HITRACE")
             .expect("set KAT_REAL_NATIVE_HOOK_HITRACE to a real Native Hook capture"),
     );
     let bytes = std::fs::read(&source).expect("real Native Hook capture reads");
-    let mut capture =
-        NativeHookSourceCapture::new(SpoolOptions::with_limits(8_192, 16 * 1024 * 1024))
-            .expect("dormant Native Hook capture is valid");
-    let census = census_and_claim_real_native_hook(&bytes, &mut capture)
-        .expect("real Native Hook payloads decode and are claimed");
+    let census = census_real_native_hook(&bytes).expect("real Native Hook payloads decode");
 
     assert!(
         census.data_roots > 0,
@@ -29,27 +22,10 @@ async fn real_native_hook_capture_and_formal_import_match_independent_typed_cens
     assert_eq!(
         census.claimed_envelopes,
         census.data_roots + census.config_roots,
-        "every independently recognized Native Hook envelope must be claimed"
+        "the census counts every recognized Native Hook envelope"
     );
 
-    let prepared = capture
-        .finish()
-        .expect("real Native Hook config admits all eventful payloads");
     let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(prepared, &dataset_path);
-    let context = register_resolved_dataset(&dataset_path)
-        .await
-        .expect("real Native Hook tables register in DataFusion");
-    let actual_tables = crate::resolve_dataset(&dataset_path)
-        .expect("real Native Hook Dataset resolves")
-        .tables()
-        .iter()
-        .map(|table| table.name().to_string())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert_census_dataset(&context, &actual_tables, &census).await;
-
     let formal_dataset_path = directory.path().join("formal-dataset");
     crate::import_hitrace(
         &source,
@@ -233,10 +209,7 @@ impl Default for RealNativeHookCensus {
     }
 }
 
-fn census_and_claim_real_native_hook(
-    bytes: &[u8],
-    capture: &mut native_hook_source::NativeHookSourceCapture,
-) -> anyhow::Result<RealNativeHookCensus> {
+fn census_real_native_hook(bytes: &[u8]) -> anyhow::Result<RealNativeHookCensus> {
     use formats::hitrace::{
         file::{HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE, read_profiler_section},
         profiler::{PluginEnvelope, PluginEnvelopeKind, for_each_profiler_envelope_frame},
@@ -298,13 +271,7 @@ fn census_and_claim_real_native_hook(
                     }
                     _ => false,
                 };
-                let claimed = capture.try_claim(&envelope)?;
-                anyhow::ensure!(
-                    claimed == recognized,
-                    "dormant claim result diverges from the independent route census for {:?}",
-                    envelope.envelope_name
-                );
-                if claimed {
+                if recognized {
                     census.claimed_envelopes += 1;
                 }
                 Ok(())
