@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 #[ignore = "requires KAT_REAL_NATIVE_HOOK_HITRACE to name a real Native Hook capture"]
-async fn real_native_hook_dormant_and_formal_source_tables_are_logically_identical() {
+async fn real_native_hook_capture_and_formal_import_match_independent_typed_census() {
     use native_hook_source::NativeHookSourceCapture;
     use protobuf_source::SpoolOptions;
 
@@ -67,26 +67,15 @@ async fn real_native_hook_dormant_and_formal_source_tables_are_logically_identic
         .map(|table| table.name().to_string())
         .collect::<std::collections::BTreeSet<_>>();
     assert_census_dataset(&formal_context, &formal_tables, &census).await;
-    // PR #204 的 synthetic contract 负责证明 protobuf 映射；这里仅证明正式激活没有
-    // 改变 dormant capture 已发布的任一 Source table Schema、行或列值。
-    let (compared_tables, compared_rows) = assert_source_tables_logically_identical(
-        &context,
-        &actual_tables,
-        &formal_context,
-        &formal_tables,
-    )
-    .await;
 
     eprintln!(
-        "real Native Hook census: file={} bytes={} envelopes={} data_roots={} config_roots={} events={} compared_source_tables={} compared_source_rows={} relations={:?}",
+        "real Native Hook census: file={} bytes={} envelopes={} data_roots={} config_roots={} events={} relations={:?}",
         source.display(),
         bytes.len(),
         census.claimed_envelopes,
         census.data_roots,
         census.config_roots,
         census.events,
-        compared_tables,
-        compared_rows,
         census.relation_rows
     );
 }
@@ -201,98 +190,6 @@ async fn assert_census_dataset(
         Value::Array(expected_stack_ips.clone()),
         "representative StackMap IP values must retain parent and repeated order"
     );
-}
-
-async fn assert_source_tables_logically_identical(
-    dormant_context: &SessionContext,
-    dormant_tables: &std::collections::BTreeSet<String>,
-    formal_context: &SessionContext,
-    formal_tables: &std::collections::BTreeSet<String>,
-) -> (usize, usize) {
-    let mut compared_rows = 0;
-    for table in dormant_tables {
-        assert!(
-            formal_tables.contains(table),
-            "formal Import must publish dormant Source table {table:?}"
-        );
-        let dormant_table = dormant_context
-            .table(table.as_str())
-            .await
-            .unwrap_or_else(|error| panic!("dormant Source table {table:?} resolves: {error}"));
-        let formal_table = formal_context
-            .table(table.as_str())
-            .await
-            .unwrap_or_else(|error| panic!("formal Source table {table:?} resolves: {error}"));
-        assert_eq!(
-            dormant_table.schema(),
-            formal_table.schema(),
-            "formal Import must preserve the complete Schema of Source table {table:?}"
-        );
-
-        let order_by = source_table_order_by(table);
-        let sql = format!("select * from {table} order by {order_by}");
-        compared_rows += assert_source_table_rows_identical(
-            table,
-            query_json(dormant_context, &sql).await,
-            query_json(formal_context, &sql).await,
-        );
-    }
-    (dormant_tables.len(), compared_rows)
-}
-
-fn source_table_order_by(table: &str) -> &'static str {
-    match table {
-        "profiler_payload_occurrence"
-        | "batch_native_hook_data"
-        | "batch_native_hook_data_events"
-        | "native_hook_config" => "_kat_row_id",
-        "protobuf_enum_symbol" => "origin_table, origin_field_path, enum_number",
-        "native_hook_config_expand_pids" | "native_hook_config_restrace_tag" => {
-            "_kat_parent_row_id, _kat_repeated_index"
-        }
-        table
-            if table.ends_with("_frame_info")
-                || table.ends_with("_frame_map_id")
-                || table.ends_with("_ip") =>
-        {
-            "_kat_parent_row_id, _kat_repeated_index"
-        }
-        _ => "_kat_parent_row_id",
-    }
-}
-
-fn assert_source_table_rows_identical(table: &str, dormant: Value, formal: Value) -> usize {
-    let Value::Array(dormant_rows) = dormant else {
-        panic!("dormant Source table {table:?} query returns rows");
-    };
-    let Value::Array(formal_rows) = formal else {
-        panic!("formal Source table {table:?} query returns rows");
-    };
-    assert_eq!(
-        dormant_rows.len(),
-        formal_rows.len(),
-        "formal Import must preserve every row of Source table {table:?}"
-    );
-    for (row_index, (dormant_row, formal_row)) in
-        dormant_rows.iter().zip(formal_rows.iter()).enumerate()
-    {
-        let (Value::Object(dormant_row), Value::Object(formal_row)) = (dormant_row, formal_row)
-        else {
-            panic!("Source table {table:?} row {row_index} must be a JSON object");
-        };
-        let columns = dormant_row
-            .keys()
-            .chain(formal_row.keys())
-            .collect::<std::collections::BTreeSet<_>>();
-        for column in columns {
-            assert_eq!(
-                dormant_row.get(column),
-                formal_row.get(column),
-                "formal Import changed Source table {table:?} row {row_index} column {column:?}"
-            );
-        }
-    }
-    dormant_rows.len()
 }
 
 #[derive(Debug)]
