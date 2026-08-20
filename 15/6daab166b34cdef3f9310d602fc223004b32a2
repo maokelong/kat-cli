@@ -1,0 +1,55 @@
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_1b8ad6ca768945::t_b832545bf08838 320-325
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_1b8ad6ca768945::t_25706b18808973 419,422-423,466-467,599-600,605-609,628,1169,1176,1184,1222
+  s_1b8ad6ca768945::t_b832545bf08838 25-88
+  s_1b8ad6ca768945::t_b8e22b4a0ebbf4 90,152-153,177-182,199,201,354-355,362,383-384,403-404
+kat/platform/datasource/tests/native_hook_source_capture_contract/real_sample.rs
+  s_1b8ad6ca768945::t_b8e22b4a0ebbf4 5,11,25,212,274
+kat/platform/datasource/src/materializer.rs
+  s_1b8ad6ca768945::t_f8fe730bf439c9 124
+  s_1b8ad6ca768945::t_b8e22b4a0ebbf4 159
+kat/platform/datasource/src/protobuf_source/spool.rs
+  s_1b8ad6ca768945::t_c448de551099d9 1,3,9,20,22-27,29,78-83,89,91,93,96
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_1b8ad6ca768945::t_b832545bf08838 128,146
+  s_1b8ad6ca768945::t_130c821e90348c 154,160-161,165-166,170,172
+  s_1b8ad6ca768945::t_f8fe730bf439c9 9,11,50,55,63,72
+kat/platform/datasource/src/protobuf_source/profiler_occurrence.rs
+  s_1b8ad6ca768945::t_f8fe730bf439c9 17,40,55,83
+kat/platform/datasource/tests/protobuf_source_contract/mod.rs
+  s_1b8ad6ca768945::t_b832545bf08838 29,35-39,75,143,148-152,239,342,356-357,360-364,367,754-755,757-768,771,773-774,777-778
+kat/platform/datasource/tests/protobuf_source_contract/roundtrip.rs
+  s_1b8ad6ca768945::t_b832545bf08838 5,9-12,39,146,153-156,206,448,469-471,485,594,621-623,630,748,757-761,778,780-784,832,894-897,903,905-909,912-915,919-925,1191,1244-1247,1253,1377,1383-1385,1408
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_1b8ad6ca768945::t_b832545bf08838 10,26,28,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "156daab166b34cdef3f9310d602fc223004b32a2",
+  "prompts": {
+    "s_1b8ad6ca768945": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01d45-7d87-75b3-8b26-20e15abe923b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 265,
+      "total_deletions": 688,
+      "accepted_lines": 265,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1b8ad6ca768945": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01d45-7d87-75b3-8b26-20e15abe923b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
