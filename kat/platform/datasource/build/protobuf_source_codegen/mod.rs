@@ -22,6 +22,8 @@ use diagnostic::Diagnostic;
 pub(crate) struct RootSpec<'a> {
     pub(crate) protobuf_fqn: &'a str,
     pub(crate) root_table_name: &'a str,
+    pub(crate) parent_nullable: bool,
+    pub(crate) incremental_relation_paths: &'a [&'a str],
 }
 
 impl<'a> RootSpec<'a> {
@@ -29,7 +31,20 @@ impl<'a> RootSpec<'a> {
         Self {
             protobuf_fqn,
             root_table_name,
+            parent_nullable: false,
+            incremental_relation_paths: &[],
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) const fn with_nullable_parent(mut self) -> Self {
+        self.parent_nullable = true;
+        self
+    }
+
+    pub(crate) const fn with_incremental_relations(mut self, paths: &'a [&'a str]) -> Self {
+        self.incremental_relation_paths = paths;
+        self
     }
 }
 

@@ -55,7 +55,7 @@ fn decode_plugin_payload(
     for detail in result.ftrace_cpu_detail {
         sink.push(TraceRecord::FtraceCapture(FtraceCaptureRecord::CpuDetail {
             cpu: detail.cpu,
-            overwrite: detail.overwrite,
+            overwrite: detail.overwrite.unwrap_or_default(),
         }))?;
         for event in detail.event {
             sink.push(TraceRecord::Ftrace(Box::new(FtraceRecord::Event(

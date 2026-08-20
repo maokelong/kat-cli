@@ -16,7 +16,7 @@ pub(crate) enum FtraceRecord {
 pub(crate) struct EventContext {
     pub(crate) timestamp: u64,
     pub(crate) cpu: u32,
-    pub(crate) tgid: i32,
+    pub(crate) tgid: Option<i32>,
     pub(crate) comm: String,
 }
 

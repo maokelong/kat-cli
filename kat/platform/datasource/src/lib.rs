@@ -1,6 +1,6 @@
 //! KAT 唯一的内部 Datasource 与 Dataset Storage package。
 //!
-//! 当前切片开放 Hitrace Import、Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
+//! 当前切片开放 Hitrace、文本 ftrace Import、Dataset inspection、Dataset 写入以及 Deprecated Trace Streamer Import。
 //! Trace Streamer 入口只服务预发布机制联调，不形成兼容承诺，并将在第一次正式发布前删除。
 
 mod arrow_table;
@@ -26,8 +26,13 @@ mod protobuf_source_codegen;
 mod protobuf_source_contract_tests;
 mod query;
 mod record;
+#[cfg(all(test, not(doctest)))]
+#[path = "../tests/same_source_full_contract/mod.rs"]
+mod same_source_full_contract_tests;
 mod sinks;
 mod table_name;
+mod text_ftrace_import;
+mod text_ftrace_source_capture;
 mod trace_streamer;
 
 use std::{
@@ -45,11 +50,15 @@ pub use dataset::{
     write_derived_dataset_table,
 };
 pub use dataset_writer::DatasetWriteTarget;
+pub use formats::ftrace_text::{
+    TextFtraceClock, TextFtraceCompatibilityError, UnsupportedFtraceEvent,
+};
 pub use materializer::{
     HitraceImportError, ImportedHitrace, UnsupportedHitraceContent, import_hitrace,
     materialize_hitrace_dataset, materialize_langfuse_legacy_dataset,
 };
 pub use query::TraceDatasource;
+pub use text_ftrace_import::{ImportedTextFtrace, TextFtraceImportError, import_text_ftrace};
 pub use trace_streamer::{
     ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
 };

@@ -192,7 +192,7 @@ message SchedWakeupFormat {
   string comm = 1;
   int32 pid = 2;
   int32 prio = 3;
-  int32 success = 4;
+  optional int32 success = 4;
   int32 target_cpu = 5;
 }
 
@@ -201,7 +201,7 @@ message SchedWakeupNewFormat {
   string comm = 1;
   int32 pid = 2;
   int32 prio = 3;
-  int32 success = 4;
+  optional int32 success = 4;
   int32 target_cpu = 5;
 }
 
@@ -210,6 +210,6 @@ message SchedWakingFormat {
   string comm = 1;
   int32 pid = 2;
   int32 prio = 3;
-  int32 success = 4;
+  optional int32 success = 4;
   int32 target_cpu = 5;
 }

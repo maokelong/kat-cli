@@ -313,11 +313,11 @@ async fn ftrace_roots_preserve_defined_values_presence_oneof_and_repeated_order(
         ],
         ftrace_cpu_detail: vec![FtraceCpuDetailMsg {
             cpu: 7,
-            overwrite: 0,
+            overwrite: Some(0),
             event: vec![
                 FtraceEvent {
                     timestamp: 101,
-                    tgid: 201,
+                    tgid: Some(201),
                     comm: "first".to_owned(),
                     common_fields: None,
                     event: Some(ftrace_event::Event::SchedSwitchFormat(SchedSwitchFormat {
@@ -332,12 +332,12 @@ async fn ftrace_roots_preserve_defined_values_presence_oneof_and_repeated_order(
                 },
                 FtraceEvent {
                     timestamp: 102,
-                    tgid: 202,
+                    tgid: Some(202),
                     comm: "second".to_owned(),
                     common_fields: Some(ftrace_event::CommonFileds {
-                        r#type: 41,
-                        flags: 42,
-                        preempt_count: 43,
+                        r#type: Some(41),
+                        flags: Some(42),
+                        preempt_count: Some(43),
                         pid: 44,
                     }),
                     event: Some(ftrace_event::Event::IrqHandlerEntryFormat(

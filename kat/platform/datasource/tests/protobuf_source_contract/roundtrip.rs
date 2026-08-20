@@ -1367,6 +1367,68 @@ async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
 }
 
 #[tokio::test]
+async fn generated_incremental_relation_appenders_preserve_the_same_parent_child_contract() {
+    use generated_fixture_emitter::{
+        append_deep_repeated_root_containers_children_subtree,
+        append_deep_repeated_root_containers_subtree, append_deep_repeated_root_incremental_root,
+        new_protobuf_source_capture,
+    };
+    use proto::fixture::protobuf_source::valid::{
+        DeepRepeatedRoot, RelationChild, RelationContainer,
+    };
+    use protobuf_source::SpoolOptions;
+
+    let mut capture =
+        new_protobuf_source_capture(SpoolOptions::new(1)).expect("generated capture is valid");
+    let root_row_id = append_deep_repeated_root_incremental_root(
+        &mut capture,
+        7_000,
+        &DeepRepeatedRoot { containers: vec![] },
+    )
+    .expect("incremental fixture root appends");
+    let container_row_id = append_deep_repeated_root_containers_subtree(
+        &mut capture,
+        root_row_id,
+        0,
+        &RelationContainer {
+            label: "incremental".to_string(),
+            children: vec![],
+        },
+    )
+    .expect("incremental container appends");
+    append_deep_repeated_root_containers_children_subtree(
+        &mut capture,
+        container_row_id,
+        0,
+        &RelationChild {
+            id: 42,
+            name: "child".to_string(),
+        },
+    )
+    .expect("incremental child appends");
+
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_capture(capture, &dataset_path);
+    let context = register_resolved_dataset(&dataset_path)
+        .await
+        .expect("incremental fixture Dataset resolves");
+    assert_eq!(
+        query_json(
+            &context,
+            "select _kat_parent_row_id, _kat_repeated_index, id, name from deep_repeated_root_containers_children",
+        )
+        .await,
+        json!([{
+            "_kat_parent_row_id": container_row_id,
+            "_kat_repeated_index": 0,
+            "id": 42,
+            "name": "child",
+        }])
+    );
+}
+
+#[tokio::test]
 async fn enum_definitions_are_complete_and_unknown_numbers_remain_unmatched() {
     use generated_fixture_emitter::{append_full_shape_root_root, new_protobuf_source_capture};
     use proto::fixture::protobuf_source::valid::{

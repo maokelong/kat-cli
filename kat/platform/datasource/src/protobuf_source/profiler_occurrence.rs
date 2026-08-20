@@ -20,26 +20,13 @@ use super::{
 
 const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
 
-/// Descriptor compiler 交给 profiler adapter 的 opaque payload layout。
-pub(crate) struct ProfilerPayloadLayout(SourceTableLayout);
-
-impl ProfilerPayloadLayout {
-    pub(crate) fn from_generated(
-        relations: Vec<RelationSpec>,
-        enum_origins: Vec<EnumOriginSpec>,
-    ) -> Self {
-        Self(SourceTableLayout::from_generated(relations, enum_origins))
-    }
-}
-
 pub(crate) struct ProfilerPayloadCapture {
     capture: SourceTableCapture,
     occurrence: super::RelationSlot,
 }
 
 impl ProfilerPayloadCapture {
-    pub(crate) fn new(layout: ProfilerPayloadLayout, options: SpoolOptions) -> Result<Self> {
-        let mut layout = layout.0;
+    pub(crate) fn new(mut layout: SourceTableLayout, options: SpoolOptions) -> Result<Self> {
         let occurrence = layout.append_relation(profiler_payload_occurrence_spec());
         let (clock_enum_fqn, clock_symbols) = profiler_clock_id_symbols();
         layout.append_enum_origin(EnumOriginSpec::new(

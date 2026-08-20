@@ -38,7 +38,8 @@ pub(super) fn render(
         writeln!(
             output,
             "pub(crate) fn append_{}_root(\n    capture: &mut crate::protobuf_source::SourceTableCapture,\n    parent_row_id: u64,\n    value: &{},\n) -> anyhow::Result<()> {{",
-            root.root_table_name, root_type
+            root.root_table_name,
+            root_type
         )
         .expect("writing generated Rust to String cannot fail");
         let mut renderer = EmitterRenderer {
@@ -47,12 +48,109 @@ pub(super) fn render(
             bindings,
             indent: 1,
         };
+        if root.parent_nullable {
+            renderer.line("let parent_row_id = Some(parent_row_id);");
+        }
         renderer.line("let _ = value;");
         renderer.emit_relation(root.relation_slot, "value", "parent_row_id", None);
         renderer.line("Ok(())");
         writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+        if root.parent_nullable {
+            writeln!(
+                output,
+                "#[allow(dead_code)]\npub(crate) fn append_{}_root_without_parent(\n    capture: &mut crate::protobuf_source::SourceTableCapture,\n    value: &{},\n) -> anyhow::Result<()> {{",
+                root.root_table_name, root_type
+            )
+            .expect("writing generated Rust to String cannot fail");
+            let mut renderer = EmitterRenderer {
+                output: &mut output,
+                plan,
+                bindings,
+                indent: 1,
+            };
+            renderer.line("let parent_row_id: Option<u64> = None;");
+            renderer.line("let _ = value;");
+            renderer.emit_relation(root.relation_slot, "value", "parent_row_id", None);
+            renderer.line("Ok(())");
+            writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+        }
     }
+    render_incremental_relation_appenders(&mut output, plan, bindings);
     output
+}
+
+fn render_incremental_relation_appenders(
+    output: &mut String,
+    plan: &RelationalPlan,
+    bindings: &ProstBindings,
+) {
+    for root in &plan.roots {
+        if root.incremental_relation_paths.is_empty() {
+            continue;
+        }
+        let root_type = bindings.root_type(root.spec_index);
+        let parent_type = if root.parent_nullable {
+            "Option<u64>"
+        } else {
+            "u64"
+        };
+        writeln!(
+            output,
+            "pub(crate) fn append_{}_incremental_root(\n    capture: &mut crate::protobuf_source::SourceTableCapture,\n    parent_row_id: {parent_type},\n    value: &{root_type},\n) -> anyhow::Result<u64> {{",
+            root.root_table_name,
+        )
+        .expect("writing generated Rust to String cannot fail");
+        let mut renderer = EmitterRenderer {
+            output,
+            plan,
+            bindings,
+            indent: 1,
+        };
+        let row_id = renderer
+            .emit_relation(root.relation_slot, "value", "parent_row_id", None)
+            .expect("an incremental root has child relations and therefore a row id");
+        renderer.line(&format!("Ok({row_id})"));
+        writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+
+        for path in &root.incremental_relation_paths {
+            let relation_name = super::names::relation_name(&root.root_table_name, path);
+            let relation = plan
+                .relations
+                .iter()
+                .find(|relation| relation.name == relation_name)
+                .expect("incremental relation paths were validated by the plan");
+            let relation_type = bindings.relation_type(relation.slot);
+            let returns_row_id = relation
+                .columns
+                .iter()
+                .any(|column| matches!(column.source, ColumnSource::RowId));
+            let return_type = if returns_row_id { "u64" } else { "()" };
+            writeln!(
+                output,
+                "pub(crate) fn append_{}_subtree(\n    capture: &mut crate::protobuf_source::SourceTableCapture,\n    parent_row_id: u64,\n    repeated_index: u64,\n    value: &{relation_type},\n) -> anyhow::Result<{return_type}> {{",
+                relation.name,
+            )
+            .expect("writing generated Rust to String cannot fail");
+            let mut renderer = EmitterRenderer {
+                output,
+                plan,
+                bindings,
+                indent: 1,
+            };
+            let row_id = renderer.emit_relation(
+                relation.slot,
+                "value",
+                "parent_row_id",
+                Some("repeated_index"),
+            );
+            if let Some(row_id) = row_id {
+                renderer.line(&format!("Ok({row_id})"));
+            } else {
+                renderer.line("Ok(())");
+            }
+            writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
+        }
+    }
 }
 
 fn render_row_types(output: &mut String, plan: &RelationalPlan) {
@@ -269,9 +367,7 @@ fn render_capture_layout(
     let layout_type = match capture_layout {
         #[cfg(feature = "protobuf-source-contract-fixture")]
         CaptureLayout::Standalone => "crate::protobuf_source::SourceTableLayout",
-        CaptureLayout::ProfilerPayload => {
-            "crate::protobuf_source::profiler_occurrence::ProfilerPayloadLayout"
-        }
+        CaptureLayout::ProfilerPayload => "crate::protobuf_source::SourceTableLayout",
     };
     writeln!(
         output,
@@ -398,7 +494,7 @@ impl EmitterRenderer<'_> {
         value: &str,
         parent_row_id: &str,
         repeated_index: Option<&str>,
-    ) {
+    ) -> Option<String> {
         let relation = &self.plan.relations[relation_slot];
         let has_row_id = relation
             .columns
@@ -437,6 +533,7 @@ impl EmitterRenderer<'_> {
         for child in self.child_relations(relation_slot) {
             self.emit_child(child, value, has_row_id.then_some(row_id.as_str()));
         }
+        has_row_id.then_some(row_id)
     }
 
     fn emit_child(

@@ -744,6 +744,20 @@ fn compile_error(descriptors: &FileDescriptorSet, root: RootSpec<'_>) -> String 
     }
 }
 
+#[test]
+fn incremental_relation_paths_must_resolve_to_repeated_message_relations() {
+    let descriptors = fixture_descriptors();
+    let message = compile_error(
+        &descriptors,
+        RootSpec::new(
+            "fixture.protobuf_source.valid.DeepRepeatedRoot",
+            "deep_repeated_root",
+        )
+        .with_incremental_relations(&["containers.missing"]),
+    );
+    assert!(message.contains("incremental relation path \"containers.missing\" is missing"));
+}
+
 fn fixture_descriptors() -> FileDescriptorSet {
     FileDescriptorSet::decode(
         include_bytes!(concat!(

@@ -94,7 +94,7 @@ message MmiotraceRwFormat {
 
 // /sys/kernel/debug/tracing/events/ftrace/print/format
 message PrintFormat {
-    uint64 ip = 1;
+    optional uint64 ip = 1;
     string buf = 2;
 }
 

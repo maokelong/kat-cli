@@ -29,6 +29,12 @@ use protobuf_source_codegen::compile as compile_protobuf_source;
 use protobuf_source_codegen::{RootSpec, compile_for_profiler_capture};
 
 const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
+    "proto/ftrace_data/ftrace.proto",
+    "proto/ftrace_data/ipi.proto",
+    "proto/ftrace_data/irq.proto",
+    "proto/ftrace_data/kmem.proto",
+    "proto/ftrace_data/vmscan.proto",
+    "proto/ftrace_data/workqueue.proto",
     "proto/ftrace_data/ftrace_event.proto",
     "proto/ftrace_data/trace_plugin_config.proto",
     "proto/ftrace_data/trace_plugin_result.proto",
@@ -153,8 +159,11 @@ fn generate_profiler_source_emitter(descriptors: &prost_types::FileDescriptorSet
                 "batch_native_hook_data",
             ),
             RootSpec::new("kat.native_hook.NativeHookConfig", "native_hook_config"),
-            RootSpec::new("kat.hitrace.TracePluginResult", "trace_plugin_result"),
-            RootSpec::new("kat.hitrace.TracePluginConfig", "trace_plugin_config"),
+            RootSpec::new("kat.hitrace.TracePluginResult", "trace_plugin_result")
+                .with_nullable_parent()
+                .with_incremental_relations(&["ftrace_cpu_detail", "ftrace_cpu_detail.event"]),
+            RootSpec::new("kat.hitrace.TracePluginConfig", "trace_plugin_config")
+                .with_nullable_parent(),
         ],
     )
     .expect("profiler protobuf Source roots compile")
@@ -223,7 +232,8 @@ fn generate_protobuf_source_fixture(protoc: &Path) {
             RootSpec::new(
                 "fixture.protobuf_source.valid.DeepRepeatedRoot",
                 "deep_repeated_root",
-            ),
+            )
+            .with_incremental_relations(&["containers", "containers.children"]),
             RootSpec::new("fixture.protobuf_source.valid.EmptyRoot", "empty_root"),
             RootSpec::new(
                 "fixture.protobuf_source.alpha.SharedRoot",

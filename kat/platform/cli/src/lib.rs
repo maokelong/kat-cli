@@ -15,7 +15,7 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use miette::Diagnostic;
 use operation_log::{OperationLog, OperationLogError};
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
@@ -92,12 +92,29 @@ enum Datasource {
         #[arg(long, value_name = "PATH")]
         trace: PathBuf,
     },
+    /// 把未压缩 UTF-8 文本 ftrace 导入为带类型的来源事实。
+    Ftrace {
+        /// 读取该路径的文本 ftrace capture。
+        #[arg(long, value_name = "PATH")]
+        trace: PathBuf,
+        /// 指定该 capture 中所有事件读数所属的时钟域。
+        #[arg(long, value_enum)]
+        clock_domain: FtraceClockDomain,
+    },
     /// Deprecated: pre-release validation only. Its table interface is unstable and it must be removed before the first formal release.
     TraceStreamer {
         /// Read the Trace Streamer SQLite database at this path.
         #[arg(long, value_name = "PATH")]
         database: PathBuf,
     },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum FtraceClockDomain {
+    Boottime,
+    Monotonic,
+    #[value(name = "ftrace_global")]
+    FtraceGlobal,
 }
 
 #[derive(Serialize)]
@@ -166,6 +183,20 @@ pub fn run() -> ExitCode {
         Operation::Import(ImportArgs {
             dataset,
             overwrite_dataset,
+            datasource:
+                Datasource::Ftrace {
+                    trace,
+                    clock_domain,
+                },
+        }) => response::publish(import_text_ftrace(
+            trace,
+            clock_domain,
+            dataset,
+            overwrite_dataset,
+        )),
+        Operation::Import(ImportArgs {
+            dataset,
+            overwrite_dataset,
             datasource: Datasource::TraceStreamer { database },
         }) => {
             let prepared = match import_trace_streamer(database, dataset, overwrite_dataset) {
@@ -203,6 +234,165 @@ pub fn run() -> ExitCode {
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
         Operation::Test(arguments) => response::publish(test::execute(arguments)),
+    }
+}
+
+#[derive(Serialize)]
+struct ImportTextFtraceResult {
+    path: String,
+    unsupported_events: Vec<UnsupportedTextFtraceEventResult>,
+    compatibility_issues: Vec<TextFtraceCompatibilityIssueResult>,
+}
+
+#[derive(Serialize)]
+struct UnsupportedTextFtraceEventResult {
+    name: String,
+    count: u64,
+    first_line: u64,
+}
+
+#[derive(Serialize)]
+struct TextFtraceCompatibilityIssueResult {
+    event: String,
+    field: String,
+    line: u64,
+    reason: String,
+}
+
+fn import_text_ftrace(
+    trace: PathBuf,
+    clock_domain: FtraceClockDomain,
+    dataset: Option<PathBuf>,
+    overwrite: bool,
+) -> response::PreparedResponse<ImportTextFtraceResult> {
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::miette!(error.to_string())),
+    };
+    let target = dataset.unwrap_or_else(|| {
+        data_home
+            .join("datasets")
+            .join(uuid::Uuid::now_v7().to_string())
+    });
+    let mut log = match OperationLog::create(&data_home, "import", |file| {
+        writeln!(
+            file,
+            "operation: kat import ftrace\ntrace: {trace:?}\ndataset: {target:?}\nclock_domain: {clock_domain:?}"
+        )
+    }) {
+        Ok(log) => log,
+        Err(error) => {
+            return response::prepare_cli_failure(miette::miette!(error.to_string()));
+        }
+    };
+    if let Err(error) = locate_skill_root() {
+        let report = miette::miette!(error.to_string());
+        let _ = writeln!(log, "status: failure\nerror: {report}");
+        return finish_text_ftrace_failure(log, report);
+    }
+    let target = if overwrite {
+        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
+    } else {
+        kat_datasource::DatasetWriteTarget::write_to_empty(target)
+    }
+    .protect_path(log.path());
+    let clock = match clock_domain {
+        FtraceClockDomain::Boottime => kat_datasource::TextFtraceClock::Boottime,
+        FtraceClockDomain::Monotonic => kat_datasource::TextFtraceClock::Monotonic,
+        FtraceClockDomain::FtraceGlobal => kat_datasource::TextFtraceClock::FtraceGlobal,
+    };
+    let imported = match kat_datasource::import_text_ftrace(trace, clock, target) {
+        Ok(imported) => imported,
+        Err(error) => {
+            let compatibility = error.compatibility().map(|issue| {
+                response::CompatibilityDiagnostic::new(
+                    issue.event(),
+                    issue.field(),
+                    issue.line(),
+                    issue.reason(),
+                )
+            });
+            let report = miette::miette!(error.to_string());
+            if let Some(issue) = error.compatibility() {
+                let _ = writeln!(
+                    log,
+                    "compatibility event={} field={} line={} reason={} ",
+                    issue.event(),
+                    issue.field(),
+                    issue.line(),
+                    issue.reason()
+                );
+            }
+            let _ = writeln!(log, "status: failure\nerror: {report}");
+            if let Some(compatibility) = compatibility {
+                return finish_text_ftrace_compatibility_failure(log, report, compatibility);
+            }
+            return finish_text_ftrace_failure(log, report);
+        }
+    };
+    let Some(path) = imported.path().to_str() else {
+        let report = miette::miette!(
+            "Dataset path cannot be represented as native Unicode: {:?}",
+            imported.path()
+        );
+        let _ = writeln!(log, "status: failure\nerror: {report}");
+        return finish_text_ftrace_failure(log, report);
+    };
+    for event in imported.unsupported_events() {
+        if let Err(error) = writeln!(
+            log,
+            "unsupported event {:?}: count={}, first_line={}",
+            event.name(),
+            event.count(),
+            event.first_line()
+        ) {
+            return finish_text_ftrace_failure(log, miette::miette!(error.to_string()));
+        }
+    }
+    if let Err(error) = writeln!(log, "status: success") {
+        return finish_text_ftrace_failure(log, miette::miette!(error.to_string()));
+    }
+    let result = ImportTextFtraceResult {
+        path: path.to_owned(),
+        unsupported_events: imported
+            .unsupported_events()
+            .iter()
+            .map(|event| UnsupportedTextFtraceEventResult {
+                name: event.name().to_owned(),
+                count: event.count(),
+                first_line: event.first_line(),
+            })
+            .collect(),
+        compatibility_issues: Vec::new(),
+    };
+    match log.finish() {
+        Ok(log_path) => response::prepare_success_with_log(result, Some(log_path)),
+        Err(error) => response::prepare_cli_failure(miette::miette!(error.to_string())),
+    }
+}
+
+fn finish_text_ftrace_compatibility_failure(
+    log: OperationLog,
+    report: miette::Report,
+    compatibility: response::CompatibilityDiagnostic,
+) -> response::PreparedResponse<ImportTextFtraceResult> {
+    match log.finish() {
+        Ok(log_path) => response::prepare_cli_failure_with_log_and_compatibility(
+            report,
+            Some(log_path),
+            compatibility,
+        ),
+        Err(error) => response::prepare_cli_failure(miette::miette!(error.to_string())),
+    }
+}
+
+fn finish_text_ftrace_failure(
+    log: OperationLog,
+    report: miette::Report,
+) -> response::PreparedResponse<ImportTextFtraceResult> {
+    match log.finish() {
+        Ok(log_path) => response::prepare_cli_failure_with_log(report, Some(log_path)),
+        Err(error) => response::prepare_cli_failure(miette::miette!(error.to_string())),
     }
 }
 

@@ -27,6 +27,8 @@ pub(super) struct RootPlan {
     pub(super) protobuf_fqn: String,
     pub(super) root_table_name: String,
     pub(super) relation_slot: usize,
+    pub(super) parent_nullable: bool,
+    pub(super) incremental_relation_paths: Vec<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -160,7 +162,37 @@ pub(super) fn build(
         return Err(diagnostics);
     }
 
-    builder.add_relationship_columns();
+    builder.add_relationship_columns(roots);
+    for root in &root_plans {
+        for path in &root.incremental_relation_paths {
+            let relation_name = names::relation_name(&root.root_table_name, path);
+            match builder
+                .relations
+                .iter()
+                .find(|relation| relation.name == relation_name)
+            {
+                None => diagnostics.push(Diagnostic::root(
+                    &root.protobuf_fqn,
+                    format!("incremental relation path {:?} is missing", path.join(".")),
+                )),
+                Some(relation)
+                    if !matches!(relation.source, RelationSource::RepeatedMessage { .. }) =>
+                {
+                    diagnostics.push(Diagnostic::root(
+                        &root.protobuf_fqn,
+                        format!(
+                            "incremental relation path {:?} must identify a repeated message",
+                            path.join(".")
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     Ok(RelationalPlan {
         roots: root_plans,
         relations: builder.relations,
@@ -218,6 +250,12 @@ impl Builder<'_> {
             protobuf_fqn: spec.protobuf_fqn.to_string(),
             root_table_name: spec.root_table_name.to_string(),
             relation_slot,
+            parent_nullable: spec.parent_nullable,
+            incremental_relation_paths: spec
+                .incremental_relation_paths
+                .iter()
+                .map(|path| path.split('.').map(str::to_owned).collect())
+                .collect(),
         })
     }
 
@@ -625,7 +663,7 @@ impl Builder<'_> {
         });
     }
 
-    fn add_relationship_columns(&mut self) {
+    fn add_relationship_columns(&mut self, roots: &[RootSpec<'_>]) {
         let mut referenced = vec![false; self.relations.len()];
         for relation in &self.relations {
             if let Some(parent) = relation.source.parent() {
@@ -643,7 +681,10 @@ impl Builder<'_> {
             }
             columns.push(ColumnPlan {
                 name: "_kat_parent_row_id".to_string(),
-                nullable: false,
+                nullable: match relation.source {
+                    RelationSource::Root { root_index } => roots[root_index].parent_nullable,
+                    _ => false,
+                },
                 source: ColumnSource::ParentRowId,
             });
             if relation.source.is_repeated() {
