@@ -24,6 +24,15 @@ kat import --dataset <Dataset目录> trace-streamer --database <本地SQLite路�
 
 `kat import hitrace --trace <本地.htrace路径>` 虽可用于明确的导入检查，但当前没有完成长期 `.htrace` Bundled Workflow 闭环。不要把导入成功表述为分析完成，也不要把 `.htrace` 请求改写为 Trace Streamer 请求。
 
+## 导入文本 ftrace
+
+```text
+kat import ftrace --trace <本地UTF-8文本.ftrace路径> --clock-domain <boottime|monotonic|ftrace_global>
+kat import --dataset <Dataset目录> ftrace --trace <本地UTF-8文本.ftrace路径> --clock-domain <boottime|monotonic|ftrace_global>
+```
+
+该入口只接受未压缩文本 ftrace，不接受 `.htrace`、raw/record `.sys` 或压缩 trace。`--clock-domain` 必须来自采集配置，不能根据文件名或时间数值猜测。支持的 25 类事件直接按 `kat/platform/datasource/proto` 中的 canonical `FtraceEvent` 格式化，并发布与 Hitrace 相同的 Proto-derived relations；完整事件及字段兼容规则见 `docs/superpowers/specs/2026-08-19-text-ftrace-proto-compatibility-matrix.md`。`result.unsupported_events` 列出当前文件中合法但尚未支持的事件名称、数量和首次行号。只有用户明确要求整体替换指定 Dataset 时才传入 `--overwrite-dataset`。
+
 ## 检查 Dataset 或发现 PACK
 
 ```text

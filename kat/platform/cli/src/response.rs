@@ -50,6 +50,29 @@ pub(super) struct KatDiagnostic {
     #[serde(default, deserialize_with = "deserialize_optional_nonnull")]
     #[serde(skip_serializing_if = "Option::is_none")]
     location: Option<DiagnosticLocation>,
+    #[serde(default, deserialize_with = "deserialize_optional_nonnull")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compatibility: Option<Box<CompatibilityDiagnostic>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CompatibilityDiagnostic {
+    event: String,
+    field: String,
+    line: u64,
+    reason: String,
+}
+
+impl CompatibilityDiagnostic {
+    pub(super) fn new(event: &str, field: &str, line: u64, reason: &str) -> Self {
+        Self {
+            event: event.to_owned(),
+            field: field.to_owned(),
+            line,
+            reason: reason.to_owned(),
+        }
+    }
 }
 
 fn deserialize_optional_nonnull<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -82,6 +105,9 @@ impl KatDiagnostic {
                 .as_ref()
                 .is_none_or(|help| !help.trim().is_empty())
             && self.location.as_ref().is_none_or(DiagnosticLocation::valid)
+            // compatibility is owned by the trusted Import CLI and is never accepted
+            // from a Workflow runtime response.
+            && self.compatibility.is_none()
     }
 
     pub(super) fn contains_private_value(&self, value: &str) -> bool {
@@ -173,6 +199,25 @@ pub(super) fn prepare_cli_failure_with_log<P>(
     }
 }
 
+pub(super) fn prepare_cli_failure_with_log_and_compatibility<P>(
+    report: miette::Report,
+    log_path: Option<String>,
+    compatibility: CompatibilityDiagnostic,
+) -> PreparedResponse<P> {
+    let mut diagnostic = cli_diagnostic(&report);
+    diagnostic.compatibility = Some(Box::new(compatibility));
+    let rendered_diagnostic = RenderedDiagnostic(format!("{report:?}"));
+    PreparedResponse {
+        response: KatResponse::Failure {
+            error: diagnostic,
+            log_path,
+            test_report_path: None,
+        },
+        rendered_diagnostic: Some(rendered_diagnostic),
+        exit_code: ExitCode::FAILURE,
+    }
+}
+
 pub(super) fn prepare_runtime_failure<P>(
     diagnostic: KatDiagnostic,
     log_path: String,
@@ -252,6 +297,7 @@ fn cli_diagnostic(report: &miette::Report) -> KatDiagnostic {
         causes,
         help,
         location: project_location(diagnostic),
+        compatibility: None,
     }
 }
 
@@ -657,6 +703,7 @@ mod tests {
                     start: DiagnosticPosition { line: 3, column: 5 },
                     end: DiagnosticPosition { line: 3, column: 8 },
                 }),
+                compatibility: None,
             },
             "log.txt".to_owned(),
         );
@@ -710,6 +757,7 @@ mod tests {
                     start: DiagnosticPosition { line: 1, column: 1 },
                     end: DiagnosticPosition { line: 1, column: 2 },
                 }),
+                compatibility: None,
             };
 
             assert!(!diagnostic.validate(), "accepted private source {source:?}");

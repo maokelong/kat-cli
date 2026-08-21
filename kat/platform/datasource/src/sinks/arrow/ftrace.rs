@@ -9,7 +9,7 @@ use super::table::EventTableBuilder;
 pub(crate) struct EventMeta {
     event_timestamp: u64,
     event_cpu: u32,
-    event_tgid: i32,
+    event_tgid: Option<i32>,
     event_comm: String,
 }
 

@@ -58,13 +58,13 @@ import "ftrace_data/writeback.proto";
 
 message FtraceEvent {
     uint64 timestamp = 1;
-    int32 tgid = 2;
+    optional int32 tgid = 2;
     string comm = 3;
 
     message CommonFileds {
-        uint32 type = 1;
-        uint32 flags = 2;
-        uint32 preempt_count = 3;
+        optional uint32 type = 1;
+        optional uint32 flags = 2;
+        optional uint32 preempt_count = 3;
         int32 pid = 4;
     };
     CommonFileds common_fields = 50;
@@ -286,6 +286,7 @@ message FtraceEvent {
         IpiEntryFormat ipi_entry_format = 1400;
         IpiExitFormat ipi_exit_format = 1401;
         IpiRaiseFormat ipi_raise_format = 1402;
+        IpiSendCpuFormat ipi_send_cpu_format = 1403;
         IrqHandlerEntryFormat irq_handler_entry_format = 1500;
         IrqHandlerExitFormat irq_handler_exit_format = 1501;
         SoftirqEntryFormat softirq_entry_format = 1502;

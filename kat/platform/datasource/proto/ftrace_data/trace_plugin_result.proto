@@ -79,5 +79,5 @@ message PerCpuStatsMsg {
 message FtraceCpuDetailMsg {
   uint32 cpu = 1;
   repeated FtraceEvent event = 2;
-  uint64 overwrite = 3;
+  optional uint64 overwrite = 3;
 }

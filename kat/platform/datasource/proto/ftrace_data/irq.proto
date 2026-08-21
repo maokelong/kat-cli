@@ -29,20 +29,24 @@ message IrqHandlerEntryFormat {
 // /sys/kernel/debug/tracing/events/irq/irq_handler_exit/format
 message IrqHandlerExitFormat {
     int32 irq = 1;
-    int32 ret = 2;
+    optional int32 ret = 2;
+    optional string ret_symbol = 3;
 }
 
 // /sys/kernel/debug/tracing/events/irq/softirq_entry/format
 message SoftirqEntryFormat {
     uint32 vec = 1;
+    optional string action = 2;
 }
 
 // /sys/kernel/debug/tracing/events/irq/softirq_exit/format
 message SoftirqExitFormat {
     uint32 vec = 1;
+    optional string action = 2;
 }
 
 // /sys/kernel/debug/tracing/events/irq/softirq_raise/format
 message SoftirqRaiseFormat {
     uint32 vec = 1;
+    optional string action = 2;
 }

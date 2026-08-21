@@ -32,6 +32,13 @@ message IpiExitFormat {
 
 // /sys/kernel/debug/tracing/events/ipi/ipi_raise/format
 message IpiRaiseFormat {
-    uint64 target_cpus = 1;
+    optional uint64 target_cpus = 1;
     string reason = 2;
+    optional string target_mask = 3;
+}
+
+message IpiSendCpuFormat {
+    uint32 target_cpu = 1;
+    string callsite = 2;
+    string callback = 3;
 }

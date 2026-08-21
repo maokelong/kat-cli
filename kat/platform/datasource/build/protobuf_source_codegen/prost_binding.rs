@@ -11,6 +11,7 @@ use super::{
 #[derive(Clone, Debug)]
 pub(super) struct ProstBindings {
     root_types: BTreeMap<usize, String>,
+    relation_types: BTreeMap<usize, String>,
     fields: BTreeMap<FieldKey, FieldBinding>,
 }
 
@@ -25,6 +26,12 @@ impl ProstBindings {
         self.fields
             .get(&FieldKey::new(field))
             .expect("every planned field has a prost binding")
+    }
+
+    pub(super) fn relation_type(&self, relation_slot: usize) -> &str {
+        self.relation_types
+            .get(&relation_slot)
+            .expect("every message relation has a prost binding")
     }
 }
 
@@ -74,6 +81,16 @@ pub(super) fn bind(
     }
 
     let mut planned_fields = BTreeMap::<FieldKey, ProtoField>::new();
+    let relation_types = plan
+        .relations
+        .iter()
+        .map(|relation| {
+            let message = catalog
+                .get_message_by_name(&relation.message_fqn)
+                .expect("every planned relation message remains in the descriptor pool");
+            (relation.slot, message_rust_path(&message))
+        })
+        .collect();
     for relation in &plan.relations {
         if let Some(field) = relation_source_field(&relation.source) {
             planned_fields.insert(FieldKey::new(field), field.clone());
@@ -117,7 +134,11 @@ pub(super) fn bind(
     }
 
     if diagnostics.is_empty() {
-        Ok(ProstBindings { root_types, fields })
+        Ok(ProstBindings {
+            root_types,
+            relation_types,
+            fields,
+        })
     } else {
         Err(diagnostics)
     }

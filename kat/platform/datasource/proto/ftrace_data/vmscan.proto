@@ -65,7 +65,7 @@ message MmVmscanKswapdSleepFormat {
 // /sys/kernel/debug/tracing/events/vmscan/mm_vmscan_kswapd_wake/format
 message MmVmscanKswapdWakeFormat {
     int32 nid = 1;
-    int32 zid = 2;
+    optional int32 zid = 2;
     int32 order = 3;
 }
 

@@ -114,7 +114,7 @@ fn trace_record_stream_models_pre_sink_records() {
         3,
         proto::kat::hitrace::FtraceEvent {
             timestamp: 20,
-            tgid: 500,
+            tgid: Some(500),
             comm: "source".to_string(),
             ..Default::default()
         },
@@ -225,7 +225,7 @@ fn generated_proto_includes_upstream_sched_messages() {
 fn generated_ftrace_event_uses_canonical_event_oneof() {
     let value = proto::kat::hitrace::FtraceEvent {
         timestamp: 10,
-        tgid: 500,
+        tgid: Some(500),
         comm: "source".to_string(),
         event: Some(proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(
             proto::kat::hitrace::SchedSwitchFormat {
@@ -239,9 +239,9 @@ fn generated_ftrace_event_uses_canonical_event_oneof() {
             },
         )),
         common_fields: Some(proto::kat::hitrace::ftrace_event::CommonFileds {
-            r#type: 123,
-            flags: 1,
-            preempt_count: 2,
+            r#type: Some(123),
+            flags: Some(1),
+            preempt_count: Some(2),
             pid: 42,
         }),
     };
@@ -257,7 +257,7 @@ fn generated_ftrace_event_uses_canonical_event_oneof() {
         ))
     ));
     let common_fields = decoded.common_fields.expect("common fields decode");
-    assert_eq!(common_fields.r#type, 123);
+    assert_eq!(common_fields.r#type, Some(123));
     assert_eq!(common_fields.pid, 42);
 }
 
@@ -404,7 +404,7 @@ fn generated_ftrace_table_set_routes_direct_events_to_tables() {
                 3,
                 proto::kat::hitrace::FtraceEvent {
                     timestamp: 20,
-                    tgid: 500,
+                    tgid: Some(500),
                     comm: "source".to_string(),
                     event: Some(proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(
                         proto::kat::hitrace::SchedSwitchFormat {
@@ -436,7 +436,7 @@ fn generated_ftrace_table_set_routes_direct_events_to_tables() {
 fn ftrace_event_table_builder_combines_meta_and_message_fields() {
     let event = proto::kat::hitrace::FtraceEvent {
         timestamp: 20,
-        tgid: 500,
+        tgid: Some(500),
         comm: "source".to_string(),
         ..Default::default()
     };

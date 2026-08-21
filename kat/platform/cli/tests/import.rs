@@ -294,6 +294,120 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
 }
 
 #[test]
+fn text_ftrace_import_publishes_only_observed_event_tables() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.ftrace");
+    let dataset = temp.path().join("dataset");
+    fs::write(
+        &source,
+        concat!(
+            "# tracer: nop\n",
+            "          <idle>-0       (-------) [002] dNh.. 1.000000001: sched_wakeup: comm=worker pid=7 prio=120 target_cpu=002\n",
+            "          <idle>-0       (-------) [002] d.... 1.000000002: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=7 next_prio=120\n",
+            "              sh-8       (      8) [000] d.... 1.000000003: sched_wakeup_new: comm=child pid=9 prio=120 target_cpu=001\n",
+            "         hitrace-10      (     10) [003] ..... 1.000000004: tracing_mark_write: trace_event_clock_sync: parent_ts=1.0\n",
+        ),
+    )
+    .unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "ftrace", "--trace"])
+        .arg(&source)
+        .args(["--clock-domain", "boottime", "--dataset"])
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    assert_eq!(
+        response["result"]["unsupported_events"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        response["result"]["compatibility_issues"],
+        serde_json::json!([])
+    );
+    let log = PathBuf::from(response["log_path"].as_str().unwrap());
+    assert!(log.is_file());
+    let log = fs::read_to_string(log).unwrap();
+    assert!(log.contains("operation: kat import ftrace"));
+    assert!(log.contains("status: success"));
+
+    let inspected = command(&binary, temp.path())
+        .arg("inspect")
+        .arg("--dataset")
+        .arg(&dataset)
+        .output()
+        .unwrap();
+    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(
+        inspection["result"]["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|table| table["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "clock_domain",
+            "protobuf_enum_symbol",
+            "trace_plugin_config",
+            "trace_plugin_result",
+            "trace_plugin_result_ftrace_cpu_detail",
+            "trace_plugin_result_ftrace_cpu_detail_event",
+            "trace_plugin_result_ftrace_cpu_detail_event_print_format",
+            "trace_plugin_result_ftrace_cpu_detail_event_sched_switch_format",
+            "trace_plugin_result_ftrace_cpu_detail_event_sched_wakeup_format",
+            "trace_plugin_result_ftrace_cpu_detail_event_sched_wakeup_new_format",
+        ]
+    );
+}
+
+#[test]
+fn malformed_known_ftrace_field_reports_structured_compatibility_diagnostic() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temp.path());
+    let source = temp.path().join("capture.ftrace");
+    let dataset = temp.path().join("dataset");
+    fs::write(
+        &source,
+        "worker-7 ( 7) [000] ..... 1.0: sched_wakeup: comm=target pid=invalid prio=120 target_cpu=000\n",
+    )
+    .unwrap();
+
+    let output = command(&binary, temp.path())
+        .args(["import", "ftrace", "--trace"])
+        .arg(&source)
+        .args(["--clock-domain", "boottime", "--dataset"])
+        .arg(&dataset)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["compatibility"],
+        serde_json::json!({
+            "event": "sched_wakeup",
+            "field": "pid",
+            "line": 1,
+            "reason": "invalid signed 32-bit integer"
+        })
+    );
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("compatibility event=sched_wakeup field=pid line=1"));
+    assert!(log.contains("reason=invalid signed 32-bit integer"));
+    assert!(!dataset.exists());
+}
+
+#[test]
 fn hitrace_import_reports_sorted_unknown_plugins_and_sections() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());

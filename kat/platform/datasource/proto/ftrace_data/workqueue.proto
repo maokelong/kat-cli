@@ -28,12 +28,14 @@ message WorkqueueActivateWorkFormat {
 // /sys/kernel/debug/tracing/events/workqueue/workqueue_execute_end/format
 message WorkqueueExecuteEndFormat {
     uint64 work = 1;
+    optional string function_symbol = 2;
 }
 
 // /sys/kernel/debug/tracing/events/workqueue/workqueue_execute_start/format
 message WorkqueueExecuteStartFormat {
     uint64 work = 1;
-    uint64 function = 2;
+    optional uint64 function = 2;
+    optional string function_symbol = 3;
 }
 
 // /sys/kernel/debug/tracing/events/workqueue/workqueue_queue_work/format
