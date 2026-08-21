@@ -117,6 +117,65 @@ fn dataset_marker_failure_after_begin_never_publishes_a_valid_marker() {
 }
 
 #[test]
+fn writer_and_staged_publication_share_target_safety_checks() {
+    let root = tempdir().expect("temporary directory");
+
+    let file_target = root.path().join("file-target");
+    fs::write(&file_target, b"keep file target").expect("file target is written");
+    assert_target_rejected_by_writer_and_publication(
+        dataset_writer::DatasetWriteTarget::write_to_empty(&file_target),
+        |error| {
+            matches!(
+                error,
+                dataset_writer::DatasetWriteError::TargetNotDirectory { .. }
+            )
+        },
+    );
+    assert_eq!(
+        fs::read(&file_target).expect("file target remains readable"),
+        b"keep file target"
+    );
+
+    let nonempty_target = root.path().join("nonempty-target");
+    fs::create_dir(&nonempty_target).expect("nonempty target is created");
+    fs::write(nonempty_target.join("sentinel"), b"keep nonempty target")
+        .expect("nonempty target sentinel is written");
+    assert_target_rejected_by_writer_and_publication(
+        dataset_writer::DatasetWriteTarget::write_to_empty(&nonempty_target),
+        |error| {
+            matches!(
+                error,
+                dataset_writer::DatasetWriteError::TargetNotEmpty { .. }
+            )
+        },
+    );
+    assert_eq!(
+        fs::read(nonempty_target.join("sentinel"))
+            .expect("nonempty target sentinel remains readable"),
+        b"keep nonempty target"
+    );
+
+    let protected_target = root.path().join("protected-target");
+    fs::create_dir(&protected_target).expect("protected target is created");
+    let protected_path = protected_target.join("protected.bin");
+    fs::write(&protected_path, b"keep protected path").expect("protected path is written");
+    assert_target_rejected_by_writer_and_publication(
+        dataset_writer::DatasetWriteTarget::permanently_replace_all_contents(&protected_target)
+            .protect_path(&protected_path),
+        |error| {
+            matches!(
+                error,
+                dataset_writer::DatasetWriteError::ProtectedPathInsideTarget { .. }
+            )
+        },
+    );
+    assert_eq!(
+        fs::read(&protected_path).expect("protected path remains readable"),
+        b"keep protected path"
+    );
+}
+
+#[test]
 fn staged_publication_keeps_old_dataset_until_tables_are_ready_then_removes_staging() {
     let root = tempdir().expect("temporary directory");
     let dataset = root.path().join("dataset");
@@ -181,6 +240,29 @@ fn dropping_unpublished_candidate_removes_only_its_staging_directory() {
         fs::read_dir(&dataset).expect("target still reads").count(),
         0,
         "Drop removes exactly its staging directory"
+    );
+}
+
+fn assert_target_rejected_by_writer_and_publication(
+    target: dataset_writer::DatasetWriteTarget,
+    expected: impl Fn(&dataset_writer::DatasetWriteError) -> bool,
+) {
+    let writer_error = match dataset_writer::DatasetWriter::begin(target.clone()) {
+        Ok(_) => panic!("direct Dataset writer unexpectedly accepted the target"),
+        Err(error) => error,
+    };
+    assert!(
+        expected(&writer_error),
+        "direct Dataset writer returned an unexpected error: {writer_error:?}"
+    );
+
+    let publication_error = match dataset_writer::DatasetPublication::stage(target) {
+        Ok(_) => panic!("staged Dataset publication unexpectedly accepted the target"),
+        Err(error) => error,
+    };
+    assert!(
+        expected(&publication_error),
+        "staged Dataset publication returned an unexpected error: {publication_error:?}"
     );
 }
 

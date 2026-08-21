@@ -64,6 +64,11 @@ enum ExistingContents {
     PermanentlyClear,
 }
 
+struct InspectedWriteTarget {
+    root: PathBuf,
+    nonempty: bool,
+}
+
 pub(crate) struct DatasetWriter {
     root: PathBuf,
     tables: PathBuf,
@@ -113,7 +118,7 @@ impl DatasetPublication {
     }
 
     pub(crate) fn publish(mut self) -> Result<PathBuf, DatasetWriteError> {
-        validate_tables(&self.tables.tables, &self.tables.table_names.borrow())?;
+        validate_registered_table_metadata(&self.tables.tables, &self.tables.table_names.borrow())?;
 
         // 一旦开始替换，先撤销旧 marker；后续任一步失败都不会留下可识别的半成品。
         invalidate_marker(&self.root)?;
@@ -141,7 +146,7 @@ impl DatasetPublication {
                 path: staging_path,
                 source,
             })?;
-        validate_tables(&published_tables, &self.tables.table_names.borrow())?;
+        validate_registered_table_metadata(&published_tables, &self.tables.table_names.borrow())?;
         publish_marker(&self.root)?;
         Ok(self.root.clone())
     }
@@ -195,7 +200,7 @@ impl DatasetWriter {
     }
 
     pub(crate) fn finish(self) -> Result<PathBuf, DatasetWriteError> {
-        validate_tables(&self.tables, &self.table_names)?;
+        validate_registered_table_metadata(&self.tables, &self.table_names)?;
         publish_marker(&self.root)?;
         Ok(self.root)
     }
@@ -248,7 +253,11 @@ fn begin_table(
     })
 }
 
-fn validate_tables(tables: &Path, table_names: &HashSet<String>) -> Result<(), DatasetWriteError> {
+/// 重新打开每张已注册的 Parquet 表并解析 footer/Arrow metadata，不扫描 data pages。
+fn validate_registered_table_metadata(
+    tables: &Path,
+    table_names: &HashSet<String>,
+) -> Result<(), DatasetWriteError> {
     let mut names = table_names.iter().collect::<Vec<_>>();
     names.sort();
     for table in names {
@@ -319,53 +328,20 @@ impl DatasetTableWriter {
 }
 
 fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteError> {
-    match fs::metadata(&target.path) {
-        Ok(metadata) => {
-            if !metadata.is_dir() {
-                return Err(DatasetWriteError::TargetNotDirectory {
-                    path: target.path.clone(),
-                });
-            }
-            let canonical = canonical_unicode(&target.path)?;
-            protect_paths_from_clear(target, &canonical)?;
-            let mut entries =
-                fs::read_dir(&canonical).map_err(|source| DatasetWriteError::ReadTarget {
-                    path: canonical.clone(),
-                    source,
-                })?;
-            let nonempty = match entries.next() {
-                Some(Ok(_)) => true,
-                Some(Err(source)) => {
-                    return Err(DatasetWriteError::ReadTarget {
-                        path: canonical,
-                        source,
-                    });
-                }
-                None => false,
-            };
-            if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
-                return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
-            }
-            if nonempty {
-                clear_existing_target(&canonical)?;
-            }
-            Ok(canonical)
-        }
-        Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            fs::create_dir_all(&target.path).map_err(|source| DatasetWriteError::CreateTarget {
-                path: target.path.clone(),
-                source,
-            })?;
-            canonical_unicode(&target.path)
-        }
-        Err(source) => Err(DatasetWriteError::InspectTarget {
-            path: target.path.clone(),
-            source,
-        }),
+    let InspectedWriteTarget { root, nonempty } = inspect_write_target(target)?;
+    if nonempty {
+        clear_existing_target(&root)?;
     }
+    Ok(root)
 }
 
 fn prepare_staging_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteError> {
+    Ok(inspect_write_target(target)?.root)
+}
+
+fn inspect_write_target(
+    target: &DatasetWriteTarget,
+) -> Result<InspectedWriteTarget, DatasetWriteError> {
     match fs::metadata(&target.path) {
         Ok(metadata) => {
             if !metadata.is_dir() {
@@ -393,14 +369,20 @@ fn prepare_staging_target(target: &DatasetWriteTarget) -> Result<PathBuf, Datase
             if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
                 return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
             }
-            Ok(canonical)
+            Ok(InspectedWriteTarget {
+                root: canonical,
+                nonempty,
+            })
         }
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             fs::create_dir_all(&target.path).map_err(|source| DatasetWriteError::CreateTarget {
                 path: target.path.clone(),
                 source,
             })?;
-            canonical_unicode(&target.path)
+            Ok(InspectedWriteTarget {
+                root: canonical_unicode(&target.path)?,
+                nonempty: false,
+            })
         }
         Err(source) => Err(DatasetWriteError::InspectTarget {
             path: target.path.clone(),
@@ -640,14 +622,16 @@ pub enum DatasetWriteError {
         #[source]
         source: io::Error,
     },
-    #[error("failed to reopen Dataset table {table:?} at {path} for publication validation")]
+    #[error(
+        "failed to open registered Dataset table {table:?} at {path} for Parquet metadata validation"
+    )]
     ValidateTableOpen {
         table: String,
         path: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("failed to validate Dataset table {table:?} at {path} before publication")]
+    #[error("failed to load Parquet metadata for registered Dataset table {table:?} at {path}")]
     ValidateTable {
         table: String,
         path: PathBuf,
