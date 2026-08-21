@@ -1,0 +1,55 @@
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_71ff3bffcf4bb1::t_89be6a55b10f5d 10,26
+kat/platform/datasource/src/protobuf_source/buffered_table.rs
+  s_71ff3bffcf4bb1::t_0f223e099d4e15 5
+kat/platform/datasource/tests/protobuf_source_contract/mod.rs
+  s_71ff3bffcf4bb1::t_a10232b026f894 33,38,146,151,343,357,755
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_71ff3bffcf4bb1::t_89be6a55b10f5d 9-10,52,62,71
+  s_71ff3bffcf4bb1::t_5a6378df80d81d 133
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_71ff3bffcf4bb1::t_89be6a55b10f5d 320
+kat/platform/datasource/src/protobuf_source/profiler_occurrence.rs
+  s_71ff3bffcf4bb1::t_89be6a55b10f5d 17-18,43
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_71ff3bffcf4bb1::t_51baabee99f8d6 33,92,150,334,350,379,396,399,418,445,462,551,595,1182,1218
+kat/platform/datasource/tests/protobuf_source_contract/roundtrip.rs
+  s_71ff3bffcf4bb1::t_e75f76acb4700d 7,12,151,156,452,471-473,599,624-626,752,762,838,899,1197,1249,1383,1387-1389
+kat/platform/datasource/src/protobuf_source/spec.rs
+  s_71ff3bffcf4bb1::t_0f223e099d4e15 71,76,93,96,99,105
+kat/platform/datasource/src/materializer.rs
+  s_71ff3bffcf4bb1::t_89be6a55b10f5d 35,124
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_71ff3bffcf4bb1::t_0f223e099d4e15 6,19
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_71ff3bffcf4bb1::t_0f223e099d4e15 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2b5d84c32e40919e66a6906f95c67175e1f15882",
+  "prompts": {
+    "s_71ff3bffcf4bb1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a021ea-bf0d-7c83-830d-73eaf40e0d4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 91,
+      "total_deletions": 166,
+      "accepted_lines": 68,
+      "overriden_lines": 23
+    }
+  },
+  "sessions": {
+    "s_71ff3bffcf4bb1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a021ea-bf0d-7c83-830d-73eaf40e0d4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
