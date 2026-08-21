@@ -30,12 +30,12 @@ async fn generated_scalar_presence_bytes_and_empty_root_round_trip_through_datas
     use proto::fixture::protobuf_source::valid::{
         EmptyRoot, FullShapeRoot, Lifecycle, ScalarMatrix,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::with_limits(2, 10), &dataset_path)
+        staged_capture(BufferOptions::with_limits(2, 10), &dataset_path)
             .expect("generated capture is valid");
     append_full_shape_root_root(
         &mut capture,
@@ -143,12 +143,12 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
         append_uppercase_field_root_root,
     };
     use proto::fixture::protobuf_source::{alpha, beta, illegal_field_names, naming};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::with_limits(2, 10), &dataset_path)
+        staged_capture(BufferOptions::with_limits(2, 10), &dataset_path)
             .expect("generated capture is valid");
     append_alpha_shared_root_root(&mut capture, 101, &alpha::SharedRoot { alpha_value: -7 })
         .expect("alpha SharedRoot appends");
@@ -340,7 +340,7 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
 
 #[test]
 fn capture_failure_does_not_publish_the_dataset_target() {
-    use protobuf_source::{EstimatedRow, RelationSlot, SpoolOptions};
+    use protobuf_source::{BufferOptions, EstimatedRow, RelationSlot};
 
     #[derive(serde::Serialize)]
     struct IncompleteRow;
@@ -354,7 +354,7 @@ fn capture_failure_does_not_publish_the_dataset_target() {
     let directory = tempdir().expect("temporary parent directory is created");
     let dataset_path = directory.path().join("must_not_exist");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::new(2), &dataset_path).expect("generated capture is valid");
+        staged_capture(BufferOptions::new(2), &dataset_path).expect("generated capture is valid");
     capture
         .append_row(RelationSlot::new(0), &IncompleteRow)
         .expect_err("incomplete row poisons capture");
@@ -752,7 +752,7 @@ fn fixture_descriptors() -> FileDescriptorSet {
 }
 
 fn staged_capture(
-    options: protobuf_source::SpoolOptions,
+    options: protobuf_source::BufferOptions,
     dataset_path: &std::path::Path,
 ) -> anyhow::Result<(
     protobuf_source::SourceTableCapture,

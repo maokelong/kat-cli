@@ -32,7 +32,7 @@ use crate::{
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
     formats::{hitrace, langfuse},
     proto::kat::hitrace::FtraceCpuStatsMsg,
-    protobuf_source::{SpoolOptions, native_hook::NativeHookSourceCapture},
+    protobuf_source::{BufferOptions, native_hook::NativeHookSourceCapture},
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
@@ -121,7 +121,7 @@ fn import_hitrace_inner(
         .map_err(HitraceImportError::import)?;
     let mut sink = LongTermHitraceSink::new();
     let mut source_capture =
-        NativeHookSourceCapture::new(SpoolOptions::default(), publication.table_factory())
+        NativeHookSourceCapture::new(BufferOptions::default(), publication.table_factory())
             .map_err(HitraceImportError::import)?;
     let mut observer_failure = None;
     let decoded_report = {

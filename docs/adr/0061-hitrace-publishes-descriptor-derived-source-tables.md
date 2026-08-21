@@ -24,7 +24,7 @@ Profiler envelope provenance 不扩展成通用 projection language。它由一�
 
 Profiler Source 生成 artifact 按共享 profiler 边界命名和挂载；当前只编译 Native Hook roots，后续 ftrace、fixed-result roots 继续扩展同一个 artifact。共享 occurrence adapter 不得反向依赖任一 root 专属命名空间。
 
-Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Parquet spool。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
+Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Arrow row buffer，达到行数或估算字节门限后直接写入 target-local staged Parquet。这里的 buffer 只控制内存中的 `ArrayBuilder` / `RecordBatch` 批次；spool 专指落入临时文件、随后被回读或二次物化的路径。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
 
 本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost、`serde_arrow` 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。本决定不据此声称已获得未经 release A/B 验证的性能收益。
 

@@ -30,7 +30,7 @@ struct NativeHookCaptureFixture {
 }
 
 impl NativeHookCaptureFixture {
-    fn new(options: protobuf_source::SpoolOptions) -> anyhow::Result<Self> {
+    fn new(options: protobuf_source::BufferOptions) -> anyhow::Result<Self> {
         use dataset_writer::{DatasetPublication, DatasetWriteTarget};
 
         let directory = tempdir()?;
@@ -89,7 +89,7 @@ impl PublishedDataset {
 #[tokio::test]
 async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let empty_data = proto::BatchNativeHookData::default().encode_to_vec();
     let default_config = proto::NativeHookConfig::default().encode_to_vec();
@@ -147,7 +147,7 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         profiler_message("nativehook_config_extra", vec![0xff]),
         profiler_message("hookdaemon_config_config", vec![0xff]),
     ]);
-    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
         .expect("staged Native Hook capture is valid");
     let mut claims = Vec::new();
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
@@ -331,7 +331,7 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
 #[test]
 fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
     use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let config_payload = proto::NativeHookConfig::default().encode_to_vec();
     let envelope = PluginEnvelope {
@@ -347,7 +347,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
         sample_interval: 0,
         section_start: 1_024,
     };
-    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
         .expect("staged Native Hook capture is valid");
     assert!(
         capture
@@ -376,7 +376,7 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             sample_interval: 0,
             section_start: 2_048,
         };
-        let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+        let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
             .expect("staged Native Hook capture is valid");
         assert!(
             !capture
@@ -393,10 +393,10 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
 #[test]
 fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let unbound = profiler_message("nativehook-near", vec![0xff]);
-    let mut healthy = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+    let mut healthy = NativeHookCaptureFixture::new(BufferOptions::new(2))
         .expect("staged Native Hook capture is valid");
     assert!(
         !healthy
@@ -415,7 +415,7 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
     healthy.finish().expect("healthy empty-root capture closes");
 
     let malformed_bound = profiler_message("nativehook", vec![0xff]);
-    let mut poisoned = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+    let mut poisoned = NativeHookCaptureFixture::new(BufferOptions::new(2))
         .expect("staged Native Hook capture is valid");
     let first_error = poisoned
         .try_claim(&PluginEnvelope::from_profiler_plugin_data(
@@ -442,7 +442,7 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
 #[test]
 fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let batch = proto::BatchNativeHookData {
         events: vec![proto::kat::native_hook::NativeHookData {
@@ -459,7 +459,7 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
         },
         batch.encode_to_vec(),
     );
-    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))
+    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
         .expect("staged Native Hook capture is valid");
     assert!(
         capture
@@ -548,7 +548,7 @@ fn clock_admission_supports_all_values_equivalence_and_eventless_gating() {
 
 #[tokio::test]
 async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relations_with_rows() {
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let (first_batch, second_batch) = full_native_hook_batches();
     let config = full_native_hook_config("boot");
@@ -592,7 +592,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     ]
     .concat();
 
-    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::with_limits(1, 128))
+    let mut capture = NativeHookCaptureFixture::new(BufferOptions::with_limits(1, 128))
         .expect("staged Native Hook capture is valid");
     assert_eq!(
         claim_profiler_file(&mut capture, &trace_file).expect("OHOSPROF sections decode and claim"),
@@ -1179,7 +1179,7 @@ fn finish_clock_fixture_with_events(
     has_event_element: bool,
 ) -> anyhow::Result<()> {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let batch = proto::BatchNativeHookData {
         events: has_event_element
@@ -1215,7 +1215,7 @@ fn finish_clock_fixture_with_events(
         )
     }));
     let frames = profiler_frames(messages);
-    let mut capture = NativeHookCaptureFixture::new(SpoolOptions::new(2))?;
+    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))?;
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
         let envelope = PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
         anyhow::ensure!(

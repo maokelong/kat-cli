@@ -14,7 +14,8 @@ use crate::{
 };
 
 use super::{
-    EnumOriginSpec, EstimatedRow, RelationSpec, SourceTableCapture, SourceTableLayout, SpoolOptions,
+    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSpec, SourceTableCapture,
+    SourceTableLayout,
 };
 
 const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
@@ -39,7 +40,7 @@ pub(crate) struct ProfilerPayloadCapture {
 impl ProfilerPayloadCapture {
     pub(crate) fn new(
         layout: ProfilerPayloadLayout,
-        options: SpoolOptions,
+        options: BufferOptions,
         tables: DatasetTableFactory,
     ) -> Result<Self> {
         let mut layout = layout.0;

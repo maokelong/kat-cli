@@ -4,12 +4,12 @@ use super::*;
 async fn standalone_proto3_and_proto2_optional_fields_distinguish_absent_from_default() {
     use generated_fixture_emitter::{append_proto2_optional_root_root, append_scalar_matrix_root};
     use proto::fixture::protobuf_source::valid::{Proto2OptionalRoot, ScalarMatrix};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::new(1), &dataset_path).expect("generated capture is valid");
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     append_scalar_matrix_root(&mut capture, 7_000, &ScalarMatrix::default())
         .expect("absent proto3 optional fields append");
     append_scalar_matrix_root(
@@ -148,12 +148,12 @@ async fn explicit_defaults_and_nullable_struct_ancestors_survive_round_trip() {
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, NullableInner, NullableOuter, ScalarMatrix,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::new(1), &dataset_path).expect("generated capture is valid");
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     append_full_shape_root_root(&mut capture, 1_000, &FullShapeRoot::default())
         .expect("fully absent root appends");
     append_full_shape_root_root(
@@ -449,7 +449,7 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, OneofMatrix, oneof_matrix::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let cases = [
         (2_000, Some(Selected::ScalarValue(0))),
@@ -468,8 +468,9 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
     ];
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
-    let (mut capture, publication) = staged_capture(SpoolOptions::with_limits(2, 8), &dataset_path)
-        .expect("generated capture is valid");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(2, 8), &dataset_path)
+            .expect("generated capture is valid");
     for (parent_row_id, selected) in cases {
         append_full_shape_root_root(
             &mut capture,
@@ -595,7 +596,7 @@ async fn scalar_only_oneof_in_singular_message_stays_inline() {
     use proto::fixture::protobuf_source::valid::{
         InlineOneofRoot, ScalarOneofOnly, scalar_oneof_only::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let cases = [
         (2_100, None),
@@ -620,8 +621,9 @@ async fn scalar_only_oneof_in_singular_message_stays_inline() {
     ];
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
-    let (mut capture, publication) = staged_capture(SpoolOptions::with_limits(2, 8), &dataset_path)
-        .expect("generated capture is valid");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(2, 8), &dataset_path)
+            .expect("generated capture is valid");
     for (parent_row_id, nested) in cases {
         append_inline_oneof_root_root(&mut capture, parent_row_id, &InlineOneofRoot { nested })
             .expect("inline oneof fixture root appends");
@@ -747,7 +749,7 @@ fn parquet_arrow_metadata(
 async fn byte_limit_alone_flushes_complete_variable_width_values() {
     use generated_fixture_emitter::append_full_shape_root_root;
     use proto::fixture::protobuf_source::valid::{FullShapeRoot, ScalarMatrix};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let fixtures = [
         (5_000, "byte-threshold-first", vec![0x00, 0xff, 0x80, 0x01]),
@@ -757,7 +759,7 @@ async fn byte_limit_alone_flushes_complete_variable_width_values() {
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::with_limits(100, 1), &dataset_path)
+        staged_capture(BufferOptions::with_limits(100, 1), &dataset_path)
             .expect("generated capture is valid");
     for (parent_row_id, label, payload) in &fixtures {
         append_full_shape_root_root(
@@ -833,7 +835,7 @@ async fn repeated_and_singular_relations_preserve_identity_and_order_across_flus
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, Lifecycle, RelationChild, RelationContainer, RepeatedMatrix,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let roots = [
         (
@@ -894,7 +896,7 @@ async fn repeated_and_singular_relations_preserve_identity_and_order_across_flus
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::new(1), &dataset_path).expect("generated capture is valid");
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     for (parent_row_id, root) in &roots {
         append_full_shape_root_root(&mut capture, *parent_row_id, root)
             .expect("multi-parent fixture root appends");
@@ -1192,7 +1194,7 @@ async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
     use proto::fixture::protobuf_source::valid::{
         DeepRepeatedRoot, RelationChild, RelationContainer,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let roots = [
         (
@@ -1244,7 +1246,7 @@ async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
     let (mut capture, publication) =
-        staged_capture(SpoolOptions::new(1), &dataset_path).expect("generated capture is valid");
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     for (parent_row_id, root) in &roots {
         append_deep_repeated_root_root(&mut capture, *parent_row_id, root)
             .expect("nested repeated fixture root appends");
@@ -1378,12 +1380,13 @@ async fn enum_definitions_are_complete_and_unknown_numbers_remain_unmatched() {
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, Lifecycle, OneofMatrix, RepeatedMatrix, ScalarMatrix, oneof_matrix::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let directory = tempdir().expect("temporary Dataset directory is created");
     let dataset_path = directory.path().join("dataset");
-    let (mut capture, publication) = staged_capture(SpoolOptions::with_limits(1, 1), &dataset_path)
-        .expect("generated capture is valid");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(1, 1), &dataset_path)
+            .expect("generated capture is valid");
     append_full_shape_root_root(
         &mut capture,
         4_000,

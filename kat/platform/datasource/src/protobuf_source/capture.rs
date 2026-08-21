@@ -6,9 +6,9 @@ use arrow_schema::{DataType, Field, Schema};
 use crate::dataset_writer::DatasetTableFactory;
 
 use super::{
-    EnumOriginSpec, EstimatedRow, RelationSlot, RelationSpec, SpoolOptions,
+    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSlot, RelationSpec,
+    buffered_table::ActiveTable,
     spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
-    spool::ActiveTable,
 };
 
 struct RelationState {
@@ -49,7 +49,7 @@ impl SourceTableLayout {
 
     pub(crate) fn into_capture(
         self,
-        options: SpoolOptions,
+        options: BufferOptions,
         tables: DatasetTableFactory,
     ) -> Result<SourceTableCapture> {
         SourceTableCapture::new(self.relations, self.enum_origins, options, tables)
@@ -59,7 +59,7 @@ impl SourceTableLayout {
 pub(crate) struct SourceTableCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,
-    options: SpoolOptions,
+    options: BufferOptions,
     tables: DatasetTableFactory,
     poisoned: Option<String>,
 }
@@ -68,7 +68,7 @@ impl SourceTableCapture {
     pub(crate) fn new(
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
-        options: SpoolOptions,
+        options: BufferOptions,
         tables: DatasetTableFactory,
     ) -> Result<Self> {
         options.validate()?;
@@ -130,7 +130,7 @@ impl SourceTableCapture {
             state
                 .active
                 .as_mut()
-                .expect("protobuf Source relation spool is initialized")
+                .expect("protobuf Source relation buffer is initialized")
                 .append_row(row)
         })();
         if let Err(error) = result {

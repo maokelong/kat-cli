@@ -7,7 +7,7 @@ use crate::{
         append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     },
     proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
-    protobuf_source::{SpoolOptions, profiler_occurrence::ProfilerPayloadCapture},
+    protobuf_source::{BufferOptions, profiler_occurrence::ProfilerPayloadCapture},
 };
 
 enum NativeHookRoot {
@@ -23,7 +23,7 @@ pub(crate) struct NativeHookSourceCapture {
 }
 
 impl NativeHookSourceCapture {
-    pub(crate) fn new(options: SpoolOptions, tables: DatasetTableFactory) -> Result<Self> {
+    pub(crate) fn new(options: BufferOptions, tables: DatasetTableFactory) -> Result<Self> {
         Ok(Self {
             capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options, tables)?,
             terminal_error: None,

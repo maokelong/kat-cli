@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::dataset_writer::{DatasetTableFactory, DatasetTableWriter};
 
-use super::{EstimatedRow, RelationSpec, SpoolOptions};
+use super::{BufferOptions, EstimatedRow, RelationSpec};
 
 pub(super) struct ActiveTable {
     spec: RelationSpec,
@@ -10,13 +10,13 @@ pub(super) struct ActiveTable {
     builder: serde_arrow::ArrayBuilder,
     buffered_rows: usize,
     buffered_bytes: usize,
-    options: SpoolOptions,
+    options: BufferOptions,
 }
 
 impl ActiveTable {
     pub(super) fn new(
         spec: RelationSpec,
-        options: SpoolOptions,
+        options: BufferOptions,
         tables: &DatasetTableFactory,
     ) -> Result<Self> {
         let writer = tables
@@ -59,7 +59,7 @@ impl ActiveTable {
             .buffered_bytes
             .checked_add(row_estimated_bytes)
             .context("protobuf Source buffered byte estimate overflows")?;
-        if spool_limit_reached(self.buffered_rows, self.buffered_bytes, self.options) {
+        if buffer_limit_reached(self.buffered_rows, self.buffered_bytes, self.options) {
             self.flush()?;
         }
         Ok(())
@@ -97,10 +97,10 @@ impl ActiveTable {
     }
 }
 
-pub(super) fn spool_limit_reached(
+pub(super) fn buffer_limit_reached(
     buffered_rows: usize,
     buffered_bytes: usize,
-    options: SpoolOptions,
+    options: BufferOptions,
 ) -> bool {
     buffered_rows >= options.max_buffered_rows || buffered_bytes >= options.max_buffered_bytes
 }
