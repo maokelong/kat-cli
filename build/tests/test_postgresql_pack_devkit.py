@@ -198,7 +198,8 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            output = repository / "target/kat/postgresql-pack-devkit"
+            # 用词法别名稳定复现 Windows 8.3 短路径与规范长路径的差异。
+            output = repository / "target/kat/../kat/postgresql-pack-devkit"
             archive = repository / "target/kat/postgresql-pack-devkit-windows-x86_64.zip"
             commands: list[list[str]] = []
             command_options: list[dict[str, object]] = []
@@ -287,7 +288,7 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
             ):
                 published = postgresql_devkit.build_devkit(options)
 
-            self.assertEqual(published, output)
+            self.assertEqual(published, output.resolve())
             self.assertTrue((output / "skill/SKILL.md").is_file())
             self.assertTrue(
                 (
@@ -339,7 +340,7 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
             self.assertIn("--require-hashes", install)
             self.assertNotIn("sync", install)
             self.assertIn(
-                str(output.parent),
+                str(output.resolve().parent),
                 str(Path(install[install.index("--python") + 1]).parent.parent.parent),
             )
             inspection_index = next(
