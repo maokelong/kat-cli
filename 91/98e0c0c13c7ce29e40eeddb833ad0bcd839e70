@@ -1,0 +1,33 @@
+build/tests/test_postgresql_pack_devkit.py
+  s_436b5043b2b42d::t_a82082baf8eaaf 201-202,291
+  s_436b5043b2b42d::t_f8b9789525a541 343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9198e0c0c13c7ce29e40eeddb833ad0bcd839e70",
+  "prompts": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 3,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
