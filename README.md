@@ -123,6 +123,10 @@ kat run \
 `kat run` 将 `--` 后的 token 原样交给 Workflow Input Compiler。Operation log
 可能保留解析后的路径和这些参数，因此不得通过 Workflow arguments 传递秘密。
 
+需要在网络受限的 Windows 环境连接真实 PostgreSQL 开发 External PACK 时，见
+[PostgreSQL External PACK 开发与离线环境](docs/postgresql-pack-development.md)。该链路
+直接从远程数据库生成 Run Output，不经过 `kat import` 或 Dataset。
+
 ## Run 公开合同
 
 `manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和

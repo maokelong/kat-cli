@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows-x86_64",
+  "pythonVersion": "3.14.6",
+  "psycopgVersion": "3.3.4",
+  "requirementsLock": "requirements-postgresql-windows.lock.txt",
+  "wheels": [
+    {
+      "filename": "psycopg-3.3.4-py3-none-any.whl",
+      "sha256": "b6bbc25ccf05c8fad3b061d9db2ef0909a555171b84b07f29458a447253d679a"
+    },
+    {
+      "filename": "psycopg_binary-3.3.4-cp314-cp314-win_amd64.whl",
+      "sha256": "c37e024c07308cd06cf3ec51bfd0e7f6157585a4d84d1bce4a7f5f7913719bf8"
+    },
+    {
+      "filename": "tzdata-2026.3-py2.py3-none-any.whl",
+      "sha256": "dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931"
+    }
+  ]
+}

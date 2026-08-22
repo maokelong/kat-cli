@@ -1,0 +1,4 @@
+name = "postgresql-query"
+title = "PostgreSQL Query"
+description = "Execute arbitrary PostgreSQL SQL and publish one small rowset."
+owner = "KAT Project"

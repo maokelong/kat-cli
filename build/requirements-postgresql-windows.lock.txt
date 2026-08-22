@@ -1,0 +1,9 @@
+# Windows x86-64 / CPython 3.14.6 PostgreSQL PACK devkit extension lock.
+# All artifacts are prebuilt wheels; the devkit builder installs this lock into
+# a copy of the KAT Windows Payload with --no-index and --require-hashes.
+psycopg==3.3.4 \
+    --hash=sha256:b6bbc25ccf05c8fad3b061d9db2ef0909a555171b84b07f29458a447253d679a
+psycopg-binary==3.3.4 \
+    --hash=sha256:c37e024c07308cd06cf3ec51bfd0e7f6157585a4d84d1bce4a7f5f7913719bf8
+tzdata==2026.3 \
+    --hash=sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931
