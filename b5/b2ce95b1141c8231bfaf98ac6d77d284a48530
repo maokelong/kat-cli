@@ -1,0 +1,83 @@
+examples/postgresql-pack-devkit/scripts/Verify-Devkit.ps1
+  s_436b5043b2b42d::t_545781003b4f8d 1-7
+  s_436b5043b2b42d::t_83025323e1fd7a 8-12
+  s_436b5043b2b42d::t_62914132ef25e7 13-350
+examples/packs/postgresql-query/tests/test_live_postgresql.py
+  s_436b5043b2b42d::t_2ff9235cc99255 1-72
+build/tests/test_postgresql_pack_devkit.py
+  s_436b5043b2b42d::t_1671fa8a1d107b 260-465
+  s_436b5043b2b42d::t_9eeb1369ef7bd5 1-5
+  s_436b5043b2b42d::t_cb4b8c77cdaa82 6-259
+build/requirements-postgresql-windows.lock.txt
+  s_436b5043b2b42d::t_f25e450d72fd87 1-9
+examples/postgresql-pack-devkit/scripts/Invoke-LiveValidation.ps1
+  s_436b5043b2b42d::t_545781003b4f8d 1-25
+  s_436b5043b2b42d::t_83025323e1fd7a 26-30
+  s_436b5043b2b42d::t_15d79142b4c241 31-342
+examples/packs/postgresql-query/workflows/query_postgresql.py
+  s_436b5043b2b42d::t_2ff9235cc99255 1-57
+examples/packs/postgresql-query/pack.toml
+  s_436b5043b2b42d::t_2ff9235cc99255 1-4
+examples/postgresql-pack-devkit/queries/smoke.sql
+  s_436b5043b2b42d::t_7c387f769910ba 1-13
+build/build_postgresql_pack_devkit.py
+  s_436b5043b2b42d::t_0e75d4e47e6430 6-54
+  s_436b5043b2b42d::t_1671fa8a1d107b 55-683
+  s_436b5043b2b42d::t_3ad5ec95175cb8 1-5
+examples/postgresql-pack-devkit/README.md
+  s_436b5043b2b42d::t_7c387f769910ba 1-12
+  s_436b5043b2b42d::t_6b0f33f4b52baa 13-34
+  s_436b5043b2b42d::t_1671fa8a1d107b 35-136
+README.md
+  s_436b5043b2b42d::t_8531470bf9e3ca 126-129
+docs/postgresql-pack-development.md
+  s_436b5043b2b42d::t_1671fa8a1d107b 20-173
+  s_436b5043b2b42d::t_8531470bf9e3ca 1-19
+examples/postgresql-pack-devkit/ENVIRONMENT.md
+  s_436b5043b2b42d::t_1671fa8a1d107b 11-110
+  s_436b5043b2b42d::t_7c387f769910ba 1-5
+  s_436b5043b2b42d::t_6b0f33f4b52baa 6-10
+build/postgresql-pack-devkit-inputs.json
+  s_436b5043b2b42d::t_f25e450d72fd87 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "b5b2ce95b1141c8231bfaf98ac6d77d284a48530",
+  "prompts": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2439,
+      "total_deletions": 1519,
+      "accepted_lines": 2439,
+      "overriden_lines": 0
+    },
+    "s_57880169cbb0e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02739-27c4-7880-91c8-c74d899abdd7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 16,
+      "total_deletions": 45,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
