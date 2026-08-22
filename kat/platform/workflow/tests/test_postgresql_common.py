@@ -154,6 +154,27 @@ class PostgreSqlCommonTest(unittest.TestCase):
             second_cursor.executed_sql, "SELECT 2::integer AS answer"
         )
 
+    def test_execute_sql_file_preserves_original_line_endings(self) -> None:
+        cursor = _Cursor(
+            [_Result((_Column("answer", 23, type_display="int4"),), ((1,),))]
+        )
+        sql_bytes = b"\xef\xbb\xbfSELECT $$first\r\nsecond\rthird\nfourth$$"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            sql_file = Path(temporary) / "line-endings.sql"
+            sql_file.write_bytes(sql_bytes)
+            with mock.patch.object(
+                postgresql.psycopg,
+                "connect",
+                return_value=_Connection(cursor),
+            ):
+                postgresql.execute_sql_file(_Context(), sql_file)
+
+        self.assertEqual(
+            cursor.executed_sql,
+            "SELECT $$first\r\nsecond\rthird\nfourth$$",
+        )
+
     def test_execute_sql_file_preserves_standard_file_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             missing = Path(temporary) / "missing.sql"
@@ -340,6 +361,65 @@ class PostgreSqlCommonTest(unittest.TestCase):
         assert context.table is not None
         self.assertEqual(context.table.to_pydict(), {"answer": [42]})
 
+    def test_numeric_precision_and_scale_boundaries_are_supported(self) -> None:
+        columns = (
+            _Column(
+                "minimum_precision",
+                1700,
+                precision=1,
+                scale=0,
+                type_display="numeric(1,0)",
+            ),
+            _Column(
+                "maximum_precision",
+                1700,
+                precision=38,
+                scale=0,
+                type_display="numeric(38,0)",
+            ),
+            _Column(
+                "scale_equals_precision",
+                1700,
+                precision=38,
+                scale=38,
+                type_display="numeric(38,38)",
+            ),
+        )
+        cursor = _Cursor(
+            [
+                _Result(
+                    columns,
+                    (
+                        (
+                            Decimal("9"),
+                            Decimal("99999999999999999999999999999999999999"),
+                            Decimal("0.12345678901234567890123456789012345678"),
+                        ),
+                    ),
+                )
+            ]
+        )
+        context = _Context()
+
+        with mock.patch.object(
+            postgresql.psycopg,
+            "connect",
+            return_value=_Connection(cursor),
+        ):
+            postgresql.execute_sql_text(context, "SELECT numeric_boundaries")
+
+        assert context.table is not None
+        self.assertEqual(
+            context.table.schema,
+            pa.schema(
+                [
+                    pa.field("minimum_precision", pa.decimal128(1, 0)),
+                    pa.field("maximum_precision", pa.decimal128(38, 0)),
+                    pa.field("scale_equals_precision", pa.decimal128(38, 38)),
+                ]
+            ),
+        )
+
     def test_invalid_input_shapes_fail_before_opening_a_connection(self) -> None:
         invalid_calls = {
             "bytes SQL text": lambda: postgresql.execute_sql_text(
@@ -374,6 +454,17 @@ class PostgreSqlCommonTest(unittest.TestCase):
     def test_unsupported_types_and_numeric_values_fail_with_column_context(self) -> None:
         invalid_columns_and_values = [
             (_Column("uuid_value", 2950, type_display="uuid"), "uuid-value"),
+            (_Column("json_value", 114, type_display="json"), {}),
+            (_Column("jsonb_value", 3802, type_display="jsonb"), {}),
+            (_Column("array_value", 1007, type_display="int4[]"), [1]),
+            (
+                _Column("composite_value", 16384, type_display="business.row"),
+                (1,),
+            ),
+            (_Column("enum_value", 16385, type_display="business.status"), "ok"),
+            (_Column("range_value", 3904, type_display="int4range"), "[1,2)"),
+            (_Column("network_value", 869, type_display="inet"), "127.0.0.1"),
+            (_Column("extension_value", 16386, type_display="hstore"), {}),
             (
                 _Column("numeric_unbounded", 1700, type_display="numeric"),
                 Decimal("1"),
@@ -385,6 +476,44 @@ class PostgreSqlCommonTest(unittest.TestCase):
                     precision=39,
                     scale=2,
                     type_display="numeric(39,2)",
+                ),
+                Decimal("1.00"),
+            ),
+            (
+                _Column(
+                    "numeric_zero_precision",
+                    1700,
+                    precision=0,
+                    scale=0,
+                    type_display="numeric(0,0)",
+                ),
+                Decimal("0"),
+            ),
+            (
+                _Column(
+                    "numeric_negative_scale",
+                    1700,
+                    precision=10,
+                    scale=-1,
+                    type_display="numeric(10,-1)",
+                ),
+                Decimal("0"),
+            ),
+            (
+                _Column(
+                    "numeric_missing_precision",
+                    1700,
+                    scale=2,
+                    type_display="numeric",
+                ),
+                Decimal("1.00"),
+            ),
+            (
+                _Column(
+                    "numeric_missing_scale",
+                    1700,
+                    precision=10,
+                    type_display="numeric",
                 ),
                 Decimal("1.00"),
             ),

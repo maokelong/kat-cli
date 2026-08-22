@@ -44,7 +44,12 @@ def execute_sql_file(
         raise TypeError("sql_file_path must resolve to a text path, not bytes")
     if not os.path.isabs(path):
         raise ValueError("sql_file_path must be an absolute path")
-    with open(path, encoding="utf-8-sig", errors="strict") as sql_file:
+    with open(
+        path,
+        encoding="utf-8-sig",
+        errors="strict",
+        newline="",
+    ) as sql_file:
         sql_text = sql_file.read()
     return execute_sql_text(ctx, sql_text, parameters)
 
