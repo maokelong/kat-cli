@@ -20,6 +20,12 @@ import build_windows_payload
 import payload_builder
 
 
+PUBLIC_POSTGRESQL_CAPABILITY = "kat.common.sql.postgresql"
+OPENPYXL_VERSION = "3.1.5"
+XLSXWRITER_VERSION = "3.2.9"
+DEFUSEDXML_VERSION = "0.7.1"
+
+
 class DevkitBuildError(ValueError):
     """PostgreSQL PACK 开发包输入不完整或不可信。"""
 
@@ -331,10 +337,15 @@ def _verify_private_host(
     python: Path, inputs: PostgreSqlInputs
 ) -> dict[str, str | int]:
     source = (
-        "import json, platform, psycopg; from psycopg import pq; "
+        "import defusedxml, json, openpyxl, platform, psycopg, xlsxwriter; "
+        "from kat.common.sql import postgresql as kat_common_postgresql; "
+        "from psycopg import pq; "
         "print(json.dumps({'python': platform.python_version(), "
         "'psycopg': psycopg.__version__, 'pq_impl': pq.__impl__, "
-        "'libpq': pq.version()}))"
+        "'libpq': pq.version(), 'openpyxl': openpyxl.__version__, "
+        "'xlsxwriter': xlsxwriter.__version__, "
+        "'defusedxml': defusedxml.__version__, "
+        "'kat_common_postgresql': kat_common_postgresql.__name__}))"
     )
     completed = subprocess.run(
         [str(python), "-I", "-B", "-X", "utf8", "-c", source],
@@ -352,6 +363,10 @@ def _verify_private_host(
         "python": inputs.python_version,
         "psycopg": inputs.psycopg_version,
         "pq_impl": "binary",
+        "openpyxl": OPENPYXL_VERSION,
+        "xlsxwriter": XLSXWRITER_VERSION,
+        "defusedxml": DEFUSEDXML_VERSION,
+        "kat_common_postgresql": PUBLIC_POSTGRESQL_CAPABILITY,
     }
     if not isinstance(result, dict) or any(result.get(k) != v for k, v in expected.items()):
         raise DevkitBuildError(f"private Host version mismatch: {result}")
@@ -399,27 +414,48 @@ def _verify_pack_inspection(kat: Path, pack: Path, temporary_root: Path) -> None
         raise DevkitBuildError("KAT inspection returned an invalid Response") from error
     if response.get("status") != "success" or result.get("name") != "postgresql-query":
         raise DevkitBuildError("KAT inspection did not select postgresql-query")
-    workflow = next(
-        (item for item in workflows if item.get("name") == "query-postgresql"),
-        None,
+    if not isinstance(workflows, list):
+        raise DevkitBuildError("KAT inspection returned invalid Workflows")
+    by_name = {
+        item.get("name"): item
+        for item in workflows
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    text_workflow = by_name.get("query-postgresql")
+    if (
+        not isinstance(text_workflow, dict)
+        or text_workflow.get("required_tables") != []
+    ):
+        raise DevkitBuildError(
+            "query-postgresql must declare empty Required tables"
+        )
+    parameters = text_workflow.get("parameters")
+    sql = (
+        parameters[0]
+        if isinstance(parameters, list) and len(parameters) == 1
+        else None
     )
-    if not isinstance(workflow, dict) or workflow.get("required_tables") != []:
-        raise DevkitBuildError("PostgreSQL Workflow must declare empty Required tables")
-    parameters = workflow.get("parameters")
-    sql = next(
-        (
-            item
-            for item in parameters
-            if isinstance(item, dict) and item.get("name") == "sql"
-        ),
-        None,
-    ) if isinstance(parameters, list) else None
     if (
         not isinstance(sql, dict)
+        or sql.get("name") != "sql"
         or sql.get("type") != "string"
         or sql.get("required") is not True
     ):
-        raise DevkitBuildError("PostgreSQL Workflow must require one string sql parameter")
+        raise DevkitBuildError(
+            "query-postgresql must require exactly one string sql parameter"
+        )
+    file_workflow = by_name.get("query-postgresql-file")
+    if (
+        not isinstance(file_workflow, dict)
+        or file_workflow.get("required_tables") != []
+    ):
+        raise DevkitBuildError(
+            "query-postgresql-file must declare empty Required tables"
+        )
+    if file_workflow.get("parameters") != []:
+        raise DevkitBuildError(
+            "query-postgresql-file must not declare Workflow parameters"
+        )
 
 
 def _write_manifest(
@@ -439,8 +475,13 @@ def _write_manifest(
         "psycopgVersion": host["psycopg"],
         "psycopgImplementation": host["pq_impl"],
         "libpqVersion": host["libpq"],
+        "openpyxlVersion": host["openpyxl"],
+        "xlsxwriterVersion": host["xlsxwriter"],
+        "defusedxmlVersion": host["defusedxml"],
+        "publicCapabilities": [host["kat_common_postgresql"]],
         "pack": "postgresql-query",
         "workflow": "query-postgresql",
+        "workflows": ["query-postgresql", "query-postgresql-file"],
         "wheels": [
             {"filename": wheel.filename, "sha256": wheel.sha256}
             for wheel in inputs.wheels

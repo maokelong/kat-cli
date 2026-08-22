@@ -31,11 +31,16 @@ def write_wheel(
     distribution: str = "kat-workflow",
     metadata_version: str | None = None,
     tag: str = "py3-none-any",
+    include_common: bool = True,
 ) -> None:
     dist_info = f"kat_workflow-{version}.dist-info"
     metadata_version = version if metadata_version is None else metadata_version
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("kat/__init__.py", "")
+        if include_common:
+            archive.writestr("kat/common/__init__.py", "")
+            archive.writestr("kat/common/sql/__init__.py", "")
+            archive.writestr("kat/common/sql/postgresql.py", "")
         archive.writestr("_kat_runtime/__main__.py", "")
         archive.writestr(
             f"{dist_info}/METADATA",
@@ -166,6 +171,14 @@ class WorkflowWheelTests(unittest.TestCase):
                 invalid = root / WHEEL_NAME
                 write_wheel(invalid, distribution="other")
                 with self.assertRaisesRegex(ValueError, "distribution"):
+                    workflow_wheel.payload_builder.validate_workflow_wheel_archive(
+                        invalid
+                    )
+
+            with self.subTest(case="missing public common"):
+                invalid = root / WHEEL_NAME
+                write_wheel(invalid, include_common=False)
+                with self.assertRaisesRegex(ValueError, "incomplete"):
                     workflow_wheel.payload_builder.validate_workflow_wheel_archive(
                         invalid
                     )

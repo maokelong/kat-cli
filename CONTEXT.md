@@ -19,7 +19,7 @@ KAT 面向用户的唯一公共入口和原子发布单元，承接数据分析�
 ## PACK 与所有权
 
 **PACK**:
-由一个明确组织或团队拥有并独立维护的一组性能分析策略，是 KAT 的自包含扩展与发布边界。其边界由所有权和发布责任决定并独立于其他 PACK，而不是由 Workflow 数量、代码规模或单个分析问题决定。
+由一个明确组织或团队拥有并独立维护的一组 Workflow 与 PACK 私有性能分析策略，是 KAT 的代码扩展与发布边界。它可以使用 KAT 公共能力和独立部署的 Source Knowledge Package，但不能依赖或导入其他 PACK；PACK 边界仍由所有权和发布责任决定，而不是由 Workflow 数量、代码规模或单个分析问题决定。
 
 **PACK owner**:
 对一个 PACK 承担看护责任的唯一组织或团队。PACK owner 是可变的展示信息，不是 PACK 身份、命名空间、发布者认证或权限依据。
@@ -34,6 +34,21 @@ _Avoid_: Built-in PACK、System PACK
 **Pack Authoring API**:
 KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 并使用 KAT 管理的执行能力和领域类型。它随 KAT Skill 原子交付，不是可独立安装或兼容的通用 SDK。
 _Avoid_: Python SDK、Pack API
+
+**Data Source Knowledge**:
+供 AI 和 PACK 共同使用的声明式数据源说明、Schema 知识与固化 SQL 文件，描述可通过 SQL 查询的外部逻辑数据模型、领域语义和方言约束。它可以位于 PACK 外并由多个 PACK 共享，但不包含连接凭据、数据库访问执行或运行状态，也不是 KAT Datasource、Dataset 或 Runtime 数据面。
+_Avoid_: 数据面层、Datasource
+
+**Source Knowledge Package**:
+可以独立复制并被多个 PACK 共同引用的一份 Data Source Knowledge 目录。KAT Runtime 第一版不发现、注册或解析这种目录；入口 Skill 按具体路径读取知识文件，Workflow 按具体路径选择固化 SQL。它不是 PACK、数据库连接实例、KAT Datasource 或 Dataset。
+
+**Fixed SQL File**:
+由 Workflow 通过具体文件系统路径选择并交给公共 common 执行的 UTF-8 SQL 文件。KAT Runtime 第一版不为它建立 manifest、逻辑身份、目录发现或注册表；它可以随 PACK 放置，也可以位于多个 PACK 共同引用的外部目录，但不是 Workflow。
+_Avoid_: Query Asset、Workflow
+
+**Ad Hoc Query**:
+为一次具体分析临时生成或提供、尚未固化为 Fixed SQL File 的 SQL 文本。它不会因执行成功或进入 Run 而自动写入文件，固化必须经过显式 PACK 开发和验证。
+_Avoid_: Fixed SQL File
 
 **KAT Trace Library**:
 KAT 向所有 PACK 平等提供的公共 Trace 分析语义，只接纳经过多个真实消费者和真实 Trace 验证的复用能力。来源解码、具体用户问题和单个 PACK 内尚未验证的候选算法不属于它。

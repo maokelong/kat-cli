@@ -1,4 +1,4 @@
 name = "postgresql-query"
 title = "PostgreSQL Query"
-description = "Execute arbitrary PostgreSQL SQL and publish one small rowset."
+description = "Execute PostgreSQL SQL text or a fixed SQL file and publish one small rowset."
 owner = "KAT Project"

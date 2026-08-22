@@ -30,7 +30,8 @@ $PSNativeCommandArgumentPassing = "Standard"
 
 # 与 Verify 脚本重复边界代码，使 Verify 能在加载任何其他代码前完成 hash 校验。
 $PackName = "postgresql-query"
-$WorkflowName = "query-postgresql"
+$TextWorkflowName = "query-postgresql"
+$FileWorkflowName = "query-postgresql-file"
 $OutputName = "postgresql_result"
 
 function Clear-PostgreSqlEnvironment {
@@ -171,15 +172,19 @@ function Assert-SuccessfulPackInspection {
         throw "PACK inspection returned an unexpected PACK name"
     }
     $workflows = @(Get-JsonProperty -Object $result -Name "workflows" -Label "inspection result")
-    $matchingWorkflows = @($workflows | Where-Object { $_.name -eq $WorkflowName })
-    if ($matchingWorkflows.Count -ne 1) {
-        throw "PACK inspection must return exactly one '$WorkflowName' Workflow"
+    $textWorkflows = @($workflows | Where-Object { $_.name -eq $TextWorkflowName })
+    $fileWorkflows = @($workflows | Where-Object { $_.name -eq $FileWorkflowName })
+    if ($textWorkflows.Count -ne 1 -or $fileWorkflows.Count -ne 1) {
+        throw "PACK inspection must return '$TextWorkflowName' and '$FileWorkflowName'"
     }
-    $workflow = $matchingWorkflows[0]
-    if (@(Get-JsonProperty -Object $workflow -Name "required_tables" -Label "Workflow").Count -ne 0) {
-        throw "Workflow required_tables must be empty"
+    $textWorkflow = $textWorkflows[0]
+    $fileWorkflow = $fileWorkflows[0]
+    foreach ($workflow in @($textWorkflow, $fileWorkflow)) {
+        if (@(Get-JsonProperty -Object $workflow -Name "required_tables" -Label "Workflow").Count -ne 0) {
+            throw "Workflow required_tables must be empty"
+        }
     }
-    $parameters = @(Get-JsonProperty -Object $workflow -Name "parameters" -Label "Workflow")
+    $parameters = @(Get-JsonProperty -Object $textWorkflow -Name "parameters" -Label "Workflow")
     $sqlParameters = @($parameters | Where-Object { $_.name -eq "sql" })
     if ($sqlParameters.Count -ne 1) {
         throw "Workflow must expose exactly one 'sql' parameter"
@@ -191,6 +196,9 @@ function Assert-SuccessfulPackInspection {
         (Get-JsonProperty -Object $sqlParameter -Name "required" -Label "sql parameter") -ne $true
     ) {
         throw "Workflow 'sql' parameter must be a required string exposed as --sql"
+    }
+    if (@(Get-JsonProperty -Object $fileWorkflow -Name "parameters" -Label "Workflow").Count -ne 0) {
+        throw "Workflow '$FileWorkflowName' must not expose parameters"
     }
 }
 
@@ -209,13 +217,27 @@ try {
         Join-Path $skillRoot "scripts/targets/windows-x86_64/kat.exe"
     ) -Label "KAT executable"
     [void](Resolve-ExistingFile -Path (Join-Path $packRoot "pack.toml") -Label "PACK manifest")
+    [void](Resolve-ExistingFile -Path (
+        Join-Path $packRoot "queries/smoke.sql"
+    ) -Label "PACK fixed SQL")
+    $selectedWorkflow = $FileWorkflowName
+    $sql = $null
     if ([string]::IsNullOrWhiteSpace($SqlFile)) {
-        $SqlFile = Join-Path $root "queries/smoke.sql"
+        [Console]::Error.WriteLine(
+            "No -SqlFile was provided; the PACK fixed SQL Workflow will be used."
+        )
     }
-    $resolvedSqlFile = Resolve-ExistingFile -Path $SqlFile -Label "SQL file"
-    $sql = Get-Content -LiteralPath $resolvedSqlFile -Raw -Encoding UTF8
-    if ([string]::IsNullOrWhiteSpace($sql)) {
-        throw "SQL file is empty: $resolvedSqlFile"
+    else {
+        if (-not [IO.Path]::IsPathFullyQualified($SqlFile)) {
+            throw "-SqlFile must be an absolute path: $SqlFile"
+        }
+        $resolvedSqlFile = Resolve-ExistingFile -Path $SqlFile -Label "SQL file"
+        $strictUtf8 = [Text.UTF8Encoding]::new($true, $true)
+        $sql = [IO.File]::ReadAllText($resolvedSqlFile, $strictUtf8)
+        if ([string]::IsNullOrWhiteSpace($sql)) {
+            throw "SQL file is empty: $resolvedSqlFile"
+        }
+        $selectedWorkflow = $TextWorkflowName
     }
 
     $resolvedCaCertificate = $null
@@ -279,15 +301,20 @@ try {
         -Label "PACK test"
     $testResult = Assert-KatSuccess -Invocation $testInvocation -Label "PACK test"
 
-    [Console]::Error.WriteLine("Publishing a Run without a Dataset...")
+    [Console]::Error.WriteLine(
+        "Publishing a Run without a Dataset through '$selectedWorkflow'..."
+    )
+    $runArguments = @(
+        "run", "--pack", $PackName,
+        "--workflow", $selectedWorkflow,
+        "--pack-dir", $packRoot
+    )
+    if ($selectedWorkflow -eq $TextWorkflowName) {
+        $runArguments += @("--", "--sql", $sql)
+    }
     $runInvocation = Invoke-NativeJson `
         -CommandPath $katExecutable `
-        -CommandArguments @(
-            "run", "--pack", $PackName,
-            "--workflow", $WorkflowName,
-            "--pack-dir", $packRoot,
-            "--", "--sql", $sql
-        ) `
+        -CommandArguments $runArguments `
         -Label "Workflow run"
     $runResult = Assert-KatSuccess -Invocation $runInvocation -Label "Workflow run"
     $runId = Get-JsonProperty -Object $runResult -Name "run_id" -Label "run result"
@@ -311,7 +338,9 @@ try {
     }
 
     [Console]::Error.WriteLine("Querying the published Run Output...")
-    $outputQuery = "SELECT * FROM output.$OutputName LIMIT 100"
+    # COUNT(*) avoids projecting temporal Arrow scalars that the current JSON
+    # query response does not yet encode directly.
+    $outputQuery = "SELECT COUNT(*) AS row_count FROM output.$OutputName"
     $queryInvocation = Invoke-NativeJson `
         -CommandPath $katExecutable `
         -CommandArguments @("query", "--run", [string]$runId, "--sql", $outputQuery) `
@@ -322,6 +351,13 @@ try {
         status = "success"
         result = [ordered]@{
             pack_test = Get-JsonProperty -Object $testResult -Name "summary" -Label "PACK test result"
+            workflow = $selectedWorkflow
+            sql_source = if ($selectedWorkflow -eq $FileWorkflowName) {
+                "pack-fixed-file"
+            }
+            else {
+                "external-file-as-text"
+            }
             run_id = $runId
             output = $OutputName
             output_metadata = $outputs.PSObject.Properties[$OutputName].Value

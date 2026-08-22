@@ -12,9 +12,13 @@ $PSNativeCommandArgumentPassing = "Standard"
 
 # 保持脚本自包含：逐文件 hash 通过前不能加载 devkit 中的其他 PowerShell 代码。
 $PackName = "postgresql-query"
-$WorkflowName = "query-postgresql"
+$TextWorkflowName = "query-postgresql"
+$FileWorkflowName = "query-postgresql-file"
 $ExpectedPythonVersion = "3.14.6"
 $ExpectedPsycopgVersion = "3.3.4"
+$ExpectedOpenpyxlVersion = "3.1.5"
+$ExpectedXlsxWriterVersion = "3.2.9"
+$ExpectedDefusedXmlVersion = "0.7.1"
 $ExpectedLibpqVersion = 180003
 
 function Clear-PostgreSqlEnvironment {
@@ -229,16 +233,20 @@ function Assert-SuccessfulPackInspection {
     }
 
     $workflows = @(Get-JsonProperty -Object $result -Name "workflows" -Label "inspection result")
-    $matchingWorkflows = @($workflows | Where-Object { $_.name -eq $WorkflowName })
-    if ($matchingWorkflows.Count -ne 1) {
-        throw "PACK inspection must return exactly one '$WorkflowName' Workflow"
+    $textWorkflows = @($workflows | Where-Object { $_.name -eq $TextWorkflowName })
+    $fileWorkflows = @($workflows | Where-Object { $_.name -eq $FileWorkflowName })
+    if ($textWorkflows.Count -ne 1 -or $fileWorkflows.Count -ne 1) {
+        throw "PACK inspection must return '$TextWorkflowName' and '$FileWorkflowName'"
     }
-    $workflow = $matchingWorkflows[0]
-    if (@(Get-JsonProperty -Object $workflow -Name "required_tables" -Label "Workflow").Count -ne 0) {
-        throw "Workflow required_tables must be empty"
+    $textWorkflow = $textWorkflows[0]
+    $fileWorkflow = $fileWorkflows[0]
+    foreach ($workflow in @($textWorkflow, $fileWorkflow)) {
+        if (@(Get-JsonProperty -Object $workflow -Name "required_tables" -Label "Workflow").Count -ne 0) {
+            throw "Workflow required_tables must be empty"
+        }
     }
 
-    $parameters = @(Get-JsonProperty -Object $workflow -Name "parameters" -Label "Workflow")
+    $parameters = @(Get-JsonProperty -Object $textWorkflow -Name "parameters" -Label "Workflow")
     $sqlParameters = @($parameters | Where-Object { $_.name -eq "sql" })
     if ($sqlParameters.Count -ne 1) {
         throw "Workflow must expose exactly one 'sql' parameter"
@@ -250,6 +258,9 @@ function Assert-SuccessfulPackInspection {
         (Get-JsonProperty -Object $sqlParameter -Name "required" -Label "sql parameter") -ne $true
     ) {
         throw "Workflow 'sql' parameter must be a required string exposed as --sql"
+    }
+    if (@(Get-JsonProperty -Object $fileWorkflow -Name "parameters" -Label "Workflow").Count -ne 0) {
+        throw "Workflow '$FileWorkflowName' must not expose parameters"
     }
 }
 
@@ -281,17 +292,38 @@ try {
         Join-Path $skillRoot "scripts/targets/windows-x86_64/python/python.exe"
     ) -Label "Bundled Python"
     [void](Resolve-ExistingFile -Path (Join-Path $packRoot "pack.toml") -Label "PACK manifest")
+    [void](Resolve-ExistingFile -Path (
+        Join-Path $packRoot "queries/smoke.sql"
+    ) -Label "PACK fixed SQL")
     [void](Resolve-ExistingFile -Path (Join-Path $root "queries/smoke.sql") -Label "Smoke SQL")
 
     [Environment]::SetEnvironmentVariable("KAT_DATA_HOME", $dataHome, "Process")
     [Environment]::SetEnvironmentVariable("PSYCOPG_IMPL", "binary", "Process")
 
     $pythonProbe = @'
+import importlib.metadata
+import io
 import json
 import platform
+import defusedxml
+import openpyxl
 import psycopg
 import sys
+import xlsxwriter
+from kat.common.sql import postgresql
 from psycopg import pq
+
+workbook_bytes = io.BytesIO()
+with xlsxwriter.Workbook(workbook_bytes, {"in_memory": True}) as workbook:
+    worksheet = workbook.add_worksheet("probe")
+    worksheet.write(0, 0, "kat-excel-probe")
+workbook_bytes.seek(0)
+workbook = openpyxl.load_workbook(workbook_bytes, read_only=True, data_only=True)
+try:
+    if workbook["probe"]["A1"].value != "kat-excel-probe":
+        raise RuntimeError("Excel read/write probe returned an unexpected value")
+finally:
+    workbook.close()
 
 print(json.dumps({
     "architecture": platform.machine(),
@@ -299,6 +331,14 @@ print(json.dumps({
     "psycopg": psycopg.__version__,
     "pq_impl": pq.__impl__,
     "libpq": pq.version(),
+    "openpyxl": openpyxl.__version__,
+    "xlsxwriter": xlsxwriter.__version__,
+    "defusedxml": importlib.metadata.version("defusedxml"),
+    "kat_common_postgresql": all(callable(item) for item in (
+        postgresql.execute_sql_file,
+        postgresql.execute_sql_text,
+    )),
+    "excel_roundtrip": True,
 }))
 '@
     $hostInvocation = Invoke-NativeJson `
@@ -315,9 +355,14 @@ print(json.dumps({
         (Get-JsonProperty -Object $hostInfo -Name "python" -Label "host probe") -ne $ExpectedPythonVersion -or
         (Get-JsonProperty -Object $hostInfo -Name "psycopg" -Label "host probe") -ne $ExpectedPsycopgVersion -or
         (Get-JsonProperty -Object $hostInfo -Name "pq_impl" -Label "host probe") -ne "binary" -or
-        (Get-JsonProperty -Object $hostInfo -Name "libpq" -Label "host probe") -ne $ExpectedLibpqVersion
+        (Get-JsonProperty -Object $hostInfo -Name "libpq" -Label "host probe") -ne $ExpectedLibpqVersion -or
+        (Get-JsonProperty -Object $hostInfo -Name "openpyxl" -Label "host probe") -ne $ExpectedOpenpyxlVersion -or
+        (Get-JsonProperty -Object $hostInfo -Name "xlsxwriter" -Label "host probe") -ne $ExpectedXlsxWriterVersion -or
+        (Get-JsonProperty -Object $hostInfo -Name "defusedxml" -Label "host probe") -ne $ExpectedDefusedXmlVersion -or
+        (Get-JsonProperty -Object $hostInfo -Name "kat_common_postgresql" -Label "host probe") -ne $true -or
+        (Get-JsonProperty -Object $hostInfo -Name "excel_roundtrip" -Label "host probe") -ne $true
     ) {
-        throw "Bundled Python/Psycopg versions do not match the devkit lock"
+        throw "Bundled Python libraries do not match the devkit contract"
     }
 
     $inspection = Invoke-NativeJson `
@@ -336,9 +381,14 @@ print(json.dumps({
             psycopg = $hostInfo.psycopg
             psycopg_implementation = $hostInfo.pq_impl
             libpq = $hostInfo.libpq
+            openpyxl = $hostInfo.openpyxl
+            xlsxwriter = $hostInfo.xlsxwriter
+            defusedxml = $hostInfo.defusedxml
+            kat_common_postgresql = $hostInfo.kat_common_postgresql
+            excel_roundtrip = $hostInfo.excel_roundtrip
             architecture = $architecture
             pack = $PackName
-            workflow = $WorkflowName
+            workflows = @($TextWorkflowName, $FileWorkflowName)
             password_present_during_inspection = $false
         }
     } | ConvertTo-Json -Depth 5

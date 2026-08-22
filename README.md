@@ -123,9 +123,15 @@ kat run \
 `kat run` 将 `--` 后的 token 原样交给 Workflow Input Compiler。Operation log
 可能保留解析后的路径和这些参数，因此不得通过 Workflow arguments 传递秘密。
 
+开发任意 External PACK 时，见
+[KAT External PACK 开发指导](docs/pack-development.md)。它覆盖固定目录、Workflow Interface、
+依赖边界、`kat_run` 测试以及 Inspect → Test → Run → Query 的完整开发闭环。
+
 需要在网络受限的 Windows 环境连接真实 PostgreSQL 开发 External PACK 时，见
 [PostgreSQL External PACK 开发与离线环境](docs/postgresql-pack-development.md)。该链路
-直接从远程数据库生成 Run Output，不经过 `kat import` 或 Dataset。
+使用标准 Host 中的 `kat.common.sql.postgresql` 直接从远程数据库生成 Run Output，不经过
+`kat import` 或 Dataset；离线开发包同时预装 openpyxl、XlsxWriter 和 defusedxml，供 PACK
+读写 Excel 文件。
 
 ## Run 公开合同
 
@@ -139,6 +145,10 @@ PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 - `ctx.from_arrow(table)`：将 PyArrow Table 放入当前 execution plane。
 - `ctx.convert_clock(..., target_domain="...")`：通过 Runtime 私有的稳定
   Python/PyArrow batch UDF 换算时钟。
+
+Platform 还提供公共模块 `kat.common.sql.postgresql`。其 `execute_sql_file()` 和
+`execute_sql_text()` 从标准 `PG*` 环境变量建立短连接，并返回属于当前 Context 的 DataFusion
+DataFrame；前者要求 Workflow 明确传入绝对 SQL 文件路径。完整合同见上述 PostgreSQL 指南。
 
 `kat_convert_clock(...)` 不注册为 SQL 函数；SQL 直接调用会按未知函数失败。
 

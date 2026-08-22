@@ -8,7 +8,9 @@
 - 只允许到目标 PostgreSQL 地址与端口的必要网络连接；运行时不需要互联网、Python 包索引或 HTTP 代理。
 - PostgreSQL 管理员已经提供专用只读账号，并明确授权可执行的 schema、table、view 和 function。
 
-devkit 自带完整 Windows Platform Payload 和私有 Python Host。不要把私有 `python.exe` 加入 `PATH`，也不要用系统 pip 修改它。
+devkit 自带完整标准 Windows Platform Payload 和私有 Python Host。该 Host 已包含
+`kat.common.sql.postgresql`、Psycopg、openpyxl、XlsxWriter 和 defusedxml。不要把私有
+`python.exe` 加入 `PATH`，也不要用系统 pip 修改它。
 
 ## 凭据生命周期
 
@@ -46,6 +48,10 @@ devkit 自带完整 Windows Platform Payload 和私有 Python Host。不要把�
 
 脚本不继承 `PGSERVICE`、`PGSERVICEFILE`、`PGPASSFILE`、`PGOPTIONS`、`PGSSLKEY` 或其他未批准的 `PG*`，避免目标机上的旧配置改变连接与权限语义。
 
+数据库连接配置只来自这些进程环境变量。SQL 文件路径不是连接配置：固定 SQL 路径由 Workflow
+代码明确构造，`-SqlFile` 只供 LiveValidation 临时读取外部文件。不要把 SQL 路径、账号或密码
+混成一个 DSN，也不要把 `PGPASSWORD` 作为 Workflow 参数。
+
 ## TLS 与 CA
 
 真实远程数据库默认使用：
@@ -67,7 +73,9 @@ CA 证书通常不是秘密，但它决定信任根，必须通过受控渠道�
 
 ## KAT Data Home
 
-SQL 会进入 Operation log 和 Run Manifest；PostgreSQL 返回的小 rowset 会成为 Run Output；`kat query` 结果会显示在终端。因此 `data-home/` 不是普通缓存目录，而是可能包含敏感业务数据的持久目录。
+文本 Workflow 的 SQL 参数会进入 Operation log 和 Run Manifest；固定文件 Workflow 不记录 SQL
+路径、内容或摘要。PostgreSQL 返回的小 rowset 会成为 Run Output，`kat query` 结果会显示在终端。
+因此 `data-home/` 不是普通缓存目录，而是可能包含敏感业务数据的持久目录。
 
 目标机应当：
 
@@ -89,7 +97,8 @@ KAT 不解析、限制、重写或审计远程 SQL。只读账号是唯一 SQL �
 - function EXECUTE；
 - CREATE、TEMP、DDL、DML 与管理权限。
 
-`queries/smoke.sql` 返回的 `transaction_read_only` 是连接事实，不替代权限审计。开发者仍需确认所用账号与目标数据库符合组织的只读授权要求。
+根级外部示例 `queries/smoke.sql` 返回的 `transaction_read_only` 是连接事实，不替代权限审计。
+开发者仍需确认所用账号与目标数据库符合组织的只读授权要求。
 
 ## 完整性与版本
 
@@ -103,8 +112,11 @@ KAT 不解析、限制、重写或审计远程 SQL。只读账号是唯一 SQL �
 - Psycopg 3.3.4；
 - `pq.__impl__ == "binary"`；
 - bundled libpq 18.3；
+- `kat.common.sql.postgresql` 的 `execute_sql_file()` 与 `execute_sql_text()` 可导入；
+- openpyxl 3.1.5、XlsxWriter 3.2.9 和 defusedxml 0.7.1 可导入，并完成一次内存中的 `.xlsx`
+  写入、读取与内容断言；
 - PACK inspection 的 `status=success`；
-- `query-postgresql` 的 `required_tables=[]`；
-- `sql` 是必填 string 参数。
+- `query-postgresql` 与 `query-postgresql-file` 均为 `required_tables=[]`；
+- 文本 Workflow 的 `sql` 是必填 string 参数，固定文件 Workflow 无参数。
 
 任何失败都应停止，不要在受限目标机在线下载、求解或替换 wheel。修改 `pack/` 后原始清单不再匹配是预期行为，不能通过随手重写清单把修改伪装成原始交付。

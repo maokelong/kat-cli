@@ -150,6 +150,10 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
                 b'name = "postgresql-query"\n',
             )
             write_file(pack_source / "workflows/query_postgresql.py", b"# workflow\n")
+            write_file(
+                pack_source / "workflows/query_postgresql_file.py",
+                b"# workflow\n",
+            )
             devkit_source = repository / "examples/postgresql-pack-devkit"
             write_file(devkit_source / "README.md", b"# Devkit\n")
             write_file(devkit_source / "ENVIRONMENT.md", b"# Environment\n")
@@ -212,6 +216,12 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
                                 "psycopg": "3.3.4",
                                 "pq_impl": "binary",
                                 "libpq": 180003,
+                                "openpyxl": "3.1.5",
+                                "xlsxwriter": "3.2.9",
+                                "defusedxml": "0.7.1",
+                                "kat_common_postgresql": (
+                                    "kat.common.sql.postgresql"
+                                ),
                             }
                         )
                         + "\n",
@@ -235,7 +245,12 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
                                                     "required": True,
                                                 }
                                             ],
-                                        }
+                                        },
+                                        {
+                                            "name": "query-postgresql-file",
+                                            "required_tables": [],
+                                            "parameters": [],
+                                        },
                                     ],
                                 },
                             }
@@ -291,6 +306,21 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
             self.assertEqual(
                 manifest["windowsPlatformPayloadProvenance"],
                 "fixture Windows Platform Payload",
+            )
+            self.assertEqual(manifest["pythonVersion"], "3.14.6")
+            self.assertEqual(manifest["psycopgVersion"], "3.3.4")
+            self.assertEqual(manifest["psycopgImplementation"], "binary")
+            self.assertEqual(manifest["libpqVersion"], 180003)
+            self.assertEqual(manifest["openpyxlVersion"], "3.1.5")
+            self.assertEqual(manifest["xlsxwriterVersion"], "3.2.9")
+            self.assertEqual(manifest["defusedxmlVersion"], "0.7.1")
+            self.assertEqual(
+                manifest["publicCapabilities"],
+                ["kat.common.sql.postgresql"],
+            )
+            self.assertEqual(
+                manifest["workflows"],
+                ["query-postgresql", "query-postgresql-file"],
             )
             self.assertTrue((output / "SHA256SUMS").is_file())
             self.assertTrue(archive.is_file())
@@ -433,11 +463,19 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
             "psycopg": "3.3.4",
             "pq_impl": "binary",
             "libpq": 180003,
+            "openpyxl": "3.1.5",
+            "xlsxwriter": "3.2.9",
+            "defusedxml": "0.7.1",
+            "kat_common_postgresql": "kat.common.sql.postgresql",
         }
         for field, wrong_value in (
             ("python", "3.14.5"),
             ("psycopg", "3.3.3"),
             ("pq_impl", "python"),
+            ("openpyxl", "3.1.4"),
+            ("xlsxwriter", "3.2.8"),
+            ("defusedxml", "0.7.0"),
+            ("kat_common_postgresql", "kat.common.sql.missing"),
         ):
             with self.subTest(field=field):
                 result = {**expected, field: wrong_value}
@@ -458,6 +496,110 @@ class PostgreSqlPackDevkitBuilderTests(unittest.TestCase):
                 ):
                     postgresql_devkit._verify_private_host(
                         Path("python.exe"), inputs
+                    )
+
+    def test_pack_inspection_requires_sql_file_workflow(self) -> None:
+        response = {
+            "status": "success",
+            "result": {
+                "name": "postgresql-query",
+                "workflows": [
+                    {
+                        "name": "query-postgresql",
+                        "required_tables": [],
+                        "parameters": [
+                            {
+                                "name": "sql",
+                                "type": "string",
+                                "required": True,
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(
+                postgresql_devkit.subprocess,
+                "run",
+                return_value=mock.Mock(stdout=json.dumps(response)),
+            ),
+            self.assertRaisesRegex(
+                postgresql_devkit.DevkitBuildError,
+                "query-postgresql-file",
+            ),
+        ):
+            postgresql_devkit._verify_pack_inspection(
+                Path("kat.exe"),
+                Path("pack"),
+                Path(directory),
+            )
+
+    def test_pack_inspection_rejects_wrong_parameter_contracts(self) -> None:
+        valid_workflows = [
+            {
+                "name": "query-postgresql",
+                "required_tables": [],
+                "parameters": [
+                    {"name": "sql", "type": "string", "required": True}
+                ],
+            },
+            {
+                "name": "query-postgresql-file",
+                "required_tables": [],
+                "parameters": [],
+            },
+        ]
+        cases = (
+            (
+                "query-postgresql",
+                [{**valid_workflows[0], "parameters": []}, valid_workflows[1]],
+            ),
+            (
+                "query-postgresql-file",
+                [
+                    valid_workflows[0],
+                    {
+                        **valid_workflows[1],
+                        "parameters": [
+                            {
+                                "name": "sql-file",
+                                "type": "string",
+                                "required": True,
+                            }
+                        ],
+                    },
+                ],
+            ),
+        )
+        for expected_error, workflows in cases:
+            with (
+                self.subTest(workflow=expected_error),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                response = {
+                    "status": "success",
+                    "result": {
+                        "name": "postgresql-query",
+                        "workflows": workflows,
+                    },
+                }
+                with (
+                    mock.patch.object(
+                        postgresql_devkit.subprocess,
+                        "run",
+                        return_value=mock.Mock(stdout=json.dumps(response)),
+                    ),
+                    self.assertRaisesRegex(
+                        postgresql_devkit.DevkitBuildError,
+                        expected_error,
+                    ),
+                ):
+                    postgresql_devkit._verify_pack_inspection(
+                        Path("kat.exe"),
+                        Path("pack"),
+                        Path(directory),
                     )
 
 

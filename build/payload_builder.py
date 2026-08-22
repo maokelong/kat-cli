@@ -578,6 +578,9 @@ def validate_workflow_wheel_archive(path: Path) -> str:
         names = set(archive.namelist())
         required = {
             "kat/__init__.py",
+            "kat/common/__init__.py",
+            "kat/common/sql/__init__.py",
+            "kat/common/sql/postgresql.py",
             "_kat_runtime/__main__.py",
             f"{dist_info}/METADATA",
             f"{dist_info}/WHEEL",
@@ -672,6 +675,54 @@ def check_private_host(
         ],
         check=True,
         env=_uv_environment(cache, copy_links=copy_links),
+    )
+
+
+def check_excel_host(python: Path, workspace: Path) -> None:
+    workspace.mkdir(parents=True)
+    script = """
+import sys
+from pathlib import Path
+
+import defusedxml
+import openpyxl
+import xlsxwriter
+from openpyxl import Workbook, load_workbook
+
+if not openpyxl.xml.DEFUSEDXML:
+    raise RuntimeError("openpyxl did not enable defusedxml")
+
+workspace = Path(sys.argv[1])
+openpyxl_path = workspace / "openpyxl.xlsx"
+workbook = Workbook()
+sheet = workbook.active
+sheet["A1"] = "openpyxl"
+sheet["B1"] = 314
+workbook.save(openpyxl_path)
+workbook.close()
+
+workbook = load_workbook(openpyxl_path, read_only=True, data_only=True)
+values = tuple(workbook.active.iter_rows(min_row=1, max_row=1, values_only=True))[0]
+workbook.close()
+if values != ("openpyxl", 314):
+    raise RuntimeError(f"unexpected openpyxl values: {values!r}")
+
+xlsxwriter_path = workspace / "xlsxwriter.xlsx"
+with xlsxwriter.Workbook(xlsxwriter_path) as workbook:
+    sheet = workbook.add_worksheet("Data")
+    sheet.write(0, 0, "xlsxwriter")
+    sheet.write_number(0, 1, 2718)
+
+workbook = load_workbook(xlsxwriter_path, read_only=True, data_only=True)
+values = tuple(workbook["Data"].iter_rows(min_row=1, max_row=1, values_only=True))[0]
+workbook.close()
+if values != ("xlsxwriter", 2718):
+    raise RuntimeError(f"unexpected XlsxWriter values: {values!r}")
+"""
+    subprocess.run(
+        [str(python), "-I", "-c", script, str(workspace)],
+        check=True,
+        env=isolated_environment(),
     )
 
 
@@ -813,6 +864,7 @@ def _prepare_private_host(
         copy_links=copy_links,
     )
     prune_private_host(stage / "python", spec)
+    check_excel_host(python, temporary_root / "excel-host-smoke")
 
 
 def _build_cli_binary(
