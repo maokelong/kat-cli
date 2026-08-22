@@ -30,6 +30,7 @@ _ARROW_TYPES_BY_POSTGRESQL_OID: dict[int, pa.DataType] = {
     1114: pa.timestamp("us"),
     1184: pa.timestamp("us", tz="UTC"),
 }
+_NUMERIC_OID = 1700
 
 
 def execute_sql_file(
@@ -85,7 +86,7 @@ def execute_sql_text(
             for index, column in enumerate(description):
                 arrow_type = _arrow_type(column)
                 values = [row[index] for row in rows]
-                if column.type_code == 1700 and any(
+                if column.type_code == _NUMERIC_OID and any(
                     value is not None
                     and (
                         not isinstance(value, Decimal)
@@ -104,7 +105,7 @@ def execute_sql_text(
 
 def _arrow_type(column: object) -> pa.DataType:
     type_code = column.type_code
-    if type_code == 1700:
+    if type_code == _NUMERIC_OID:
         precision = column.precision
         scale = column.scale
         if (

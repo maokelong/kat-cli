@@ -338,8 +338,7 @@ try {
     }
 
     [Console]::Error.WriteLine("Querying the published Run Output...")
-    # COUNT(*) avoids projecting temporal Arrow scalars that the current JSON
-    # query response does not yet encode directly.
+    # COUNT(*) 避免投影当前 JSON Query Response 尚不能直接编码的 Arrow 时间标量。
     $outputQuery = "SELECT COUNT(*) AS row_count FROM output.$OutputName"
     $queryInvocation = Invoke-NativeJson `
         -CommandPath $katExecutable `

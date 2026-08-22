@@ -678,6 +678,29 @@ def check_private_host(
     )
 
 
+def check_postgresql_host(python: Path) -> None:
+    script = """
+import psycopg
+from kat.common.sql import postgresql
+from psycopg import pq
+
+if psycopg.__version__ != "3.3.4":
+    raise RuntimeError(f"unexpected psycopg version: {psycopg.__version__}")
+if pq.__impl__ != "binary":
+    raise RuntimeError(f"unexpected psycopg implementation: {pq.__impl__}")
+if not all(callable(item) for item in (
+    postgresql.execute_sql_file,
+    postgresql.execute_sql_text,
+)):
+    raise RuntimeError("kat.common PostgreSQL capability is incomplete")
+"""
+    subprocess.run(
+        [str(python), "-I", "-B", "-X", "utf8", "-c", script],
+        check=True,
+        env=isolated_environment(),
+    )
+
+
 def check_excel_host(python: Path, workspace: Path) -> None:
     workspace.mkdir(parents=True)
     script = """
@@ -720,7 +743,7 @@ if values != ("xlsxwriter", 2718):
     raise RuntimeError(f"unexpected XlsxWriter values: {values!r}")
 """
     subprocess.run(
-        [str(python), "-I", "-c", script, str(workspace)],
+        [str(python), "-I", "-B", "-X", "utf8", "-c", script, str(workspace)],
         check=True,
         env=isolated_environment(),
     )
@@ -864,6 +887,7 @@ def _prepare_private_host(
         copy_links=copy_links,
     )
     prune_private_host(stage / "python", spec)
+    check_postgresql_host(python)
     check_excel_host(python, temporary_root / "excel-host-smoke")
 
 

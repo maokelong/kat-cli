@@ -22,4 +22,4 @@ status: accepted
 | `timestamp` | `timestamp[us]` |
 | `timestamp with time zone` | `timestamp[us, UTC]` |
 
-`numeric` 只接受 description 同时提供 precision/scale、`1 <= precision <= 38` 且 `0 <= scale <= precision` 的普通有限值；无约束或类型修饰丢失的 numeric、NaN/Infinity、无类型 NULL、UUID、JSON/JSONB、数组、复合类型、枚举、区间、网络地址和扩展类型第一版明确失败。调用 SQL 可以显式 cast 为受支持类型，例如 `numeric(38, 2)` 或 `text`。common 不按样本值猜测列类型，不把不支持的值静默转换为 string。该决定细化 ADR-0075 的封闭映射合同。
+`numeric` 只接受 description 同时提供 precision/scale、`1 <= precision <= 38` 且 `0 <= scale <= precision` 的普通有限值；无约束或类型修饰丢失的 numeric、numeric NaN/Infinity、UUID、JSON/JSONB、数组、复合类型、枚举、区间、网络地址和扩展类型第一版明确失败。调用 SQL 可以显式 cast 为受支持类型，例如 `numeric(38, 2)` 或 `text`。PostgreSQL 10 及以上会在输出边界把裸 `NULL` 解析为 `text`；Psycopg 的列描述与显式 `NULL::text` 相同，在“不解析 SQL”的合同下 common 因此按服务端返回的 text OID 接受并保留该 NULL。common 不按样本值猜测列类型，不把不支持的值静默转换为 string。该决定细化 ADR-0075 的封闭映射合同。

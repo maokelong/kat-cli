@@ -72,6 +72,17 @@ def test_live_postgresql_preserves_null(kat_run):
     ]
 
 
+def test_live_postgresql_uses_the_server_resolved_type_for_bare_null(kat_run):
+    outputs = kat_run(
+        workflow="query-postgresql",
+        arguments=["--sql", "SELECT NULL AS server_resolved_null"],
+    )
+
+    table = outputs["postgresql_result"]
+    assert table.schema.types == [pa.string()]
+    assert table.to_pylist() == [{"server_resolved_null": None}]
+
+
 def test_live_postgresql_preserves_zero_row_schema(kat_run):
     outputs = kat_run(
         workflow="query-postgresql",

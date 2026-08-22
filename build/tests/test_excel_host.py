@@ -29,13 +29,15 @@ class ExcelHostTests(unittest.TestCase):
                 payload_builder.check_excel_host(python, workspace)
 
             command = run.call_args.args[0]
-            self.assertEqual(command[:3], [str(python), "-I", "-c"])
-            self.assertEqual(command[4], str(workspace))
+            self.assertEqual(
+                command[:6], [str(python), "-I", "-B", "-X", "utf8", "-c"]
+            )
+            self.assertEqual(command[7], str(workspace))
             self.assertTrue(run.call_args.kwargs["check"])
             self.assertEqual(
                 run.call_args.kwargs["env"], payload_builder.isolated_environment()
             )
-            script = command[3]
+            script = command[6]
             for contract in (
                 "openpyxl.xml.DEFUSEDXML",
                 "openpyxl.xlsx",
@@ -81,6 +83,11 @@ class ExcelHostTests(unittest.TestCase):
                     "check_excel_host",
                     side_effect=lambda *_: events.append("excel"),
                 ) as check_excel,
+                mock.patch.object(
+                    payload_builder,
+                    "check_postgresql_host",
+                    side_effect=lambda *_: events.append("postgresql"),
+                ) as check_postgresql,
             ):
                 payload_builder._prepare_private_host(
                     spec=spec,
@@ -94,7 +101,8 @@ class ExcelHostTests(unittest.TestCase):
                     offline=False,
                 )
 
-            self.assertEqual(events, ["prune", "excel"])
+            self.assertEqual(events, ["prune", "postgresql", "excel"])
+            check_postgresql.assert_called_once_with(python)
             check_excel.assert_called_once_with(python, root / "work/excel-host-smoke")
 
 
