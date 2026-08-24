@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0063
 ---
 
 # 关键路径定位与抽取 Workflow 交付

@@ -4,6 +4,8 @@ status: accepted
 
 # KAT Response 使用 JSON tagged union
 
+> ADR-0062 已将 `kat inspect --dataset` 的成功 `result` 从根级扁平 `tables` 改为按 `(PACK identity, Source name)` 排序、按 Binding 投影的 `sources` tagged union；精确 `kat inspect --pack` 还投影可选 `source_guide` 与 Source Entries，并在存在任一 Entry 却缺失或无法读取 `SOURCES.md` 时失败。没有 Entry 且没有 Guide 时 `source_guide: null`。ADR-0063 删除所有 Data Import operation-specific results。本文其余 KAT Response 外壳、严格 operation-specific result 与 inspection 无日志决定继续有效。
+
 KAT Skill 是产品 Interface 的第一公民，普通终端使用是第二公民，因此外层 KAT 参数一旦被 Clap 解析为具体操作，该操作无论成功失败都只向 stdout 写一个结构化 JSON document。这个短命 document 统一称为 KAT Response；它由 CLI 从当前操作事实生成，不直接透传内部 Runtime Response，不成为 manifest、catalog 或持久事实源，也不暴露 Output ID、物理布局或私有 IPC 字段。Skill 与 CLI 原子发布，字段可以在产品发布前随两者一起破坏式演进，不为 CLI 建立独立兼容承诺。
 
 KAT Response 协议只从 Clap 产生具体业务操作后开始。根命令和各操作的 `-h`/`--help` 保持 Clap 原生解析期元动作：直接向 stdout 输出普通帮助文本并以 `0` 退出，不生成 Response，也不解析 Skill 根、访问 KAT Data Home、执行 discovery 或创建日志。当前切片不启用 `--version`，因为 workspace 的临时 crate version 还不是权威 KAT 产品版本；只有构建发布系统提供唯一版本源后才增加。裸 `kat` 没有表达业务操作，按缺少 subcommand 的 parse failure 处理，而不自动展示帮助并成功退出；裸 `kat inspect` 则已经表达“列出可发现 PACK”的有效操作，必须执行 discovery 并返回 KAT Response。未知命令、缺少或冲突外层参数等 parse failure 使用 Clap 原生 stderr 与非零退出，stdout 必须为空。因而 stdout 的语义由解析状态精确决定：显式 help 是普通文本，具体操作是且仅是一个 KAT Response，parse failure 没有内容；形成操作后不允许增加第二种 stdout 产品格式。

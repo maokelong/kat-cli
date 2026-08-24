@@ -317,14 +317,11 @@ fn render_capture_layout(
     if matches!(capture_layout, CaptureLayout::Standalone) {
         writeln!(
             output,
-            "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::BufferOptions,\n    tables: crate::dataset_writer::DatasetTableFactory,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
+            "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::SpoolOptions,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
         )
         .expect("writing generated Rust to String cannot fail");
-        writeln!(
-            output,
-            "    protobuf_source_layout().into_capture(options, tables)"
-        )
-        .expect("writing generated Rust to String cannot fail");
+        writeln!(output, "    protobuf_source_layout().into_capture(options)")
+            .expect("writing generated Rust to String cannot fail");
         writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
     }
 }

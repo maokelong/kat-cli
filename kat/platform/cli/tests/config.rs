@@ -4,7 +4,6 @@ use std::{
     process::{Command, Output},
 };
 
-use rusqlite::Connection;
 use serde_json::Value;
 
 #[allow(dead_code)]
@@ -12,29 +11,16 @@ mod support;
 #[path = "support/test_home.rs"]
 mod test_home;
 
+const MISSING_RUN_ID: &str = "019f6e00-0000-7000-8000-0000000000ff";
+
 fn command(binary: &Path, root: &Path) -> Command {
     let mut command = Command::new(binary);
     test_home::configure(&mut command, root);
     command
 }
 
-fn source_database(root: &Path) -> PathBuf {
-    let source = root.join("source.db");
-    Connection::open(&source)
-        .unwrap()
-        .execute_batch("CREATE TABLE thread (itid INTEGER, tid INTEGER, name TEXT);")
-        .unwrap();
-    source
-}
-
-fn import(binary: &Path, root: &Path, source: &Path, environment_home: Option<&Path>) -> Value {
-    let mut command = command(binary, root);
-    command.args([
-        "import",
-        "trace-streamer",
-        "--database",
-        source.to_str().unwrap(),
-    ]);
+fn query_missing_run(binary: &Path, root: &Path, environment_home: Option<&Path>) -> Value {
+    let mut command = query_missing_run_command(binary, root);
     match environment_home {
         Some(path) => {
             command.env("KAT_DATA_HOME", path);
@@ -45,17 +31,19 @@ fn import(binary: &Path, root: &Path, source: &Path, environment_home: Option<&P
     }
     let output = command.output().unwrap();
     assert!(
-        output.status.success(),
+        !output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).unwrap()
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    response
 }
 
-fn dataset_path(response: &Value) -> PathBuf {
+fn operation_log_path(response: &Value) -> PathBuf {
     PathBuf::from(
         response
-            .pointer("/result/path")
+            .pointer("/log_path")
             .and_then(Value::as_str)
             .unwrap(),
     )
@@ -71,14 +59,9 @@ fn write_configuration(root: &Path, configuration: Value) {
     fs::write(path, configuration.to_string()).unwrap();
 }
 
-fn import_command(binary: &Path, root: &Path, source: &Path) -> Command {
+fn query_missing_run_command(binary: &Path, root: &Path) -> Command {
     let mut command = command(binary, root);
-    command.args([
-        "import",
-        "trace-streamer",
-        "--database",
-        source.to_str().unwrap(),
-    ]);
+    command.args(["query", "--run", MISSING_RUN_ID, "--sql", "SELECT 1"]);
     command
 }
 
@@ -116,18 +99,13 @@ fn kat_data_home_environment_variable_overrides_platform_configuration() {
         serde_json::json!({ "kat_data_home": "relative-unused-home" }),
     );
 
-    let response = import(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-        Some(&environment_home),
-    );
+    let response = query_missing_run(&binary, temporary.path(), Some(&environment_home));
     assert_eq!(
-        dataset_path(&response).parent(),
+        operation_log_path(&response).parent(),
         Some(
             dunce::canonicalize(&environment_home)
                 .unwrap()
-                .join("datasets")
+                .join("logs")
                 .as_path()
         )
     );
@@ -142,11 +120,7 @@ fn valid_environment_data_home_does_not_hide_invalid_platform_configuration() {
     fs::create_dir_all(configuration_path(temporary.path()).parent().unwrap()).unwrap();
     fs::write(configuration_path(temporary.path()), "{ not valid json").unwrap();
 
-    let mut output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    );
+    let mut output = query_missing_run_command(&binary, temporary.path());
     let output = output
         .env("KAT_DATA_HOME", environment_home)
         .output()
@@ -171,14 +145,10 @@ fn valid_environment_data_home_does_not_hide_invalid_configuration_value_types()
             serde_json::json!({ "kat_data_home": invalid_value }),
         );
 
-        let output = import_command(
-            &binary,
-            temporary.path(),
-            &source_database(temporary.path()),
-        )
-        .env("KAT_DATA_HOME", environment_home)
-        .output()
-        .unwrap();
+        let output = query_missing_run_command(&binary, temporary.path())
+            .env("KAT_DATA_HOME", environment_home)
+            .output()
+            .unwrap();
         assert_invalid_configuration(output);
     }
 }
@@ -196,14 +166,10 @@ fn valid_environment_data_home_does_not_hide_invalid_configuration_encoding() {
     )
     .unwrap();
 
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .env("KAT_DATA_HOME", environment_home)
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .env("KAT_DATA_HOME", environment_home)
+        .output()
+        .unwrap();
     assert_invalid_configuration(output);
 }
 
@@ -218,34 +184,34 @@ fn platform_configuration_is_used_when_environment_variable_is_empty_or_missing(
         serde_json::json!({ "kat_data_home": configured_home, "future_setting": true }),
     );
 
-    let source = source_database(temporary.path());
-    let response = import(&binary, temporary.path(), &source, None);
+    let response = query_missing_run(&binary, temporary.path(), None);
     assert_eq!(
-        dataset_path(&response).parent(),
+        operation_log_path(&response).parent(),
         Some(
             dunce::canonicalize(&configured_home)
                 .unwrap()
-                .join("datasets")
+                .join("logs")
                 .as_path()
         )
     );
 
-    let output = import_command(&binary, temporary.path(), &source)
+    let output = query_missing_run_command(&binary, temporary.path())
         .env("KAT_DATA_HOME", "")
         .output()
         .unwrap();
     assert!(
-        output.status.success(),
+        !output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
     assert_eq!(
-        dataset_path(&response).parent(),
+        operation_log_path(&response).parent(),
         Some(
             dunce::canonicalize(&configured_home)
                 .unwrap()
-                .join("datasets")
+                .join("logs")
                 .as_path()
         )
     );
@@ -258,18 +224,13 @@ fn missing_platform_configuration_falls_back_without_creating_a_file() {
     let configuration = configuration_path(temporary.path());
     assert!(!configuration.exists());
 
-    let response = import(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-        None,
-    );
+    let response = query_missing_run(&binary, temporary.path(), None);
     assert_eq!(
-        dataset_path(&response).parent(),
+        operation_log_path(&response).parent(),
         Some(
             dunce::canonicalize(test_home::data_home(temporary.path()))
                 .unwrap()
-                .join("datasets")
+                .join("logs")
                 .as_path()
         )
     );
@@ -287,13 +248,9 @@ fn dangling_platform_configuration_link_is_invalid_instead_of_missing() {
     fs::create_dir_all(configuration.parent().unwrap()).unwrap();
     symlink(temporary.path().join("missing-config.json"), &configuration).unwrap();
 
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .output()
+        .unwrap();
     assert_unreadable_configuration(output);
 }
 
@@ -315,18 +272,13 @@ fn skill_root_configuration_is_not_read() {
         serde_json::json!({ "kat_data_home": configured_home }),
     );
 
-    let response = import(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-        None,
-    );
+    let response = query_missing_run(&binary, temporary.path(), None);
     assert_eq!(
-        dataset_path(&response).parent(),
+        operation_log_path(&response).parent(),
         Some(
             dunce::canonicalize(&configured_home)
                 .unwrap()
-                .join("datasets")
+                .join("logs")
                 .as_path()
         )
     );
@@ -341,13 +293,9 @@ fn invalid_platform_configuration_fails_when_environment_variable_is_missing() {
         serde_json::json!({ "kat_data_home": "relative" }),
     );
 
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -367,13 +315,9 @@ fn non_string_platform_configuration_fails_when_environment_variable_is_missing(
         serde_json::json!({ "kat_data_home": null }),
     );
 
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -395,14 +339,10 @@ fn invalid_kat_data_home_environment_variable_fails_before_platform_configuratio
         serde_json::json!({ "kat_data_home": configured_home }),
     );
 
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .env("KAT_DATA_HOME", "relative")
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .env("KAT_DATA_HOME", "relative")
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -420,14 +360,10 @@ fn non_unicode_kat_data_home_environment_variable_is_invalid() {
 
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");
-    let output = import_command(
-        &binary,
-        temporary.path(),
-        &source_database(temporary.path()),
-    )
-    .env("KAT_DATA_HOME", OsString::from_vec(vec![0xff]))
-    .output()
-    .unwrap();
+    let output = query_missing_run_command(&binary, temporary.path())
+        .env("KAT_DATA_HOME", OsString::from_vec(vec![0xff]))
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(

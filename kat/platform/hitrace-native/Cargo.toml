@@ -1,0 +1,34 @@
+[package]
+name = "kat-hitrace-native"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+publish.workspace = true
+
+[lib]
+name = "_kat_hitrace"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1.89"
+datafusion-catalog = { version = "=54.0.0", default-features = false }
+datafusion-catalog-listing = "=54.0.0"
+datafusion-common = { version = "=54.0.0", default-features = false }
+datafusion-datasource = "=54.0.0"
+datafusion-datasource-parquet = "=54.0.0"
+datafusion-ffi = "=54.0.0"
+datafusion-python-util = "=54.0.0"
+kat-datasource = { path = "../datasource" }
+parquet = { version = "58.0.0", features = ["arrow"] }
+pyo3 = "0.28"
+tempfile = "3.10"
+url = "2.5"
+
+[dev-dependencies]
+arrow-array = "58.0.0"
+datafusion = { version = "=54.0.0", default-features = false, features = ["parquet", "sql"] }
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+pyo3-build-config = "0.28"

@@ -42,6 +42,11 @@ WORKFLOW_WHEEL_PATTERN = "kat_workflow-*.whl"
 WORKFLOW_WHEEL_NAME = re.compile(
     r"kat_workflow-(?P<version>[^-]+)-py3-none-any\.whl"
 )
+HITRACE_WHEEL_PATTERN = "kat_hitrace_native-*.whl"
+HITRACE_WHEEL_NAME = re.compile(
+    r"kat_hitrace_native-(?P<version>[^-]+)-"
+    r"(?P<python>[^-]+)-(?P<abi>[^-]+)-(?P<platform>[^-]+)\.whl"
+)
 
 
 @dataclass(frozen=True)
@@ -118,6 +123,9 @@ class PlatformSpec:
     private_bin_keep_prefix: str | None
     cli_filename: str
     cargo_environment: tuple[tuple[str, str], ...]
+    native_wheel_platform_tag: str
+    native_extension_suffix: str
+    native_wheel_compatibility: str | None = None
     forbidden_payload_suffixes: frozenset[str] = frozenset()
     forbidden_payload_prefixes: tuple[str, ...] = ()
 
@@ -629,7 +637,137 @@ def validated_workflow_wheel(path: Path | None) -> Path:
     return wheel
 
 
-def install_workflow_wheel(
+def validate_hitrace_wheel_archive(
+    path: Path,
+    *,
+    expected_version: str,
+    spec: PlatformSpec,
+) -> str:
+    match = HITRACE_WHEEL_NAME.fullmatch(path.name)
+    if match is None or not path.is_file():
+        raise ValueError(f"unexpected Hitrace native wheel: {path}")
+    version = match.group("version")
+    if version != expected_version:
+        raise ValueError(
+            "Hitrace native wheel version does not match the KAT Workflow Host: "
+            f"expected {expected_version}, got {version}"
+        )
+    if match.group("python") != "cp314" or match.group("abi") != "cp314":
+        raise ValueError("Hitrace native wheel must use the CPython 3.14 ABI")
+    platform_tag = match.group("platform")
+    if platform_tag != spec.native_wheel_platform_tag:
+        raise ValueError(
+            f"Hitrace native wheel must use {spec.native_wheel_platform_tag}, "
+            f"got {platform_tag}"
+        )
+
+    dist_info = f"kat_hitrace_native-{version}.dist-info"
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        required = {
+            f"{dist_info}/METADATA",
+            f"{dist_info}/WHEEL",
+        }
+        missing = sorted(required - names)
+        if missing:
+            raise ValueError(f"Hitrace native wheel is incomplete: {missing}")
+        native_modules = sorted(
+            name
+            for name in names
+            if "/" not in name
+            and name.startswith("_kat_hitrace.")
+            and name.endswith(spec.native_extension_suffix)
+        )
+        if len(native_modules) != 1:
+            raise ValueError(
+                "Hitrace native wheel must contain exactly one platform extension, "
+                f"got {native_modules}"
+            )
+
+        metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/METADATA")
+        )
+        if metadata.get("Name") != "kat-hitrace-native":
+            raise ValueError("Hitrace native wheel has an unexpected distribution")
+        if metadata.get("Version") != version:
+            raise ValueError("Hitrace native wheel version does not match its filename")
+
+        wheel_metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/WHEEL")
+        )
+        if wheel_metadata.get("Root-Is-Purelib", "").lower() != "false":
+            raise ValueError("Hitrace native wheel must be platform-specific")
+        expected_tag = f"cp314-cp314-{spec.native_wheel_platform_tag}"
+        if wheel_metadata.get_all("Tag", []) != [expected_tag]:
+            raise ValueError(
+                f"Hitrace native wheel must use the exact tag {expected_tag}"
+            )
+    return version
+
+
+def build_hitrace_wheel(
+    *,
+    builder_python: Path,
+    target_python: Path,
+    repository: Path,
+    target_dir: Path,
+    output: Path,
+    cargo: str,
+    inputs: CommonInputs,
+    spec: PlatformSpec,
+    expected_version: str,
+    offline: bool,
+) -> Path:
+    output.mkdir()
+    environment = isolated_environment(dict(spec.cargo_environment))
+    environment.pop("CARGO_TARGET_DIR", None)
+    environment.pop("CARGO_BUILD_TARGET_DIR", None)
+    environment["CARGO"] = cargo
+    command = [
+        str(builder_python),
+        "-m",
+        "maturin",
+        "build",
+        "--release",
+        "--locked",
+    ]
+    if offline:
+        command.append("--offline")
+    command.extend(
+        [
+            "--interpreter",
+            str(target_python),
+            "--target-dir",
+            str(target_dir),
+            "--target",
+            inputs.rust_target,
+            "--manifest-path",
+            str(repository / "kat/platform/hitrace-native/Cargo.toml"),
+            "--out",
+            str(output),
+        ]
+    )
+    if spec.native_wheel_compatibility is not None:
+        command.extend(["--compatibility", spec.native_wheel_compatibility])
+    subprocess.run(
+        command,
+        check=True,
+        cwd=repository,
+        env=environment,
+    )
+    wheels = sorted(output.glob(HITRACE_WHEEL_PATTERN))
+    if len(wheels) != 1:
+        raise ValueError(f"expected one Hitrace native wheel, found {len(wheels)}")
+    wheel = wheels[0]
+    validate_hitrace_wheel_archive(
+        wheel,
+        expected_version=expected_version,
+        spec=spec,
+    )
+    return wheel
+
+
+def install_private_wheel(
     uv: Path,
     python: Path,
     wheel: Path,
@@ -652,6 +790,55 @@ def install_workflow_wheel(
         check=True,
         env=_uv_environment(cache, copy_links=copy_links),
     )
+
+
+HITRACE_FFI_SMOKE = """
+import sys
+from pathlib import Path
+
+from datafusion import SessionContext
+from _kat_hitrace import HitraceSchemaProvider
+
+trace = Path(sys.argv[1])
+provider = HitraceSchemaProvider(trace)
+trace.unlink()
+context = SessionContext()
+context.catalog().register_schema("automatic", provider)
+capsule = provider.__datafusion_schema_provider__(context)
+context.catalog().register_schema("capsule", capsule)
+expected = {"clock_domain", "clock_snapshot"}
+if set(context.catalog().schema("automatic").names()) != expected:
+    raise RuntimeError("Hitrace FFI schema published unexpected tables")
+for schema, table in (
+    ("automatic", "clock_domain"),
+    ("automatic", "clock_snapshot"),
+    ("capsule", "clock_domain"),
+):
+    batches = context.sql(
+        f'SELECT COUNT(*) AS count FROM "{schema}"."{table}"'
+    ).collect()
+    if batches[0].column(0)[0].as_py() != 6:
+        raise RuntimeError(f"Hitrace FFI query returned an unexpected row count: {schema}.{table}")
+""".strip()
+
+
+def smoke_test_hitrace_source(python: Path, temporary_root: Path) -> None:
+    trace = temporary_root / "hitrace-ffi-smoke.htrace"
+    header_size = 1024
+    header = bytearray(header_size)
+    header[0:8] = (0x464F_5250_534F_484F).to_bytes(8, "little")
+    header[8:16] = header_size.to_bytes(8, "little")
+    for offset, value in zip((60, 68, 76, 84, 92, 100), range(1, 7), strict=True):
+        header[offset : offset + 8] = value.to_bytes(8, "little")
+    trace.write_bytes(header)
+    try:
+        subprocess.run(
+            [str(python), "-I", "-B", "-c", HITRACE_FFI_SMOKE, str(trace)],
+            check=True,
+            env=isolated_environment(),
+        )
+    finally:
+        trace.unlink(missing_ok=True)
 
 
 def check_private_host(
@@ -759,6 +946,9 @@ def find_uv(extracted: Path, layout: UvLayout) -> Path:
 def _prepare_private_host(
     *,
     spec: PlatformSpec,
+    repository: Path,
+    cargo: str,
+    cargo_target_dir: Path,
     stage: Path,
     temporary_root: Path,
     python_archive: Path,
@@ -799,11 +989,31 @@ def _prepare_private_host(
         offline,
         copy_links=copy_links,
     )
-    install_workflow_wheel(
+    install_private_wheel(
         uv,
         python,
         workflow_wheel,
         temporary_root / "uv-workflow-cache",
+        copy_links=copy_links,
+    )
+    expected_version = validate_workflow_wheel_archive(workflow_wheel)
+    hitrace_wheel = build_hitrace_wheel(
+        builder_python=Path(sys.executable),
+        target_python=python,
+        repository=repository,
+        target_dir=cargo_target_dir,
+        output=temporary_root / "hitrace-wheel",
+        cargo=cargo,
+        inputs=inputs,
+        spec=spec,
+        expected_version=expected_version,
+        offline=offline,
+    )
+    install_private_wheel(
+        uv,
+        python,
+        hitrace_wheel,
+        temporary_root / "uv-hitrace-cache",
         copy_links=copy_links,
     )
     check_private_host(
@@ -812,6 +1022,7 @@ def _prepare_private_host(
         temporary_root / "uv-check-cache",
         copy_links=copy_links,
     )
+    smoke_test_hitrace_source(python, temporary_root)
     prune_private_host(stage / "python", spec)
 
 
@@ -907,6 +1118,9 @@ def build_payload(
         stage = temporary_root / "payload"
         _prepare_private_host(
             spec=adapter.spec,
+            repository=repository,
+            cargo=options.cargo,
+            cargo_target_dir=cargo_cache,
             stage=stage,
             temporary_root=temporary_root,
             python_archive=python_archive,

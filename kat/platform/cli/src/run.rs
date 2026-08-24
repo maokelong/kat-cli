@@ -33,7 +33,7 @@ pub(super) struct RunArgs {
     #[arg(
         long = "pack-dir",
         value_name = "DIRECTORY",
-        help = "Add a PACK directory for this command. Repeat to add more PACKs."
+        help = "Add a PACK candidate directory for this command. Repeat to add more candidate directories."
     )]
     pack_directories: Vec<PathBuf>,
     /// Forward all tokens after `--` unchanged to the Workflow Input Compiler.
@@ -169,6 +169,19 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
             },
         );
     };
+    let mut pack_paths = BTreeMap::new();
+    for discovered_pack in discovered.iter() {
+        let Some(path) = discovered_pack.directory().to_str() else {
+            return finish_failure(
+                log,
+                RunOperationError::NonUnicodePath {
+                    label: "discovered PACK",
+                    path: discovered_pack.directory().to_path_buf(),
+                },
+            );
+        };
+        pack_paths.insert(discovered_pack.name().to_owned(), path.to_owned());
+    }
     let dataset = match arguments.dataset {
         Some(path) => match kat_datasource::resolve_dataset(&path) {
             Ok(dataset) => Some(dataset),
@@ -222,6 +235,7 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         workflow_runtime::RunWorkflowInvocation {
             pack_name: pack.name().to_owned(),
             pack_path,
+            pack_paths,
             workflow_name: arguments.workflow.clone(),
             dataset: runtime_dataset,
             arguments: arguments.workflow_arguments,

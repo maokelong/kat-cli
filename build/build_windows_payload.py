@@ -37,6 +37,8 @@ PLATFORM_SPEC = payload_builder.PlatformSpec(
         ("RUSTFLAGS", "-C target-feature=+crt-static"),
         ("LINK", "/Brepro"),
     ),
+    native_wheel_platform_tag="win_amd64",
+    native_extension_suffix=".pyd",
     forbidden_payload_suffixes=frozenset({".msi"}),
     forbidden_payload_prefixes=("vc_redist",),
 )

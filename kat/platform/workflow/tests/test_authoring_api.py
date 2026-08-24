@@ -11,7 +11,6 @@ from _kat_runtime.inspection import compile_declared_workflow, inspect_declared_
 @kat.workflow(
     name="thread-time",
     title=" Thread time ",
-    required_tables=["sched_slice", "thread", "sched_slice"],
     parameters={
         "label": " Label filter ",
         "count": "Signed count",
@@ -40,26 +39,23 @@ def analyze(
     """
 
 
-@kat.workflow(name="return-is-not-input", title="Return", required_tables=[])
+@kat.workflow(name="return-is-not-input", title="Return")
 def unresolved_return(ctx: kat.Context) -> UndefinedReturn:
     """The Input Compiler must not evaluate the return annotation."""
 
 
-mutable_tables = ["thread"]
 mutable_descriptions = {"value": " Original description "}
 
 
 @kat.workflow(
     name="copied-declaration",
     title="Copied declaration",
-    required_tables=mutable_tables,
     parameters=mutable_descriptions,
 )
 def copied_declaration(ctx: kat.Context, value: str) -> None:
     """The decorator owns an immutable declaration snapshot."""
 
 
-mutable_tables.append("sched_slice")
 mutable_descriptions["value"] = "Mutated"
 
 
@@ -67,14 +63,13 @@ lambda_workflow = lambda ctx: None
 lambda_workflow.__annotations__ = {"ctx": kat.Context}
 lambda_workflow.__doc__ = "A lambda is not a declared Workflow function."
 lambda_workflow = kat.workflow(
-    name="lambda-workflow", title="Lambda", required_tables=[]
+    name="lambda-workflow", title="Lambda"
 )(lambda_workflow)
 
 
 @kat.workflow(
     name="asynchronous",
     title="Asynchronous",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 async def asynchronous(ctx: kat.Context, value: str) -> None:
@@ -84,7 +79,6 @@ async def asynchronous(ctx: kat.Context, value: str) -> None:
 @kat.workflow(
     name="missing-description",
     title="Missing description",
-    required_tables=[],
     parameters={},
 )
 def missing_parameter_description(ctx: kat.Context, value: str) -> None:
@@ -94,7 +88,6 @@ def missing_parameter_description(ctx: kat.Context, value: str) -> None:
 @kat.workflow(
     name="required-bool",
     title="Required bool",
-    required_tables=[],
     parameters={"flag": "Flag"},
 )
 def required_bool(ctx: kat.Context, flag: bool) -> None:
@@ -104,7 +97,6 @@ def required_bool(ctx: kat.Context, flag: bool) -> None:
 @kat.workflow(
     name="invalid-bool-default",
     title="Invalid bool default",
-    required_tables=[],
     parameters={"flag": "Flag"},
 )
 def invalid_bool_default(ctx: kat.Context, flag: bool = 1) -> None:  # type: ignore[assignment]
@@ -114,7 +106,6 @@ def invalid_bool_default(ctx: kat.Context, flag: bool = 1) -> None:  # type: ign
 @kat.workflow(
     name="overflowing-int-default",
     title="Overflowing int default",
-    required_tables=[],
     parameters={"count": "Count"},
 )
 def overflowing_int_default(ctx: kat.Context, count: int = float("inf")) -> None:  # type: ignore[assignment]
@@ -124,7 +115,6 @@ def overflowing_int_default(ctx: kat.Context, count: int = float("inf")) -> None
 @kat.workflow(
     name="none-without-optional",
     title="None without optional",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def none_without_optional(
@@ -136,7 +126,6 @@ def none_without_optional(
 @kat.workflow(
     name="unsupported-any",
     title="Unsupported Any",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def unsupported_any(ctx: kat.Context, value: Any) -> None:
@@ -146,7 +135,6 @@ def unsupported_any(ctx: kat.Context, value: Any) -> None:
 @kat.workflow(
     name="unsupported-annotated",
     title="Unsupported Annotated",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def unsupported_annotated(ctx: kat.Context, value: Annotated[str, "metadata"]) -> None:
@@ -156,7 +144,6 @@ def unsupported_annotated(ctx: kat.Context, value: Annotated[str, "metadata"]) -
 @kat.workflow(
     name="overflowing-wall-clock",
     title="Overflowing wall clock",
-    required_tables=[],
     parameters={"at": "Boundary"},
 )
 def overflowing_wall_clock(
@@ -169,7 +156,6 @@ def overflowing_wall_clock(
 @kat.workflow(
     name="unknown-wall-clock-offset",
     title="Unknown wall clock offset",
-    required_tables=[],
     parameters={"at": "Boundary"},
 )
 def unknown_wall_clock_offset(
@@ -182,7 +168,6 @@ def unknown_wall_clock_offset(
 @kat.workflow(
     name="legacy-optional",
     title="Legacy Optional",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def legacy_optional(ctx: kat.Context, value: Optional[str] = None) -> None:
@@ -192,7 +177,6 @@ def legacy_optional(ctx: kat.Context, value: Optional[str] = None) -> None:
 @kat.workflow(
     name="legacy-union",
     title="Legacy Union",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def legacy_union(ctx: kat.Context, value: Union[str, None] = None) -> None:
@@ -202,7 +186,6 @@ def legacy_union(ctx: kat.Context, value: Union[str, None] = None) -> None:
 @kat.workflow(
     name="nested-forward-reference",
     title="Nested forward reference",
-    required_tables=[],
     parameters={"value": "Value"},
 )
 def nested_forward_reference(
@@ -214,7 +197,6 @@ def nested_forward_reference(
 @kat.workflow(
     name="required-string",
     title="Required string",
-    required_tables=[],
     parameters={"query": "Query text"},
 )
 def required_string(ctx: kat.Context, query: str) -> None:
@@ -264,7 +246,7 @@ class AuthoringApiTest(unittest.TestCase):
         )
         for boundary in (
             "exact type ``str``",
-            "``str`` subclasses are rejected before the Expr is constructed",
+            "String subclasses and other types are rejected",
             "accepted by DataFusion's strict casts",
             "Arrow ``Utf8`` and ``UInt64``",
             "KAT guarantees canonical ``Utf8``/``UInt64``",
@@ -287,9 +269,7 @@ class AuthoringApiTest(unittest.TestCase):
             "Non-boolean parameters without defaults are required",
             "Boolean parameters require a default",
             "optional parameters must default to None",
-            "required_tables",
             "[a-z0-9]+(?:-[a-z0-9]+)*",
-            "[a-z][a-z0-9]*(?:_[a-z0-9]+)*",
             "known explicit UTC offset",
             "absolute UTC instant, not a local civil-time value",
             "Successful decoration alone does not mean the production input Interface is valid",
@@ -308,7 +288,6 @@ class AuthoringApiTest(unittest.TestCase):
                 "name": "thread-time",
                 "title": "Thread time",
                 "description": "Inspect thread CPU time.\n\nInternal whitespace remains.",
-                "required_tables": ["sched_slice", "thread"],
                 "parameters": [
                     {"name": "label", "option": "--label", "type": "string", "required": False, "description": "Label filter", "default": ""},
                     {"name": "count", "option": "--count", "type": "int64", "required": False, "description": "Signed count", "default": "7"},
@@ -426,18 +405,21 @@ class AuthoringApiTest(unittest.TestCase):
                 inspect_declared_workflow(function)
 
         with self.assertRaises(ValueError):
-            kat.workflow(name="invalid-table", title="Invalid table", required_tables=["CON"])
-        with self.assertRaises(ValueError):
             kat.workflow(
                 name="empty-description",
                 title="Empty description",
-                required_tables=[],
                 parameters={"value": "  "},
+            )
+    def test_legacy_required_tables_parameter_is_rejected(self) -> None:
+        with self.assertRaises(TypeError):
+            kat.workflow(  # type: ignore[call-arg]
+                name="legacy-grant",
+                title="Legacy grant",
+                required_tables=[],
             )
 
     def test_decorator_copies_mutable_authoring_containers(self) -> None:
         interface = inspect_declared_workflow(copied_declaration)
-        self.assertEqual(interface["required_tables"], ["thread"])
         self.assertEqual(interface["parameters"][0]["description"], "Original description")
 
 

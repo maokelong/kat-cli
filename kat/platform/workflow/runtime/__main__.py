@@ -15,15 +15,24 @@ from .pack import (
     _PackInspectionWorkerError,
     inspect_pack,
 )
-from .query import QueryRunRuntimeResult, query_run
+from .query import QueryRunRuntimeResult, query_dataset, query_run
 from .request import (
+    BindSourceRequest,
     InspectPackRequest,
+    MaterializeSourceRequest,
+    QueryDatasetRequest,
     QueryRunRequest,
     RunWorkflowRequest,
     RuntimeRequest,
     RuntimeRequestError,
     TestPackRequest,
     read_request,
+)
+from .source_commands import (
+    BindSourceRuntimeResult,
+    MaterializeSourceRuntimeResult,
+    bind_source,
+    materialize_source,
 )
 from .testing import PytestExitError, TestPackRuntimeResult, test_pack
 
@@ -42,6 +51,8 @@ class RuntimeFailure:
 
 type RuntimeResponse = (
     RuntimeSuccess[InspectPackRuntimeResult]
+    | RuntimeSuccess[BindSourceRuntimeResult]
+    | RuntimeSuccess[MaterializeSourceRuntimeResult]
     | RuntimeSuccess[RunWorkflowRuntimeResult]
     | RuntimeSuccess[QueryRunRuntimeResult]
     | RuntimeSuccess[TestPackRuntimeResult]
@@ -96,6 +107,52 @@ def _execute(
                     None,
                     message="Run Output query failed",
                     help="Correct the SQL or its inputs, then retry",
+                )
+            )
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, BindSourceRequest):
+        try:
+            result = bind_source(request)
+        except PackInspectionError as error:
+            return RuntimeFailure(error=error.diagnostic)
+        except (Exception, SystemExit) as error:
+            return RuntimeFailure(
+                error=diagnostic_from_exception(
+                    error,
+                    request.pack_path,
+                    message="Source Binding validation failed",
+                    help="Correct the Source arguments or PACK, then retry",
+                )
+            )
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, MaterializeSourceRequest):
+        try:
+            result = materialize_source(request)
+        except PackInspectionError as error:
+            return RuntimeFailure(error=error.diagnostic)
+        except (Exception, SystemExit) as error:
+            return RuntimeFailure(
+                error=diagnostic_from_exception(
+                    error,
+                    request.pack_path,
+                    message="Source materialization failed",
+                    help="Correct the Source, arguments, or table selection, then retry",
+                )
+            )
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, QueryDatasetRequest):
+        try:
+            result = query_dataset(request)
+        except (Exception, SystemExit) as error:
+            return RuntimeFailure(
+                error=diagnostic_from_exception(
+                    error,
+                    None,
+                    message="Dataset query failed",
+                    help="Correct the SQL, Dataset Sources, or PACK discovery, then retry",
                 )
             )
         return RuntimeSuccess(result=result)

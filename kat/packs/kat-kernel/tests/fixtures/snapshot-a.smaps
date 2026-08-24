@@ -1,0 +1,17 @@
+00400000-00452000 r-xp 00000000 08:02 131073 /usr/bin/demo
+Size:                328 kB
+Rss:                 200 kB
+Pss:                 120 kB
+Shared_Clean:         80 kB
+VmFlags: rd ex mr mw me dw sd
+00652000-00653000 r--p 00052000 08:02 131073 /usr/bin/demo
+Size:                  4 kB
+Rss:                   4 kB
+Pss:                   2 kB
+VmFlags: rd mr mw me dw sd
+7f000000-7f002000 rw-p 00000000 00:00 0 [heap]
+Size:                  8 kB
+Rss:                   8 kB
+Pss:                   8 kB
+Anonymous:             8 kB
+VmFlags: rd wr mr mw me ac sd

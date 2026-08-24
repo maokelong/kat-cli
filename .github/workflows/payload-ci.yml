@@ -129,7 +129,7 @@ jobs:
           name: artifacts-kat-skill
           path: target/kat/artifact
 
-      - name: Relocate and verify Import to Query
+      - name: Relocate and verify the Source lifecycle
         shell: bash
         env:
           ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
@@ -158,18 +158,19 @@ jobs:
               payload=$skill/scripts/targets/linux-x86_64
               cli=$payload/kat
               python=$payload/python/bin/python3
-              pack=$skill/assets/packs/kat-openharmony-thread-cpu-time
-              fixture=/repo/kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.db
-              "$cli" import trace-streamer --database "$fixture" --dataset /work/dataset >/work/import.json
+              pack=$skill/assets/packs/kat-kernel
+              fixture=/repo/kat/packs/kat-kernel/tests/fixtures/snapshot-a.smaps
+              "$cli" bind --pack kat-kernel --source raw_smaps --dataset /work/dataset -- --files "$fixture" >/work/bind.json
               "$cli" inspect --dataset /work/dataset >/work/inspect-dataset.json
-              "$cli" inspect --pack kat-openharmony-thread-cpu-time --pack-dir "$pack" >/work/inspect-pack.json
-              "$cli" test --pack-dir "$pack" >/work/test.json
-              "$cli" run --pack kat-openharmony-thread-cpu-time --workflow thread-cpu-time --pack-dir "$pack" --dataset /work/dataset >/work/run.json
+              "$cli" inspect --pack kat-kernel --pack-dir "$pack" >/work/inspect-pack.json
+              "$cli" materialize --pack kat-kernel --source raw_smaps --dataset /work/dataset --replace >/work/materialize.json
+              "$cli" test --pack-dir "$pack" --test tests/test_process_memory.py::test_analysis_empty_result_keeps_exact_schema >/work/test.json
+              "$cli" run --pack kat-kernel --workflow process-memory-summary --pack-dir "$pack" --dataset /work/dataset >/work/run.json
               run_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" -c "import json; print(json.load(open(\"/work/run.json\"))[\"result\"][\"run_id\"])")
-              "$cli" query --run "$run_id" --sql "SELECT COUNT(*) AS rows FROM output.thread_cpu_time_by_cpu" >/work/query.json
+              "$cli" query --run "$run_id" --sql "SELECT COUNT(*) AS rows FROM output.process_memory_by_pathname" >/work/query.json
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
-                "$python" -c "import json; files=[\"import\",\"inspect-dataset\",\"inspect-pack\",\"test\",\"run\",\"query\"]; assert all(json.load(open(\"/work/\"+name+\".json\"))[\"status\"]==\"success\" for name in files)"
+                "$python" -c "import json; files=[\"bind\",\"inspect-dataset\",\"inspect-pack\",\"materialize\",\"test\",\"run\",\"query\"]; assert all(json.load(open(\"/work/\"+name+\".json\"))[\"status\"]==\"success\" for name in files)"
             '
 
   windows-smoke:
@@ -199,7 +200,7 @@ jobs:
           name: artifacts-kat-skill
           path: target/kat/artifact
 
-      - name: Relocate and verify Import to Query on the builder image
+      - name: Relocate and verify the Source lifecycle on the builder image
         shell: pwsh
         env:
           ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
@@ -211,8 +212,8 @@ jobs:
           $skill = (Resolve-Path "target/kat/smoke-input/kat").Path
           $payload = Join-Path $skill "scripts/targets/windows-x86_64"
           $cli = Join-Path $payload "kat.exe"
-          $pack = Join-Path $skill "assets/packs/kat-openharmony-thread-cpu-time"
-          $fixture = (Resolve-Path "kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.db").Path
+          $pack = Join-Path $skill "assets/packs/kat-kernel"
+          $fixture = (Resolve-Path "kat/packs/kat-kernel/tests/fixtures/snapshot-a.smaps").Path
           $work = Join-Path $env:RUNNER_TEMP "kat-release-smoke"
           $dataset = Join-Path $work "dataset"
           $env:HOME = Join-Path $work "home"
@@ -224,14 +225,15 @@ jobs:
           $env:PYTHONUSERBASE = Join-Path $work "poison-user"
           Remove-Item Env:KAT_DATA_HOME -ErrorAction SilentlyContinue
           $responses = @()
-          $responses += (& $cli import trace-streamer --database $fixture --dataset $dataset | ConvertFrom-Json)
+          $responses += (& $cli bind --pack kat-kernel --source raw_smaps --dataset $dataset -- --files $fixture | ConvertFrom-Json)
           $responses += (& $cli inspect --dataset $dataset | ConvertFrom-Json)
-          $responses += (& $cli inspect --pack kat-openharmony-thread-cpu-time --pack-dir $pack | ConvertFrom-Json)
-          $responses += (& $cli test --pack-dir $pack | ConvertFrom-Json)
-          $run = & $cli run --pack kat-openharmony-thread-cpu-time --workflow thread-cpu-time --pack-dir $pack --dataset $dataset | ConvertFrom-Json
+          $responses += (& $cli inspect --pack kat-kernel --pack-dir $pack | ConvertFrom-Json)
+          $responses += (& $cli materialize --pack kat-kernel --source raw_smaps --dataset $dataset --replace | ConvertFrom-Json)
+          $responses += (& $cli test --pack-dir $pack --test tests/test_process_memory.py::test_analysis_empty_result_keeps_exact_schema | ConvertFrom-Json)
+          $run = & $cli run --pack kat-kernel --workflow process-memory-summary --pack-dir $pack --dataset $dataset | ConvertFrom-Json
           $responses += $run
-          $responses += (& $cli query --run $run.result.run_id --sql "SELECT COUNT(*) AS rows FROM output.thread_cpu_time_by_cpu" | ConvertFrom-Json)
+          $responses += (& $cli query --run $run.result.run_id --sql "SELECT COUNT(*) AS rows FROM output.process_memory_by_pathname" | ConvertFrom-Json)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($responses.Count -ne 6 -or ($responses | Where-Object status -ne "success").Count -ne 0) {
+          if ($responses.Count -ne 7 -or ($responses | Where-Object status -ne "success").Count -ne 0) {
             throw "release Skill full-loop smoke did not return only success responses"
           }

@@ -4,6 +4,8 @@ status: accepted
 
 # 首个 Bundled PACK 分析线程 CPU 时间
 
+> ADR-0062 已从这个长期 Workflow 的 decorator 删除 `required_tables`；`sched_switch` 依赖由其调用的 Analysis Module 实际查询表达。ADR-0063 只先交付 `kat-kernel/hitrace` Source 并删除两个 Trace Streamer 预发布 PACK，不把旧 Demo 冒充为本决定的长期分析交付；`thread-cpu-time` 仍须在后续切片按本文事实与验证合同实现。本文其余问题、Workflow、Output 与 PACK 所有权决定继续有效。
+
 KAT 的第一条长期用户闭环回答一个明确问题：**这段 Trace 中哪些非空闲线程占用了最多 CPU 时间，主要运行在哪些 CPU 上？** 首个 Bundled PACK 使用一级 name `kat-kernel`，manifest 初始展示字段为 `title = "Kernel Performance"`、`description = "Analyze kernel scheduling behavior from KAT Datasets."` 与 `owner = "Kernel Team"`。它按内核团队的稳定维护责任划分，不因为首个问题属于调度领域而建立更窄的 `kat-scheduling` PACK。
 
 该 PACK 的首个 Workflow name 是 `thread-cpu-time`，title 是 `Thread CPU Time by CPU`，入口位于 `workflows/thread_cpu_time.py`。它没有用户参数，装饰器只声明 `required_tables=["sched_switch"]`；运行时返回单元素具名映射 `{"thread_cpu_time_by_cpu": dataframe}`，不使用含义过宽的默认 `main`。用户正常通过 KAT Skill 表达问题并由 Skill 自动选择；`kat run --pack kat-kernel --workflow thread-cpu-time --dataset <dataset>` 只是开发、测试和高级覆盖入口。

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0063
 ---
 
 # Trace Streamer 预发布 Demo 的线程 CPU 时间

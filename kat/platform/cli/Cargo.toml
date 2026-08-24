@@ -21,8 +21,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
-prost.workspace = true
-rusqlite.workspace = true
 
 [[bin]]
 name = "kat"

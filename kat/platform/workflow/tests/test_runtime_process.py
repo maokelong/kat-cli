@@ -13,7 +13,16 @@ from unittest import mock
 import uuid
 
 from _kat_runtime import __main__ as runtime_main
-from _kat_runtime.pack import _workflow_entries, inspect_pack
+from _kat_runtime.pack import (
+    PackInspectionError,
+    ProductionPack,
+    RUN_PROFILE,
+    SOURCE_OPERATION_PROFILE,
+    SOURCE_RESOLUTION_PROFILE,
+    _source_entries,
+    _workflow_entries,
+    inspect_pack,
+)
 
 
 class RuntimeProcessTest(unittest.TestCase):
@@ -80,7 +89,7 @@ class RuntimeProcessTest(unittest.TestCase):
 from kat import Context, workflow
 from kat.pack.helpers.rules import title
 
-@workflow(name="cpu-time", title=title(), required_tables=["thread", "sched_slice"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title=title(), parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     \"\"\"Analyze CPU time.\"\"\"
 """,
@@ -106,12 +115,13 @@ def analyze(ctx: Context, *, limit: int = 10):
             {
                 "status": "success",
                 "result": {
+                    "source_guide": None,
+                    "sources": [],
                     "workflows": [
                         {
                             "name": "cpu-time",
                             "title": "Helper title",
                             "description": "Analyze CPU time.",
-                            "required_tables": ["sched_slice", "thread"],
                             "parameters": [
                                 {
                                     "name": "limit",
@@ -129,7 +139,381 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         after = sorted(path.relative_to(pack).as_posix() for path in pack.rglob("*"))
         self.assertEqual(after, before)
+
+    def test_inspect_pack_returns_sources_and_guide_without_normalizing_text(self) -> None:
+        pack = self.root / "source-pack"
+        (pack / "sources" / "nested").mkdir(parents=True)
+        (pack / "sources" / "z.py").write_text(
+            """from kat import source
+@source(name='z_data')
+def provide() -> MissingReturn:
+    raise AssertionError('inspection must not call Source Entries')
+""",
+            encoding="utf-8",
+        )
+        (pack / "sources" / "nested" / "a.py").write_text(
+            """from pathlib import Path
+from kat import source
+@source(name='a_data')
+def provide(files: tuple[Path, ...] = (), optional: Path | None = None):
+    raise AssertionError('inspection must not call Source Entries')
+""",
+            encoding="utf-8",
+        )
+        guide = "# Sources\r\n\r\nKeep trailing space. \r\n"
+        (pack / "SOURCES.md").write_bytes(guide.encode("utf-8"))
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "source-pack",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "source_guide": guide,
+                    "sources": [
+                        {
+                            "name": "a_data",
+                            "parameters": [
+                                {
+                                    "name": "files",
+                                    "option": "--files",
+                                    "type": "path",
+                                    "required": False,
+                                    "repeatable": True,
+                                    "default": [],
+                                },
+                                {
+                                    "name": "optional",
+                                    "option": "--optional",
+                                    "type": "path",
+                                    "required": False,
+                                    "default": None,
+                                },
+                            ],
+                        },
+                        {"name": "z_data", "parameters": []},
+                    ],
+                    "workflows": [],
+                },
+            },
+        )
+
+    def test_source_guide_gate_and_operation_profiles_are_explicit(self) -> None:
+        pack = self.root / "guide-profiles"
+        (pack / "sources").mkdir(parents=True)
+        (pack / "workflows").mkdir()
+        (pack / "sources" / "facts.py").write_text(
+            """from kat import source
+@source(name='facts')
+def provide():
+    return None
+""",
+            encoding="utf-8",
+        )
+        root = pack.resolve()
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "guide-profiles",
+                "pack_path": str(root),
+            }
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure")
+        self.assertIn("SOURCES.md", response["error"]["causes"][0])
+
+        with self.assertRaises(PackInspectionError):
+            ProductionPack.open(
+                "guide-profiles",
+                root,
+                profile=SOURCE_OPERATION_PROFILE,
+            )
+        # Run scans both entry kinds but deliberately does not read SOURCES.md.
+        run_pack = ProductionPack.open("guide-profiles", root, profile=RUN_PROFILE)
+        self.assertEqual(
+            [entry.interface["name"] for entry in run_pack.source_entries],
+            ["facts"],
+        )
+        resolution_pack = ProductionPack.open(
+            "guide-profiles",
+            root,
+            profile=SOURCE_RESOLUTION_PROFILE,
+        )
+        self.assertEqual(
+            [entry.interface["name"] for entry in resolution_pack.source_entries],
+            ["facts"],
+        )
+        self.assertEqual(resolution_pack.workflow_entries, ())
+
+        (pack / "workflows" / "broken.py").write_text(
+            "raise RuntimeError('unrelated Workflow is broken')\n",
+            encoding="utf-8",
+        )
+        (pack / "SOURCES.md").write_text("Facts.\n", encoding="utf-8", newline="")
+        source_only = ProductionPack.open(
+            "guide-profiles",
+            root,
+            profile=SOURCE_OPERATION_PROFILE,
+        )
+        self.assertEqual(
+            [entry.interface["name"] for entry in source_only.source_entries],
+            ["facts"],
+        )
+        self.assertEqual(source_only.workflow_entries, ())
+
+    def test_public_pack_import_in_source_helper_fails_before_source_operations(
+        self,
+    ) -> None:
+        pack = self.root / "absolute-source-import"
+        (pack / "sources").mkdir(parents=True)
+        (pack / "helpers").mkdir()
+        (pack / "SOURCES.md").write_text("Facts.\n", encoding="utf-8")
+        marker = self.root / "source-provider-called"
+        (pack / "sources" / "facts.py").write_text(
+            f'''from pathlib import Path
+from kat import source
+from ..helpers.shared import VALUE
+
+@source(name="facts")
+def provide():
+    Path({str(marker)!r}).write_text(str(VALUE), encoding="utf-8")
+    return None
+''',
+            encoding="utf-8",
+        )
+        (pack / "helpers" / "shared.py").write_text(
+            "from kat.pack.helpers.value import VALUE\n",
+            encoding="utf-8",
+        )
+        (pack / "helpers" / "value.py").write_text(
+            "VALUE = 1\n",
+            encoding="utf-8",
+        )
+        root = pack.resolve()
+        common = {
+            "pack_name": "absolute-source-import",
+            "pack_path": str(root),
+            "source_name": "facts",
+            "arguments": [],
+            "argument_base": str(self.root.resolve()),
+        }
+
+        requests: list[dict[str, object]] = [
+            {"operation": "bind_source", **common},
+        ]
+        export = self.root / "absolute-source-import-export"
+        export.mkdir()
+        requests.append(
+            {
+                "operation": "materialize_source",
+                **common,
+                "tables": [],
+                "export_path": str(export.resolve()),
+            }
+        )
+        for request in requests:
+            with self.subTest(operation=request["operation"]):
+                completed, response = self.run_runtime(request)
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stderr.decode(errors="replace"),
+                )
+                self.assertEqual(response["status"], "failure", response)
+                self.assertEqual(response["error"]["message"], "PACK inspection failed")
+                cause = response["error"]["causes"][0]
+                self.assertIn("No module named 'kat.pack'", cause)
+                self.assertFalse(marker.exists())
+
+    def test_existing_source_guide_is_read_even_without_source_entries(self) -> None:
+        pack = self.root / "guide-only"
+        pack.mkdir()
+        guide = "Guide without entries.\r\n"
+        (pack / "SOURCES.md").write_bytes(guide.encode("utf-8"))
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "guide-only",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "source_guide": guide,
+                    "sources": [],
+                    "workflows": [],
+                },
+            },
+        )
+
+        (pack / "SOURCES.md").write_bytes(b"\xff")
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "guide-only",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure")
+        self.assertIn("valid UTF-8", response["error"]["causes"][0])
+
+    def test_materialize_enumerates_property_table_names_once(self) -> None:
+        pack = self.root / "counted-source"
+        (pack / "sources").mkdir(parents=True)
+        (pack / "SOURCES.md").write_text("Counted source.\n", encoding="utf-8")
+        marker = self.root / "table-names-calls.txt"
+        (pack / "sources" / "counted.py").write_text(
+            f'''from pathlib import Path
+from datafusion.catalog import SchemaProvider, Table
+import pyarrow as pa
+import pyarrow.dataset as ds
+from kat import source
+
+MARKER = Path({str(marker)!r})
+
+class CountedSchema(SchemaProvider):
+    @property
+    def table_names(self):
+        calls = int(MARKER.read_text(encoding="utf-8")) if MARKER.exists() else 0
+        MARKER.write_text(str(calls + 1), encoding="utf-8")
+        return ("events",)
+
+    def table_exist(self, name):
+        return name == "events"
+
+    def table(self, name):
+        if name != "events":
+            return None
+        return Table(ds.dataset(pa.table({{"value": [1, 2]}})))
+
+@source(name="counted")
+def provide():
+    return CountedSchema()
+''',
+            encoding="utf-8",
+        )
+        export = self.root / "materialized"
+        export.mkdir()
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "materialize_source",
+                "pack_name": "counted-source",
+                "pack_path": str(pack.resolve()),
+                "source_name": "counted",
+                "arguments": [],
+                "argument_base": str(self.root.resolve()),
+                "tables": [],
+                "export_path": str(export.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response, {"status": "success", "result": {"tables": ["events"]}})
+        self.assertEqual(marker.read_text(encoding="utf-8"), "1")
+        self.assertTrue((export / "events.parquet").is_file())
+
+    def test_materialize_accepts_an_official_datafusion_schema(self) -> None:
+        pack = self.root / "official-schema-source"
+        (pack / "sources").mkdir(parents=True)
+        (pack / "SOURCES.md").write_text("Official schema source.\n", encoding="utf-8")
+        (pack / "sources" / "official.py").write_text(
+            '''from datafusion.catalog import Schema, Table
+import pyarrow as pa
+import pyarrow.dataset as ds
+from kat import source
+
+@source(name="official")
+def provide():
+    schema = Schema.memory_schema()
+    schema.register_table(
+        "events",
+        Table(ds.dataset(pa.table({"value": [2, 1]}))),
+    )
+    return schema
+''',
+            encoding="utf-8",
+        )
+        export = self.root / "official-schema-materialized"
+        export.mkdir()
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "materialize_source",
+                "pack_name": "official-schema-source",
+                "pack_path": str(pack.resolve()),
+                "source_name": "official",
+                "arguments": [],
+                "argument_base": str(self.root.resolve()),
+                "tables": [],
+                "export_path": str(export.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response, {"status": "success", "result": {"tables": ["events"]}})
+        self.assertTrue((export / "events.parquet").is_file())
+
+    def test_source_entry_tree_uses_the_same_deterministic_rules(self) -> None:
+        pack = self.root / "source-tree"
+        (pack / "sources" / "nested").mkdir(parents=True)
+        (pack / "sources" / "z.py").write_text("# source\n", encoding="utf-8")
+        (pack / "sources" / "a.py").write_text("# source\n", encoding="utf-8")
+        self.assertEqual(
+            [path.relative_to(pack).as_posix() for path, _ in _source_entries(pack.resolve())],
+            ["sources/a.py", "sources/z.py"],
+        )
+        (pack / "sources" / "nested" / "__init__.py").write_text(
+            "# forbidden\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "sources/nested/__init__.py"):
+            _source_entries(pack.resolve())
         self.assertFalse(any(path.name == "__pycache__" for path in pack.rglob("*")))
+
+    def test_source_entry_cannot_register_a_workflow_instead(self) -> None:
+        pack = self.root / "cross-kind-entry"
+        (pack / "sources").mkdir(parents=True)
+        (pack / "sources" / "wrong.py").write_text(
+            '''from kat import Context, workflow
+
+@workflow(name="wrong-kind", title="Wrong kind")
+def provide(ctx: Context):
+    """This is not a Source Entry."""
+''',
+            encoding="utf-8",
+        )
+        (pack / "SOURCES.md").write_text("Wrong kind.\n", encoding="utf-8")
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_pack",
+                "pack_name": "cross-kind-entry",
+                "pack_path": str(pack.resolve()),
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure")
+        self.assertIn(
+            "must register exactly one Source defined by that module",
+            response["error"]["causes"][0],
+        )
 
     def test_workflow_directory_state_errors_are_not_treated_as_absence(self) -> None:
         missing = self.root / "missing-workflows"
@@ -243,7 +627,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         entry.write_text(
             "from typing import Optional\n"
             "from kat import Context, workflow\n"
-            "@workflow(name='annotation', title='Annotation', required_tables=[], parameters={'value': 'Value'})\n"
+            "@workflow(name='annotation', title='Annotation', parameters={'value': 'Value'})\n"
             "def annotation(ctx: Context, value: Optional['str'] = None) -> MissingReturn:\n"
             "    \"\"\"Inspect annotations.\"\"\"\n",
             encoding="utf-8",
@@ -304,7 +688,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         pack = self.write_pack()
         (pack / "workflows" / "broken.py").write_text(
             "from kat import Context, workflow\n"
-            "@workflow(name='broken', title='Broken', required_tables=[])\n"
+            "@workflow(name='broken', title='Broken')\n"
             "def broken(ctx: Context):\n    pass\n",
             encoding="utf-8",
         )
@@ -358,13 +742,13 @@ def analyze(ctx: Context, *, limit: int = 10):
                 "entry-import",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', title='B')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -374,14 +758,14 @@ def other(ctx: Context):
                 "entry-import-dynamic-discarded",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import importlib
 from kat import Context, workflow
 importlib.import_module('kat.pack.workflows.a')
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', title='B')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -396,14 +780,14 @@ import_entry = importlib.import_module
                     "workflows/a.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
 title = cached.import_entry('kat.pack.workflows.a').SHARED
-@workflow(name='b', title=title, required_tables=[])
+@workflow(name='b', title=title)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -414,14 +798,14 @@ def other(ctx: Context):
                 {
                     "workflows/a.py": """from kat import Context, workflow
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import kat
 from kat import Context, workflow
 title = kat.pack.workflows.a.SHARED
-@workflow(name='b', title=title, required_tables=[])
+@workflow(name='b', title=title)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -458,7 +842,7 @@ second = importlib.import_module("kat.pack.helpers.identity")
 if first is not second or first.value is not second.value:
     raise RuntimeError("standard module cache was not preserved")
 
-@workflow(name="cached", title="Cached", required_tables=[])
+@workflow(name="cached", title="Cached")
 def analyze(ctx: Context):
     \"\"\"Inspect the standard module cache.\"\"\"
 """,
@@ -487,7 +871,7 @@ from kat import Context, workflow
 
 Path({str(worker_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
 
-@workflow(name="worker", title="Worker", required_tables=[])
+@workflow(name="worker", title="Worker")
 def analyze(ctx: Context):
     \"\"\"Record the real inspection worker.\"\"\"
 """,
@@ -614,14 +998,14 @@ except ValueError:
         cases = {
             "annotation-system-exit": """from __future__ import annotations
 from kat import Context, workflow
-@workflow(name='annotation-exit', title='Annotation exit', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='annotation-exit', title='Annotation exit', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: __import__('sys').exit('annotation requested exit')):
     \"\"\"Inspect an annotation.\"\"\"
 """,
             "callable-default-runtime-error": """from kat import Context, workflow
 def invalid_default():
     raise RuntimeError('callable default failed')
-@workflow(name='default-error', title='Default error', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='default-error', title='Default error', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: str = invalid_default):
     \"\"\"Inspect a callable default.\"\"\"
 """,
@@ -717,6 +1101,7 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "operation": "run_workflow",
                 "pack_name": "run-worker-crash",
                 "pack_path": str(pack.resolve()),
+                "pack_paths": {"run-worker-crash": str(pack.resolve())},
                 "workflow_name": "analyze",
                 "arguments": [],
                 "candidate_id": candidate_id,

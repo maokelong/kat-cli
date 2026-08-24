@@ -15,3 +15,10 @@ def valid_output_name(name: str) -> bool:
 
 def valid_table_name(name: str) -> bool:
     return valid_output_name(name)
+
+
+def valid_source_name(name: str) -> bool:
+    return valid_output_name(name) and name not in {
+        "dataset",
+        "information_schema",
+    }

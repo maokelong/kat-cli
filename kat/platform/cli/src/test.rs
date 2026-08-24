@@ -233,32 +233,15 @@ fn resolve_test_datasets(
                 source,
             }
         })?;
-        let path = test_unicode_path("Test Dataset", dataset.path())?;
-        let mut tables = BTreeMap::new();
-        for table in dataset.tables() {
-            tables.insert(
-                table.name().to_owned(),
-                test_unicode_path("Test Dataset table", table.path())?,
-            );
-        }
-        datasets.insert(
-            name,
-            workflow_runtime::ResolvedDatasetRequest { path, tables },
-        );
+        let dataset = workflow_runtime::project_dataset(&dataset).map_err(|error| {
+            TestPackOperationError::NonUnicodeDatasetPath {
+                label: error.label,
+                path: error.path,
+            }
+        })?;
+        datasets.insert(name, dataset);
     }
     Ok(datasets)
-}
-
-fn test_unicode_path(
-    label: &'static str,
-    path: &std::path::Path,
-) -> Result<String, TestPackOperationError> {
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| TestPackOperationError::NonUnicodeDatasetPath {
-            label,
-            path: path.to_path_buf(),
-        })
 }
 
 fn completed_test_report(path: &std::path::Path) -> Result<Option<String>, TestPackOperationError> {
@@ -348,7 +331,9 @@ enum TestPackOperationError {
     #[error("Test Dataset candidate name is not native Unicode: {path:?}")]
     NonUnicodeDatasetName { path: PathBuf },
     #[error("Test Dataset {name:?} is invalid")]
-    #[diagnostic(help("Recreate it with `kat import --dataset tests/datasets/<name>`"))]
+    #[diagnostic(help(
+        "删除无效的 `tests/datasets/<name>` 后，参照 PACK 的 Source Guide，使用 `kat bind` 或 `kat materialize` 重新创建 Test Dataset；具体参数分别见 `kat bind --help` 和 `kat materialize --help`。若该 Dataset 由数据供应方交付，请重新获取可用副本"
+    ))]
     InvalidDataset {
         name: String,
         #[source]

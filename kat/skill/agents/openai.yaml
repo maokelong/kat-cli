@@ -1,4 +1,4 @@
 interface:
   display_name: "KAT"
   short_description: "分析本地平台数据，或理解、维护和验证 KAT PACK"
-  default_prompt: "使用 $kat 分析我提供的 Dataset 或 Run、验证明确指定的 Trace Streamer 预发布数据，或处理我指定的 KAT PACK。"
+  default_prompt: "使用 $kat 接入或分析我提供的已采集数据、Dataset 或 Run，或处理我指定的 KAT PACK。"

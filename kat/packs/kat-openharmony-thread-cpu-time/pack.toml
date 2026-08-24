@@ -1,4 +1,0 @@
-name = "kat-openharmony-thread-cpu-time"
-title = "OpenHarmony Thread CPU Time"
-description = "Pre-release observable thread CPU time aggregation backed by Deprecated Trace Streamer data."
-owner = "Kernel Team"

@@ -9,9 +9,12 @@ import pyarrow.parquet as pq
 def write_clock_dataset(
     root: Path,
     *,
+    pack: str = "example",
+    source: str = "clocks",
     definitions: list[tuple[str, str, int]] | None = None,
     snapshots: list[tuple[int, str, int]] | None = None,
 ) -> dict[str, Path]:
+    root = root / "sources" / pack / source / "tables"
     root.mkdir(parents=True, exist_ok=True)
     tables: dict[str, Path] = {}
     if definitions is not None:

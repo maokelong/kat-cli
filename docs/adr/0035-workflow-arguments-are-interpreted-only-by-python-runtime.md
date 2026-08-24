@@ -4,6 +4,10 @@ status: accepted
 
 # Workflow 参数语义只属于 Python Runtime
 
+> ADR-0062 已从 `@kat.workflow` 与 inspection 中删除 `required_tables`，并删除由其驱动的 Dataset/Table Grant 条件分支。`kat run --dataset` 仍可选且没有隐式默认；省略 Dataset 或缺少 Binding 时只在对应 Source namespace 首次实际解析时失败。本文其余 Workflow Input Compiler、参数与 Run Manifest 决定继续有效。
+>
+> Source Input Compiler 只复用该 Compiler 的私有编译内核和现有标量语义，并以 Source-only profile 增加 `pathlib.Path` 与表示可重复多文件 option 的 `tuple[pathlib.Path, ...]`。Binding 与 `kat_run(sources=...)` 的原始 argv 都是 KAT 实际收到、已经由 shell 或调用方完成分词和可能变量展开的 token strings；KAT 不再次展开环境变量、模板或 response file。本文对 Workflow `Path`、容器与自定义 parser 的拒绝保持不变。
+
 `kat run` 用 `--` 分隔 KAT 的固定路由参数与 Workflow arguments；Rust CLI 将后者作为原始字符串数组写入 `run_workflow` request，不猜测参数类型、不应用默认值，也不根据 Workflow 动态构造 Clap Interface。`--dataset` 同样只是始终可选的固定路由参数：提供时 CLI 通过 Dataset Storage 解析，省略时原样表达缺席；CLI 不读取 Required tables 来改变参数必填性。这样 CLI 像透明调用一个 Python CLI，仍由自身独占内部 `request.json` 的生成权，同时消除 Rust 与 Python 两套参数语义以及 `"true"`、`"001"` 等启发式转换歧义。
 
 Workflow Runtime 从实际函数签名与 KAT Workflow decorator 生成唯一的 Workflow Input Compiler，并用同一份规范化 KAT 输入约束共同驱动 PACK inspection、生产 `kat run` 与 PACK test `kat_run` 的 Workflow 执行；PACK 作者不能另写 CLI parser。Runtime 选定 Workflow 后使用 decorator 已复制规范化的 Required tables 校验可选 Dataset，并在创建 Workflow execution plane 前解析 arguments、补齐默认值、构造领域类型和 Table Grant：非空依赖缺少 Dataset 时失败，空依赖则无论是否提供 Dataset 都继续；成功后调用 `workflow(ctx, **effective_inputs)`，Run Manifest 记录规范化输入。Workflow 输入只承载少量单次运行控制选择；数据属于 Dataset，稳定策略属于 PACK，因此第一版不引入 params file、通用 JSON Schema、Pydantic model 或复杂嵌套输入。

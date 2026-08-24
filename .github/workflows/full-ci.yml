@@ -63,6 +63,12 @@ jobs:
           python -c "import glob, subprocess, sys; wheel = glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-index', '--find-links', 'target/workflow-wheel', wheel])"
           python -c "import glob, os, sys; from pathlib import Path; wheel = Path(glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]).resolve(); open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write(f'KAT_TEST_PYTHON={sys.executable}\nKAT_TEST_WORKFLOW_WHEEL={wheel}\n')"
 
+      - name: Build the locked Hitrace native wheel
+        run: |
+          python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: --require-hashes -r build/requirements-builder.lock.txt
+          python -m maturin build --release --locked --interpreter python --manifest-path kat/platform/hitrace-native/Cargo.toml --out target/hitrace-wheel
+          python -c "import glob, os; from pathlib import Path; wheel = Path(glob.glob('target/hitrace-wheel/kat_hitrace_native-*.whl')[0]).resolve(); open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write(f'KAT_TEST_HITRACE_WHEEL={wheel}\n')"
+
       - name: Test
         if: runner.os != 'Linux'
         run: cargo test --workspace --features kat-datasource/protobuf-source-contract-fixture --locked
@@ -76,6 +82,12 @@ jobs:
 
       - name: Test real Workflow Host vertical slice
         run: cargo test --locked -p kat-cli --test inspect targeted_pack_inspection_runs_real_installed_workflow_host -- --ignored --exact
+
+      - name: Test real Source lifecycle with Workflow Host
+        run: cargo test --locked -p kat-cli --test source_lifecycle source_lifecycle_uses_real_installed_workflow_host_end_to_end -- --ignored --exact
+
+      - name: Test real Hitrace FFI Source lifecycle
+        run: cargo test --locked -p kat-cli --test source_lifecycle hitrace_source_uses_official_ffi_across_external_and_materialized_queries -- --ignored --exact
 
       - name: Test Workflow Host
         run: python -I -B -m unittest discover -s kat/platform/workflow/tests

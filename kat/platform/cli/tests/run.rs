@@ -199,10 +199,25 @@ fn pack(root: &Path) -> PathBuf {
 
 fn dataset(root: &Path) -> PathBuf {
     let dataset = root.join("dataset");
-    fs::create_dir_all(dataset.join("tables")).unwrap();
+    fs::create_dir_all(dataset.join("sources/alpha/facts/tables")).unwrap();
     fs::write(dataset.join(".kat-dataset"), []).unwrap();
     fs::write(
-        dataset.join("tables/data_dict.parquet"),
+        dataset.join("bindings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "bindings": [{
+                "pack": "alpha",
+                "source": "facts",
+                "kind": "materialized",
+                "arguments": [],
+                "working_directory": dunce::canonicalize(root).unwrap(),
+                "tables": ["data_dict"],
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        dataset.join("sources/alpha/facts/tables/data_dict.parquet"),
         base64::engine::general_purpose::STANDARD
             .decode(PARQUET)
             .unwrap(),
@@ -298,9 +313,17 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(request["candidate_id"], run_id);
     assert_eq!(request["workflow_name"], "analyze");
     assert_eq!(request["arguments"], serde_json::json!(["--limit", "5"]));
+    assert_eq!(request["pack_paths"]["alpha"], pack.to_str().unwrap());
     assert_eq!(request["dataset"]["path"], dataset.to_str().unwrap());
+    assert_eq!(request["dataset"]["sources"][0]["pack"], "alpha");
+    assert_eq!(request["dataset"]["sources"][0]["source"], "facts");
+    assert_eq!(request["dataset"]["sources"][0]["kind"], "materialized");
+    assert_eq!(
+        request["dataset"]["sources"][0]["tables"][0]["name"],
+        "data_dict"
+    );
     assert!(
-        request["dataset"]["tables"]["data_dict"]
+        request["dataset"]["sources"][0]["tables"][0]["path"]
             .as_str()
             .unwrap()
             .ends_with("data_dict.parquet")
@@ -454,11 +477,10 @@ fn run_uses_real_installed_workflow_host_end_to_end() {
 @workflow(
     name="analyze",
     title="Analyze",
-    required_tables=["data_dict"],
 )
 def analyze(ctx: Context):
     """Analyze the Dataset."""
-    return ctx.sql("select id, data from data_dict order by id")
+    return ctx.sql("select id, data from alpha.facts.data_dict order by id")
 "#,
     )
     .unwrap();

@@ -26,17 +26,16 @@ const RESERVED_TABLES: &[&str] = &[
 
 #[tokio::test]
 async fn generated_scalar_presence_bytes_and_empty_root_round_trip_through_dataset() {
-    use generated_fixture_emitter::{append_empty_root_root, append_full_shape_root_root};
+    use generated_fixture_emitter::{
+        append_empty_root_root, append_full_shape_root_root, new_protobuf_source_capture,
+    };
     use proto::fixture::protobuf_source::valid::{
         EmptyRoot, FullShapeRoot, Lifecycle, ScalarMatrix,
     };
-    use protobuf_source::BufferOptions;
+    use protobuf_source::SpoolOptions;
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    let (mut capture, publication) =
-        staged_capture(BufferOptions::with_limits(2, 10), &dataset_path)
-            .expect("generated capture is valid");
+    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(2, 10))
+        .expect("generated capture is valid");
     append_full_shape_root_root(
         &mut capture,
         71,
@@ -72,7 +71,9 @@ async fn generated_scalar_presence_bytes_and_empty_root_round_trip_through_datas
     .expect("typed scalar root appends");
     append_empty_root_root(&mut capture, 72, &EmptyRoot {}).expect("empty root appends");
 
-    publish_capture(capture, publication);
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_capture(capture, &dataset_path);
 
     let context = register_resolved_dataset(&dataset_path)
         .await
@@ -140,16 +141,13 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
         append_alpha_shared_root_root, append_beta_shared_root_root,
         append_keyword_acronym_root_root, append_nested_field_name_root_root,
         append_nested_oneof_root_root, append_oneof_nested_name_root_root,
-        append_uppercase_field_root_root,
+        append_uppercase_field_root_root, new_protobuf_source_capture,
     };
     use proto::fixture::protobuf_source::{alpha, beta, illegal_field_names, naming};
-    use protobuf_source::BufferOptions;
+    use protobuf_source::SpoolOptions;
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    let (mut capture, publication) =
-        staged_capture(BufferOptions::with_limits(2, 10), &dataset_path)
-            .expect("generated capture is valid");
+    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(2, 10))
+        .expect("generated capture is valid");
     append_alpha_shared_root_root(&mut capture, 101, &alpha::SharedRoot { alpha_value: -7 })
         .expect("alpha SharedRoot appends");
     append_beta_shared_root_root(
@@ -236,13 +234,16 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
     )
     .expect("nested data fields may use names reserved only at relation level");
 
-    publish_capture(capture, publication);
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_capture(capture, &dataset_path);
     let resolved = kat_datasource::resolve_dataset(&dataset_path)
         .expect("formal Dataset resolver sees naming fixture tables");
     assert!(
         resolved
-            .tables()
+            .sources()
             .iter()
+            .flat_map(|source| source.tables().unwrap_or_default())
             .all(|table| table.name() != "protobuf_enum_symbol"),
         "active relations without enum origins must not publish enum definitions"
     );
@@ -339,8 +340,9 @@ async fn canonical_fqns_and_prost_naming_round_trip_through_typed_emitters() {
 }
 
 #[test]
-fn capture_failure_does_not_publish_the_dataset_target() {
-    use protobuf_source::{BufferOptions, EstimatedRow, RelationSlot};
+fn capture_preflight_failure_does_not_create_or_publish_the_dataset_target() {
+    use generated_fixture_emitter::new_protobuf_source_capture;
+    use protobuf_source::{EstimatedRow, RelationSlot, SpoolOptions};
 
     #[derive(serde::Serialize)]
     struct IncompleteRow;
@@ -353,18 +355,21 @@ fn capture_failure_does_not_publish_the_dataset_target() {
 
     let directory = tempdir().expect("temporary parent directory is created");
     let dataset_path = directory.path().join("must_not_exist");
-    let (mut capture, publication) =
-        staged_capture(BufferOptions::new(2), &dataset_path).expect("generated capture is valid");
+    let mut capture =
+        new_protobuf_source_capture(SpoolOptions::new(2)).expect("generated capture is valid");
     capture
         .append_row(RelationSlot::new(0), &IncompleteRow)
-        .expect_err("incomplete row poisons capture");
-    capture
-        .finish()
-        .expect_err("poisoned capture cannot close staged tables");
-    drop(publication);
+        .expect_err("incomplete row poisons preflight capture");
+    try_publish_capture(capture, &dataset_path)
+        .expect_err("poisoned capture fails before Dataset begin");
+
+    assert!(
+        !dataset_path.exists(),
+        "preflight failure must not create the Dataset target"
+    );
     assert!(
         !dataset_path.join(".kat-dataset").exists(),
-        "capture failure must not publish a Dataset marker"
+        "preflight failure must not publish a Dataset marker"
     );
 }
 
@@ -751,31 +756,60 @@ fn fixture_descriptors() -> FileDescriptorSet {
     .expect("build-time synthetic protobuf descriptors decode")
 }
 
-fn staged_capture(
-    options: protobuf_source::BufferOptions,
-    dataset_path: &std::path::Path,
-) -> anyhow::Result<(
-    protobuf_source::SourceTableCapture,
-    dataset_writer::DatasetPublication,
-)> {
-    use dataset_writer::{DatasetPublication, DatasetWriteTarget};
-
-    let publication = DatasetPublication::stage(DatasetWriteTarget::write_to_empty(dataset_path))?;
-    let capture = generated_fixture_emitter::new_protobuf_source_capture(
-        options,
-        publication.table_factory(),
-    )?;
-    Ok((capture, publication))
+fn publish_capture(capture: protobuf_source::SourceTableCapture, dataset_path: &std::path::Path) {
+    try_publish_capture(capture, dataset_path)
+        .expect("protobuf Source capture preflights and publishes");
 }
 
-fn publish_capture(
+fn try_publish_capture(
     capture: protobuf_source::SourceTableCapture,
-    publication: dataset_writer::DatasetPublication,
-) {
+    dataset_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    let prepared = capture.finish()?;
+    try_publish_prepared(prepared, dataset_path)
+}
+
+fn prepare_capture(
+    capture: protobuf_source::SourceTableCapture,
+) -> protobuf_source::PreparedSourceTables {
     capture
         .finish()
-        .expect("protobuf Source capture closes staged tables");
-    publication.publish().expect("staged Dataset publishes");
+        .expect("protobuf Source capture passes preflight")
+}
+
+fn publish_prepared(
+    prepared: protobuf_source::PreparedSourceTables,
+    dataset_path: &std::path::Path,
+) {
+    try_publish_prepared(prepared, dataset_path).expect("prepared Source tables publish");
+}
+
+fn try_publish_prepared(
+    prepared: protobuf_source::PreparedSourceTables,
+    dataset_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use dataset_writer::{DatasetWriteTarget, DatasetWriter};
+
+    // 临时 spool 已完整关闭、读取并校验，才写入私有 staging；正式 Dataset 只由
+    // Materialized publication 创建，避免测试重新引入旧 Import 的隐式发布语义。
+    let staging = tempfile::tempdir()?;
+    let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(staging.path()))?;
+    prepared.write_into(&mut writer)?;
+    let table_names = writer.table_names();
+    let staging_root = writer.finish()?;
+    kat_datasource::publish_materialized_source(
+        dataset_path,
+        kat_datasource::MaterializedSourcePublication {
+            pack: "protobuf-fixture",
+            source: "generated_tables",
+            arguments: Vec::new(),
+            working_directory: staging.path(),
+            table_names: &table_names,
+            export_directory: &staging_root.join("tables"),
+            replace: false,
+        },
+    )?;
+    Ok(())
 }
 
 async fn register_resolved_dataset(
@@ -783,7 +817,11 @@ async fn register_resolved_dataset(
 ) -> anyhow::Result<SessionContext> {
     let resolved = kat_datasource::resolve_dataset(dataset_path)?;
     let context = SessionContext::new();
-    for table in resolved.tables() {
+    for table in resolved
+        .sources()
+        .iter()
+        .flat_map(|source| source.tables().unwrap_or_default())
+    {
         let url = Url::from_file_path(table.path()).map_err(|()| {
             anyhow::anyhow!(
                 "fixture table path cannot be converted to a file URL: {}",

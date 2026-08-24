@@ -4,6 +4,8 @@ status: accepted
 
 # 当前 PACK 以 `kat.pack` 暴露，pytest 拥有测试树
 
+> ADR-0062 与 ADR-0063 将 `sources/` 作为固定扫描入口，但 Source inspection、bind、materialize 和 External resolution 均使用按 PACK canonical directory 隔离的 Runtime 私有 module root，并要求 Source 内部相对导入；只有当前 Workflow PACK 公开挂载为 `kat.pack`。Analysis 新代码仍以 `kat.pack.analysis.*` 为推荐普通 Python 归属，执行隔离不再包含 Table Grant。本决定的单一公开挂载机制、`helpers/` 兼容归属与 pytest 边界不变。
+
 每个短命 Workflow Runtime 进程只选择并加载一个精确 PACK。KAT 将该 PACK 的 canonical directory 挂载为稳定、公开的 Python package `kat.pack`，其中生产模块只有一组规范身份：`kat.pack.workflows.*` 与 `kat.pack.helpers.*`。`pack.toml.name` 仍是 PACK discovery、CLI、诊断和 Workflow 注册作用域中的 PACK identity，目录 basename 只表示源码位置；两者都不参与 Python module name 计算。`kat.pack` 只表示“当前 Runtime 已选择的 PACK”，不是 manifest 或 PACK object，也不提供 PACK identity、发现或选择能力。
 
 Bundled Python Host 中的 Workflow Host wheel 提供顶层 `kat` Pack Authoring API，包括 `kat.workflow`、`kat.Context` 与领域类型，但不携带静态 `kat.pack` 实现或 PACK 源码。Runtime 在导入任何 PACK 生产代码前创建并登记动态子包 `kat.pack`，以标准 `ModuleSpec.submodule_search_locations` 将所选 PACK directory 设为唯一子模块搜索位置，再通过 `importlib.import_module()` 导入已验证的入口。后续 module/package 查找、namespace package、`__init__.py`、源码编码声明、`__spec__`、`__package__`、`__file__`、缓存与 traceback 全部交给标准 `PathFinder` 与 `SourceFileLoader`。KAT 只保留入口扫描、路径和 module identity 校验以及 Workflow 注册来源校验；不自行 `read_text + compile + exec`，不安装自定义 `MetaPathFinder`，不修改全局 `sys.path`，也不复制、链接或安装 PACK 源码。

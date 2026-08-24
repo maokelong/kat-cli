@@ -1,5 +1,6 @@
 /target
 .worktrees/
 /build/release/
+/kat/platform/workflow/build/
 /dist/
 __pycache__/
