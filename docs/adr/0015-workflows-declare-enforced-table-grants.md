@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0062
 ---
 
 # Workflow 声明可强制的表依赖
+
+> ADR-0062 已删除 Workflow Required tables 与逐 Workflow Table Grant；Analysis 的实际 DataFusion 查询按需解析 PACK Source SchemaProviders。本文不再构成现行合同。
 
 Workflow 通过装饰器必填的 `required_tables: list[str]` 显式声明其完整 PACK-visible Dataset 表依赖；没有 PACK-visible Dataset 表依赖的 Workflow 也必须写 `required_tables=[]`，不能用字段缺失表达空依赖。声明位于实际入口旁，由 KAT PACK authoring flow 中的 AI 沿入口可达的同 PACK helper 调用关系分析 SQL 与表访问，生成或修正为完整平铺的依赖集合；声明本身是需要 review 的 PACK 源码，AI 的推导或某次运行观察不是运行时事实。Decorator 应用时立即复制并规范化该 list，但此时没有本次 Dataset，调用条件由 Python Runtime 选定 Workflow 后检查；后续 Python 代码不能通过修改原对象改变已注册约束。KAT 平台自身不修改 PACK 源码；受信任 PACK 代码主动写入本地文件不属于这项 Interface 的保证。
 

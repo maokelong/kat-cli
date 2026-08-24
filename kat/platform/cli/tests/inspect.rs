@@ -113,7 +113,7 @@ fn targeted_inspect_command(binary: &Path, root: &Path, pack: &Path) -> Command 
         .arg(pack)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"workflows":[]}}"#,
+            r#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[]}}"#,
         );
     prepare_platform_data_home(&mut command, root);
     command
@@ -144,6 +144,8 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
     assert_eq!(response["result"]["title"], "alpha");
     assert_eq!(response["result"]["description"], "External PACK");
     assert_eq!(response["result"]["owner"], "Test Team");
+    assert!(response["result"]["source_guide"].is_null());
+    assert_eq!(response["result"]["sources"], serde_json::json!([]));
     assert_eq!(response["result"]["workflows"], serde_json::json!([]));
     assert!(response["result"].get("pack").is_none());
     let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
@@ -182,7 +184,7 @@ fn targeted_pack_inspection_runs_real_installed_workflow_host() {
         workflows.join("cpu.py"),
         r#"from kat import Context, workflow
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title="CPU time", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     """Analyze CPU time."""
 "#,
@@ -229,7 +231,7 @@ proxy = MetadataProxy()
 def invalid_default():
     raise RuntimeError("author default failed")
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title="CPU time", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = invalid_default):
     """Analyze CPU time."""
 "#,
@@ -266,7 +268,7 @@ fn targeted_pack_inspection_enforces_runtime_exit_and_response_matrix() {
     let mut invalid = targeted_inspect_command(&binary, temporary.path(), &pack);
     invalid.env(
         "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"success","result":{"workflows":[],"extra":true}}"#,
+        r#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[],"extra":true}}"#,
     );
     let invalid = invalid.output().expect("run invalid Runtime Response");
     assert_eq!(invalid.status.code(), Some(1));
@@ -704,6 +706,7 @@ fn empty_dataset_can_be_inspected_without_skill_deployment() {
     let dataset = temporary.path().join("empty-dataset");
     fs::create_dir(&dataset).expect("create Dataset directory");
     fs::write(dataset.join(".kat-dataset"), []).expect("write Dataset marker");
+    fs::write(dataset.join("bindings.json"), r#"{"bindings":[]}"#).expect("write Dataset Bindings");
     let mut command = Command::new(cargo_kat());
     command.arg("inspect").arg("--dataset").arg(&dataset);
     #[cfg(not(windows))]
@@ -721,7 +724,7 @@ fn empty_dataset_can_be_inspected_without_skill_deployment() {
         response["result"]["path"],
         dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
     );
-    assert_eq!(response["result"]["tables"], serde_json::json!([]));
+    assert_eq!(response["result"]["sources"], serde_json::json!([]));
     assert!(response.get("log_path").is_none());
     #[cfg(not(windows))]
     assert!(!data_home(temporary.path()).exists());
@@ -735,10 +738,25 @@ fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
     let dataset = cwd.join("relative-dataset");
     fs::create_dir_all(&dataset).unwrap();
     fs::write(dataset.join(".kat-dataset"), []).unwrap();
-    fs::write(dataset.join("notes.txt"), "ignored").unwrap();
-    fs::create_dir(dataset.join("tables")).unwrap();
     fs::write(
-        dataset.join("tables/data_dict.parquet"),
+        dataset.join("bindings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "bindings": [{
+                "pack": "alpha",
+                "source": "facts",
+                "kind": "materialized",
+                "arguments": [],
+                "working_directory": dunce::canonicalize(&cwd).unwrap(),
+                "tables": ["data_dict"],
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(dataset.join("notes.txt"), "ignored").unwrap();
+    fs::create_dir_all(dataset.join("sources/alpha/facts/tables")).unwrap();
+    fs::write(
+        dataset.join("sources/alpha/facts/tables/data_dict.parquet"),
         base64::engine::general_purpose::STANDARD
             .decode(DATA_DICT_PARQUET)
             .unwrap(),
@@ -761,13 +779,18 @@ fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
         dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
     );
     assert_eq!(
-        response["result"]["tables"],
+        response["result"]["sources"],
         serde_json::json!([{
+            "kind": "materialized",
+            "pack": "alpha",
+            "source": "facts",
+            "tables": [{
             "name": "data_dict",
             "columns": [
                 {"name": "id", "type": "Int64", "nullable": true},
                 {"name": "data", "type": "Utf8", "nullable": true}
             ]
+            }]
         }])
     );
     assert!(response.get("log_path").is_none());
@@ -799,9 +822,28 @@ fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("Dataset inspection failed"));
 
     let corrupt = temporary.path().join("corrupt-dataset");
-    fs::create_dir_all(corrupt.join("tables")).unwrap();
+    fs::create_dir_all(corrupt.join("sources/alpha/facts/tables")).unwrap();
     fs::write(corrupt.join(".kat-dataset"), []).unwrap();
-    fs::write(corrupt.join("tables/events.parquet"), "broken").unwrap();
+    fs::write(
+        corrupt.join("bindings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "bindings": [{
+                "pack": "alpha",
+                "source": "facts",
+                "kind": "materialized",
+                "arguments": [],
+                "working_directory": dunce::canonicalize(temporary.path()).unwrap(),
+                "tables": ["events"],
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        corrupt.join("sources/alpha/facts/tables/events.parquet"),
+        "broken",
+    )
+    .unwrap();
     let mut corrupt_command = Command::new(&binary);
     corrupt_command
         .arg("inspect")

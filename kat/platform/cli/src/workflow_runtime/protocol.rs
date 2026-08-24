@@ -10,8 +10,14 @@ pub(crate) struct Workflow {
     pub(crate) name: String,
     pub(crate) title: String,
     pub(crate) description: String,
-    pub(crate) required_tables: Vec<String>,
     pub(crate) parameters: Vec<Parameter>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Source {
+    pub(crate) name: String,
+    pub(crate) parameters: Vec<SourceParameter>,
 }
 
 #[derive(Deserialize)]
@@ -20,7 +26,7 @@ pub(crate) struct Parameter {
     pub(crate) name: String,
     pub(crate) option: String,
     #[serde(rename = "type")]
-    pub(crate) parameter_type: ParameterType,
+    pub(crate) parameter_type: WorkflowParameterType,
     pub(crate) required: bool,
     pub(crate) description: String,
     #[serde(default, deserialize_with = "deserialize_optional_string")]
@@ -33,13 +39,43 @@ pub(crate) struct Parameter {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ParameterType {
+pub(crate) enum WorkflowParameterType {
     String,
     Int64,
     Float64,
     Boolean,
     Duration,
     WallClockTimestamp,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceParameter {
+    pub(crate) name: String,
+    pub(crate) option: String,
+    #[serde(rename = "type")]
+    pub(crate) parameter_type: SourceParameterType,
+    pub(crate) required: bool,
+    #[serde(default)]
+    pub(crate) repeatable: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_string")]
+    pub(crate) negative_option: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_strings")]
+    pub(crate) choices: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_source_default")]
+    pub(crate) default: SourceParameterDefault,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SourceParameterType {
+    String,
+    Int64,
+    Float64,
+    Boolean,
+    Duration,
+    WallClockTimestamp,
+    Path,
 }
 
 #[derive(Default)]
@@ -83,6 +119,69 @@ where
     JsonScalar::deserialize(deserializer).map(ParameterDefault::Value)
 }
 
+#[derive(Default)]
+pub(crate) enum SourceParameterDefault {
+    #[default]
+    Missing,
+    Value(SourceDefaultValue),
+}
+
+pub(crate) enum SourceDefaultValue {
+    Scalar(JsonScalar),
+    Paths(Vec<String>),
+}
+
+impl SourceParameterDefault {
+    pub(crate) fn is_missing(&self) -> bool {
+        matches!(self, Self::Missing)
+    }
+}
+
+impl Serialize for SourceParameterDefault {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Missing => serializer.serialize_none(),
+            Self::Value(SourceDefaultValue::Scalar(value)) => value.serialize(serializer),
+            Self::Value(SourceDefaultValue::Paths(value)) => value.serialize(serializer),
+        }
+    }
+}
+
+fn deserialize_source_default<'de, D>(deserializer: D) -> Result<SourceParameterDefault, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let value = match value {
+        serde_json::Value::String(value) => SourceDefaultValue::Scalar(JsonScalar::String(value)),
+        serde_json::Value::Number(value) => SourceDefaultValue::Scalar(JsonScalar::Number(value)),
+        serde_json::Value::Bool(value) => SourceDefaultValue::Scalar(JsonScalar::Boolean(value)),
+        serde_json::Value::Null => SourceDefaultValue::Scalar(JsonScalar::Null(())),
+        serde_json::Value::Array(values) => SourceDefaultValue::Paths(
+            values
+                .into_iter()
+                .map(|value| match value {
+                    serde_json::Value::String(value) => Ok(value),
+                    _ => Err(D::Error::custom(
+                        "repeated Source Path default must contain only strings",
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        serde_json::Value::Object(_) => {
+            return Err(D::Error::custom(
+                "Source parameter default must be a scalar or path array",
+            ));
+        }
+    };
+    Ok(SourceParameterDefault::Value(value))
+}
+
 fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -106,14 +205,44 @@ pub(super) enum RuntimeResponse<R> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct InspectPackRuntimeResult {
-    pub(super) workflows: Vec<Workflow>,
+pub(crate) struct InspectPackRuntimeResult {
+    pub(crate) source_guide: Option<String>,
+    pub(crate) sources: Vec<Source>,
+    pub(crate) workflows: Vec<Workflow>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct ResolvedDatasetRequest {
     pub(crate) path: String,
-    pub(crate) tables: BTreeMap<String, String>,
+    pub(crate) sources: Vec<ResolvedSourceRequest>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum ResolvedSourceRequest {
+    External {
+        pack: String,
+        source: String,
+        arguments: Vec<String>,
+        working_directory: String,
+    },
+    Materialized {
+        pack: String,
+        source: String,
+        tables: Vec<ResolvedTableRequest>,
+    },
+}
+
+#[derive(Serialize)]
+pub(crate) struct ResolvedTableRequest {
+    pub(crate) name: String,
+    pub(crate) path: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct QueryPackSearchRequest {
+    pub(crate) candidates: BTreeMap<String, Vec<String>>,
+    pub(crate) issues: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +272,7 @@ pub(super) struct RunWorkflowRequest<'a> {
     pub(super) operation: &'static str,
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
+    pub(super) pack_paths: &'a BTreeMap<String, String>,
     pub(super) workflow_name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) dataset: Option<&'a ResolvedDatasetRequest>,
@@ -158,6 +288,15 @@ pub(super) struct QueryRunRequest<'a> {
     pub(super) outputs: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) dataset: Option<&'a ResolvedDatasetRequest>,
+    pub(super) pack_search: &'a QueryPackSearchRequest,
+    pub(super) sql: &'a str,
+}
+
+#[derive(Serialize)]
+pub(super) struct QueryDatasetRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) dataset: &'a ResolvedDatasetRequest,
+    pub(super) pack_search: &'a QueryPackSearchRequest,
     pub(super) sql: &'a str,
 }
 
@@ -166,6 +305,38 @@ pub(super) struct InspectPackRequest<'a> {
     pub(super) operation: &'static str,
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
+}
+
+#[derive(Serialize)]
+pub(super) struct BindSourceRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
+    pub(super) source_name: &'a str,
+    pub(super) arguments: &'a [String],
+    pub(super) argument_base: &'a str,
+}
+
+#[derive(Serialize)]
+pub(super) struct MaterializeSourceRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
+    pub(super) source_name: &'a str,
+    pub(super) arguments: &'a [String],
+    pub(super) argument_base: &'a str,
+    pub(super) tables: &'a [String],
+    pub(super) export_path: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BindSourceResult {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MaterializeSourceResult {
+    pub(crate) tables: Vec<String>,
 }
 
 #[derive(Serialize)]

@@ -116,10 +116,25 @@ fn write_pack(directory: &Path, name: &str) {
 
 fn write_sample_dataset(directory: &Path) {
     let dataset = directory.join("tests/datasets/sample");
-    fs::create_dir_all(dataset.join("tables")).unwrap();
+    fs::create_dir_all(dataset.join("sources/alpha/facts/tables")).unwrap();
     fs::write(dataset.join(".kat-dataset"), []).unwrap();
     fs::write(
-        dataset.join("tables/data_dict.parquet"),
+        dataset.join("bindings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "bindings": [{
+                "pack": "alpha",
+                "source": "facts",
+                "kind": "materialized",
+                "arguments": [],
+                "working_directory": dunce::canonicalize(directory).unwrap(),
+                "tables": ["data_dict"],
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        dataset.join("sources/alpha/facts/tables/data_dict.parquet"),
         base64::engine::general_purpose::STANDARD
             .decode(PARQUET)
             .unwrap(),
@@ -210,8 +225,17 @@ fn test_success_uses_the_explicit_target_pack_from_an_arbitrary_cwd() {
             serde_json::json!(["tests/test_flow.py::test_case[case::value]"])
         );
         assert!(request.get("test_report").is_none());
+        assert_eq!(request["datasets"]["sample"]["sources"][0]["pack"], "alpha");
+        assert_eq!(
+            request["datasets"]["sample"]["sources"][0]["source"],
+            "facts"
+        );
+        assert_eq!(
+            request["datasets"]["sample"]["sources"][0]["tables"][0]["name"],
+            "data_dict"
+        );
         assert!(
-            request["datasets"]["sample"]["tables"]["data_dict"]
+            request["datasets"]["sample"]["sources"][0]["tables"][0]["path"]
                 .as_str()
                 .unwrap()
                 .ends_with("data_dict.parquet")
@@ -305,7 +329,7 @@ fn test_preflight_rejects_missing_tests_invalid_selectors_and_invalid_datasets()
             "missing-tests" => fs::remove_dir_all(pack.join("tests")).unwrap(),
             "invalid-dataset" => {
                 fs::write(
-                    pack.join("tests/datasets/sample/tables/data_dict.parquet"),
+                    pack.join("tests/datasets/sample/sources/alpha/facts/tables/data_dict.parquet"),
                     "broken",
                 )
                 .unwrap();
@@ -337,6 +361,12 @@ fn test_preflight_rejects_missing_tests_invalid_selectors_and_invalid_datasets()
             assert_eq!(
                 response["error"]["help"],
                 "Use a pytest node ID whose path begins with tests/ and has no parent-directory component"
+            );
+        }
+        if matches!(case, "invalid-dataset" | "invalid-marker") {
+            assert_eq!(
+                response["error"]["help"],
+                "删除无效的 `tests/datasets/<name>` 后，参照 PACK 的 Source Guide，使用 `kat bind` 或 `kat materialize` 重新创建 Test Dataset；具体参数分别见 `kat bind --help` 和 `kat materialize --help`。若该 Dataset 由数据供应方交付，请重新获取可用副本"
             );
         }
         assert!(!captured.exists());
@@ -545,10 +575,10 @@ fn test_uses_real_installed_workflow_host_end_to_end() {
             "success",
             r#"import kat
 
-@kat.workflow(name="analyze", title="Analyze", required_tables=["data_dict"])
+@kat.workflow(name="analyze", title="Analyze")
 def analyze(ctx: kat.Context):
     """Return the fixture table."""
-    return ctx.sql("SELECT id FROM data_dict ORDER BY id")
+    return ctx.sql("SELECT id FROM alpha.facts.data_dict ORDER BY id")
 "#,
             r#"def test_case(kat_run):
     assert kat_run(workflow="analyze", dataset="sample")["main"].num_rows == 2
@@ -559,7 +589,7 @@ def analyze(ctx: kat.Context):
             "runtime-failure",
             r#"import kat
 
-@kat.workflow(name="broken", title="Broken", required_tables=[])
+@kat.workflow(name="broken", title="Broken")
 def broken(ctx: kat.Context):
     """Raise a deterministic execution failure."""
     raise RuntimeError("sentinel Workflow execution failure")
@@ -574,7 +604,7 @@ def broken(ctx: kat.Context):
             r#"import os
 import kat
 
-@kat.workflow(name="interrupt", title="Interrupt", required_tables=[])
+@kat.workflow(name="interrupt", title="Interrupt")
 def interrupt(ctx: kat.Context):
     """Terminate the Host before it can return a Runtime Response."""
     os._exit(17)

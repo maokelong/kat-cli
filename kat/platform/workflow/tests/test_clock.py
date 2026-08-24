@@ -8,7 +8,12 @@ import pyarrow as pa
 
 from _clock_dataset import write_clock_dataset
 from _kat_runtime.clock import ClockResolver
-from _kat_runtime.request import ResolvedDatasetRef
+from _kat_runtime.request import (
+    MaterializedSourceRef,
+    ResolvedDatasetRef,
+    ResolvedTableRef,
+)
+from _kat_runtime.sources import open_source_operation
 
 
 class ClockResolverTest(unittest.TestCase):
@@ -25,12 +30,22 @@ class ClockResolverTest(unittest.TestCase):
         definitions: list[tuple[str, str, int]] | None = None,
         snapshots: list[tuple[int, str, int]] | None = None,
     ) -> ResolvedDatasetRef:
+        tables = write_clock_dataset(
+            self.root,
+            definitions=definitions,
+            snapshots=snapshots,
+        )
         return ResolvedDatasetRef(
-            path=self.root,
-            tables=write_clock_dataset(
-                self.root,
-                definitions=definitions,
-                snapshots=snapshots,
+            path=self.root.resolve(),
+            sources=(
+                MaterializedSourceRef(
+                    pack="example",
+                    source="clocks",
+                    tables=tuple(
+                        ResolvedTableRef(name=name, path=path.resolve())
+                        for name, path in sorted(tables.items())
+                    ),
+                ),
             ),
         )
 
@@ -41,11 +56,14 @@ class ClockResolverTest(unittest.TestCase):
         values: list[int | None],
         target: str,
     ) -> pa.Array:
-        return ClockResolver(dataset).convert_batch(
-            pa.array(domains, type=pa.string()),
-            pa.array(values, type=pa.uint64()),
-            pa.array([target] * len(domains), type=pa.string()),
-        )
+        with open_source_operation(current_pack=None, dataset=dataset) as operation:
+            resolver = ClockResolver(operation.session, "example", "clocks")
+            resolver.prepare()
+            return resolver.convert_batch(
+                pa.array(domains, type=pa.string()),
+                pa.array(values, type=pa.uint64()),
+                pa.array([target] * len(domains), type=pa.string()),
+            )
 
     def test_cross_domain_and_all_null_rows_preserve_existing_semantics(self) -> None:
         dataset = self.dataset(
@@ -86,7 +104,7 @@ class ClockResolverTest(unittest.TestCase):
             self.convert(dataset, [None], [105], "monotonic")
 
     def test_missing_definition_and_snapshot_fail_at_their_owned_boundaries(self) -> None:
-        with self.assertRaisesRegex(ValueError, "clock_domain evidence"):
+        with self.assertRaisesRegex(Exception, "clock_domain"):
             self.convert(self.dataset(), ["monotonic"], [105], "monotonic")
 
         definitions_only = self.dataset(

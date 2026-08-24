@@ -14,9 +14,14 @@ pub(crate) struct PluginEnvelope<'a> {
     pub(crate) envelope_name: &'a str,
     pub(crate) kind: PluginEnvelopeKind,
     pub(crate) payload: &'a [u8],
+    // #195 仅由 dormant capture 消费；#196 production claimant 接线后移除 allow。
+    #[allow(dead_code)]
     pub(crate) status: u32,
+    #[allow(dead_code)]
     pub(crate) clock_id: i32,
+    #[allow(dead_code)]
     pub(crate) tv_sec: u64,
+    #[allow(dead_code)]
     pub(crate) tv_nsec: u64,
     pub(crate) version: &'a str,
     pub(crate) sample_interval: u32,

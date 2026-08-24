@@ -1,0 +1,4 @@
+name = "kat-kernel"
+title = "Kernel Performance"
+description = "Analyze captured kernel data through reusable source facts and workflows."
+owner = "Kernel Team"

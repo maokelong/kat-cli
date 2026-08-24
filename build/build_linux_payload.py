@@ -33,6 +33,9 @@ PLATFORM_SPEC = payload_builder.PlatformSpec(
     private_bin_keep_prefix="python",
     cli_filename="kat",
     cargo_environment=(),
+    native_wheel_platform_tag="manylinux_2_28_x86_64",
+    native_extension_suffix=".so",
+    native_wheel_compatibility="manylinux_2_28",
 )
 GLIBC_VERSION = re.compile(r"GLIBC_(\d+)\.(\d+)")
 @dataclass(frozen=True)

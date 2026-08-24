@@ -21,12 +21,15 @@ mod output_spool;
 mod protocol;
 
 use output_spool::{RuntimeOutputMirror, RuntimeOutputSpool};
-pub(crate) use protocol::{
-    Column, ParameterDefault, ParameterType, ResolvedDatasetRequest, Workflow,
-};
 use protocol::{
-    InspectPackRequest, InspectPackRuntimeResult, QueryRunRequest, RawRunWorkflowResult,
-    RunWorkflowRequest, RuntimeResponse, TestPackRequest, TestPackResult,
+    BindSourceRequest, BindSourceResult, InspectPackRequest, MaterializeSourceRequest,
+    MaterializeSourceResult, QueryDatasetRequest, QueryRunRequest, RawRunWorkflowResult,
+    ResolvedSourceRequest, ResolvedTableRequest, RunWorkflowRequest, RuntimeResponse,
+    TestPackRequest, TestPackResult,
+};
+pub(crate) use protocol::{
+    Column, InspectPackRuntimeResult, ParameterDefault, QueryPackSearchRequest,
+    ResolvedDatasetRequest, SourceParameterDefault, SourceParameterType, WorkflowParameterType,
 };
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
@@ -42,11 +45,22 @@ pub(crate) enum RuntimeOutcome<T> {
     },
 }
 
-pub(crate) type InspectPackOutcome = RuntimeOutcome<Vec<Workflow>>;
+pub(crate) type InspectPackOutcome = RuntimeOutcome<InspectPackRuntimeResult>;
 
 pub(crate) enum QueryRunOutcome {
     Success {
         result: QueryRunResult,
+        log: OperationLog,
+    },
+    Failure {
+        diagnostic: KatDiagnostic,
+        log: OperationLog,
+    },
+}
+
+pub(crate) enum SourceRuntimeOutcome<T> {
+    Success {
+        result: T,
         log: OperationLog,
     },
     Failure {
@@ -89,6 +103,7 @@ pub(crate) struct RunOutputMetadata {
 pub(crate) struct RunWorkflowInvocation {
     pub(crate) pack_name: String,
     pub(crate) pack_path: String,
+    pub(crate) pack_paths: BTreeMap<String, String>,
     pub(crate) workflow_name: String,
     pub(crate) dataset: Option<ResolvedDatasetRequest>,
     pub(crate) arguments: Vec<String>,
@@ -100,7 +115,32 @@ pub(crate) struct QueryRunInvocation {
     pub(crate) run_path: String,
     pub(crate) outputs: Vec<String>,
     pub(crate) dataset: Option<ResolvedDatasetRequest>,
+    pub(crate) pack_search: QueryPackSearchRequest,
     pub(crate) sql: String,
+}
+
+pub(crate) struct QueryDatasetInvocation {
+    pub(crate) dataset: ResolvedDatasetRequest,
+    pub(crate) pack_search: QueryPackSearchRequest,
+    pub(crate) sql: String,
+}
+
+pub(crate) struct BindSourceInvocation {
+    pub(crate) pack_name: String,
+    pub(crate) pack_path: String,
+    pub(crate) source_name: String,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) argument_base: String,
+}
+
+pub(crate) struct MaterializeSourceInvocation {
+    pub(crate) pack_name: String,
+    pub(crate) pack_path: String,
+    pub(crate) source_name: String,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) argument_base: String,
+    pub(crate) tables: Vec<String>,
+    pub(crate) export_path: String,
 }
 
 pub(crate) struct TestPackInvocation<'a> {
@@ -128,14 +168,45 @@ pub(crate) fn project_dataset(
     dataset: &kat_datasource::ResolvedDataset,
 ) -> Result<ResolvedDatasetRequest, DatasetProjectionError> {
     let path = unicode_path("Dataset", dataset.path())?;
-    let mut tables = BTreeMap::new();
-    for table in dataset.tables() {
-        tables.insert(
-            table.name().to_owned(),
-            unicode_path("Dataset table", table.path())?,
-        );
-    }
-    Ok(ResolvedDatasetRequest { path, tables })
+    let sources = dataset
+        .sources()
+        .iter()
+        .map(|source| match source {
+            kat_datasource::ResolvedSource::External {
+                pack,
+                source,
+                arguments,
+                working_directory,
+            } => Ok(ResolvedSourceRequest::External {
+                pack: pack.clone(),
+                source: source.clone(),
+                arguments: arguments.clone(),
+                working_directory: unicode_path(
+                    "External Binding working directory",
+                    working_directory,
+                )?,
+            }),
+            kat_datasource::ResolvedSource::Materialized {
+                pack,
+                source,
+                tables,
+                ..
+            } => Ok(ResolvedSourceRequest::Materialized {
+                pack: pack.clone(),
+                source: source.clone(),
+                tables: tables
+                    .iter()
+                    .map(|table| {
+                        Ok(ResolvedTableRequest {
+                            name: table.name().to_owned(),
+                            path: unicode_path("Materialized Source table", table.path())?,
+                        })
+                    })
+                    .collect::<Result<_, DatasetProjectionError>>()?,
+            }),
+        })
+        .collect::<Result<_, DatasetProjectionError>>()?;
+    Ok(ResolvedDatasetRequest { path, sources })
 }
 
 fn unicode_path(label: &'static str, path: &Path) -> Result<String, DatasetProjectionError> {
@@ -183,10 +254,7 @@ pub(crate) fn inspect_pack(
             let log_path = log
                 .finish()
                 .map_err(InspectPackInfrastructureError::operation_log)?;
-            Ok(InspectPackOutcome::Success {
-                result: result.workflows,
-                log_path,
-            })
+            Ok(InspectPackOutcome::Success { result, log_path })
         }
         RuntimeResponse::Failure { error } => {
             if !error.validate() {
@@ -209,6 +277,114 @@ pub(crate) fn inspect_pack(
     }
 }
 
+pub(crate) fn bind_source(
+    mut log: OperationLog,
+    invocation: BindSourceInvocation,
+) -> Result<SourceRuntimeOutcome<BindSourceResult>, SourceRuntimeError> {
+    let request = BindSourceRequest {
+        operation: "bind_source",
+        pack_name: &invocation.pack_name,
+        pack_path: &invocation.pack_path,
+        source_name: &invocation.source_name,
+        arguments: &invocation.arguments,
+        argument_base: &invocation.argument_base,
+    };
+    let response: RuntimeResponse<BindSourceResult> =
+        match exchange_request("kat-bind-source-", &request, &mut log) {
+            Ok(response) => response,
+            Err(ExchangeError::Log(error)) => {
+                return Err(SourceRuntimeError::operation_log(error));
+            }
+            Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
+            Err(ExchangeError::InvalidResponse(details)) => {
+                return Err(finish_invalid_runtime_response(log, &details));
+            }
+        };
+    match response {
+        RuntimeResponse::Success { result } => {
+            log.append(b"runtime_status: success\n")
+                .map_err(SourceRuntimeError::operation_log)?;
+            Ok(SourceRuntimeOutcome::Success { result, log })
+        }
+        RuntimeResponse::Failure { error } => {
+            if !error.validate() {
+                return Err(finish_invalid_runtime_response(
+                    log,
+                    "Runtime returned an invalid diagnostic",
+                ));
+            }
+            log.append(b"runtime_status: failure\n")
+                .map_err(SourceRuntimeError::operation_log)?;
+            Ok(SourceRuntimeOutcome::Failure {
+                diagnostic: error,
+                log,
+            })
+        }
+    }
+}
+
+pub(crate) fn materialize_source(
+    mut log: OperationLog,
+    invocation: MaterializeSourceInvocation,
+) -> Result<SourceRuntimeOutcome<MaterializeSourceResult>, SourceRuntimeError> {
+    let request = MaterializeSourceRequest {
+        operation: "materialize_source",
+        pack_name: &invocation.pack_name,
+        pack_path: &invocation.pack_path,
+        source_name: &invocation.source_name,
+        arguments: &invocation.arguments,
+        argument_base: &invocation.argument_base,
+        tables: &invocation.tables,
+        export_path: &invocation.export_path,
+    };
+    let response: RuntimeResponse<MaterializeSourceResult> =
+        match exchange_request("kat-materialize-source-", &request, &mut log) {
+            Ok(response) => response,
+            Err(ExchangeError::Log(error)) => {
+                return Err(SourceRuntimeError::operation_log(error));
+            }
+            Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
+            Err(ExchangeError::InvalidResponse(details)) => {
+                return Err(finish_invalid_runtime_response(log, &details));
+            }
+        };
+    match response {
+        RuntimeResponse::Success { result } => {
+            if !valid_materialize_tables(&result.tables)
+                || (!invocation.tables.is_empty() && result.tables != invocation.tables)
+            {
+                return Err(finish_invalid_runtime_response(
+                    log,
+                    "Runtime returned invalid materialized table identities",
+                ));
+            }
+            log.append(b"runtime_status: success\n")
+                .map_err(SourceRuntimeError::operation_log)?;
+            Ok(SourceRuntimeOutcome::Success { result, log })
+        }
+        RuntimeResponse::Failure { error } => {
+            if !error.validate() || error.contains_private_value(&invocation.export_path) {
+                return Err(finish_invalid_runtime_response(
+                    log,
+                    "Runtime returned an invalid diagnostic",
+                ));
+            }
+            log.append(b"runtime_status: failure\n")
+                .map_err(SourceRuntimeError::operation_log)?;
+            Ok(SourceRuntimeOutcome::Failure {
+                diagnostic: error,
+                log,
+            })
+        }
+    }
+}
+
+fn valid_materialize_tables(tables: &[String]) -> bool {
+    !tables.is_empty()
+        && tables.iter().all(|name| valid_output_name(name))
+        && tables.windows(2).all(|pair| pair[0] < pair[1])
+}
+
 pub(crate) fn execute_workflow_runtime(
     mut log: OperationLog,
     invocation: RunWorkflowInvocation,
@@ -217,6 +393,7 @@ pub(crate) fn execute_workflow_runtime(
         operation: "run_workflow",
         pack_name: &invocation.pack_name,
         pack_path: &invocation.pack_path,
+        pack_paths: &invocation.pack_paths,
         workflow_name: &invocation.workflow_name,
         dataset: invocation.dataset.as_ref(),
         arguments: &invocation.arguments,
@@ -268,9 +445,47 @@ pub(crate) fn execute_query_runtime(
         run_path: &invocation.run_path,
         outputs: &invocation.outputs,
         dataset: invocation.dataset.as_ref(),
+        pack_search: &invocation.pack_search,
         sql: &invocation.sql,
     };
     let response = match exchange_request("kat-query-run-", &request, &mut log) {
+        Ok(response) => response,
+        Err(ExchangeError::Log(error)) => return Err(QueryRunError::operation_log(error)),
+        Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
+        Err(ExchangeError::InvalidResponse(details)) => {
+            return Err(finish_invalid_runtime_response(log, &details));
+        }
+    };
+    match response {
+        RuntimeResponse::Success { result } => {
+            if let Err(source) = log.append(b"runtime_status: success\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            Ok(QueryRunOutcome::Success { result, log })
+        }
+        RuntimeResponse::Failure { error } => {
+            if let Err(source) = log.append(b"runtime_status: failure\n") {
+                return Err(QueryRunError::operation_log(source));
+            }
+            Ok(QueryRunOutcome::Failure {
+                diagnostic: error,
+                log,
+            })
+        }
+    }
+}
+
+pub(crate) fn execute_dataset_query_runtime(
+    mut log: OperationLog,
+    invocation: QueryDatasetInvocation,
+) -> Result<QueryRunOutcome, QueryRunError> {
+    let request = QueryDatasetRequest {
+        operation: "query_dataset",
+        dataset: &invocation.dataset,
+        pack_search: &invocation.pack_search,
+        sql: &invocation.sql,
+    };
+    let response = match exchange_request("kat-query-dataset-", &request, &mut log) {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => return Err(QueryRunError::operation_log(error)),
         Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
@@ -810,6 +1025,64 @@ impl RuntimeOperationError for InspectPackInfrastructureError {
 }
 
 #[derive(Debug, Error, Diagnostic)]
+pub(crate) enum SourceRuntimeError {
+    #[error("Source Operation log could not be delivered")]
+    #[diagnostic(help("Provide writable KAT Data Home storage and retry the complete operation"))]
+    OperationLog {
+        #[source]
+        source: OperationLogError,
+        log_path: Option<String>,
+    },
+    #[error("Source Operation log is incomplete")]
+    #[diagnostic(help(
+        "Inspect the partial log if present, then provide writable storage and retry"
+    ))]
+    IncompleteOperationLog {
+        #[source]
+        source: OperationLogError,
+        log_path: String,
+    },
+    #[error("Source Runtime failed")]
+    #[diagnostic(help("Inspect the Operation log, correct the Source or deployment, and retry"))]
+    Runtime {
+        #[source]
+        source: RuntimeInfrastructureError,
+        log_path: String,
+    },
+}
+
+impl SourceRuntimeError {
+    fn operation_log(source: OperationLogError) -> Self {
+        match source.readable_path() {
+            Some(log_path) => Self::IncompleteOperationLog { source, log_path },
+            None => Self::OperationLog {
+                source,
+                log_path: None,
+            },
+        }
+    }
+
+    pub(crate) fn log_path(&self) -> Option<String> {
+        match self {
+            Self::OperationLog { log_path, .. } => log_path.clone(),
+            Self::IncompleteOperationLog { log_path, .. } | Self::Runtime { log_path, .. } => {
+                Some(log_path.clone())
+            }
+        }
+    }
+}
+
+impl RuntimeOperationError for SourceRuntimeError {
+    fn operation_log(source: OperationLogError) -> Self {
+        Self::operation_log(source)
+    }
+
+    fn runtime(source: RuntimeInfrastructureError, log_path: String) -> Self {
+        Self::Runtime { source, log_path }
+    }
+}
+
+#[derive(Debug, Error, Diagnostic)]
 pub(crate) enum RunWorkflowError {
     #[error("Run Operation log could not be delivered")]
     #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Run"))]
@@ -998,13 +1271,14 @@ mod tests {
         ));
 
         for invalid in [
-            br#"{"status":"success","result":{"workflows":[],"extra":true}}"#.as_slice(),
+            br#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[],"extra":true}}"#.as_slice(),
             br#"{"status":"failure","failure_owner":"pack","error":{"message":"failed"}}"#
                 .as_slice(),
             br#"{"status":"failure","error":{"message":"failed"},"extra":true}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}]}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}]}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[{"name":"w","title":"W","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[{"name":"w","title":"W","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"source_guide":null,"sources":[],"workflows":[{"name":"w","title":"W","description":"W.","parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"source_guide":null,"sources":[{"name":"logs","parameters":[{"name":"paths","option":"--paths","type":"path","required":false,"repeatable":true,"default":["a",1]}]}],"workflows":[]}}"#.as_slice(),
         ] {
             assert!(
                 serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(invalid)
@@ -1024,7 +1298,7 @@ mod tests {
             "wall_clock_timestamp",
         ] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}]}}]}}}}"#
+                r#"{{"status":"success","result":{{"source_guide":null,"sources":[],"workflows":[{{"name":"w","title":"W","description":"W.","parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}]}}]}}}}"#
             );
             assert!(
                 serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
@@ -1038,7 +1312,7 @@ mod tests {
     fn runtime_response_accepts_only_scalar_parameter_defaults() {
         for default in [r#""value""#, "42", "1.5", "true", "null"] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}]}}]}}}}"#
+                r#"{{"status":"success","result":{{"source_guide":null,"sources":[],"workflows":[{{"name":"w","title":"W","description":"W.","parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}]}}]}}}}"#
             );
             assert!(
                 serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
@@ -1049,10 +1323,203 @@ mod tests {
     }
 
     #[test]
+    fn runtime_response_accepts_source_path_defaults() {
+        for default in [r#""trace.txt""#, r#"["first.txt","second.txt"]"#, "null"] {
+            let response = format!(
+                r##"{{"status":"success","result":{{"source_guide":"# Sources","sources":[{{"name":"logs","parameters":[{{"name":"paths","option":"--paths","type":"path","required":false,"repeatable":true,"default":{default}}}]}}],"workflows":[]}}}}"##
+            );
+            assert!(
+                serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
+                    .is_ok(),
+                "Source Path default should be accepted: {default}"
+            );
+        }
+    }
+
+    #[test]
+    fn source_operation_requests_have_exact_wire_fields() {
+        let arguments = vec!["--files".to_owned(), "capture.log".to_owned()];
+        let tables = vec!["events".to_owned()];
+        let bind = BindSourceRequest {
+            operation: "bind_source",
+            pack_name: "example",
+            pack_path: "C:\\pack",
+            source_name: "logs",
+            arguments: &arguments,
+            argument_base: "C:\\work",
+        };
+        assert_eq!(
+            serde_json::to_value(bind).unwrap(),
+            serde_json::json!({
+                "operation": "bind_source",
+                "pack_name": "example",
+                "pack_path": "C:\\pack",
+                "source_name": "logs",
+                "arguments": ["--files", "capture.log"],
+                "argument_base": "C:\\work",
+            })
+        );
+
+        let materialize = MaterializeSourceRequest {
+            operation: "materialize_source",
+            pack_name: "example",
+            pack_path: "C:\\pack",
+            source_name: "logs",
+            arguments: &arguments,
+            argument_base: "C:\\work",
+            tables: &tables,
+            export_path: "C:\\private-export",
+        };
+        assert_eq!(
+            serde_json::to_value(materialize).unwrap(),
+            serde_json::json!({
+                "operation": "materialize_source",
+                "pack_name": "example",
+                "pack_path": "C:\\pack",
+                "source_name": "logs",
+                "arguments": ["--files", "capture.log"],
+                "argument_base": "C:\\work",
+                "tables": ["events"],
+                "export_path": "C:\\private-export",
+            })
+        );
+    }
+
+    #[test]
+    fn query_requests_have_exact_wire_fields() {
+        let dataset = ResolvedDatasetRequest {
+            path: "C:\\dataset".to_owned(),
+            sources: vec![ResolvedSourceRequest::Materialized {
+                pack: "example".to_owned(),
+                source: "facts".to_owned(),
+                tables: vec![ResolvedTableRequest {
+                    name: "events".to_owned(),
+                    path: "C:\\dataset\\sources\\example\\facts\\tables\\events.parquet".to_owned(),
+                }],
+            }],
+        };
+        let outputs = vec!["main".to_owned()];
+        let pack_search = QueryPackSearchRequest {
+            candidates: BTreeMap::from([("example".to_owned(), vec!["C:\\pack".to_owned()])]),
+            issues: vec!["unrelated PACK is invalid".to_owned()],
+        };
+        let run = QueryRunRequest {
+            operation: "query_run",
+            run_path: "C:\\runs\\run",
+            outputs: &outputs,
+            dataset: Some(&dataset),
+            pack_search: &pack_search,
+            sql: "SELECT * FROM output.main",
+        };
+        assert_eq!(
+            serde_json::to_value(run).unwrap(),
+            serde_json::json!({
+                "operation": "query_run",
+                "run_path": "C:\\runs\\run",
+                "outputs": ["main"],
+                "dataset": {
+                    "path": "C:\\dataset",
+                    "sources": [{
+                        "kind": "materialized",
+                        "pack": "example",
+                        "source": "facts",
+                        "tables": [{
+                            "name": "events",
+                            "path": "C:\\dataset\\sources\\example\\facts\\tables\\events.parquet",
+                        }],
+                    }],
+                },
+                "pack_search": {
+                    "candidates": {"example": ["C:\\pack"]},
+                    "issues": ["unrelated PACK is invalid"],
+                },
+                "sql": "SELECT * FROM output.main",
+            })
+        );
+
+        let direct = QueryDatasetRequest {
+            operation: "query_dataset",
+            dataset: &dataset,
+            pack_search: &pack_search,
+            sql: "SELECT * FROM example.facts.events",
+        };
+        assert_eq!(
+            serde_json::to_value(direct).unwrap(),
+            serde_json::json!({
+                "operation": "query_dataset",
+                "dataset": {
+                    "path": "C:\\dataset",
+                    "sources": [{
+                        "kind": "materialized",
+                        "pack": "example",
+                        "source": "facts",
+                        "tables": [{
+                            "name": "events",
+                            "path": "C:\\dataset\\sources\\example\\facts\\tables\\events.parquet",
+                        }],
+                    }],
+                },
+                "pack_search": {
+                    "candidates": {"example": ["C:\\pack"]},
+                    "issues": ["unrelated PACK is invalid"],
+                },
+                "sql": "SELECT * FROM example.facts.events",
+            })
+        );
+    }
+
+    #[test]
+    fn source_operation_results_are_structurally_closed() {
+        assert!(
+            serde_json::from_str::<RuntimeResponse<BindSourceResult>>(
+                r#"{"status":"success","result":{}}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<RuntimeResponse<BindSourceResult>>(
+                r#"{"status":"success","result":{"extra":true}}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<RuntimeResponse<MaterializeSourceResult>>(
+                r#"{"status":"success","result":{"tables":["events"]}}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<RuntimeResponse<MaterializeSourceResult>>(
+                r#"{"status":"success","result":{"tables":["events"],"extra":true}}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn materialize_result_requires_sorted_unique_portable_table_names() {
+        assert!(valid_materialize_tables(&[
+            "events".to_owned(),
+            "snapshots".to_owned(),
+        ]));
+        assert!(!valid_materialize_tables(&[]));
+        assert!(!valid_materialize_tables(&[
+            "snapshots".to_owned(),
+            "events".to_owned(),
+        ]));
+        assert!(!valid_materialize_tables(&[
+            "events".to_owned(),
+            "events".to_owned(),
+        ]));
+        assert!(!valid_materialize_tables(&["bad-name".to_owned()]));
+    }
+
+    #[test]
     fn run_runtime_diagnostic_rejects_private_candidate_values() {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),
@@ -1079,6 +1546,7 @@ mod tests {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),
@@ -1104,6 +1572,7 @@ mod tests {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),
@@ -1121,6 +1590,7 @@ mod tests {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),
@@ -1147,6 +1617,7 @@ mod tests {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),
@@ -1182,6 +1653,7 @@ mod tests {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
+            pack_paths: BTreeMap::new(),
             workflow_name: "analyze".to_owned(),
             dataset: None,
             arguments: Vec::new(),

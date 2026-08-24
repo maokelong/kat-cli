@@ -17,8 +17,9 @@ import pytest
 
 from .execution import WorkflowExecutionFailure, run_loaded_workflow
 from .inspection import CompiledWorkflow
-from .pack import ProductionPack
+from .pack import ProductionPack, TEST_PROFILE
 from .request import ResolvedDatasetRef, RunCandidateRef, TestPackRequest
+from .sources import SourceArgumentOverride
 
 
 class PytestExitError(Exception):
@@ -43,11 +44,11 @@ class KatPytestPlugin:
     def __init__(
         self,
         *,
-        pack_name: str,
+        pack: ProductionPack,
         workflows: dict[str, CompiledWorkflow],
         datasets: dict[str, ResolvedDatasetRef],
     ) -> None:
-        self._pack_name = pack_name
+        self._pack = pack
         self._workflows = workflows
         self._datasets = datasets
         self._summary: Counter[str] = Counter()
@@ -66,6 +67,7 @@ class KatPytestPlugin:
             *,
             workflow: str,
             dataset: str | None = None,
+            sources: dict[str, Sequence[str]] | None = None,
             arguments: Sequence[str] = (),
         ) -> dict[str, pa.Table]:
             selected_dataset = None
@@ -82,6 +84,7 @@ class KatPytestPlugin:
                         "help: select a tests/datasets/ candidate carried by this PACK test",
                         pytrace=False,
                     )
+            source_overrides = self._source_overrides(sources)
             candidate_id = str(uuid.uuid4())
             run_path = tmp_path / candidate_id
             run_path.mkdir()
@@ -94,7 +97,7 @@ class KatPytestPlugin:
                     )
                 result = run_loaded_workflow(
                     selected_workflow,
-                    pack_name=self._pack_name,
+                    pack=self._pack,
                     workflow_name=workflow,
                     dataset=selected_dataset,
                     arguments=list(arguments),
@@ -102,6 +105,7 @@ class KatPytestPlugin:
                         identifier=candidate_id,
                         path=run_path.resolve(strict=True),
                     ),
+                    source_overrides=source_overrides,
                 )
             # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
             # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。
@@ -113,6 +117,30 @@ class KatPytestPlugin:
             }
 
         return run
+
+    def _source_overrides(
+        self,
+        sources: dict[str, Sequence[str]] | None,
+    ) -> dict[str, SourceArgumentOverride]:
+        if sources is None:
+            return {}
+        if type(sources) is not dict:
+            raise TypeError("kat_run sources must be a dict or None")
+        available = {
+            entry.interface["name"] for entry in self._pack.source_entries
+        }
+        overrides: dict[str, SourceArgumentOverride] = {}
+        for name, arguments in sources.items():
+            if type(name) is not str or name not in available:
+                choices = ", ".join(sorted(available)) or "none"
+                raise ValueError(
+                    f"kat_run Source {name!r} is unknown; available: {choices}"
+                )
+            overrides[name] = SourceArgumentOverride.create(
+                arguments,
+                argument_base=self._pack.root,
+            )
+        return overrides
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         if report.when == "call" or report.skipped:
@@ -155,9 +183,14 @@ class TestPackRuntimeResult:
 
 
 def test_pack(request: TestPackRequest, test_report_path: Path) -> TestPackRuntimeResult:
-    workflows = ProductionPack.open(request.pack_name, request.pack_path).load_all()
+    pack = ProductionPack.open(
+        request.pack_name,
+        request.pack_path,
+        profile=TEST_PROFILE,
+    )
+    workflows = pack.load_all()
     plugin = KatPytestPlugin(
-        pack_name=request.pack_name,
+        pack=pack,
         workflows=workflows,
         datasets=request.datasets,
     )

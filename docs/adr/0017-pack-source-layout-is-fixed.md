@@ -5,6 +5,8 @@ status: accepted
 # PACK 源码布局固定
 
 > 本文已按 ADR-0047 更新生产 Python module identity 与 pytest 测试树所有权；其余源码布局约束继续有效。
+>
+> ADR-0062 将 `sources/` 提升为与 `workflows/` 对称的固定扫描入口，以 `@kat.source(name=...)` 声明返回 DataFusion 可注册 schema-provider 值的 Source Entry；`analysis/` 是普通 Python 推荐归属，既有 `helpers/` 不要求一次性改名。只有 KAT 需要从外部输入构造 Provider、建立 External Binding 或新建/替换 Materialized Source 时才要求该目录；目录存在时，本文的确定性扫描、每文件单入口、禁止间接注册与模块身份原则同时适用于 Source Entries。PACK 发现任一 Source Entry 时还必须取得可读的根级 `SOURCES.md`，否则精确 inspect、test、bind 与 materialize 失败；`kat run` 不独立执行 Guide 门禁，没有 Entry 时也不为 doc-only namespace 增加 manifest 声明。
 
 单个 PACK 目录使用固定且浅层的代码视图：可选 `workflows/` 保存 Workflow 入口，可选 `helpers/` 保存 PACK-local 普通 Python，可选 `tests/` 保存 `pytest` 测试代码及按需存在的 `datasets/` Test Dataset，PACK 根目录和测试树中可以按 pytest 规则放置 `conftest.py`。Bundled PACK 与 External PACK 都使用这一棵目录树；测试与生产源码一起版本化，不从另一个测试 root 或测试包拼装。Workflow Runtime 按可移植的相对路径顺序递归扫描 `workflows/` 中的普通 `.py` 文件；目录缺席或没有这类文件表示完整 Workflow discovery 得到零 Workflow，而不是要求 Git 保存空目录。每个入口相对路径中的目录名与 `.py` 文件 stem 都原样成为 `kat.pack.workflows.*` 下的 Python module segment，因此必须同时满足 Python 3.14 的 `str.isidentifier()` 且不满足 `keyword.iskeyword()`；KAT 不再增加 ASCII、snake_case 或其他命名规则，也不清洗、转义、散列或设置别名。非法时 inspection 直接点名该路径并失败。同一次扫描若同时发现 `workflows/cpu.py` 与 `workflows/cpu/.../*.py` 这类结构，`cpu` 会被要求同时成为普通 module 与 package；`kat.pack` 生产导入边界必须在任何入口导入前拒绝整个 PACK，并在同一诊断中指出冲突文件和目录中的代表入口。KAT 不按顺序选择一方、不生成隐藏模块名；只有目录内确实存在被扫描的 Workflow `.py` 后代时才形成冲突，普通资源目录不受限制。每个 `.py` 文件都已由位置显式声明为入口，必须恰好包含一个在本 module 定义的 `@kat.workflow(...)`；零个表示遗漏声明，多个表示入口职责混杂，均失败。其他文件类型忽略，`workflows/` 下的 `__init__.py` 则明确拒绝而不是静默跳过，因为 Python 作者会合理预期它被执行。
 

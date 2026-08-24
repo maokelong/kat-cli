@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import logging
 import math
@@ -19,6 +19,7 @@ from .outputs import materialize_outputs
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
 from .request import ResolvedDatasetRef, RunCandidateRef, RunWorkflowRequest
+from .sources import SourceArgumentOverride, open_source_operation
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,7 @@ class RunWorkflowRuntimeResult:
 class WorkflowExecutionFailure(Exception):
     """已知且可由 PACK 作者纠正的 Workflow 解析或执行路径失败。
 
-    包括已加载 Workflow 的参数、Dataset/Table Grant、用户函数与 Output
+    包括已加载 Workflow 的参数、Dataset、用户函数与 Output
     materialization；kat_run 的 Workflow 名称查找未命中也使用此类。非法 Python
     fixture 实参及 pytest plugin、fixture、日志设施等 harness 异常不属于此类。
     """
@@ -83,84 +84,82 @@ class WorkflowContext(kat.Context):
         clock_domain: object,
         clock_value: object,
         *,
+        source: str,
         target_domain: str,
+        pack: str | None = None,
     ) -> Expr:
         self._lease.require_active()
         return self._clock.convert(
             clock_domain,
             clock_value,
+            source=source,
             target_domain=target_domain,
+            pack=pack,
         )
 
 
 def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
     pack_name = request.pack_name
     workflow_name = request.workflow_name
-    candidate_id = request.candidate.identifier
-    candidate_path = request.candidate.path
-    dataset = request.dataset
-
-    workflow = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
+    pack = ProductionPack.open(pack_name, request.pack_path)
+    workflow = pack.load(workflow_name)
     return run_loaded_workflow(
         workflow,
-        pack_name=pack_name,
+        pack=pack,
         workflow_name=workflow_name,
-        dataset=dataset,
+        dataset=request.dataset,
         arguments=request.arguments,
         candidate=request.candidate,
+        pack_paths=request.pack_paths,
     )
 
 
 def run_loaded_workflow(
     workflow: CompiledWorkflow,
     *,
-    pack_name: str,
+    pack: ProductionPack,
     workflow_name: str,
     dataset: ResolvedDatasetRef | None,
     arguments: list[str],
     candidate: RunCandidateRef,
+    source_overrides: dict[str, SourceArgumentOverride] | None = None,
+    pack_paths: dict[str, Path] | None = None,
 ) -> RunWorkflowRuntimeResult:
     candidate_id = candidate.identifier
     candidate_path = candidate.path
-
-    required_tables = workflow.interface["required_tables"]
-    table_paths = {} if dataset is None else dataset.tables
-    if required_tables and dataset is None:
-        raise WorkflowExecutionFailure() from ValueError(
-            "the selected Workflow requires a Dataset"
-        )
-    missing = sorted(set(required_tables) - set(table_paths))
-    if missing:
-        raise WorkflowExecutionFailure() from ValueError(
-            f"Dataset is missing required tables: {', '.join(missing)}"
-        )
+    pack_name = pack.name
 
     try:
         effective = workflow.parse_arguments(arguments)
     except ValueError as error:
         raise WorkflowExecutionFailure() from error
-    session = SessionContext()
-    try:
-        for table_name in required_tables:
-            session.register_parquet(table_name, str(table_paths[table_name]))
-    except (Exception, SystemExit) as error:
-        raise WorkflowExecutionFailure() from error
-    clock = ClockCapability(dataset)
-
-    lease = ExecutionLease()
-    context = WorkflowContext(session, lease, clock)
-    try:
-        with workflow_logging(candidate_id, pack_name, workflow_name):
-            try:
-                value = workflow.function(context, **effective)
-            except (Exception, SystemExit) as error:
-                raise WorkflowExecutionFailure() from error
-            try:
-                outputs = materialize_outputs(value, candidate_path)
-            except (Exception, SystemExit) as error:
-                raise WorkflowExecutionFailure() from error
-    finally:
-        lease.expire()
+    with ExitStack() as source_stack:
+        try:
+            operation = source_stack.enter_context(
+                open_source_operation(
+                    current_pack=pack,
+                    dataset=dataset,
+                    overrides=source_overrides,
+                    pack_paths=pack_paths,
+                )
+            )
+        except (Exception, SystemExit) as error:
+            raise WorkflowExecutionFailure() from error
+        clock = ClockCapability(operation.session, pack.name)
+        lease = ExecutionLease()
+        context = WorkflowContext(operation.session, lease, clock)
+        try:
+            with workflow_logging(candidate_id, pack_name, workflow_name):
+                try:
+                    value = workflow.function(context, **effective)
+                except (Exception, SystemExit) as error:
+                    raise WorkflowExecutionFailure() from error
+                try:
+                    outputs = materialize_outputs(value, candidate_path)
+                except (Exception, SystemExit) as error:
+                    raise WorkflowExecutionFailure() from error
+        finally:
+            lease.expire()
     return RunWorkflowRuntimeResult(
         effective_inputs={
             name: _project_effective_input(value) for name, value in effective.items()

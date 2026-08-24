@@ -12,84 +12,13 @@ use crate::{
 };
 use proto::kat::hitrace::profiler_plugin_data::ClockId;
 
-#[allow(dead_code)]
-#[path = "../native_hook_source_contract/fixture.rs"]
-mod native_hook_fixture;
-use native_hook_fixture::{
-    full_native_hook_batches, full_native_hook_config, full_native_hook_table_names,
-    native_hook_frame, native_hook_relation_names, profiler_section,
-};
-
 mod real_sample;
 
-struct NativeHookCaptureFixture {
-    _directory: tempfile::TempDir,
-    dataset_path: std::path::PathBuf,
-    publication: dataset_writer::DatasetPublication,
-    capture: native_hook_source::NativeHookSourceCapture,
-}
-
-impl NativeHookCaptureFixture {
-    fn new(options: protobuf_source::BufferOptions) -> anyhow::Result<Self> {
-        use dataset_writer::{DatasetPublication, DatasetWriteTarget};
-
-        let directory = tempdir()?;
-        let dataset_path = directory.path().join("dataset");
-        let publication =
-            DatasetPublication::stage(DatasetWriteTarget::write_to_empty(&dataset_path))?;
-        let capture =
-            native_hook_source::NativeHookSourceCapture::new(options, publication.table_factory())?;
-        Ok(Self {
-            _directory: directory,
-            dataset_path,
-            publication,
-            capture,
-        })
-    }
-
-    fn finish(self) -> anyhow::Result<()> {
-        self.capture.finish()
-    }
-
-    fn publish(self) -> anyhow::Result<PublishedDataset> {
-        self.capture.finish()?;
-        self.publication.publish()?;
-        Ok(PublishedDataset {
-            _directory: self._directory,
-            path: self.dataset_path,
-        })
-    }
-}
-
-impl std::ops::Deref for NativeHookCaptureFixture {
-    type Target = native_hook_source::NativeHookSourceCapture;
-
-    fn deref(&self) -> &Self::Target {
-        &self.capture
-    }
-}
-
-impl std::ops::DerefMut for NativeHookCaptureFixture {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.capture
-    }
-}
-
-struct PublishedDataset {
-    _directory: tempfile::TempDir,
-    path: std::path::PathBuf,
-}
-
-impl PublishedDataset {
-    fn path(&self) -> &std::path::Path {
-        &self.path
-    }
-}
-
 #[tokio::test]
-async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
+async fn dormant_capture_claims_only_exact_routes_and_publishes_empty_roots() {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let empty_data = proto::BatchNativeHookData::default().encode_to_vec();
     let default_config = proto::NativeHookConfig::default().encode_to_vec();
@@ -147,8 +76,8 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         profiler_message("nativehook_config_extra", vec![0xff]),
         profiler_message("hookdaemon_config_config", vec![0xff]),
     ]);
-    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
-        .expect("staged Native Hook capture is valid");
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
     let mut claims = Vec::new();
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
         let envelope = PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
@@ -170,16 +99,21 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         ]
     );
 
-    let dataset = capture
-        .publish()
-        .expect("empty data roots publish without clock admission");
-    let dataset_path = dataset.path();
-    let resolved = crate::resolve_dataset(dataset_path)
-        .expect("formal Dataset resolver accepts the staged capture");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_prepared(
+        capture
+            .finish()
+            .expect("empty data roots do not require clock admission"),
+        &dataset_path,
+    );
+    let resolved = crate::resolve_dataset(&dataset_path)
+        .expect("formal Dataset resolver accepts the dormant capture");
     assert_eq!(
         resolved
-            .tables()
+            .sources()
             .iter()
+            .flat_map(|source| source.tables().unwrap_or_default())
             .map(|table| table.name())
             .collect::<std::collections::BTreeSet<_>>(),
         [
@@ -192,9 +126,9 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
         .collect()
     );
 
-    let context = register_resolved_dataset(dataset_path)
+    let context = register_resolved_dataset(&dataset_path)
         .await
-        .expect("staged capture tables register in DataFusion");
+        .expect("dormant capture tables register in DataFusion");
     let occurrence = context
         .table("profiler_payload_occurrence")
         .await
@@ -331,7 +265,8 @@ async fn staged_capture_claims_only_exact_routes_and_publishes_empty_roots() {
 #[test]
 fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
     use formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind};
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let config_payload = proto::NativeHookConfig::default().encode_to_vec();
     let envelope = PluginEnvelope {
@@ -347,15 +282,15 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
         sample_interval: 0,
         section_start: 1_024,
     };
-    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
-        .expect("staged Native Hook capture is valid");
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
     assert!(
         capture
             .try_claim(&envelope)
             .expect("raw exact route decodes"),
         "route matching must not depend on the derived plugin_name"
     );
-    capture.finish().expect("empty/default route closes");
+    capture.finish().expect("empty/default route preflights");
 
     for (envelope_name, wrong_kind) in [
         ("nativehook", PluginEnvelopeKind::Config),
@@ -376,8 +311,8 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
             sample_interval: 0,
             section_start: 2_048,
         };
-        let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
-            .expect("staged Native Hook capture is valid");
+        let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
+            .expect("dormant Native Hook capture is valid");
         assert!(
             !capture
                 .try_claim(&envelope)
@@ -393,11 +328,12 @@ fn route_match_uses_raw_envelope_name_and_kind_not_derived_plugin_name() {
 #[test]
 fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let unbound = profiler_message("nativehook-near", vec![0xff]);
-    let mut healthy = NativeHookCaptureFixture::new(BufferOptions::new(2))
-        .expect("staged Native Hook capture is valid");
+    let mut healthy = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
     assert!(
         !healthy
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&unbound, 1_024))
@@ -412,11 +348,13 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&valid, 2_048))
             .expect("unbound malformed input does not poison later claims")
     );
-    healthy.finish().expect("healthy empty-root capture closes");
+    healthy
+        .finish()
+        .expect("healthy empty-root capture passes preflight");
 
     let malformed_bound = profiler_message("nativehook", vec![0xff]);
-    let mut poisoned = NativeHookCaptureFixture::new(BufferOptions::new(2))
-        .expect("staged Native Hook capture is valid");
+    let mut poisoned = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
     let first_error = poisoned
         .try_claim(&PluginEnvelope::from_profiler_plugin_data(
             &malformed_bound,
@@ -442,7 +380,8 @@ fn malformed_unbound_payload_is_ignored_but_bound_failure_is_terminal() {
 #[test]
 fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present() {
     use formats::hitrace::profiler::PluginEnvelope;
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let batch = proto::BatchNativeHookData {
         events: vec![proto::kat::native_hook::NativeHookData {
@@ -459,8 +398,8 @@ fn nonempty_batch_requires_config_even_when_event_and_envelope_clock_are_present
         },
         batch.encode_to_vec(),
     );
-    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))
-        .expect("staged Native Hook capture is valid");
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))
+        .expect("dormant Native Hook capture is valid");
     assert!(
         capture
             .try_claim(&PluginEnvelope::from_profiler_plugin_data(&message, 1_024))
@@ -548,7 +487,8 @@ fn clock_admission_supports_all_values_equivalence_and_eventless_gating() {
 
 #[tokio::test]
 async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relations_with_rows() {
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let (first_batch, second_batch) = full_native_hook_batches();
     let config = full_native_hook_config("boot");
@@ -592,21 +532,40 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     ]
     .concat();
 
-    let mut capture = NativeHookCaptureFixture::new(BufferOptions::with_limits(1, 128))
-        .expect("staged Native Hook capture is valid");
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::with_limits(1, 128))
+        .expect("dormant Native Hook capture is valid");
     assert_eq!(
         claim_profiler_file(&mut capture, &trace_file).expect("OHOSPROF sections decode and claim"),
         3
     );
-    let dataset = capture
-        .publish()
-        .expect("boot config admits and publishes both eventful data envelopes");
-    let dataset_path = dataset.path();
-    let resolved = crate::resolve_dataset(dataset_path)
+    let prepared = capture
+        .finish()
+        .expect("boot config admits both eventful data envelopes");
+    assert_eq!(
+        prepared.preflighted_row_group_count("batch_native_hook_data"),
+        Some(2),
+        "tiny row bound must flush each data parent independently"
+    );
+    assert_eq!(
+        prepared.preflighted_row_group_count("batch_native_hook_data_events"),
+        Some(17),
+        "tiny row bound must flush events while preserving all parents and indexes"
+    );
+    assert_eq!(
+        prepared.preflighted_row_group_count("profiler_payload_occurrence"),
+        Some(3),
+        "envelope provenance must cross the same bounded-spool path"
+    );
+
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    publish_prepared(prepared, &dataset_path);
+    let resolved = crate::resolve_dataset(&dataset_path)
         .expect("formal Dataset resolver accepts full Native Hook topology");
     let actual_tables = resolved
-        .tables()
+        .sources()
         .iter()
+        .flat_map(|source| source.tables().unwrap_or_default())
         .map(|table| table.name())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(actual_tables, full_native_hook_table_names());
@@ -621,7 +580,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             "legacy projection {legacy_name:?} must not be published"
         );
     }
-    let context = register_resolved_dataset(dataset_path)
+    let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("full Native Hook tables register in DataFusion");
     assert_eq!(
@@ -845,7 +804,7 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
     assert_eq!(
         query_json(
             &context,
-            "with values as ( \
+            "with enum_values as ( \
                select 'statistics' as kind, \
                       'batch_native_hook_data_events_statistics_event' as origin_table, \
                       'type' as origin_field_path, type as enum_number \
@@ -859,12 +818,12 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
                       'trace_type', trace_type \
                  from batch_native_hook_data_events_trace_free_event \
              ) \
-             select values.kind, values.enum_number, definition.enum_symbol \
-             from values left join protobuf_enum_symbol definition \
-               on definition.origin_table = values.origin_table \
-              and definition.origin_field_path = values.origin_field_path \
-              and definition.enum_number = values.enum_number \
-             order by values.kind",
+             select enum_values.kind, enum_values.enum_number, definition.enum_symbol \
+             from enum_values left join protobuf_enum_symbol definition \
+               on definition.origin_table = enum_values.origin_table \
+              and definition.origin_field_path = enum_values.origin_field_path \
+              and definition.enum_number = enum_values.enum_number \
+             order by enum_values.kind",
         )
         .await,
         json!([
@@ -873,6 +832,249 @@ async fn full_ohosprof_topology_publishes_only_the_25_data_and_3_config_relation
             { "kind": "trace_free", "enum_number": 99, "enum_symbol": null },
         ])
     );
+}
+
+fn full_native_hook_batches() -> (proto::BatchNativeHookData, proto::BatchNativeHookData) {
+    use proto::kat::native_hook::{
+        AllocEvent, FilePathMap, FrameMap, FreeEvent, MapsInfo, MemTagEvent, MmapEvent,
+        MunmapEvent, NativeHookData, RecordStatisticsEvent, StackMap, SymbolMap, SymbolTable,
+        ThreadNameMap, TraceAllocEvent, TraceFreeEvent, TraceType, native_hook_data::Event,
+        record_statistics_event::MemoryType,
+    };
+
+    let event = |index: u64, event| NativeHookData {
+        tv_sec: 100 + index,
+        tv_nsec: 200 + index,
+        event,
+    };
+    let first = proto::BatchNativeHookData {
+        events: vec![
+            event(
+                0,
+                Some(Event::AllocEvent(AllocEvent {
+                    pid: 1000,
+                    tid: 1001,
+                    addr: 0x1000,
+                    size: 64,
+                    frame_info: vec![native_hook_frame(10), native_hook_frame(11)],
+                    thread_name_id: 12,
+                    stack_id: 13,
+                })),
+            ),
+            event(
+                1,
+                Some(Event::FreeEvent(FreeEvent {
+                    pid: 1100,
+                    tid: 1101,
+                    addr: 0x1100,
+                    frame_info: vec![native_hook_frame(20), native_hook_frame(21)],
+                    thread_name_id: 22,
+                    stack_id: 23,
+                })),
+            ),
+            event(
+                2,
+                Some(Event::MmapEvent(MmapEvent {
+                    pid: 1200,
+                    tid: 1201,
+                    addr: 0x1200,
+                    r#type: "file-backed".to_string(),
+                    size: 4096,
+                    frame_info: vec![native_hook_frame(30), native_hook_frame(31)],
+                    thread_name_id: 32,
+                    stack_id: 33,
+                })),
+            ),
+            event(
+                3,
+                Some(Event::MunmapEvent(MunmapEvent {
+                    pid: 1300,
+                    tid: 1301,
+                    addr: 0x1300,
+                    size: 8192,
+                    frame_info: vec![native_hook_frame(40), native_hook_frame(41)],
+                    thread_name_id: 42,
+                    stack_id: 43,
+                })),
+            ),
+            event(
+                4,
+                Some(Event::TagEvent(MemTagEvent {
+                    addr: 0x1400,
+                    size: 128,
+                    tag: "graphics".to_string(),
+                    pid: 1400,
+                })),
+            ),
+            event(
+                5,
+                Some(Event::FilePath(FilePathMap {
+                    id: 51,
+                    name: "/system/lib64/libfixture.so".to_string(),
+                    pid: 1500,
+                })),
+            ),
+            event(
+                6,
+                Some(Event::SymbolName(SymbolMap {
+                    id: 61,
+                    name: "fixture_symbol".to_string(),
+                    pid: 1600,
+                })),
+            ),
+            event(
+                7,
+                Some(Event::ThreadNameMap(ThreadNameMap {
+                    id: 71,
+                    name: "fixture-thread".to_string(),
+                    pid: 1700,
+                })),
+            ),
+            event(
+                8,
+                Some(Event::MapsInfo(MapsInfo {
+                    pid: 1800,
+                    start: 0x1800,
+                    end: 0x18ff,
+                    offset: 24,
+                    file_path_id: 81,
+                })),
+            ),
+        ],
+    };
+    let second = proto::BatchNativeHookData {
+        events: vec![
+            event(
+                9,
+                Some(Event::SymbolTab(SymbolTable {
+                    file_path_id: 91,
+                    text_exec_vaddr: 0x1900,
+                    text_exec_vaddr_file_offset: 32,
+                    sym_entry_size: 24,
+                    sym_table: vec![0x00, 0xff, 0x80],
+                    str_table: vec![0xfe, 0x00, 0x7f],
+                    pid: 1900,
+                })),
+            ),
+            event(
+                10,
+                Some(Event::FrameMap(FrameMap {
+                    id: 101,
+                    frame: None,
+                    pid: 2000,
+                })),
+            ),
+            event(
+                11,
+                Some(Event::FrameMap(FrameMap {
+                    id: 111,
+                    frame: Some(native_hook_frame(50)),
+                    pid: 2100,
+                })),
+            ),
+            event(
+                12,
+                Some(Event::StackMap(StackMap {
+                    id: 121,
+                    frame_map_id: vec![501, 502],
+                    ip: vec![0x2200, 0x2201, 0x2202],
+                    pid: 2200,
+                })),
+            ),
+            event(
+                13,
+                Some(Event::StatisticsEvent(RecordStatisticsEvent {
+                    pid: 2300,
+                    callstack_id: 131,
+                    r#type: MemoryType::GpuVk as i32,
+                    apply_count: 5,
+                    release_count: 3,
+                    apply_size: 500,
+                    release_size: 300,
+                    tag_name: "stats".to_string(),
+                })),
+            ),
+            event(
+                14,
+                Some(Event::TraceAllocEvent(TraceAllocEvent {
+                    pid: 2400,
+                    tid: 2401,
+                    addr: 0x2400,
+                    trace_type: TraceType::Other as i32,
+                    tag_name: "trace-alloc".to_string(),
+                    size: 1024,
+                    frame_info: vec![native_hook_frame(60), native_hook_frame(61)],
+                    thread_name_id: 142,
+                    stack_id: 143,
+                })),
+            ),
+            event(
+                15,
+                Some(Event::TraceFreeEvent(TraceFreeEvent {
+                    pid: 2500,
+                    tid: 2501,
+                    addr: 0x2500,
+                    trace_type: 99,
+                    tag_name: "trace-free".to_string(),
+                    frame_info: vec![native_hook_frame(70), native_hook_frame(71)],
+                    thread_name_id: 152,
+                    stack_id: 153,
+                })),
+            ),
+            event(16, None),
+        ],
+    };
+    (first, second)
+}
+
+fn native_hook_frame(seed: u64) -> proto::kat::native_hook::Frame {
+    proto::kat::native_hook::Frame {
+        ip: 10_000 + seed,
+        sp: 20_000 + seed,
+        symbol_name: format!("symbol-{seed}"),
+        file_path: format!("/fixture/{seed}.so"),
+        offset: 30_000 + seed,
+        symbol_offset: 40_000 + seed,
+        symbol_name_id: 50_000 + seed as u32,
+        file_path_id: 60_000 + seed as u32,
+    }
+}
+
+fn full_native_hook_config(clock: &str) -> proto::NativeHookConfig {
+    proto::NativeHookConfig {
+        pid: 4242,
+        save_file: true,
+        file_name: "native-hook.htrace".to_string(),
+        filter_size: 16,
+        smb_pages: 32,
+        max_stack_depth: 64,
+        process_name: "fixture-process".to_string(),
+        malloc_disable: true,
+        mmap_disable: true,
+        free_stack_report: true,
+        munmap_stack_report: true,
+        malloc_free_matching_interval: 101,
+        malloc_free_matching_cnt: 102,
+        string_compressed: true,
+        fp_unwind: true,
+        blocked: true,
+        record_accurately: true,
+        startup_mode: true,
+        memtrace_enable: true,
+        offline_symbolization: true,
+        callframe_compress: true,
+        statistics_interval: 103,
+        clock: clock.to_string(),
+        sample_interval: 104,
+        response_library_mode: true,
+        expand_pids: vec![4242, 4343],
+        js_stack_report: 105,
+        max_js_stack_depth: 106,
+        filter_napi_name: "napi_fixture".to_string(),
+        dump_nmd: true,
+        target_so_name: "libfixture.so".to_string(),
+        restrace_tag: vec!["tag-a".to_string(), "tag-b".to_string()],
+    }
 }
 
 fn expected_native_hook_event_identity() -> Value {
@@ -1162,14 +1364,58 @@ fn expected_native_hook_config_root(config: &proto::NativeHookConfig) -> Value {
     Value::Array(vec![Value::Object(row)])
 }
 
-fn finish_clock_fixture(event_clock_ids: &[i32], config_clocks: &[&str]) -> anyhow::Result<()> {
+fn full_native_hook_table_names() -> std::collections::BTreeSet<&'static str> {
+    let mut names = native_hook_relation_names();
+    names.extend(["profiler_payload_occurrence", "protobuf_enum_symbol"]);
+    names
+}
+
+fn native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
+    [
+        "batch_native_hook_data",
+        "batch_native_hook_data_events",
+        "batch_native_hook_data_events_alloc_event",
+        "batch_native_hook_data_events_alloc_event_frame_info",
+        "batch_native_hook_data_events_free_event",
+        "batch_native_hook_data_events_free_event_frame_info",
+        "batch_native_hook_data_events_mmap_event",
+        "batch_native_hook_data_events_mmap_event_frame_info",
+        "batch_native_hook_data_events_munmap_event",
+        "batch_native_hook_data_events_munmap_event_frame_info",
+        "batch_native_hook_data_events_tag_event",
+        "batch_native_hook_data_events_file_path",
+        "batch_native_hook_data_events_symbol_name",
+        "batch_native_hook_data_events_thread_name_map",
+        "batch_native_hook_data_events_maps_info",
+        "batch_native_hook_data_events_symbol_tab",
+        "batch_native_hook_data_events_frame_map",
+        "batch_native_hook_data_events_stack_map",
+        "batch_native_hook_data_events_stack_map_frame_map_id",
+        "batch_native_hook_data_events_stack_map_ip",
+        "batch_native_hook_data_events_statistics_event",
+        "batch_native_hook_data_events_trace_alloc_event",
+        "batch_native_hook_data_events_trace_alloc_event_frame_info",
+        "batch_native_hook_data_events_trace_free_event",
+        "batch_native_hook_data_events_trace_free_event_frame_info",
+        "native_hook_config",
+        "native_hook_config_expand_pids",
+        "native_hook_config_restrace_tag",
+    ]
+    .into_iter()
+    .collect()
+}
+
+fn finish_clock_fixture(
+    event_clock_ids: &[i32],
+    config_clocks: &[&str],
+) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
     finish_clock_fixture_with_events(event_clock_ids, config_clocks, true)
 }
 
 fn finish_empty_clock_fixture(
     event_clock_ids: &[i32],
     config_clocks: &[&str],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
     finish_clock_fixture_with_events(event_clock_ids, config_clocks, false)
 }
 
@@ -1177,9 +1423,10 @@ fn finish_clock_fixture_with_events(
     event_clock_ids: &[i32],
     config_clocks: &[&str],
     has_event_element: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<protobuf_source::PreparedSourceTables> {
     use formats::hitrace::profiler::{PluginEnvelope, for_each_profiler_envelope_frame};
-    use protobuf_source::BufferOptions;
+    use native_hook_source::NativeHookSourceCapture;
+    use protobuf_source::SpoolOptions;
 
     let batch = proto::BatchNativeHookData {
         events: has_event_element
@@ -1215,7 +1462,7 @@ fn finish_clock_fixture_with_events(
         )
     }));
     let frames = profiler_frames(messages);
-    let mut capture = NativeHookCaptureFixture::new(BufferOptions::new(2))?;
+    let mut capture = NativeHookSourceCapture::new(SpoolOptions::new(2))?;
     for_each_profiler_envelope_frame(&frames, |message, frame_offset| {
         let envelope = PluginEnvelope::from_profiler_plugin_data(&message, 1_024 + frame_offset);
         anyhow::ensure!(
@@ -1268,6 +1515,20 @@ fn profiler_frames(messages: impl IntoIterator<Item = proto::ProfilerPluginData>
     bytes
 }
 
+fn profiler_section(messages: impl IntoIterator<Item = proto::ProfilerPluginData>) -> Vec<u8> {
+    use formats::hitrace::file::{HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE};
+
+    const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
+    let body = profiler_frames(messages);
+    let section_len = PROFILER_HEADER_SIZE + body.len();
+    let mut section = vec![0; PROFILER_HEADER_SIZE];
+    section[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    section[8..16].copy_from_slice(&(section_len as u64).to_le_bytes());
+    section[56..60].copy_from_slice(&HIPROFILER_PROTOBUF_BIN.to_le_bytes());
+    section.extend_from_slice(&body);
+    section
+}
+
 fn claim_profiler_file(
     capture: &mut native_hook_source::NativeHookSourceCapture,
     bytes: &[u8],
@@ -1302,12 +1563,59 @@ fn claim_profiler_file(
     Ok(claimed)
 }
 
+fn publish_prepared(
+    prepared: protobuf_source::PreparedSourceTables,
+    dataset_path: &std::path::Path,
+) {
+    use dataset_writer::{DatasetWriteTarget, DatasetWriter};
+
+    let export = tempdir().expect("temporary Native Hook export is created");
+    let mut writer = DatasetWriter::begin(DatasetWriteTarget::write_to_empty(export.path()))
+        .expect("Dataset writer begins after dormant capture preflight");
+    prepared
+        .write_into(&mut writer)
+        .expect("prepared dormant tables write to Dataset");
+    let export_root = writer.finish().expect("Dataset export completes");
+    let export_tables = export_root.join("tables");
+    let mut table_names = std::fs::read_dir(&export_tables)
+        .expect("Dataset export tables can be listed")
+        .map(|entry| {
+            entry
+                .expect("Dataset export table entry is readable")
+                .path()
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .expect("Dataset export table name is Unicode")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    table_names.sort();
+    let working_directory = std::env::current_dir().expect("test working directory is available");
+    crate::publish_materialized_source(
+        dataset_path,
+        crate::MaterializedSourcePublication {
+            pack: "kat-test",
+            source: "native_hook",
+            arguments: vec!["--fixture".to_owned(), "native-hook".to_owned()],
+            working_directory: &working_directory,
+            table_names: &table_names,
+            export_directory: &export_tables,
+            replace: false,
+        },
+    )
+    .expect("Native Hook Source publishes");
+}
+
 async fn register_resolved_dataset(
     dataset_path: &std::path::Path,
 ) -> anyhow::Result<SessionContext> {
     let resolved = crate::resolve_dataset(dataset_path)?;
     let context = SessionContext::new();
-    for table in resolved.tables() {
+    for table in resolved
+        .sources()
+        .iter()
+        .flat_map(|source| source.tables().unwrap_or_default())
+    {
         let url = Url::from_file_path(table.path()).map_err(|()| {
             anyhow::anyhow!(
                 "fixture table path cannot be converted to a file URL: {}",

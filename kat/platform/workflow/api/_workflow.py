@@ -7,7 +7,6 @@ from typing import Any, TypeVar
 from datafusion import DataFrame, Expr
 from pyarrow import Table
 
-from ._identifiers import valid_table_name
 from ._temporal import Duration, WallClockTimestamp
 
 
@@ -16,9 +15,9 @@ _REGISTRATIONS: list[Callable[..., Any]] = []
 class Context:
     """The KAT-owned capability boundary supplied for one Workflow execution.
 
-    ``required_tables`` controls the Dataset tables visible to Workflow SQL.
-    KAT-owned capabilities may read private platform evidence without registering
-    those evidence tables in the Workflow session.
+    Bound Dataset Sources are available through DataFusion catalog and schema
+    names. KAT-owned capabilities may read private platform evidence without
+    registering those evidence tables in the Workflow session.
     """
 
     def sql(
@@ -56,14 +55,20 @@ class Context:
         clock_domain: Expr,
         clock_value: Expr,
         *,
+        source: str,
         target_domain: str,
+        pack: str | None = None,
     ) -> Expr:
-        """Translate a ClockValue to one fixed target domain.
+        """Translate a Source-owned ClockValue to one fixed target domain.
 
-        ``target_domain`` must have exact type ``str`` and be non-empty; ``None``,
-        other types, and ``str`` subclasses are rejected before the Expr is
-        constructed. ``clock_domain`` and ``clock_value`` must be Expr values
-        accepted by DataFusion's strict casts to Arrow ``Utf8`` and ``UInt64``.
+        ``source`` names the Source schema that owns ``clock_domain`` and
+        ``clock_snapshot``. ``pack=None`` selects the current Workflow PACK;
+        cross-PACK conversion must provide the exact PACK identity. ``source``
+        and ``target_domain`` must have exact type ``str`` and be non-empty;
+        ``pack`` must be ``None`` or an exact non-empty ``str``. String
+        subclasses and other types are rejected. ``clock_domain`` and
+        ``clock_value`` must be Expr values accepted by DataFusion's strict
+        casts to Arrow ``Utf8`` and ``UInt64``.
         KAT guarantees canonical ``Utf8``/``UInt64``, ``LargeUtf8``/``Utf8View``
         domains, and representable non-negative ``Int64`` values; negative,
         overflowing, or invalid text values fail the Workflow. Other source
@@ -85,7 +90,6 @@ class Context:
 class _WorkflowDeclaration:
     name: str
     title: str
-    required_tables: tuple[str, ...]
     parameters: tuple[tuple[str, str], ...] | None
 
 
@@ -93,16 +97,14 @@ def workflow(
     *,
     name: str,
     title: str,
-    required_tables: list[str],
     parameters: dict[str, str] | None = None,
 ) -> Callable[[F], F]:
     """Declare a module-top-level synchronous KAT Workflow.
 
-    ``name`` must match ``[a-z0-9]+(?:-[a-z0-9]+)*``. Each
-    ``required_tables`` item must match
-    ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not be a reserved Windows
-    device name. ``title`` and every parameter description must remain
-    non-empty after trimming outer whitespace.
+    ``name`` must match ``[a-z0-9]+(?:-[a-z0-9]+)*``. ``title`` and every
+    parameter description must remain non-empty after trimming outer
+    whitespace. Dataset Sources are addressed by the Workflow implementation;
+    the declaration does not repeat a static table list.
 
     The decorated function must have a non-empty docstring, start with
     ``ctx: kat.Context``, and give every remaining parameter exactly one
@@ -121,8 +123,8 @@ def workflow(
     absolute UTC instant, not a local civil-time value; its input offset is
     consumed during normalization to ``Z``.
 
-    Applying the decorator validates its argument shapes, title, parameter
-    descriptions, and Required table names. PACK inspection then validates
+    Applying the decorator validates its argument shapes, title, and parameter
+    descriptions. PACK inspection then validates
     the Workflow name, callable, docstring, complete signature, annotations,
     description mapping, and converted defaults. Successful decoration alone
     does not mean the production input Interface is valid. Inspection does
@@ -141,8 +143,6 @@ def workflow(
         raise TypeError("Workflow name must be a string")
     if type(title) is not str or not title.strip():
         raise ValueError("Workflow title must be a non-empty string")
-    if type(required_tables) is not list or any(type(item) is not str for item in required_tables):
-        raise TypeError("required_tables must be a list of strings")
     if parameters is not None and (
         type(parameters) is not dict
         or any(type(key) is not str or type(value) is not str for key, value in parameters.items())
@@ -156,7 +156,6 @@ def workflow(
     declaration = _WorkflowDeclaration(
         name=name,
         title=title.strip(),
-        required_tables=_normalize_required_tables(required_tables),
         parameters=normalized_parameters,
     )
 
@@ -176,11 +175,3 @@ def _registration_count() -> int:
 
 def _registrations_since(index: int) -> tuple[Callable[..., Any], ...]:
     return tuple(_REGISTRATIONS[index:])
-
-
-def _normalize_required_tables(required_tables: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    normalized = tuple(sorted(set(required_tables)))
-    for table in normalized:
-        if not valid_table_name(table):
-            raise ValueError(f"invalid Required table name: {table!r}")
-    return normalized

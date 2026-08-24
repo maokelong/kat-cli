@@ -4,6 +4,8 @@ status: accepted
 
 # Hitrace 事件保留时钟域与原始读数
 
+> ADR-0062 已把时钟来源事实的发布责任迁入对应 PACK Sources，并让 PACK 直接查询通过普通只读 Source schema 解析而不再使用 Table Grant；本文其余 Clock domain、Clock value、snapshot 与严格换算合同继续有效。
+
 HiProfiler `.htrace` 是多时钟容器：ftrace/Hitrace event、Native Hook event、`ProfilerPluginData` envelope 和文件头 clock snapshots 可以使用不同编码与 clock domain，其中 envelope 时间表示 packet/report observation time，不是 payload event time。HiProfiler 当前源码与真实样本只证明采集开始附近存在 clock snapshot，不保证像 Perfetto 一样在整个采集期间周期校准；证据记录在 [`docs/research/openharmony-hiprofiler-clock-domains.md`](../research/openharmony-hiprofiler-clock-domains.md) 与 [`docs/research/industry-multi-clock-observability.md`](../research/industry-multi-clock-observability.md)。KAT 不据此预造一套公共纳秒时间坐标，但接受同一 trace segment 的 `snapshot_id = 0` 作为该 segment 内跨 domain 换算的有效锚点。
 
 Datasource 用 `UnifiedClock { ClockDomain, ClockValue }` 表达来源时间事实。`ClockValue` 是来源时钟上的非负 `u64` 原生读数，不把纳秒写进类型承诺；Datasource Adapter 可以把合法 `tv_sec/tv_nsec` 无损合成为纳秒整数。每个 `ClockDomain` 的定义在 Dataset 中保存一次，拥有解释该读数所需的时钟类型与固定整数频率；跨 domain 对齐证据仍由 `clock_snapshot` 表达。定义使用普通 `clock_domain` Source table，物理上仍是既有规则下的 `tables/clock_domain.parquet`，不增加 catalog、根级 manifest 或 field metadata 协议。任何 Dataset facts 引用的 domain 都必须在该表中恰好存在一条定义。

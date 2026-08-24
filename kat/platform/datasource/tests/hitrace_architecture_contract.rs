@@ -314,28 +314,21 @@ fn native_hook_table_builders_are_generated_from_oneof_mapping() {
 }
 
 #[test]
-fn query_consumes_arrow_table_set() {
-    let query = source("src/query.rs");
-
-    for marker in ["load_hitrace_tables", "HITRACE_TABLE", "FtraceTables"] {
-        assert!(
-            !query.contains(marker),
-            "{marker} should not be consumed directly by query"
-        );
-    }
-}
-
-#[test]
-fn hitrace_dataset_materializer_uses_streaming_sink_not_arrow_table_set() {
+fn hitrace_staging_uses_bounded_batches_not_arrow_table_set() {
     let materializer = source("src/materializer.rs");
 
-    assert!(materializer.contains("impl TraceRecordSink for HitraceDatasetSink"));
-    assert!(materializer.contains("HITRACE_DATASET_FLUSH_RECORDS"));
+    assert!(materializer.contains("impl TraceRecordSink for LongTermHitraceSink"));
+    assert!(materializer.contains("HITRACE_BATCH_ROWS"));
 
-    for marker in ["ArrowTableSet", "decode_hitrace", "write_hitrace_tables"] {
+    for marker in [
+        "HitraceDatasetSink",
+        "ArrowTableSet",
+        "decode_hitrace",
+        "write_hitrace_tables",
+    ] {
         assert!(
             !materializer.contains(marker),
-            "{marker} should not remain in .htrace dataset materialize"
+            "{marker} should not remain in Hitrace staging"
         );
     }
 }

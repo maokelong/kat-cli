@@ -55,7 +55,9 @@ fn main() {
         process::exit(91);
     }
     let request = fs::read_to_string(&arguments[8]).unwrap();
-    if !request.contains("\"operation\":\"query_run\"") {
+    if !request.contains("\"operation\":\"query_run\"")
+        && !request.contains("\"operation\":\"query_dataset\"")
+    {
         process::exit(92);
     }
     fs::write(env::var("KAT_CAPTURE_REQUEST").unwrap(), request).unwrap();
@@ -81,6 +83,19 @@ fn main() {
 
 fn data_home(root: &Path) -> PathBuf {
     test_home::data_home(root)
+}
+
+fn stage_pack(root: &Path, name: &str) -> PathBuf {
+    let pack = root.join(format!("pack-{name}"));
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "name = \"{name}\"\ntitle = \"{name}\"\ndescription = \"query fixture\"\nowner = \"tests\"\n"
+        ),
+    )
+    .unwrap();
+    dunce::canonicalize(pack).unwrap()
 }
 
 fn write_manifest(root: &Path, dataset: Option<&Path>) -> PathBuf {
@@ -123,10 +138,37 @@ fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
     command
 }
 
+fn dataset_command(
+    binary: &Path,
+    root: &Path,
+    captured: &Path,
+    dataset: &Path,
+    sql: &str,
+) -> Command {
+    let mut command = Command::new(binary);
+    test_home::configure(&mut command, root);
+    command
+        .arg("query")
+        .arg("--dataset")
+        .arg(dataset)
+        .args(["--sql", sql])
+        .env("KAT_CAPTURE_REQUEST", captured)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"columns":[{"name":"value","type":"int64"}],"rows":[["1"]]}}"#,
+        );
+    command
+}
+
 #[test]
 fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
     let temporary = tempfile::tempdir().unwrap();
     let binary = stage_skill(temporary.path());
+    let broken_pack = temporary.path().join("skill/assets/packs/broken-manifest");
+    fs::create_dir_all(&broken_pack).unwrap();
+    fs::write(broken_pack.join("pack.toml"), "not valid TOML = [").unwrap();
+    let duplicate_a = stage_pack(&temporary.path().join("duplicate-a"), "duplicate");
+    let duplicate_b = stage_pack(&temporary.path().join("duplicate-b"), "duplicate");
     let run = write_manifest(temporary.path(), None);
     let manifest_path = run.join("manifest.json");
     let mut manifest: serde_json::Value =
@@ -141,6 +183,8 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
     let before = fs::read_dir(&run).unwrap().count();
 
     let output = command(&binary, temporary.path(), &captured, sql)
+        .args(["--pack-dir", duplicate_a.to_str().unwrap()])
+        .args(["--pack-dir", duplicate_b.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -166,7 +210,21 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
     let request: serde_json::Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
     assert_eq!(request["sql"], sql);
     assert_eq!(request["outputs"], serde_json::json!(["main", "summary"]));
-    assert_eq!(request.as_object().unwrap().len(), 4);
+    assert_eq!(request.as_object().unwrap().len(), 5);
+    assert_eq!(
+        request["pack_search"]["candidates"]["duplicate"],
+        serde_json::json!([duplicate_a, duplicate_b])
+    );
+    assert_eq!(
+        request["pack_search"]["issues"].as_array().unwrap().len(),
+        1
+    );
+    assert!(
+        request["pack_search"]["issues"][0]
+            .as_str()
+            .unwrap()
+            .contains("failed to parse PACK manifest")
+    );
     assert!(request.get("dataset").is_none());
     assert!(request.get("run_id").is_none());
     assert_eq!(fs::read_dir(run).unwrap().count(), before);
@@ -184,18 +242,45 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
 }
 
 #[test]
-fn query_projects_dataset_state_and_only_sends_available_dataset() {
+fn query_projects_sources_with_deferred_pack_candidates() {
     for available in [true, false] {
         let temporary = tempfile::tempdir().unwrap();
         let binary = stage_skill(temporary.path());
+        let alpha_pack = stage_pack(temporary.path(), "alpha");
+        let zeta_pack = stage_pack(temporary.path(), "zeta");
+        let working_directory = dunce::canonicalize(temporary.path()).unwrap();
         let dataset = temporary
             .path()
             .join(if available { "dataset" } else { "removed" });
         if available {
-            fs::create_dir_all(dataset.join("tables")).unwrap();
+            fs::create_dir_all(dataset.join("sources/alpha/facts/tables")).unwrap();
             fs::write(dataset.join(".kat-dataset"), []).unwrap();
             fs::write(
-                dataset.join("tables/data_dict.parquet"),
+                dataset.join("bindings.json"),
+                serde_json::to_vec(&serde_json::json!({
+                    "bindings": [
+                        {
+                            "pack": "alpha",
+                            "source": "facts",
+                            "kind": "materialized",
+                            "arguments": ["--capture", "saved.bin"],
+                            "working_directory": working_directory,
+                            "tables": ["data_dict"],
+                        },
+                        {
+                            "pack": "zeta",
+                            "source": "remote",
+                            "kind": "external",
+                            "arguments": ["--endpoint", "https://example.invalid"],
+                            "working_directory": dunce::canonicalize(temporary.path()).unwrap(),
+                        },
+                    ],
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            fs::write(
+                dataset.join("sources/alpha/facts/tables/data_dict.parquet"),
                 base64::engine::general_purpose::STANDARD
                     .decode(PARQUET)
                     .unwrap(),
@@ -216,6 +301,8 @@ fn query_projects_dataset_state_and_only_sends_available_dataset() {
             &captured,
             "SELECT * FROM output.main",
         )
+        .args(["--pack-dir", alpha_pack.to_str().unwrap()])
+        .args(["--pack-dir", zeta_pack.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -234,11 +321,31 @@ fn query_projects_dataset_state_and_only_sends_available_dataset() {
             assert!(response["result"]["dataset"].get("tables").is_none());
             assert_eq!(request["dataset"]["path"], dataset.to_str().unwrap());
             assert!(request["dataset"].get("status").is_none());
+            assert_eq!(request["dataset"]["sources"][0]["pack"], "alpha");
+            assert_eq!(request["dataset"]["sources"][0]["source"], "facts");
+            assert_eq!(request["dataset"]["sources"][0]["kind"], "materialized");
+            assert_eq!(request["dataset"]["sources"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                request["dataset"]["sources"][0]["tables"][0]["name"],
+                "data_dict"
+            );
             assert!(
-                request["dataset"]["tables"]["data_dict"]
+                request["dataset"]["sources"][0]["tables"][0]["path"]
                     .as_str()
                     .unwrap()
                     .ends_with("data_dict.parquet")
+            );
+            assert_eq!(request["dataset"]["sources"][1]["pack"], "zeta");
+            assert_eq!(request["dataset"]["sources"][1]["kind"], "external");
+            assert_eq!(
+                request["pack_search"],
+                serde_json::json!({
+                    "candidates": {
+                        "alpha": [alpha_pack],
+                        "zeta": [zeta_pack],
+                    },
+                    "issues": [],
+                })
             );
             assert!(log.contains("dataset_status: available"));
             assert!(!log.contains("dataset_cause:"));
@@ -262,6 +369,75 @@ fn query_projects_dataset_state_and_only_sends_available_dataset() {
 }
 
 #[test]
+fn materialized_dataset_query_ignores_unrelated_invalid_and_duplicate_packs() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temporary.path());
+    let broken_pack = temporary.path().join("skill/assets/packs/broken-manifest");
+    fs::create_dir_all(&broken_pack).unwrap();
+    fs::write(broken_pack.join("pack.toml"), "not valid TOML = [").unwrap();
+    let duplicate_a = stage_pack(&temporary.path().join("duplicate-a"), "duplicate");
+    let duplicate_b = stage_pack(&temporary.path().join("duplicate-b"), "duplicate");
+    let dataset = temporary.path().join("dataset");
+    fs::create_dir_all(dataset.join("sources/alpha/facts/tables")).unwrap();
+    fs::write(dataset.join(".kat-dataset"), []).unwrap();
+    fs::write(
+        dataset.join("bindings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "bindings": [{
+                "pack": "alpha",
+                "source": "facts",
+                "kind": "materialized",
+                "arguments": [],
+                "working_directory": dunce::canonicalize(temporary.path()).unwrap(),
+                "tables": ["events"],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        dataset.join("sources/alpha/facts/tables/events.parquet"),
+        base64::engine::general_purpose::STANDARD
+            .decode(PARQUET)
+            .unwrap(),
+    )
+    .unwrap();
+    let dataset = dunce::canonicalize(dataset).unwrap();
+    let captured = temporary.path().join("request.json");
+
+    let output = dataset_command(
+        &binary,
+        temporary.path(),
+        &captured,
+        &dataset,
+        "SELECT * FROM alpha.facts.events",
+    )
+    .args(["--pack-dir", duplicate_a.to_str().unwrap()])
+    .args(["--pack-dir", duplicate_b.to_str().unwrap()])
+    .output()
+    .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request: serde_json::Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
+    assert_eq!(request["operation"], "query_dataset");
+    assert_eq!(
+        request["pack_search"]["candidates"]["duplicate"],
+        serde_json::json!([duplicate_a, duplicate_b])
+    );
+    assert!(
+        request["pack_search"]["issues"][0]
+            .as_str()
+            .unwrap()
+            .contains("failed to parse PACK manifest")
+    );
+}
+
+#[test]
 fn corrupt_manifest_never_starts_runtime() {
     let temporary = tempfile::tempdir().unwrap();
     let binary = stage_skill(temporary.path());
@@ -282,5 +458,38 @@ fn corrupt_manifest_never_starts_runtime() {
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["error"]["message"], "Run is corrupted");
     assert!(response.get("result").is_none());
+    assert!(!captured.exists());
+}
+
+#[test]
+fn invalid_explicit_pack_directory_never_starts_runtime() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temporary.path());
+    let default_pack = temporary.path().join("skill/assets/packs/alpha");
+    fs::create_dir_all(&default_pack).unwrap();
+    fs::write(
+        default_pack.join("pack.toml"),
+        "name = \"alpha\"\ntitle = \"Alpha\"\ndescription = \"default\"\nowner = \"tests\"\n",
+    )
+    .unwrap();
+    write_manifest(temporary.path(), None);
+    let captured = temporary.path().join("unexpected-request.json");
+    let missing = temporary.path().join("missing-explicit-pack");
+
+    let output = command(
+        &binary,
+        temporary.path(),
+        &captured,
+        "SELECT * FROM output.main",
+    )
+    .arg("--pack-dir")
+    .arg(&missing)
+    .output()
+    .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["error"]["message"], "PACK discovery failed");
+    assert!(!response["error"]["causes"].as_array().unwrap().is_empty());
     assert!(!captured.exists());
 }

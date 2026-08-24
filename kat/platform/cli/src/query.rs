@@ -1,9 +1,10 @@
 use std::{
+    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
 
-use clap::Args;
+use clap::{ArgGroup, Args};
 use miette::Diagnostic;
 use serde::Serialize;
 use thiserror::Error;
@@ -11,6 +12,7 @@ use thiserror::Error;
 use crate::{
     SkillRootError, locate_data_home, locate_skill_root,
     operation_log::{OperationLog, OperationLogError},
+    pack_discovery::{self, PackDiscoveryPaths},
     response,
     run::RunManifest,
     text_projection::project_inline_text,
@@ -18,13 +20,28 @@ use crate::{
 };
 
 #[derive(Args)]
+#[command(group(
+    ArgGroup::new("target")
+        .required(true)
+        .multiple(false)
+        .args(["run", "dataset"])
+))]
 pub(super) struct QueryArgs {
     /// Select one exact published Run ID.
     #[arg(long, value_name = "RUN_ID")]
-    run: String,
+    run: Option<String>,
+    /// Select one managed Dataset and expose its resolved Sources.
+    #[arg(long, value_name = "DIRECTORY")]
+    dataset: Option<PathBuf>,
+    #[arg(
+        long = "pack-dir",
+        value_name = "DIRECTORY",
+        help = "Add a PACK candidate directory for this command. Repeat to add more candidate directories."
+    )]
+    pack_directories: Vec<PathBuf>,
     /// Execute one unmodified DataFusion SQL query without changing KAT-managed state.
     ///
-    /// Local read sources and resource use are the user's responsibility. The complete
+    /// Local files read by the query and its resource use are the user's responsibility. The complete
     /// SQL value is retained in the Query Operation log.
     #[arg(long, value_name = "SQL")]
     sql: String,
@@ -79,18 +96,71 @@ pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryR
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let run_log = project_inline_text(&format!("{:?}", arguments.run));
+    let target_log = match (&arguments.run, &arguments.dataset) {
+        (Some(run), None) => format!("run: {:?}", project_inline_text(run)),
+        (None, Some(dataset)) => format!("dataset: {:?}", dataset),
+        _ => unreachable!("Clap requires exactly one Query target"),
+    };
     let sql_log = project_inline_text(&format!("{:?}", arguments.sql));
-    let mut log = match OperationLog::create(&data_home, "query", |file| {
-        writeln!(file, "operation: kat query\nrun: {run_log}\nsql: {sql_log}")
+    let log = match OperationLog::create(&data_home, "query", |file| {
+        writeln!(file, "operation: kat query\n{target_log}\nsql: {sql_log}")
     }) {
         Ok(log) => log,
         Err(error) => return log_failure(error),
     };
-    if let Err(source) = locate_skill_root() {
-        return finish_failure(log, QueryOperationError::SkillRoot(source));
+    let skill_root = match locate_skill_root() {
+        Ok(root) => root,
+        Err(source) => return finish_failure(log, QueryOperationError::SkillRoot(source)),
+    };
+    let discovery = match pack_discovery::discover_deferred(PackDiscoveryPaths {
+        skill_pack_search_directory: skill_root.join("assets").join("packs"),
+        data_home_pack_search_directory: data_home.join("packs"),
+        additional_pack_directories: arguments.pack_directories,
+    }) {
+        Ok(discovery) => discovery,
+        Err(source) => return finish_failure(log, QueryOperationError::Discovery { source }),
+    };
+    let pack_search = project_pack_search(discovery);
+    match (arguments.run, arguments.dataset) {
+        (Some(run), None) => execute_run_query(log, &data_home, run, arguments.sql, pack_search),
+        (None, Some(dataset)) => execute_dataset_query(log, dataset, arguments.sql, pack_search),
+        _ => unreachable!("Clap requires exactly one Query target"),
     }
-    let (run_path, manifest) = match read_run_manifest(&data_home, &arguments.run) {
+}
+
+fn project_pack_search(
+    discovery: pack_discovery::DeferredPackDiscovery,
+) -> workflow_runtime::QueryPackSearchRequest {
+    let (candidates, mut issues) = discovery.into_parts();
+    let candidates = candidates
+        .into_iter()
+        .filter_map(|(name, paths)| {
+            let paths = paths
+                .into_iter()
+                .filter_map(|path| match path.to_str() {
+                    Some(path) => Some(path.to_owned()),
+                    None => {
+                        issues.push(format!(
+                            "discovered PACK path cannot be represented as native Unicode: {path:?}"
+                        ));
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            (!paths.is_empty()).then_some((name, paths))
+        })
+        .collect::<BTreeMap<_, _>>();
+    workflow_runtime::QueryPackSearchRequest { candidates, issues }
+}
+
+fn execute_run_query(
+    mut log: OperationLog,
+    data_home: &Path,
+    run: String,
+    sql: String,
+    pack_search: workflow_runtime::QueryPackSearchRequest,
+) -> response::PreparedResponse<QueryResult> {
+    let (run_path, manifest) = match read_run_manifest(data_home, &run) {
         Ok(value) => value,
         Err(error) => return finish_failure(log, error),
     };
@@ -119,9 +189,62 @@ pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryR
             run_path: run_path_text,
             outputs,
             dataset: runtime_dataset,
-            sql: arguments.sql,
+            pack_search,
+            sql,
         },
     );
+    finish_runtime_outcome(outcome, public_dataset)
+}
+
+fn execute_dataset_query(
+    mut log: OperationLog,
+    dataset: PathBuf,
+    sql: String,
+    pack_search: workflow_runtime::QueryPackSearchRequest,
+) -> response::PreparedResponse<QueryResult> {
+    let dataset = match kat_datasource::resolve_dataset(&dataset) {
+        Ok(dataset) => dataset,
+        Err(source) => return finish_failure(log, QueryOperationError::Dataset { source }),
+    };
+    let dataset = match workflow_runtime::project_dataset(&dataset) {
+        Ok(dataset) => dataset,
+        Err(error) => {
+            return finish_failure(
+                log,
+                QueryOperationError::NonUnicodeDatasetPath {
+                    label: error.label,
+                    path: error.path,
+                },
+            );
+        }
+    };
+    let public_dataset = QueryDatasetResult::Available {
+        path: dataset.path.clone(),
+    };
+    if let Err(error) = log.append(
+        format!(
+            "dataset_status: available\ndataset_path: {:?}\n",
+            dataset.path
+        )
+        .as_bytes(),
+    ) {
+        return log_failure(error);
+    }
+    let outcome = workflow_runtime::execute_dataset_query_runtime(
+        log,
+        workflow_runtime::QueryDatasetInvocation {
+            dataset,
+            pack_search,
+            sql,
+        },
+    );
+    finish_runtime_outcome(outcome, public_dataset)
+}
+
+fn finish_runtime_outcome(
+    outcome: Result<workflow_runtime::QueryRunOutcome, workflow_runtime::QueryRunError>,
+    public_dataset: QueryDatasetResult,
+) -> response::PreparedResponse<QueryResult> {
     let (runtime, mut log) = match outcome {
         Ok(workflow_runtime::QueryRunOutcome::Success { result, log }) => (result, log),
         Ok(workflow_runtime::QueryRunOutcome::Failure {
@@ -341,6 +464,12 @@ enum QueryOperationError {
         "Inspect the partial log if present, then provide writable storage and retry"
     ))]
     IncompleteOperationLog(#[source] OperationLogError),
+    #[error("PACK discovery failed")]
+    #[diagnostic(help("Correct the invalid explicit PACK candidate and retry"))]
+    Discovery {
+        #[source]
+        source: pack_discovery::PackDiscoveryError,
+    },
     #[error("Run {run_id} does not exist")]
     #[diagnostic(help("Use the exact Run ID returned by a successful `kat run`"))]
     RunNotFound { run_id: String },
@@ -361,13 +490,65 @@ enum QueryOperationError {
     InvalidManifestFacts,
     #[error("Run path cannot be represented as native Unicode")]
     NonUnicodeRunPath,
+    #[error("Dataset resolution failed")]
+    #[diagnostic(help("Provide a valid Dataset, or recreate it from its Source configuration"))]
+    Dataset {
+        #[source]
+        source: kat_datasource::DatasetInspectionError,
+    },
+    #[error("{label} path cannot be represented as native Unicode: {path:?}")]
+    NonUnicodeDatasetPath { label: &'static str, path: PathBuf },
     #[error("failed to encode Query Operation log evidence")]
     EncodeLogEvidence(#[source] serde_json::Error),
 }
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
     use super::*;
+    use crate::{Cli, Operation};
+
+    #[test]
+    fn parser_requires_exactly_one_run_or_dataset_target() {
+        let cli = Cli::try_parse_from([
+            "kat",
+            "query",
+            "--dataset",
+            "dataset",
+            "--pack-dir",
+            "pack-a",
+            "--pack-dir",
+            "pack-b",
+            "--sql",
+            "SELECT 1",
+        ])
+        .unwrap();
+        let Operation::Query(arguments) = cli.operation else {
+            panic!("expected query operation");
+        };
+        assert_eq!(arguments.dataset, Some(PathBuf::from("dataset")));
+        assert_eq!(
+            arguments.pack_directories,
+            [PathBuf::from("pack-a"), PathBuf::from("pack-b")]
+        );
+        assert!(arguments.run.is_none());
+
+        assert!(Cli::try_parse_from(["kat", "query", "--sql", "SELECT 1"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "kat",
+                "query",
+                "--run",
+                "019f6e00-0000-7000-8000-000000000031",
+                "--dataset",
+                "dataset",
+                "--sql",
+                "SELECT 1",
+            ])
+            .is_err()
+        );
+    }
 
     #[test]
     fn dataset_projection_failure_becomes_unavailable_current_state() {

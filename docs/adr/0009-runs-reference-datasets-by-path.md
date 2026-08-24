@@ -4,6 +4,8 @@ status: accepted
 
 # Run 通过路径引用 Dataset 当前内容
 
+> ADR-0062 与 ADR-0063 保留 `kat run --dataset` 可选、显式路径身份和 Run 不保存历史 Dataset 快照的决定；省略时仍不选择或构造隐式 Dataset。它们把可用 Dataset 从匿名 `dataset.*` 改为按 PACK catalog 与 Source schema 注册的 External/Materialized Bindings，并把 External Provider 的取得推迟到对应 Source namespace 首次实际解析。一次 Run 或 Dataset Query 仍只选择一个 Dataset；比较两份来源数据应由一个 Source Provider 在同一 Binding 中将差异显式建模为字段，不增加多 `--dataset`、alias、merge 或 overlay。完整目录复制产生以新位置为身份的独立 Dataset；移动或重命名 Dataset 是未定义行为，旧 Run 尤其不承诺自动跟随，KAT 不提供 relocation 或引用改写。
+
 Dataset 没有独立 ID；其文件系统 canonical 绝对 Unicode 路径是 KAT 唯一记录的身份。Dataset Storage 使用成熟的平台路径能力，在解析已有 Dataset 时 canonicalize，在新 Dataset 创建后 canonicalize；它不手写 `.`、`..`、Windows 前缀、盘符或大小写规则。用户提供的 Dataset 根本身可以是平台能够正常解析的 symlink、junction/reparse alias 或挂载路径；KAT 不先分类或拒绝这些形态，而是验证解析后的目标目录与其中的直接普通 marker，返回和记录 canonical target path，不保留输入别名。悬空或无法 canonicalize 的路径自然失败。第一版只承诺本地目录；网络共享、device path 或其他特殊位置不增加识别、拒绝、URI 转换或兼容层，其底层行为不属于 KAT Interface。
 
 用户给出的相对 Dataset 路径以调用 `kat` 进程的当前工作目录为基准，不相对 Skill、binary、KAT Data Home 或 PACK。已有 Dataset 在解析时、新 Dataset 在创建成功后转换为 canonical absolute Unicode path；无法取得 cwd、无法 canonicalize 或无法无损表示都形成当前操作 failure，不使用 `to_string_lossy()`、cwd fallback 或输入拼写作为持久身份。

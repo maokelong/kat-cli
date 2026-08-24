@@ -38,6 +38,16 @@ jobs:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: x86_64-unknown-linux-gnu
 
+      - name: Install locked Builder dependencies
+        shell: bash
+        run: >-
+          /opt/python/cp314-cp314/bin/python -m pip install
+          --disable-pip-version-check
+          --no-deps
+          --only-binary=:all:
+          --require-hashes
+          -r build/requirements-builder.lock.txt
+
       - name: Install sccache
         id: sccache
         if: ${{ !inputs['cold-build'] }}

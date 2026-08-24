@@ -10,10 +10,9 @@ import unittest
 import uuid
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
-from _kat_runtime.request import TestPackRequest as _TestPackRequest
-from _kat_runtime.request import read_request
+from _kat_runtime.request import RuntimeRequestError, read_request
+from _source_dataset import materialized_dataset_request, write_materialized_source
 
 
 class PackTestingProcessTest(unittest.TestCase):
@@ -87,7 +86,6 @@ from kat.pack.helpers import rules
 @kat.workflow(
     name="analyze",
     title="Analyze",
-    required_tables=[],
     parameters={"minimum": "Minimum"},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
@@ -205,9 +203,12 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
     def test_selector_and_resolved_dataset_reach_kat_run(self) -> None:
         pack = self.pack()
         dataset = pack / "tests" / "datasets" / "sample"
-        dataset.mkdir(parents=True)
-        events = dataset / "events.parquet"
-        pq.write_table(pa.table({"value": [3, 7]}), events)
+        tables = write_materialized_source(
+            dataset,
+            pack="example",
+            source="facts",
+            tables={"events": pa.table({"value": [3, 7]})},
+        )
         self.replace_workflow(
             pack,
             '''import kat
@@ -215,12 +216,14 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
 @kat.workflow(
     name="analyze",
     title="Analyze",
-    required_tables=["events"],
     parameters={"minimum": "Minimum"},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
     """Analyze event values."""
-    return ctx.sql("SELECT value FROM events WHERE value >= $minimum", minimum=minimum)
+    return ctx.sql(
+        "SELECT value FROM example.facts.events WHERE value >= $minimum",
+        minimum=minimum,
+    )
 ''',
         )
         self.write_test(
@@ -239,10 +242,12 @@ def test_not_selected():
             self.request(
                 pack,
                 datasets={
-                    "sample": {
-                        "path": str(dataset.resolve()),
-                        "tables": {"events": str(events.resolve())},
-                    }
+                    "sample": materialized_dataset_request(
+                        dataset,
+                        pack="example",
+                        source="facts",
+                        tables=tables,
+                    )
                 },
                 tests=[selector],
             ),
@@ -260,9 +265,7 @@ def test_not_selected():
         self.assertIn("1 passed", terminal)
         self.assertNotIn("raw node id", terminal)
 
-    def test_private_test_request_constructs_cli_owned_facts_without_revalidation(
-        self,
-    ) -> None:
+    def test_private_test_request_rejects_unvalidated_cli_facts(self) -> None:
         request_path = self.root / "trusted-test-pack-request.json"
         request_path.write_text(
             json.dumps(
@@ -283,17 +286,8 @@ def test_not_selected():
             encoding="utf-8",
         )
 
-        request = read_request(request_path)
-
-        self.assertIsInstance(request, _TestPackRequest)
-        self.assertEqual(request.pack_name, "example")
-        self.assertEqual(request.pack_path, Path("PACK/../PACK"))
-        self.assertEqual(request.tests, ["../outside/test_workflow.py"])
-        self.assertEqual(request.datasets["sample"].path, Path("datasets/../sample"))
-        self.assertEqual(
-            request.datasets["sample"].tables,
-            {"not-a-table-name": Path("tables/../events.parquet")},
-        )
+        with self.assertRaises(RuntimeRequestError):
+            read_request(request_path)
 
     def test_summary_counts_setup_skips_without_counting_lifecycle_passes(self) -> None:
         pack = self.pack()
@@ -446,7 +440,7 @@ pytest.skip("module is not available", allow_module_level=True)
         self.assertIn("TypeError:", terminal)
         self.assertIn("unhashable type: 'list'", terminal)
         self.assertIn("kat_run(workflow=[])", terminal)
-        self.assertIn("_kat_runtime/testing.py", terminal.replace("\\", "/"))
+        self.assertIn("runtime/testing.py", terminal.replace("\\", "/"))
         self.assertNotIn("caused by: Workflow", terminal)
 
     def test_workflow_failures_keep_the_execution_cause_in_pytest_output(self) -> None:
@@ -470,7 +464,6 @@ pytest.skip("module is not available", allow_module_level=True)
 @kat.workflow(
     name="analyze",
     title="Analyze",
-    required_tables=[],
 )
 def analyze(ctx: kat.Context):
     """Stop the workflow with a known execution failure."""

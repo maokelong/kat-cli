@@ -16,6 +16,17 @@ pub(crate) struct DiscoveredPacks {
     packs: BTreeMap<String, DiscoveredPack>,
 }
 
+pub(crate) struct DeferredPackDiscovery {
+    candidates: BTreeMap<String, Vec<PathBuf>>,
+    issues: Vec<String>,
+}
+
+impl DeferredPackDiscovery {
+    pub(crate) fn into_parts(self) -> (BTreeMap<String, Vec<PathBuf>>, Vec<String>) {
+        (self.candidates, self.issues)
+    }
+}
+
 impl DiscoveredPacks {
     pub(crate) fn iter(&self) -> impl Iterator<Item = &DiscoveredPack> {
         self.packs.values()
@@ -77,6 +88,21 @@ pub(crate) fn discover(paths: PackDiscoveryPaths) -> Result<DiscoveredPacks, Pac
     Ok(DiscoveredPacks { packs: state.packs })
 }
 
+pub(crate) fn discover_deferred(
+    paths: PackDiscoveryPaths,
+) -> Result<DeferredPackDiscovery, PackDiscoveryError> {
+    let mut state = DeferredDiscoveryState::default();
+    discover_search_directory_deferred(&paths.skill_pack_search_directory, &mut state);
+    discover_search_directory_deferred(&paths.data_home_pack_search_directory, &mut state);
+    for directory in paths.additional_pack_directories {
+        state.discover_candidate(&directory)?;
+    }
+    Ok(DeferredPackDiscovery {
+        candidates: state.candidates,
+        issues: state.issues,
+    })
+}
+
 pub(crate) fn discover_pack_at(directory: &Path) -> Result<DiscoveredPack, PackDiscoveryError> {
     let mut state = DiscoveryState::default();
     state.discover_candidate(directory)?;
@@ -91,6 +117,37 @@ pub(crate) fn discover_pack_at(directory: &Path) -> Result<DiscoveredPack, PackD
 struct DiscoveryState {
     directories: BTreeSet<PathBuf>,
     packs: BTreeMap<String, DiscoveredPack>,
+}
+
+#[derive(Default)]
+struct DeferredDiscoveryState {
+    directories: BTreeSet<PathBuf>,
+    candidates: BTreeMap<String, Vec<PathBuf>>,
+    issues: Vec<String>,
+}
+
+impl DeferredDiscoveryState {
+    fn discover_candidate(&mut self, directory: &Path) -> Result<(), PackDiscoveryError> {
+        let canonical_directory = dunce::canonicalize(directory).map_err(|source| {
+            PackDiscoveryError::CanonicalizePackDirectory {
+                path: directory.to_path_buf(),
+                source,
+            }
+        })?;
+        if !self.directories.insert(canonical_directory.clone()) {
+            return Ok(());
+        }
+        let pack = discover_pack_at(&canonical_directory)?;
+        self.candidates
+            .entry(pack.name)
+            .or_default()
+            .push(pack.directory);
+        Ok(())
+    }
+
+    fn record_issue(&mut self, error: PackDiscoveryError) {
+        self.issues.push(render_discovery_error(&error));
+    }
 }
 
 impl DiscoveryState {
@@ -205,6 +262,74 @@ fn discover_search_directory(
         }
     }
     Ok(())
+}
+
+fn discover_search_directory_deferred(search_directory: &Path, state: &mut DeferredDiscoveryState) {
+    let entries = match fs::read_dir(search_directory) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return,
+        Err(source) => {
+            state.record_issue(PackDiscoveryError::ReadSearchDirectory {
+                path: search_directory.to_path_buf(),
+                source,
+            });
+            return;
+        }
+    };
+    let mut collected = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => collected.push(entry),
+            Err(source) => state.record_issue(PackDiscoveryError::EnumerateSearchDirectory {
+                path: search_directory.to_path_buf(),
+                source,
+            }),
+        }
+    }
+    collected.sort_by_key(fs::DirEntry::path);
+
+    for entry in collected {
+        let entry_path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(source) => {
+                state.record_issue(PackDiscoveryError::InspectSearchEntry {
+                    path: entry_path,
+                    source,
+                });
+                continue;
+            }
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        match fs::symlink_metadata(entry_path.join("pack.toml")) {
+            Ok(_) => {
+                if let Err(error) = state.discover_candidate(&entry_path) {
+                    state.record_issue(error);
+                }
+            }
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => state.record_issue(PackDiscoveryError::InspectManifestPath {
+                path: entry_path.join("pack.toml"),
+                source,
+            }),
+        }
+    }
+}
+
+fn render_discovery_error(error: &PackDiscoveryError) -> String {
+    let mut rendered = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !text.trim().is_empty() {
+            rendered.push_str(": ");
+            rendered.push_str(&text);
+        }
+        source = cause.source();
+    }
+    rendered
 }
 
 fn validate_pack_name(name: &str, manifest_path: &Path) -> Result<(), PackDiscoveryError> {
@@ -495,6 +620,52 @@ owner = "Charlie Team"
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn deferred_discovery_retains_valid_duplicates_and_unrelated_issues() {
+        let temporary = tempfile::tempdir().expect("create temporary directory");
+        let skill_packs = temporary.path().join("skill-packs");
+        let first = skill_packs.join("first");
+        let broken = skill_packs.join("broken");
+        let second = temporary.path().join("second");
+        write_pack(&first, &valid_manifest("duplicate"));
+        write_pack(&second, &valid_manifest("duplicate"));
+        write_pack(&broken, "not valid TOML = [");
+
+        let discovery = discover_deferred(PackDiscoveryPaths {
+            skill_pack_search_directory: skill_packs,
+            data_home_pack_search_directory: temporary.path().join("missing-data"),
+            additional_pack_directories: vec![second],
+        })
+        .unwrap();
+        let (candidates, issues) = discovery.into_parts();
+
+        assert_eq!(candidates["duplicate"].len(), 2);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].contains("failed to parse PACK manifest"));
+    }
+
+    #[test]
+    fn deferred_discovery_rejects_an_invalid_explicit_candidate() {
+        let temporary = tempfile::tempdir().expect("create temporary directory");
+        let default_pack = temporary.path().join("skill-packs").join("alpha");
+        write_pack(&default_pack, &valid_manifest("alpha"));
+        let missing = temporary.path().join("missing-explicit-pack");
+
+        let error = match discover_deferred(PackDiscoveryPaths {
+            skill_pack_search_directory: temporary.path().join("skill-packs"),
+            data_home_pack_search_directory: temporary.path().join("missing-data"),
+            additional_pack_directories: vec![missing.clone()],
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("an explicit missing PACK directory must fail immediately"),
+        };
+
+        assert!(matches!(
+            error,
+            PackDiscoveryError::CanonicalizePackDirectory { path, .. } if path == missing
+        ));
     }
 
     #[test]

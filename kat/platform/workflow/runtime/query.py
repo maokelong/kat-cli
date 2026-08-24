@@ -10,7 +10,8 @@ import pyarrow as pa
 from datafusion import SQLOptions, SessionContext
 from datafusion.catalog import Schema
 
-from .request import QueryRunRequest, ResolvedDatasetRef
+from .request import QueryDatasetRequest, QueryRunRequest
+from .sources import _PRIVATE_DEFAULT_CATALOG, open_source_operation
 
 
 _READ_ONLY = (
@@ -30,19 +31,35 @@ class QueryRunRuntimeResult:
 
 
 def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
-    session = SessionContext().enable_url_table()
-    _register_schema(
-        session,
-        "output",
-        {
-            name: request.run_path / "outputs" / f"{name}.parquet"
-            for name in request.outputs
-        },
-    )
-    if request.dataset is not None:
-        _register_schema(session, "dataset", request.dataset.tables)
+    with open_source_operation(
+        current_pack=None,
+        dataset=request.dataset,
+        pack_search=request.pack_search,
+        enable_url_table=True,
+    ) as operation:
+        _register_schema(
+            operation.session,
+            "output",
+            {
+                name: request.run_path / "outputs" / f"{name}.parquet"
+                for name in request.outputs
+            },
+        )
+        return _query(operation.session, request.sql)
 
-    frame = session.sql(request.sql, options=_READ_ONLY)
+
+def query_dataset(request: QueryDatasetRequest) -> QueryRunRuntimeResult:
+    with open_source_operation(
+        current_pack=None,
+        dataset=request.dataset,
+        pack_search=request.pack_search,
+        enable_url_table=True,
+    ) as operation:
+        return _query(operation.session, request.sql)
+
+
+def _query(session: SessionContext, sql: str) -> QueryRunRuntimeResult:
+    frame = session.sql(sql, options=_READ_ONLY)
     schema = frame.schema()
     _validate_result_types(schema)
     return QueryRunRuntimeResult(
@@ -59,7 +76,7 @@ def _register_schema(
     schema = Schema.memory_schema()
     for table_name, path in tables.items():
         schema.register_table(table_name, session.read_parquet(str(path)))
-    session.catalog().register_schema(name, schema)
+    session.catalog(_PRIVATE_DEFAULT_CATALOG).register_schema(name, schema)
 
 
 def _collect_rows(frame: Any) -> list[list[object]]:

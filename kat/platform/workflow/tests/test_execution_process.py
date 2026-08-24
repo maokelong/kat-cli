@@ -13,6 +13,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from _clock_dataset import write_clock_dataset
+from _source_dataset import (
+    materialized_dataset_request,
+    write_materialized_source,
+)
 
 
 class WorkflowExecutionProcessTest(unittest.TestCase):
@@ -54,7 +58,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def pack(self, body: str, *, required_tables: str = "['events']") -> Path:
+    def pack(self, body: str) -> Path:
         pack = self.root / f"pack-{uuid.uuid4().hex}"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
@@ -63,7 +67,6 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
 @kat.workflow(
     name="analyze",
     title="Analyze",
-    required_tables={required_tables},
     parameters={{"minimum": "Minimum", "window": "Window"}},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms"):
@@ -105,6 +108,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             "operation": "run_workflow",
             "pack_name": "example",
             "pack_path": str(pack),
+            "pack_paths": {"example": str(pack)},
             "workflow_name": "analyze",
             "arguments": arguments or [],
             "candidate_id": candidate_id,
@@ -119,18 +123,22 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             '''    import logging
     logging.getLogger("pack").info("executed")
     selected = ctx.sql(
-        "SELECT value FROM events WHERE value >= $minimum ORDER BY value",
+        "SELECT value FROM example.facts.events WHERE value >= $minimum ORDER BY value",
         minimum=minimum,
     )
     empty = ctx.sql("SELECT CAST(NULL AS BIGINT) AS value WHERE FALSE")
     return {"selected_rows": selected, "empty_rows": empty}'''
         )
         dataset = self.root / "dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        secret = dataset / "secret.parquet"
-        pq.write_table(pa.table({"value": [1, 3, 2]}), events)
-        pq.write_table(pa.table({"value": [99]}), secret)
+        tables = write_materialized_source(
+            dataset,
+            pack="example",
+            source="facts",
+            tables={
+                "events": pa.table({"value": [1, 3, 2]}),
+                "secret": pa.table({"value": [99]}),
+            },
+        )
         candidate_id, candidate = self.candidate()
 
         completed, response = self.run_runtime(
@@ -138,13 +146,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                 pack,
                 candidate_id,
                 candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "events": str(events.resolve()),
-                        "secret": str(secret.resolve()),
-                    },
-                },
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="facts",
+                    tables=tables,
+                ),
                 arguments=["--minimum", "2", "--window", "0.005s"],
             )
         )
@@ -173,10 +180,304 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertFalse((candidate / "manifest.json").exists())
 
+    def test_run_queries_an_external_official_datafusion_schema_lazily(self) -> None:
+        pack = self.pack(
+            '''    return ctx.sql(
+        "SELECT value FROM example.official.events ORDER BY value"
+    )'''
+        )
+        (pack / "sources").mkdir()
+        (pack / "sources" / "official.py").write_text(
+            '''from datafusion.catalog import Schema, Table
+import pyarrow as pa
+import pyarrow.dataset as ds
+from kat import source
+
+@source(name="official")
+def provide():
+    schema = Schema.memory_schema()
+    schema.register_table(
+        "events",
+        Table(ds.dataset(pa.table({"value": [2, 1]}))),
+    )
+    return schema
+''',
+            encoding="utf-8",
+        )
+        dataset = self.root / "external-official-schema"
+        dataset.mkdir()
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset={
+                    "path": str(dataset.resolve()),
+                    "sources": [
+                        {
+                            "pack": "example",
+                            "source": "official",
+                            "kind": "external",
+                            "arguments": [],
+                            "working_directory": str(self.root.resolve()),
+                        }
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        output = pq.read_table(candidate / "outputs" / "main.parquet")
+        self.assertEqual(output.to_pydict(), {"value": [1, 2]})
+
+    def test_run_does_not_resolve_an_unused_external_source(self) -> None:
+        pack = self.pack(
+            '''    return ctx.sql(
+        "SELECT value FROM example.used.events ORDER BY value"
+    )'''
+        )
+        (pack / "sources").mkdir()
+        (pack / "sources" / "used.py").write_text(
+            '''from datafusion.catalog import Schema, Table
+import pyarrow as pa
+import pyarrow.dataset as ds
+from kat import source
+
+@source(name="used")
+def provide():
+    schema = Schema.memory_schema()
+    schema.register_table(
+        "events",
+        Table(ds.dataset(pa.table({"value": [2, 1]}))),
+    )
+    return schema
+''',
+            encoding="utf-8",
+        )
+        marker = self.root / "unused-source-entry-called.txt"
+        (pack / "sources" / "unused.py").write_text(
+            f'''from pathlib import Path
+from kat import source
+
+MARKER = Path({str(marker)!r})
+
+@source(name="unused")
+def provide():
+    MARKER.write_text("called", encoding="utf-8")
+    raise AssertionError("unused Source Entry must not run")
+''',
+            encoding="utf-8",
+        )
+        dataset = self.root / "external-used-and-unused-sources"
+        dataset.mkdir()
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset={
+                    "path": str(dataset.resolve()),
+                    "sources": [
+                        {
+                            "pack": "example",
+                            "source": source,
+                            "kind": "external",
+                            "arguments": [],
+                            "working_directory": str(self.root.resolve()),
+                        }
+                        for source in ("unused", "used")
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
+            {"value": [1, 2]},
+        )
+        self.assertFalse(marker.exists())
+
+    def test_cross_pack_external_source_resolution_does_not_require_guide(self) -> None:
+        workflow_pack = self.pack(
+            '''    return ctx.sql(
+        "SELECT value FROM other.facts.events ORDER BY value"
+    )'''
+        )
+        source_pack = self.root / "guide-free-source-pack"
+        (source_pack / "sources").mkdir(parents=True)
+        (source_pack / "sources" / "facts.py").write_text(
+            '''from datafusion.catalog import Schema, Table
+import pyarrow as pa
+import pyarrow.dataset as ds
+from kat import source
+
+@source(name="facts")
+def provide():
+    schema = Schema.memory_schema()
+    schema.register_table(
+        "events",
+        Table(ds.dataset(pa.table({"value": [2, 1]}))),
+    )
+    return schema
+''',
+            encoding="utf-8",
+        )
+        dataset = self.root / "cross-pack-external-source"
+        dataset.mkdir()
+        candidate_id, candidate = self.candidate()
+        request = self.request(
+            workflow_pack,
+            candidate_id,
+            candidate,
+            dataset={
+                "path": str(dataset.resolve()),
+                "sources": [
+                    {
+                        "pack": "other",
+                        "source": "facts",
+                        "kind": "external",
+                        "arguments": [],
+                        "working_directory": str(self.root.resolve()),
+                    }
+                ],
+            },
+        )
+        request["pack_paths"]["other"] = str(source_pack.resolve())
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
+            {"value": [1, 2]},
+        )
+
+    def test_lazy_source_resolution_preserves_the_original_error_chain(self) -> None:
+        pack = self.pack('    return ctx.sql("SELECT * FROM example.broken.events")')
+        (pack / "sources").mkdir()
+        (pack / "sources" / "broken.py").write_text(
+            '''from kat import source
+
+@source(name="broken")
+def provide():
+    raise ValueError("provider setup failed")
+''',
+            encoding="utf-8",
+        )
+        dataset = self.root / "external-broken-source"
+        dataset.mkdir()
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset={
+                    "path": str(dataset.resolve()),
+                    "sources": [
+                        {
+                            "pack": "example",
+                            "source": "broken",
+                            "kind": "external",
+                            "arguments": [],
+                            "working_directory": str(self.root.resolve()),
+                        }
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure", response)
+        self.assertIn("Source example.broken could not be resolved", response["error"]["causes"])
+        self.assertIn("provider setup failed", response["error"]["causes"])
+
+    def test_ffi_schema_export_failure_is_cached_with_its_original_cause(self) -> None:
+        pack = self.pack(
+            '''    for _ in range(2):
+        try:
+            ctx.sql("SELECT * FROM example.native.events")
+        except Exception:
+            pass
+    return ctx.sql("SELECT * FROM example.native.events")'''
+        )
+        (pack / "sources").mkdir()
+        marker = self.root / "ffi-export-calls.txt"
+        (pack / "sources" / "native.py").write_text(
+            f'''from pathlib import Path
+from kat import source
+
+MARKER = Path({str(marker)!r})
+
+class BrokenExporter:
+    def __datafusion_schema_provider__(self, codec):
+        calls = int(MARKER.read_text(encoding="utf-8")) if MARKER.exists() else 0
+        MARKER.write_text(str(calls + 1), encoding="utf-8")
+        raise ValueError("FFI schema export failed")
+
+@source(name="native")
+def provide():
+    return BrokenExporter()
+''',
+            encoding="utf-8",
+        )
+        dataset = self.root / "external-native-source"
+        dataset.mkdir()
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset={
+                    "path": str(dataset.resolve()),
+                    "sources": [
+                        {
+                            "pack": "example",
+                            "source": "native",
+                            "kind": "external",
+                            "arguments": [],
+                            "working_directory": str(self.root.resolve()),
+                        }
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(response["status"], "failure", response)
+        self.assertIn(
+            "Source example.native could not be resolved",
+            response["error"]["causes"],
+        )
+        self.assertIn(
+            "Source example.native failed earlier in this operation",
+            response["error"]["causes"],
+        )
+        self.assertIn("FFI schema export failed", response["error"]["causes"])
+        self.assertEqual(marker.read_text(encoding="utf-8"), "1")
+
     def test_empty_grant_runs_without_dataset_and_extra_table_is_not_visible(self) -> None:
         no_dataset_pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         completed, response = self.run_runtime(
@@ -191,23 +492,26 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         isolated_root.mkdir()
         grant_pack = self.pack('    return ctx.sql("SELECT * FROM secret")')
         dataset = self.root / "grant-dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        secret = dataset / "secret.parquet"
-        pq.write_table(pa.table({"value": [1]}), events)
-        pq.write_table(pa.table({"value": [99]}), secret)
+        tables = write_materialized_source(
+            dataset,
+            pack="example",
+            source="facts",
+            tables={
+                "events": pa.table({"value": [1]}),
+                "secret": pa.table({"value": [99]}),
+            },
+        )
         completed, response = self.run_runtime(
             self.request(
                 grant_pack,
                 isolated_id,
                 isolated_root.resolve(),
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "events": str(events.resolve()),
-                        "secret": str(secret.resolve()),
-                    },
-                },
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="facts",
+                    tables=tables,
+                ),
             )
         )
         self.assertEqual(completed.returncode, 0)
@@ -217,12 +521,91 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertNotIn(isolated_id, rendered)
         self.assertNotIn(str(isolated_root.resolve()), rendered)
 
+    def test_public_source_name_does_not_create_an_unqualified_table_alias(self) -> None:
+        dataset = self.root / "public-source-dataset"
+        tables = write_materialized_source(
+            dataset,
+            pack="example",
+            source="public",
+            tables={"events": pa.table({"value": [7]})},
+        )
+        dataset_request = materialized_dataset_request(
+            dataset,
+            pack="example",
+            source="public",
+            tables=tables,
+        )
+
+        qualified_pack = self.pack(
+            '    return ctx.sql("SELECT value FROM public.events")'
+        )
+        candidate_id, candidate = self.candidate()
+        completed, response = self.run_runtime(
+            self.request(
+                qualified_pack,
+                candidate_id,
+                candidate,
+                dataset=dataset_request,
+            )
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
+            {"value": [7]},
+        )
+
+        unqualified_pack = self.pack('    return ctx.sql("SELECT value FROM events")')
+        candidate_id, candidate = self.candidate()
+        completed, response = self.run_runtime(
+            self.request(
+                unqualified_pack,
+                candidate_id,
+                candidate,
+                dataset=dataset_request,
+            )
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure", response)
+        rendered = json.dumps(response)
+        self.assertIn("events", rendered)
+        self.assertIn("not found", rendered.lower())
+
+    def test_run_rejects_materialized_table_directories(self) -> None:
+        dataset = self.root / "fragmented-run-dataset"
+        events = dataset / "sources" / "example" / "facts" / "tables" / "events.parquet"
+        events.mkdir(parents=True)
+        pq.write_table(pa.table({"value": [1]}), events / "part.parquet")
+        pack = self.pack('    return ctx.sql("SELECT value FROM facts.events")')
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="facts",
+                    tables={"events": events},
+                ),
+            )
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure", response)
+        self.assertIn("canonical file", json.dumps(response).lower())
+
     def test_read_only_sql_shapes_are_not_restricted_by_clock_validation(self) -> None:
         pack = self.pack(
             '''    return {
-        "explain": ctx.sql("EXPLAIN SELECT value FROM events"),
+        "explain": ctx.sql("EXPLAIN SELECT value FROM example.facts.events"),
         "tables": ctx.sql("SHOW TABLES"),
-        "describe": ctx.sql("DESCRIBE events"),
+        "schemata": ctx.sql(
+            "SELECT catalog_name, schema_name FROM information_schema.schemata"
+        ),
+        "describe": ctx.sql("DESCRIBE example.facts.events"),
         "parameter": ctx.sql("SELECT $value AS value", value=7),
         "timestamp": ctx.sql(
             "SELECT $value AS value",
@@ -231,9 +614,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     }'''
         )
         dataset = self.root / "sql-shapes-dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        pq.write_table(pa.table({"value": [1]}), events)
+        tables = write_materialized_source(
+            dataset,
+            pack="example",
+            source="facts",
+            tables={"events": pa.table({"value": [1]})},
+        )
         candidate_id, candidate = self.candidate()
 
         completed, response = self.run_runtime(
@@ -241,10 +627,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                 pack,
                 candidate_id,
                 candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {"events": str(events.resolve())},
-                },
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="facts",
+                    tables=tables,
+                ),
             )
         )
 
@@ -252,13 +640,31 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(response["status"], "success", response)
         self.assertEqual(
             set(response["result"]["outputs"]),
-            {"explain", "tables", "describe", "parameter", "timestamp"},
+            {"explain", "tables", "schemata", "describe", "parameter", "timestamp"},
         )
+        table_rows = pq.read_table(candidate / "outputs" / "tables.parquet").to_pylist()
+        self.assertTrue(
+            any(
+                row["table_catalog"] == "example"
+                and row["table_schema"] == "facts"
+                and row["table_name"] == "events"
+                for row in table_rows
+            ),
+            table_rows,
+        )
+        schema_rows = pq.read_table(
+            candidate / "outputs" / "schemata.parquet"
+        ).to_pylist()
+        visible_schemas = {
+            (row["catalog_name"], row["schema_name"])
+            for row in schema_rows
+        }
+        self.assertIn(("example", "__kat_workflow__"), visible_schemas)
+        self.assertIn(("example", "facts"), visible_schemas)
 
     def test_run_rejects_a_non_uuidv7_candidate_without_exposing_it(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id = "private-candidate"
         candidate = self.root / candidate_id
@@ -276,7 +682,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_run_request_rejects_explicit_null_and_unowned_dataset_paths(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         explicit_null = self.request(
@@ -301,7 +706,16 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             candidate,
             dataset={
                 "path": str(dataset.resolve()),
-                "tables": {"events": str(outside.resolve())},
+                "sources": [
+                    {
+                        "pack": "example",
+                        "source": "facts",
+                        "kind": "materialized",
+                        "tables": [
+                            {"name": "events", "path": str(outside.resolve())}
+                        ],
+                    }
+                ],
             },
         )
 
@@ -314,7 +728,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_workflow_system_exit_is_a_runtime_failure(self) -> None:
         pack = self.pack(
             '    raise SystemExit("Workflow requested exit")',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -342,7 +755,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             pass
     output_module.pq.ParquetWriter = FailingWriter
     return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))''',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -379,7 +791,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                 pack = self.pack(
                     f'''    frame = ctx.from_arrow(__import__("pyarrow").table({{"value": [7]}}))
     return {{"{reserved}": frame}}''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -397,7 +808,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         workflows.mkdir(parents=True)
         (workflows / "a.py").write_text(
             """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
     return ctx.from_arrow(__import__('pyarrow').table({'value': [1]}))
@@ -407,7 +818,7 @@ def analyze(ctx: Context):
         (workflows / "b.py").write_text(
             """from kat import Context, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', title='B')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
     return ctx.from_arrow(__import__('pyarrow').table({'value': [2]}))
@@ -442,10 +853,12 @@ def other(ctx: Context):
     }))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="realtime"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="realtime",
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         dataset, definitions, snapshots = self.clock_dataset()
         candidate_id, candidate = self.candidate()
@@ -455,13 +868,15 @@ def other(ctx: Context):
                 pack,
                 candidate_id,
                 candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "clock_domain": str(definitions.resolve()),
-                        "clock_snapshot": str(snapshots.resolve()),
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="clocks",
+                    tables={
+                        "clock_domain": definitions,
+                        "clock_snapshot": snapshots,
                     },
-                },
+                ),
             )
         )
 
@@ -487,10 +902,12 @@ def other(ctx: Context):
     }}))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="realtime"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="realtime",
         ).alias("realtime_clock_value")
     )''',
-                    required_tables="[]",
                 )
                 empty_id, empty_candidate = self.candidate()
                 completed, response = self.run_runtime(
@@ -498,13 +915,15 @@ def other(ctx: Context):
                         empty_pack,
                         empty_id,
                         empty_candidate.resolve(),
-                        dataset={
-                            "path": str(dataset.resolve()),
-                            "tables": {
-                                "clock_domain": str(definitions.resolve()),
-                                "clock_snapshot": str(snapshots.resolve()),
+                        dataset=materialized_dataset_request(
+                            dataset,
+                            pack="example",
+                            source="clocks",
+                            tables={
+                                "clock_domain": definitions,
+                                "clock_snapshot": snapshots,
                             },
-                        },
+                        ),
                     )
                 )
                 self.assertEqual(completed.returncode, 0)
@@ -514,20 +933,23 @@ def other(ctx: Context):
 
     def test_clock_sql_function_is_not_registered(self) -> None:
         dataset, definitions, snapshots = self.clock_dataset()
-        events = dataset / "events.parquet"
-        pq.write_table(
-            pa.table(
-                {
-                    "clock_domain": pa.array(["monotonic"], type=pa.string()),
-                    "clock_value": pa.array([105], type=pa.uint64()),
-                }
-            ),
-            events,
-        )
+        events = write_materialized_source(
+            dataset,
+            pack="example",
+            source="clocks",
+            tables={
+                "events": pa.table(
+                    {
+                        "clock_domain": pa.array(["monotonic"], type=pa.string()),
+                        "clock_value": pa.array([105], type=pa.uint64()),
+                    }
+                )
+            },
+        )["events"]
         sql_pack = self.pack(
             '''    return ctx.sql(
         "SELECT kat_convert_clock(clock_domain, clock_value, 'realtime') "
-        "AS realtime_clock_value FROM events"
+        "AS realtime_clock_value FROM example.clocks.events"
     )'''
         )
         sql_id, sql_candidate = self.candidate()
@@ -536,14 +958,16 @@ def other(ctx: Context):
                 sql_pack,
                 sql_id,
                 sql_candidate.resolve(),
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "events": str(events.resolve()),
-                        "clock_domain": str(definitions.resolve()),
-                        "clock_snapshot": str(snapshots.resolve()),
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="clocks",
+                    tables={
+                        "events": events,
+                        "clock_domain": definitions,
+                        "clock_snapshot": snapshots,
                     },
-                },
+                ),
             )
         )
         self.assertEqual(completed.returncode, 0)
@@ -573,10 +997,12 @@ def other(ctx: Context):
     }))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="realtime"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="realtime",
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         invalid_id, invalid_candidate = self.candidate()
         completed, response = self.run_runtime(
@@ -584,13 +1010,15 @@ def other(ctx: Context):
                 invalid_pack,
                 invalid_id,
                 invalid_candidate.resolve(),
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "clock_domain": str(definitions.resolve()),
-                        "clock_snapshot": str(snapshots.resolve()),
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="clocks",
+                    tables={
+                        "clock_domain": definitions,
+                        "clock_snapshot": snapshots,
                     },
-                },
+                ),
             )
         )
         self.assertEqual(completed.returncode, 0)
@@ -619,10 +1047,12 @@ def other(ctx: Context):
     }}))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain=target
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain=target,
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -677,10 +1107,12 @@ def other(ctx: Context):
     }}))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="monotonic"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="monotonic",
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -689,12 +1121,12 @@ def other(ctx: Context):
                         pack,
                         candidate_id,
                         candidate.resolve(),
-                        dataset={
-                            "path": str(dataset.resolve()),
-                            "tables": {
-                                "clock_domain": str(definitions.resolve())
-                            },
-                        },
+                        dataset=materialized_dataset_request(
+                            dataset,
+                            pack="example",
+                            source="clocks",
+                            tables={"clock_domain": definitions},
+                        ),
                     )
                 )
 
@@ -721,10 +1153,12 @@ def other(ctx: Context):
     }}))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="monotonic"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="monotonic",
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -733,12 +1167,12 @@ def other(ctx: Context):
                         pack,
                         candidate_id,
                         candidate.resolve(),
-                        dataset={
-                            "path": str(dataset.resolve()),
-                            "tables": {
-                                "clock_domain": str(definitions.resolve())
-                            },
-                        },
+                        dataset=materialized_dataset_request(
+                            dataset,
+                            pack="example",
+                            source="clocks",
+                            tables={"clock_domain": definitions},
+                        ),
                     )
                 )
 
@@ -755,7 +1189,7 @@ def other(ctx: Context):
                 ("realtime", "realtime", 1_000_000_000),
             ],
         )["clock_domain"]
-        invalid_snapshots = dataset / "clock_snapshot.parquet"
+        invalid_snapshots = definitions.parent / "clock_snapshot.parquet"
         pq.write_table(pa.table({"invalid": [1]}), invalid_snapshots)
         same_domain_pack = self.pack(
             '''    import pyarrow as pa
@@ -766,10 +1200,12 @@ def other(ctx: Context):
     }))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="monotonic"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="monotonic",
         ).alias("monotonic_clock_value")
     )''',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -778,13 +1214,15 @@ def other(ctx: Context):
                 same_domain_pack,
                 candidate_id,
                 candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "clock_domain": str(definitions.resolve()),
-                        "clock_snapshot": str(invalid_snapshots.resolve()),
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="clocks",
+                    tables={
+                        "clock_domain": definitions,
+                        "clock_snapshot": invalid_snapshots,
                     },
-                },
+                ),
             )
         )
 
@@ -802,10 +1240,12 @@ def other(ctx: Context):
     }))
     return frame.select(
         ctx.convert_clock(
-            col("clock_domain"), col("clock_value"), target_domain="realtime"
+            col("clock_domain"),
+            col("clock_value"),
+            source="clocks",
+            target_domain="realtime",
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         cross_id = "019f6e00-0000-7000-8000-000000000007"
         cross_candidate = self.root / cross_id
@@ -815,10 +1255,12 @@ def other(ctx: Context):
                 cross_domain_pack,
                 cross_id,
                 cross_candidate.resolve(),
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {"clock_domain": str(definitions.resolve())},
-                },
+                dataset=materialized_dataset_request(
+                    dataset,
+                    pack="example",
+                    source="clocks",
+                    tables={"clock_domain": definitions},
+                ),
             )
         )
         self.assertEqual(completed.returncode, 0)

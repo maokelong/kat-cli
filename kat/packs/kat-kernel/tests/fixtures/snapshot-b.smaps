@@ -1,0 +1,10 @@
+10000000-10001000 rw-p 00000000 00:00 0 /usr/bin/demo
+Size:                  4 kB
+Rss:                   3 kB
+Pss:                   2 kB
+VmFlags: rd wr mr mw me ac sd
+20000000-20001000 r--s 00000000 00:05 42
+Size:                  4 kB
+Rss:                   1 kB
+Pss:                   1 kB
+VmFlags: rd sh mr mw me ms sd

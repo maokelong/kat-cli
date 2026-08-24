@@ -4,6 +4,8 @@ status: accepted
 
 # 分析能力优先建立在薄 Query Engine 之上
 
+> ADR-0062 已以 PACK 只读 Source schema 和按查询解析的 Providers 取代逐 Workflow Table Grant；本文其余薄引擎与公共分析复用原则继续有效。
+
 Workflow Runtime 中的 DataFusion engine 只集中拥有 SessionContext、表与 UDF 注册、执行生命周期、Table Grant、资源限制和跨进程数据面等机制。KAT 自有分析能力优先作为公开 KAT Trace Library、Runtime 私有库或注册 UDF 建在引擎之上，再通过 `kat.trace`、SQL、DataFrame Expr 或必要的窄 Pack Authoring API 供 PACK 使用；同一能力不为不同入口维护平行实现。PACK 可以感知和组合公开的函数与类型，但不能获得底层 SessionContext 或任意修改注册表。
 
 实现优先复用随 Bundled Python Host 固定发布的成熟向量化库。Python 实现必须在 Arrow batch 上调用 PyArrow 等原生 kernels，不能把大列转换为 Python 对象逐行循环。KAT 不为尚未证实的性能问题预建 PyO3 module、FFI capsule、native wheel、Rust port trait 或双实现；这会扩大 Linux 与 Windows 的构建、测试和发布闭包，却不增加当前产品能力。

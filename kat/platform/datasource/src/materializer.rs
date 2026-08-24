@@ -7,43 +7,28 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use arrow_array::{
-    Array, ArrayRef, Int32Array, RecordBatch, StringArray, StructArray, UInt32Array, UInt64Array,
-    builder::LargeStringBuilder,
-};
-use arrow_schema::{DataType, Field, FieldRef, Schema};
-use datafusion::{
-    datasource::file_format::file_compression_type::FileCompressionType,
-    prelude::{JsonReadOptions, SessionContext},
-};
-use futures::StreamExt;
+use arrow_array::{ArrayRef, Int32Array, RecordBatch, StringArray, UInt32Array, UInt64Array};
+use arrow_schema::{DataType, Field, Schema};
 use parquet::arrow::{
     ArrowWriter,
-    arrow_reader::{
-        ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader,
-        ParquetRecordBatchReaderBuilder,
-    },
+    arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder},
 };
 
 use crate::{
-    arrow_table::ArrowTable,
-    dataset::{DatasetTableWriter, DatasetWriter},
-    dataset_writer::{DatasetPublication, DatasetTableFactory, DatasetWriteTarget},
+    dataset_writer::{DatasetWriteTarget, DatasetWriter as ManagedDatasetWriter},
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
-    formats::{hitrace, langfuse},
+    formats::hitrace,
     proto::kat::hitrace::FtraceCpuStatsMsg,
-    protobuf_source::{BufferOptions, native_hook::NativeHookSourceCapture},
     record::{TraceRecord, TraceRecordSink},
-    sinks::arrow::ArrowSink,
 };
 
-const HITRACE_DATASET_FLUSH_RECORDS: usize = 64 * 1024;
-const HITRACE_IMPORT_BATCH_ROWS: usize = 8192;
+const HITRACE_BATCH_ROWS: usize = 8192;
 const TICKS_PER_SECOND: u64 = 1_000_000_000;
 
 #[derive(Debug)]
-pub struct ImportedHitrace {
-    path: PathBuf,
+pub struct StagedHitrace {
+    tables_directory: PathBuf,
+    table_names: Vec<String>,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
 }
@@ -56,9 +41,9 @@ pub struct UnsupportedHitraceContent {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HitraceImportError {
+pub enum HitraceStagingError {
     #[error("{source}")]
-    Import {
+    Stage {
         #[source]
         source: anyhow::Error,
     },
@@ -69,9 +54,13 @@ pub enum HitraceImportError {
     },
 }
 
-impl ImportedHitrace {
-    pub fn path(&self) -> &Path {
-        &self.path
+impl StagedHitrace {
+    pub fn tables_directory(&self) -> &Path {
+        &self.tables_directory
+    }
+
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
     }
 
     pub fn unsupported_plugins(&self) -> &[String] {
@@ -97,36 +86,33 @@ impl UnsupportedHitraceContent {
     }
 }
 
-impl HitraceImportError {
-    fn import(source: anyhow::Error) -> Self {
-        Self::Import { source }
+impl HitraceStagingError {
+    fn stage(source: anyhow::Error) -> Self {
+        Self::Stage { source }
     }
 }
 
-pub fn import_hitrace(
+pub fn stage_hitrace(
     path: impl AsRef<Path>,
-    target: DatasetWriteTarget,
+    output_directory: impl AsRef<Path>,
     mut observe_unsupported: impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
-) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    import_hitrace_inner(path.as_ref(), target, &mut observe_unsupported)
+) -> std::result::Result<StagedHitrace, HitraceStagingError> {
+    stage_hitrace_inner(
+        path.as_ref(),
+        output_directory.as_ref(),
+        &mut observe_unsupported,
+    )
 }
 
-fn import_hitrace_inner(
+fn stage_hitrace_inner(
     path: &Path,
-    target: DatasetWriteTarget,
+    output_directory: &Path,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
-) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    let publication = DatasetPublication::stage(target)
-        .map_err(anyhow::Error::from)
-        .map_err(HitraceImportError::import)?;
+) -> std::result::Result<StagedHitrace, HitraceStagingError> {
+    // 先完成解析与完整性校验，再创建只允许为空的私有 staging。
     let mut sink = LongTermHitraceSink::new();
-    let mut source_capture =
-        NativeHookSourceCapture::new(BufferOptions::default(), publication.table_factory())
-            .map_err(HitraceImportError::import)?;
     let mut observer_failure = None;
     let decoded_report = {
-        let mut claim =
-            |envelope: &hitrace::profiler::PluginEnvelope<'_>| source_capture.try_claim(envelope);
         let mut observe = |content: &hitrace::UnsupportedHitraceContent| {
             let content = UnsupportedHitraceContent {
                 kind: content.kind,
@@ -139,29 +125,55 @@ fn import_hitrace_inner(
             }
             Ok(())
         };
-        hitrace::decode_file_with_report(path, &mut sink, &mut claim, &mut observe)
+        hitrace::decode_file_with_report(path, &mut sink, &mut observe)
     };
     if let Some(source) = observer_failure {
-        return Err(HitraceImportError::ObserveUnsupportedContent { source });
+        return Err(HitraceStagingError::ObserveUnsupportedContent { source });
     }
     let report = match decoded_report {
         Ok(report) => report,
         Err(failure) => {
-            return Err(HitraceImportError::import(failure.source.context(format!(
+            return Err(HitraceStagingError::stage(failure.source.context(format!(
                 "failed to decode hitrace file: {}",
                 path.display()
             ))));
         }
     };
-    let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
-    source_capture
-        .finish()
-        .context("failed to close staged profiler Source tables")
-        .map_err(HitraceImportError::import)?;
-    let prepared = decoded.prepare().map_err(HitraceImportError::import)?;
-    prepared
-        .publish(publication)
-        .map_err(HitraceImportError::import)
+    let decoded = sink.finish(report).map_err(HitraceStagingError::stage)?;
+
+    (|| -> Result<StagedHitrace> {
+        let mut writer =
+            ManagedDatasetWriter::begin(DatasetWriteTarget::write_to_empty(output_directory))?;
+        write_clock_domains(&mut writer, &decoded.clock_domains)?;
+        let clock_snapshots = decoded
+            .clock_snapshots
+            .map(ClockSnapshotSpool::into_reader)
+            .transpose()?;
+        write_clock_snapshots(
+            &mut writer,
+            &decoded.header_clock_snapshots,
+            clock_snapshots,
+        )?;
+        if let Some(switches) = decoded.switches {
+            write_sched_switches(
+                &mut writer,
+                switches.into_reader()?,
+                decoded
+                    .ftrace_clock
+                    .expect("switches require a validated clock"),
+            )?;
+        }
+        let table_names = writer.table_names();
+        let root = writer.finish()?;
+
+        Ok(StagedHitrace {
+            tables_directory: root.join("tables"),
+            table_names,
+            unsupported_plugins: decoded.unsupported_plugins,
+            unsupported_section_types: decoded.unsupported_section_types,
+        })
+    })()
+    .map_err(HitraceStagingError::stage)
 }
 
 struct DecodedLongTermHitrace {
@@ -172,67 +184,6 @@ struct DecodedLongTermHitrace {
     ftrace_clock: Option<FtraceClock>,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
-}
-
-/// 只允许已经完成 decode、领域校验与临时 spool 预读的事实进入 Dataset 写事务。
-struct PreparedImport {
-    clock_domains: RecordBatch,
-    header_clock_snapshots: Vec<RecordBatch>,
-    clock_snapshots: Option<ParquetRecordBatchReader>,
-    sched_switches: Option<(ParquetRecordBatchReader, FtraceClock)>,
-    unsupported_plugins: Vec<String>,
-    unsupported_section_types: Vec<u32>,
-}
-
-impl DecodedLongTermHitrace {
-    fn prepare(self) -> Result<PreparedImport> {
-        let clock_domains = clock_domain_batch(&self.clock_domains)?;
-        let header_clock_snapshots = self
-            .header_clock_snapshots
-            .chunks(HITRACE_IMPORT_BATCH_ROWS)
-            .map(clock_snapshot_batch)
-            .collect::<Result<Vec<_>>>()?;
-        let clock_snapshots = self
-            .clock_snapshots
-            .map(ClockSnapshotSpool::prepare)
-            .transpose()?;
-        let sched_switches = self
-            .switches
-            .map(|switches| -> Result<_> {
-                let clock = self
-                    .ftrace_clock
-                    .expect("switches require a validated clock");
-                Ok((switches.prepare()?, clock))
-            })
-            .transpose()?;
-
-        Ok(PreparedImport {
-            clock_domains,
-            header_clock_snapshots,
-            clock_snapshots,
-            sched_switches,
-            unsupported_plugins: self.unsupported_plugins,
-            unsupported_section_types: self.unsupported_section_types,
-        })
-    }
-}
-
-impl PreparedImport {
-    fn publish(self, publication: DatasetPublication) -> Result<ImportedHitrace> {
-        let tables = publication.table_factory();
-        write_clock_domains(&tables, self.clock_domains)?;
-        write_clock_snapshots(&tables, self.header_clock_snapshots, self.clock_snapshots)?;
-        if let Some((switches, clock)) = self.sched_switches {
-            write_sched_switches(&tables, switches, clock)?;
-        }
-        let path = publication.publish()?;
-
-        Ok(ImportedHitrace {
-            path,
-            unsupported_plugins: self.unsupported_plugins,
-            unsupported_section_types: self.unsupported_section_types,
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -619,7 +570,6 @@ fn snapshot_clock_domain(id: i32) -> Result<&'static str> {
 struct ClockSnapshotSpool {
     writer: ArrowWriter<File>,
     rows: Vec<ClockSnapshot>,
-    total_rows: usize,
 }
 
 impl ClockSnapshotSpool {
@@ -628,18 +578,13 @@ impl ClockSnapshotSpool {
         Ok(Self {
             writer: ArrowWriter::try_new(file, clock_snapshot_schema(), None)
                 .context("failed to open clock snapshot Parquet spool")?,
-            rows: Vec::with_capacity(HITRACE_IMPORT_BATCH_ROWS),
-            total_rows: 0,
+            rows: Vec::with_capacity(HITRACE_BATCH_ROWS),
         })
     }
 
     fn push(&mut self, row: ClockSnapshot) -> Result<()> {
         self.rows.push(row);
-        self.total_rows = self
-            .total_rows
-            .checked_add(1)
-            .context("clock snapshot spool row count overflows")?;
-        if self.rows.len() >= HITRACE_IMPORT_BATCH_ROWS {
+        if self.rows.len() >= HITRACE_BATCH_ROWS {
             self.flush_rows()?;
         }
         Ok(())
@@ -655,18 +600,19 @@ impl ClockSnapshotSpool {
             .context("failed to write clock snapshot Parquet spool")
     }
 
-    fn prepare(mut self) -> Result<ParquetRecordBatchReader> {
+    fn into_reader(mut self) -> Result<ParquetRecordBatchReader> {
         self.flush_rows()?;
-        let file = self
+        let mut file = self
             .writer
             .into_inner()
             .context("failed to finish clock snapshot Parquet spool")?;
-        prepare_spool_reader(
-            file,
-            clock_snapshot_schema(),
-            self.total_rows,
-            "clock snapshot",
-        )
+        file.seek(SeekFrom::Start(0))
+            .context("failed to rewind clock snapshot spool")?;
+        ParquetRecordBatchReaderBuilder::try_new(file)
+            .context("failed to read clock snapshot Parquet spool metadata")?
+            .with_batch_size(HITRACE_BATCH_ROWS)
+            .build()
+            .context("failed to open clock snapshot Parquet spool reader")
     }
 }
 
@@ -683,7 +629,6 @@ struct SwitchRow {
 struct SwitchSpool {
     writer: ArrowWriter<File>,
     rows: Vec<SwitchRow>,
-    total_rows: usize,
 }
 
 impl SwitchSpool {
@@ -692,18 +637,13 @@ impl SwitchSpool {
         Ok(Self {
             writer: ArrowWriter::try_new(file, switch_spool_schema(), None)
                 .context("failed to open sched_switch Parquet spool")?,
-            rows: Vec::with_capacity(HITRACE_IMPORT_BATCH_ROWS),
-            total_rows: 0,
+            rows: Vec::with_capacity(HITRACE_BATCH_ROWS),
         })
     }
 
     fn push(&mut self, row: SwitchRow) -> Result<()> {
         self.rows.push(row);
-        self.total_rows = self
-            .total_rows
-            .checked_add(1)
-            .context("sched_switch spool row count overflows")?;
-        if self.rows.len() >= HITRACE_IMPORT_BATCH_ROWS {
+        if self.rows.len() >= HITRACE_BATCH_ROWS {
             self.flush_rows()?;
         }
         Ok(())
@@ -745,81 +685,20 @@ impl SwitchSpool {
             .context("failed to write sched_switch Parquet spool")
     }
 
-    fn prepare(mut self) -> Result<ParquetRecordBatchReader> {
+    fn into_reader(mut self) -> Result<ParquetRecordBatchReader> {
         self.flush_rows()?;
-        let file = self
+        let mut file = self
             .writer
             .into_inner()
             .context("failed to finish sched_switch Parquet spool")?;
-        prepare_spool_reader(file, switch_spool_schema(), self.total_rows, "sched_switch")
+        file.seek(SeekFrom::Start(0))
+            .context("failed to rewind sched_switch spool")?;
+        ParquetRecordBatchReaderBuilder::try_new(file)
+            .context("failed to read sched_switch Parquet spool metadata")?
+            .with_batch_size(HITRACE_BATCH_ROWS)
+            .build()
+            .context("failed to open sched_switch Parquet spool reader")
     }
-}
-
-fn prepare_spool_reader(
-    mut file: File,
-    expected_schema: Arc<Schema>,
-    expected_rows: usize,
-    label: &str,
-) -> Result<ParquetRecordBatchReader> {
-    file.seek(SeekFrom::Start(0))
-        .with_context(|| format!("failed to rewind {label} spool"))?;
-    let metadata = ArrowReaderMetadata::load(&file, ArrowReaderOptions::default())
-        .with_context(|| format!("failed to read {label} Parquet spool metadata"))?;
-    if metadata.schema().as_ref() != expected_schema.as_ref() {
-        bail!(
-            "{label} Parquet spool schema differs from the planned schema: planned={expected_schema:?} actual={:?}",
-            metadata.schema()
-        );
-    }
-    let actual_rows = usize::try_from(metadata.metadata().file_metadata().num_rows())
-        .with_context(|| format!("{label} Parquet spool has an invalid row count"))?;
-    if actual_rows != expected_rows {
-        bail!(
-            "{label} Parquet spool row count differs: expected {expected_rows}, actual {actual_rows}"
-        );
-    }
-
-    let mut preflight_rows = 0_usize;
-    for row_group in 0..metadata.metadata().num_row_groups() {
-        let mut reader_file = file
-            .try_clone()
-            .with_context(|| format!("failed to clone {label} spool row group {row_group}"))?;
-        reader_file
-            .seek(SeekFrom::Start(0))
-            .with_context(|| format!("failed to rewind {label} spool row group {row_group}"))?;
-        let mut reader =
-            ParquetRecordBatchReaderBuilder::new_with_metadata(reader_file, metadata.clone())
-                .with_row_groups(vec![row_group])
-                .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
-                .build()
-                .with_context(|| format!("failed to open {label} spool row group {row_group}"))?;
-        for batch in &mut reader {
-            let batch = batch.with_context(|| {
-                format!("failed to preflight {label} spool row group {row_group}")
-            })?;
-            if batch.schema().as_ref() != expected_schema.as_ref() {
-                bail!(
-                    "{label} spool batch schema differs in row group {row_group}: planned={expected_schema:?} actual={:?}",
-                    batch.schema()
-                );
-            }
-            preflight_rows = preflight_rows
-                .checked_add(batch.num_rows())
-                .with_context(|| format!("{label} spool preflight row count overflows"))?;
-        }
-    }
-    if preflight_rows != expected_rows {
-        bail!(
-            "{label} spool preflight row count differs: expected {expected_rows}, actual {preflight_rows}"
-        );
-    }
-
-    file.seek(SeekFrom::Start(0))
-        .with_context(|| format!("failed to rewind preflighted {label} spool"))?;
-    ParquetRecordBatchReaderBuilder::new_with_metadata(file, metadata)
-        .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
-        .build()
-        .with_context(|| format!("failed to open preflighted {label} spool reader"))
 }
 
 fn switch_spool_schema() -> Arc<Schema> {
@@ -867,38 +746,38 @@ fn clock_snapshot_batch(rows: &[ClockSnapshot]) -> Result<RecordBatch> {
     )?)
 }
 
-fn clock_domain_batch(domains: &BTreeMap<String, String>) -> Result<RecordBatch> {
+fn write_clock_domains(
+    writer: &mut ManagedDatasetWriter,
+    domains: &BTreeMap<String, String>,
+) -> Result<()> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("clock_domain", DataType::Utf8, false),
         Field::new("clock_type", DataType::Utf8, false),
         Field::new("ticks_per_second", DataType::UInt64, false),
     ]));
-    Ok(RecordBatch::try_new(
+    let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![
             Arc::new(StringArray::from_iter_values(domains.keys())),
             Arc::new(StringArray::from_iter_values(domains.values())),
             Arc::new(UInt64Array::from(vec![TICKS_PER_SECOND; domains.len()])),
         ],
-    )?)
-}
-
-fn write_clock_domains(writer: &DatasetTableFactory, batch: RecordBatch) -> Result<()> {
-    let mut table = writer.begin_table("clock_domain", batch.schema())?;
+    )?;
+    let mut table = writer.begin_table("clock_domain", schema)?;
     table.write(&batch)?;
     table.finish()?;
     Ok(())
 }
 
 fn write_clock_snapshots(
-    writer: &DatasetTableFactory,
-    header_snapshots: Vec<RecordBatch>,
+    writer: &mut ManagedDatasetWriter,
+    header_snapshots: &[ClockSnapshot],
     mut snapshots: Option<ParquetRecordBatchReader>,
 ) -> Result<()> {
     let schema = clock_snapshot_schema();
     let mut table = writer.begin_table("clock_snapshot", Arc::clone(&schema))?;
-    for batch in &header_snapshots {
-        table.write(batch)?;
+    for rows in header_snapshots.chunks(HITRACE_BATCH_ROWS) {
+        table.write(&clock_snapshot_batch(rows)?)?;
     }
     if let Some(snapshots) = snapshots.as_mut() {
         for batch in snapshots {
@@ -910,7 +789,7 @@ fn write_clock_snapshots(
 }
 
 fn write_sched_switches(
-    writer: &DatasetTableFactory,
+    writer: &mut ManagedDatasetWriter,
     mut switches: ParquetRecordBatchReader,
     clock: FtraceClock,
 ) -> Result<()> {
@@ -933,270 +812,4 @@ fn write_sched_switches(
     }
     table.finish()?;
     Ok(())
-}
-
-pub async fn materialize_hitrace_dataset(
-    path: impl AsRef<Path>,
-    dataset_path: impl AsRef<Path>,
-) -> Result<()> {
-    let path = path.as_ref();
-    let dataset_path = dataset_path.as_ref();
-
-    let writer = DatasetWriter::create(dataset_path)?;
-    let mut sink = HitraceDatasetSink::new(writer)?;
-    hitrace::decode_file(path, &mut sink)
-        .with_context(|| format!("failed to decode hitrace file: {}", path.display()))?;
-    let writer = sink.finish()?;
-    writer.finish().await
-}
-
-pub async fn materialize_langfuse_legacy_dataset(
-    observations_path: impl AsRef<Path>,
-    traces_path: impl AsRef<Path>,
-    dataset_path: impl AsRef<Path>,
-) -> Result<()> {
-    let observations_path = observations_path.as_ref();
-    let traces_path = traces_path.as_ref();
-    let dataset_path = dataset_path.as_ref();
-
-    let mut writer = DatasetWriter::create(dataset_path)?;
-    write_langfuse_tables(&mut writer, observations_path, traces_path)
-        .await
-        .with_context(|| {
-            format!(
-                "failed to write Langfuse legacy dataset tables: {}",
-                dataset_path.display()
-            )
-        })?;
-    writer.finish().await
-}
-
-async fn write_langfuse_tables(
-    writer: &mut DatasetWriter,
-    observations_path: &Path,
-    traces_path: &Path,
-) -> Result<()> {
-    for table in langfuse::legacy_json_tables(observations_path, traces_path) {
-        write_langfuse_table(writer, table.name, table.path).await?;
-    }
-
-    Ok(())
-}
-
-struct HitraceDatasetSink {
-    arrow_sink: ArrowSink,
-    dataset_writer: DatasetWriter,
-    table_writers: Vec<OpenHitraceTableWriter>,
-    records_since_flush: usize,
-}
-
-struct OpenHitraceTableWriter {
-    name: &'static str,
-    writer: DatasetTableWriter,
-}
-
-impl HitraceDatasetSink {
-    fn new(dataset_writer: DatasetWriter) -> Result<Self> {
-        Ok(Self {
-            arrow_sink: ArrowSink::new()?,
-            dataset_writer,
-            table_writers: Vec::new(),
-            records_since_flush: 0,
-        })
-    }
-
-    fn finish(mut self) -> Result<DatasetWriter> {
-        self.flush_tables(true)?;
-        self.finish_open_tables()?;
-        Ok(self.dataset_writer)
-    }
-
-    fn finish_open_tables(&mut self) -> Result<()> {
-        for table in std::mem::take(&mut self.table_writers) {
-            self.dataset_writer.add_table(table.writer.finish()?);
-        }
-        Ok(())
-    }
-
-    fn flush_tables(&mut self, include_empty_tables: bool) -> Result<()> {
-        let tables = self.arrow_sink.flush()?;
-
-        for table in tables.tables {
-            let row_count = table_row_count(&table);
-            if row_count == 0 {
-                let already_open = self
-                    .table_writers
-                    .iter()
-                    .any(|open_table| open_table.name == table.name);
-                if already_open || !include_empty_tables {
-                    continue;
-                }
-            }
-
-            let writer = self.table_writer_for(&table)?;
-            for batch in &table.batches {
-                writer.write(batch)?;
-            }
-        }
-
-        self.records_since_flush = 0;
-        Ok(())
-    }
-
-    fn table_writer_for(&mut self, table: &ArrowTable) -> Result<&mut DatasetTableWriter> {
-        if let Some(index) = self
-            .table_writers
-            .iter()
-            .position(|open_table| open_table.name == table.name)
-        {
-            return Ok(&mut self.table_writers[index].writer);
-        }
-
-        let first_batch = table
-            .batches
-            .first()
-            .with_context(|| format!("hitrace table {} has no record batches", table.name))?;
-        let parquet_file_name = format!("hitrace.{}.parquet", table.name);
-        let writer = self.dataset_writer.start_table(
-            table.name,
-            &parquet_file_name,
-            first_batch.schema(),
-        )?;
-        self.table_writers.push(OpenHitraceTableWriter {
-            name: table.name,
-            writer,
-        });
-        let index = self.table_writers.len() - 1;
-
-        Ok(&mut self.table_writers[index].writer)
-    }
-}
-
-impl TraceRecordSink for HitraceDatasetSink {
-    fn push(&mut self, record: TraceRecord) -> Result<()> {
-        self.arrow_sink.push(record)?;
-        self.records_since_flush += 1;
-
-        if self.records_since_flush >= HITRACE_DATASET_FLUSH_RECORDS {
-            self.flush_tables(false)?;
-        }
-
-        Ok(())
-    }
-}
-
-fn table_row_count(table: &ArrowTable) -> usize {
-    table
-        .batches
-        .iter()
-        .map(RecordBatch::num_rows)
-        .sum::<usize>()
-}
-
-async fn write_langfuse_table(
-    dataset_writer: &mut DatasetWriter,
-    table_name: &str,
-    jsonl_path: &Path,
-) -> Result<()> {
-    let jsonl_path_str = jsonl_path.to_str().with_context(|| {
-        format!(
-            "Langfuse export path is not valid UTF-8: {}",
-            jsonl_path.display()
-        )
-    })?;
-    let staging_ctx = SessionContext::new();
-    // Keep parity with the legacy datasource's DataFusion JSON inference; explicit schema is future work.
-    let options = JsonReadOptions::default()
-        .file_extension(".jsonl.gz")
-        .file_compression_type(FileCompressionType::GZIP);
-
-    staging_ctx
-        .register_json(table_name, jsonl_path_str, options)
-        .await
-        .with_context(|| {
-            format!("failed to register Langfuse JSONL table {table_name} from {jsonl_path_str}")
-        })?;
-    let dataframe = staging_ctx.table(table_name).await.with_context(|| {
-        format!("failed to read Langfuse JSONL table {table_name} from {jsonl_path_str}")
-    })?;
-    let mut stream = dataframe.execute_stream().await.with_context(|| {
-        format!("failed to stream Langfuse JSONL table {table_name} from {jsonl_path_str}")
-    })?;
-
-    let parquet_file_name = format!("langfuse.{table_name}.parquet");
-    let mut parquet_writer = None;
-
-    while let Some(batch) = stream.next().await {
-        let batch = batch.with_context(|| {
-            format!("failed to stream Langfuse JSONL table {table_name} from {jsonl_path_str}")
-        })?;
-        let batch = parquet_compatible_langfuse_batch(batch)?;
-
-        if parquet_writer.is_none() {
-            parquet_writer =
-                Some(dataset_writer.start_table(table_name, &parquet_file_name, batch.schema())?);
-        }
-
-        parquet_writer
-            .as_mut()
-            .expect("writer is initialized before writing batches")
-            .write(&batch)?;
-    }
-
-    let Some(parquet_writer) = parquet_writer else {
-        bail!("Langfuse JSONL table {table_name} from {jsonl_path_str} produced no batches");
-    };
-    dataset_writer.add_table(parquet_writer.finish()?);
-
-    Ok(())
-}
-
-fn parquet_compatible_langfuse_batch(batch: RecordBatch) -> Result<RecordBatch> {
-    let schema = batch.schema();
-    let mut fields = Vec::with_capacity(schema.fields().len());
-    let mut columns = Vec::with_capacity(batch.num_columns());
-    let mut changed = false;
-
-    for (field, column) in schema.fields().iter().zip(batch.columns()) {
-        if matches!(field.data_type(), DataType::Struct(fields) if fields.is_empty()) {
-            changed = true;
-            fields.push(langfuse_json_string_field(field));
-            columns.push(empty_struct_column_to_json(column.as_ref())?);
-        } else {
-            fields.push(Arc::clone(field));
-            columns.push(Arc::clone(column));
-        }
-    }
-
-    if !changed {
-        return Ok(batch);
-    }
-
-    let schema = Schema::new_with_metadata(fields, schema.metadata().clone());
-    RecordBatch::try_new(Arc::new(schema), columns)
-        .context("failed to convert Langfuse empty object columns before Parquet write")
-}
-
-fn langfuse_json_string_field(field: &FieldRef) -> FieldRef {
-    let mut converted = Field::new(field.name(), DataType::LargeUtf8, field.is_nullable());
-    converted.set_metadata(field.metadata().clone());
-    Arc::new(converted)
-}
-
-fn empty_struct_column_to_json(column: &dyn Array) -> Result<ArrayRef> {
-    let struct_column = column
-        .as_any()
-        .downcast_ref::<StructArray>()
-        .context("Langfuse empty object column was not an Arrow struct array")?;
-    let mut builder = LargeStringBuilder::with_capacity(column.len(), column.len() * 2);
-
-    for row in 0..column.len() {
-        if struct_column.is_null(row) {
-            builder.append_null();
-        } else {
-            builder.append_value("{}");
-        }
-    }
-
-    Ok(Arc::new(builder.finish()))
 }

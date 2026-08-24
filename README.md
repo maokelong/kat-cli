@@ -22,7 +22,8 @@ cargo build --release -p kat-cli
 
 ## 运行前提
 
-`kat inspect --pack` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
+`kat inspect --pack`、`kat bind`、`kat materialize`、`kat test` 和 `kat run`
+需要带有相邻 Python Host 的完整 KAT Skill
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
@@ -53,8 +54,8 @@ global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公�
 归档；生成流水线因此在 `post-announce` 阶段校验最终资产和 SHA-256，再从 Release 删除该
 计划中间产物。Linux glibc 2.28 job 从最终压缩包完成发布资格闭环；Windows job 只在
 GitHub 托管的 `windows-2025` builder image
-验证候选归档的装配、重定位、Bundled Python 选择及 Import → Inspect → `kat test` →
-Run → Query 机制链路。该 Windows smoke 不构成无系统级 VC Runtime 的干净客户端验收，
+验证候选归档的装配、重定位、Bundled Python 选择及 Bind → Materialize → Inspect →
+`kat test` → Run → Query 机制链路。该 Windows smoke 不构成无系统级 VC Runtime 的干净客户端验收，
 Windows 10/11 正式支持仍由 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 跟踪。
 
 发布版本以 [`release/kat/dist.toml`](release/kat/dist.toml) 为入口；Cargo workspace 与
@@ -97,43 +98,72 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 以下命令只适用于满足上述拓扑的完整 KAT Skill deployment：
 
-- `kat import hitrace`：将 HiProfiler Hitrace 导入为受管理 Dataset。
-- `kat import trace-streamer`：预发布联调用的 deprecated Trace Streamer 导入。
 - `kat inspect`：列出或检查 PACK。
-- `kat inspect --dataset <directory>`：只读检查 Dataset 与 Parquet Schema。
+- `kat inspect --dataset <directory>`：只读检查 Dataset 的 Source Bindings 与已物化表。
+- `kat bind`：保存一个 PACK Source 的外部绑定配置，不读取来源数据。
+- `kat materialize`：读取一个 PACK Source，并把全部或指定表发布到 Dataset。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：执行一个 Workflow 并原子发布 Run。
-- `kat query`：只读查询已发布 Run 的 `output.*`。
+- `kat query --dataset`：查询 Dataset 中的 External 或 Materialized Sources；External Source 在首次引用时按需加载。
+- `kat query --run`：查询已发布 Run 的 `output.*`，以及关联 Dataset 当前可用的 Sources。
 
-使用外部 PACK 的调用模板如下；`/path/to/example-pack/pack.toml` 的 `name`
-应为 `example`，并声明 `analyze` Workflow：
+下面的例子把两份已采集 SMAPS 文件绑定到一个 Dataset，再运行 `kat-kernel` 的
+Workflow。`kat bind` 只校验 Source 参数并保存 Binding；真正读取文件发生在 Workflow
+首次查询 `raw_smaps` 下的表时：
 
 ```bash
-kat import --dataset ./dataset hitrace --trace ./capture.htrace
-kat inspect --dataset ./dataset
-kat run \
-  --pack example \
-  --workflow analyze \
-  --pack-dir /path/to/example-pack \
+kat bind \
+  --pack kat-kernel \
+  --source raw_smaps \
   --dataset ./dataset \
   -- \
-  --limit 20
+  --files ./snapshot-a.smaps \
+  --files ./snapshot-b.smaps
+
+kat inspect --dataset ./dataset
+kat run \
+  --pack kat-kernel \
+  --workflow process-memory-summary \
+  --dataset ./dataset
 ```
 
-`kat run` 将 `--` 后的 token 原样交给 Workflow Input Compiler。Operation log
-可能保留解析后的路径和这些参数，因此不得通过 Workflow arguments 传递秘密。
+若需要让事实脱离原始文件长期复用，可以显式物化整个 Source；省略 `--table` 就表示
+发布该 Source 当前提供的全部表：
+
+```bash
+kat materialize \
+  --pack kat-kernel \
+  --source raw_smaps \
+  --dataset ./dataset \
+  --replace
+
+kat query \
+  --dataset ./dataset \
+  --sql 'SELECT * FROM "kat-kernel".raw_smaps.snapshots ORDER BY snapshot_id'
+```
+
+Dataset 按 `(PACK identity, Source name)` 隔离 Binding。External Binding 会把 `--`
+后的原始 Source 参数和绑定时的绝对工作目录明文写入 Dataset；这些参数可以包含密码、
+Token 或 DSN，KAT 不提供加密、脱敏或保密保证。`kat run` 自己的 `--` 后参数仍只交给
+Workflow Input Compiler，也可能进入 Operation log。
 
 ## Run 公开合同
 
 `manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和
-Response 都通过校验后，CLI 才发布 Manifest。`kat query` 只接受已发布 Run，并通过
-`output.<name>` 查询 Manifest 声明的输出；不存在、未发布或损坏的 Run 都明确失败。
+Response 都通过校验后，CLI 才发布 Manifest。`kat query --run` 只接受已发布 Run，
+并通过 `output.<name>` 查询 Manifest 声明的输出；不存在、未发布或损坏的 Run 都明确
+失败。`kat query` 为 Dataset 当前的 External 与 Materialized Sources 提供同一套 DataFusion
+SQL 界面；查询 External Source 会在首次引用时执行对应 PACK 代码，必要时用可重复的
+`--pack-dir` 补充 PACK 候选。Materialized Source 不再执行 PACK。PACK identity 映射为
+DataFusion catalog，Source name 映射为 schema；跨 PACK 查询使用带引号的三段式名称，例如
+`"kat-kernel".raw_smaps.mappings`。
 
 PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 
 - `ctx.sql(sql, **params)`：普通只读 SQL。
 - `ctx.from_arrow(table)`：将 PyArrow Table 放入当前 execution plane。
-- `ctx.convert_clock(..., target_domain="...")`：通过 Runtime 私有的稳定
+- `ctx.convert_clock(..., source="...", target_domain="...", pack=None)`：按明确的
+  PACK/Source 身份读取时钟事实，并通过 Runtime 私有的稳定
   Python/PyArrow batch UDF 换算时钟。
 
 `kat_convert_clock(...)` 不注册为 SQL 函数；SQL 直接调用会按未知函数失败。
@@ -149,14 +179,17 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-Workflow Runtime：
+Workflow Runtime（CPython 3.14）：
 
 ```bash
-python -I -B -m unittest discover -s kat/platform/workflow/tests -p "test_*.py"
+cd kat/platform/workflow
+python -I -B -m pytest -q -p no:cacheprovider tests
 ```
 
 ## 架构与领域文档
 
 - [领域词汇](CONTEXT.md)
 - [架构决策](docs/adr/README.md)
+- [PACK 数据底座与来源扩展](docs/pack-data-foundation.md)
+- [PACK Sources 实现 SDD](docs/sdd/2026-08-24-pack-sources.md)
 - [贡献协议](AGENTS.md)
