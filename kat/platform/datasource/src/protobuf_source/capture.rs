@@ -3,10 +3,12 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use arrow_schema::{DataType, Field, Schema};
 
+use crate::dataset_writer::DatasetTableFactory;
+
 use super::{
-    EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSlot, RelationSpec, SpoolOptions,
+    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSlot, RelationSpec,
+    buffered_table::ActiveTable,
     spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
-    spool::{ActiveTable, PreparedSourceTable},
 };
 
 struct RelationState {
@@ -45,15 +47,20 @@ impl SourceTableLayout {
         self.enum_origins.push(origin);
     }
 
-    pub(crate) fn into_capture(self, options: SpoolOptions) -> Result<SourceTableCapture> {
-        SourceTableCapture::new(self.relations, self.enum_origins, options)
+    pub(crate) fn into_capture(
+        self,
+        options: BufferOptions,
+        tables: DatasetTableFactory,
+    ) -> Result<SourceTableCapture> {
+        SourceTableCapture::new(self.relations, self.enum_origins, options, tables)
     }
 }
 
 pub(crate) struct SourceTableCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,
-    options: SpoolOptions,
+    options: BufferOptions,
+    tables: DatasetTableFactory,
     poisoned: Option<String>,
 }
 
@@ -61,7 +68,8 @@ impl SourceTableCapture {
     pub(crate) fn new(
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
-        options: SpoolOptions,
+        options: BufferOptions,
+        tables: DatasetTableFactory,
     ) -> Result<Self> {
         options.validate()?;
         validate_specs(&relations, &enum_origins)?;
@@ -76,6 +84,7 @@ impl SourceTableCapture {
                 .collect(),
             enum_origins,
             options,
+            tables,
             poisoned: None,
         })
     }
@@ -112,15 +121,16 @@ impl SourceTableCapture {
     {
         self.ensure_healthy()?;
         let options = self.options;
+        let tables = self.tables.clone();
         let result = (|| {
             let state = self.relation_mut(relation)?;
             if state.active.is_none() {
-                state.active = Some(ActiveTable::new(state.spec.clone(), options)?);
+                state.active = Some(ActiveTable::new(state.spec.clone(), options, &tables)?);
             }
             state
                 .active
                 .as_mut()
-                .expect("protobuf Source relation spool is initialized")
+                .expect("protobuf Source relation buffer is initialized")
                 .append_row(row)
         })();
         if let Err(error) = result {
@@ -133,7 +143,7 @@ impl SourceTableCapture {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         if let Some(source) = self.poisoned {
             bail!("protobuf Source capture is poisoned by an earlier failure: {source}");
         }
@@ -141,26 +151,25 @@ impl SourceTableCapture {
         let active_relations = self
             .relations
             .iter()
-            .map(|state| state.active.as_ref().is_some_and(ActiveTable::has_rows))
+            .map(|state| state.active.is_some())
             .collect::<Vec<_>>();
         let enum_definitions =
             collect_enum_definitions(&self.relations, &active_relations, &self.enum_origins);
 
-        let mut prepared = Vec::<PreparedSourceTable>::new();
         for state in self.relations {
             if let Some(table) = state.active {
-                prepared.push(table.prepare()?);
+                table.finish()?;
             }
         }
         if !enum_definitions.is_empty() {
-            let mut table = ActiveTable::new(protobuf_enum_symbol_spec(), self.options)?;
+            let mut table =
+                ActiveTable::new(protobuf_enum_symbol_spec(), self.options, &self.tables)?;
             for definition in enum_definitions {
                 table.append_row(&definition)?;
             }
-            prepared.push(table.prepare()?);
+            table.finish()?;
         }
-
-        Ok(PreparedSourceTables::new(prepared))
+        Ok(())
     }
 
     fn ensure_healthy(&self) -> Result<()> {

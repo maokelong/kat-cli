@@ -9,13 +9,13 @@ use anyhow::Result;
 use arrow_schema::{DataType, Field, Schema};
 
 use crate::{
-    formats::hitrace::profiler::PluginEnvelope,
+    dataset_writer::DatasetTableFactory, formats::hitrace::profiler::PluginEnvelope,
     generated_profiler_source_emitter::profiler_clock_id_symbols,
 };
 
 use super::{
-    EnumOriginSpec, EstimatedRow, PreparedSourceTables, RelationSpec, SourceTableCapture,
-    SourceTableLayout, SpoolOptions,
+    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSpec, SourceTableCapture,
+    SourceTableLayout,
 };
 
 const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
@@ -38,7 +38,11 @@ pub(crate) struct ProfilerPayloadCapture {
 }
 
 impl ProfilerPayloadCapture {
-    pub(crate) fn new(layout: ProfilerPayloadLayout, options: SpoolOptions) -> Result<Self> {
+    pub(crate) fn new(
+        layout: ProfilerPayloadLayout,
+        options: BufferOptions,
+        tables: DatasetTableFactory,
+    ) -> Result<Self> {
         let mut layout = layout.0;
         let occurrence = layout.append_relation(profiler_payload_occurrence_spec());
         let (clock_enum_fqn, clock_symbols) = profiler_clock_id_symbols();
@@ -49,7 +53,7 @@ impl ProfilerPayloadCapture {
             clock_symbols,
         ));
         Ok(Self {
-            capture: layout.into_capture(options)?,
+            capture: layout.into_capture(options, tables)?,
             occurrence,
         })
     }
@@ -77,7 +81,7 @@ impl ProfilerPayloadCapture {
         emit_root(&mut self.capture, row_id, value)
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         self.capture.finish()
     }
 }

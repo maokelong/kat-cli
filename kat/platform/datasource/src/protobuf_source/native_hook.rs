@@ -1,14 +1,13 @@
 use anyhow::{Result, bail};
 
 use crate::{
+    dataset_writer::DatasetTableFactory,
     formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind, decode_payload},
     generated_profiler_source_emitter::{
         append_batch_native_hook_data_root, append_native_hook_config_root, protobuf_source_layout,
     },
     proto::{BatchNativeHookData, NativeHookConfig, kat::hitrace::profiler_plugin_data::ClockId},
-    protobuf_source::{
-        PreparedSourceTables, SpoolOptions, profiler_occurrence::ProfilerPayloadCapture,
-    },
+    protobuf_source::{BufferOptions, profiler_occurrence::ProfilerPayloadCapture},
 };
 
 enum NativeHookRoot {
@@ -16,7 +15,7 @@ enum NativeHookRoot {
     Config,
 }
 
-/// Native Hook roots 与 profiler envelope provenance 的 dormant capture。
+/// Native Hook roots 与 profiler envelope provenance 的正式 capture。
 pub(crate) struct NativeHookSourceCapture {
     capture: ProfilerPayloadCapture,
     terminal_error: Option<String>,
@@ -24,9 +23,9 @@ pub(crate) struct NativeHookSourceCapture {
 }
 
 impl NativeHookSourceCapture {
-    pub(crate) fn new(options: SpoolOptions) -> Result<Self> {
+    pub(crate) fn new(options: BufferOptions, tables: DatasetTableFactory) -> Result<Self> {
         Ok(Self {
-            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options)?,
+            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options, tables)?,
             terminal_error: None,
             clock_admission: NativeHookClockAdmission::default(),
         })
@@ -47,7 +46,7 @@ impl NativeHookSourceCapture {
         Ok(true)
     }
 
-    pub(crate) fn finish(self) -> Result<PreparedSourceTables> {
+    pub(crate) fn finish(self) -> Result<()> {
         self.ensure_healthy()?;
         self.clock_admission.validate()?;
         self.capture.finish()

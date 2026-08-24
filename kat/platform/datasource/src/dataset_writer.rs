@@ -1,8 +1,10 @@
 use std::{
+    cell::RefCell,
     collections::HashSet,
     fs::{self, File},
     io,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -62,10 +64,116 @@ enum ExistingContents {
     PermanentlyClear,
 }
 
+struct InspectedWriteTarget {
+    root: PathBuf,
+    nonempty: bool,
+}
+
 pub(crate) struct DatasetWriter {
     root: PathBuf,
     tables: PathBuf,
     table_names: HashSet<String>,
+}
+
+/// 在目标目录内隔离构建候选 Dataset，成功时才替换旧内容并发布 marker。
+pub(crate) struct DatasetPublication {
+    root: PathBuf,
+    staging: Option<tempfile::TempDir>,
+    tables: DatasetTableFactory,
+}
+
+#[derive(Clone)]
+pub(crate) struct DatasetTableFactory {
+    tables: PathBuf,
+    table_names: Rc<RefCell<HashSet<String>>>,
+}
+
+impl DatasetPublication {
+    pub(crate) fn stage(target: DatasetWriteTarget) -> Result<Self, DatasetWriteError> {
+        let root = prepare_staging_target(&target)?;
+        let staging = tempfile::Builder::new()
+            .prefix(".kat-staging-")
+            .tempdir_in(&root)
+            .map_err(|source| DatasetWriteError::CreateStaging {
+                path: root.clone(),
+                source,
+            })?;
+        let tables = staging.path().join("tables");
+        fs::create_dir(&tables).map_err(|source| DatasetWriteError::CreateTables {
+            path: tables.clone(),
+            source,
+        })?;
+        Ok(Self {
+            root,
+            staging: Some(staging),
+            tables: DatasetTableFactory {
+                tables,
+                table_names: Rc::new(RefCell::new(HashSet::new())),
+            },
+        })
+    }
+
+    pub(crate) fn table_factory(&self) -> DatasetTableFactory {
+        self.tables.clone()
+    }
+
+    pub(crate) fn publish(mut self) -> Result<PathBuf, DatasetWriteError> {
+        validate_registered_table_metadata(&self.tables.tables, &self.tables.table_names.borrow())?;
+
+        // 一旦开始替换，先撤销旧 marker；后续任一步失败都不会留下可识别的半成品。
+        invalidate_marker(&self.root)?;
+        let staging_path = self
+            .staging
+            .as_ref()
+            .expect("unpublished Dataset always owns staging")
+            .path()
+            .to_path_buf();
+        clear_directory_except(&self.root, &staging_path)?;
+        let staged_tables = staging_path.join("tables");
+        let published_tables = self.root.join("tables");
+        fs::rename(&staged_tables, &published_tables).map_err(|source| {
+            DatasetWriteError::PublishTables {
+                from: staged_tables,
+                to: published_tables.clone(),
+                source,
+            }
+        })?;
+        self.staging
+            .take()
+            .expect("unpublished Dataset always owns staging")
+            .close()
+            .map_err(|source| DatasetWriteError::RemoveTargetEntry {
+                path: staging_path,
+                source,
+            })?;
+        validate_registered_table_metadata(&published_tables, &self.tables.table_names.borrow())?;
+        publish_marker(&self.root)?;
+        Ok(self.root.clone())
+    }
+}
+
+impl Drop for DatasetPublication {
+    fn drop(&mut self) {
+        if let Some(staging) = self.staging.take() {
+            let _ = staging.close();
+        }
+    }
+}
+
+impl DatasetTableFactory {
+    pub(crate) fn begin_table(
+        &self,
+        name: &str,
+        schema: Arc<Schema>,
+    ) -> Result<DatasetTableWriter, DatasetWriteError> {
+        begin_table(
+            &self.tables,
+            &mut self.table_names.borrow_mut(),
+            name,
+            schema,
+            true,
+        )
+    }
 }
 
 impl DatasetWriter {
@@ -88,81 +196,102 @@ impl DatasetWriter {
         name: &str,
         schema: Arc<Schema>,
     ) -> Result<DatasetTableWriter, DatasetWriteError> {
-        if !valid_table_name(name) {
-            return Err(DatasetWriteError::InvalidTableName {
-                name: name.to_owned(),
-            });
-        }
-        if !self.table_names.insert(name.to_owned()) {
-            return Err(DatasetWriteError::DuplicateTable {
-                name: name.to_owned(),
-            });
-        }
-        let mut columns = HashSet::new();
-        for field in schema.fields() {
-            if !columns.insert(field.name().as_str()) {
-                return Err(DatasetWriteError::DuplicateColumn {
-                    table: name.to_owned(),
-                    column: field.name().clone(),
-                });
-            }
-        }
-        let path = self.tables.join(format!("{name}.parquet"));
-        let file = File::create(&path).map_err(|source| DatasetWriteError::CreateTable {
-            table: name.to_owned(),
-            path: path.clone(),
-            source,
-        })?;
-        let writer = ArrowWriter::try_new(file, schema, None).map_err(|source| {
-            DatasetWriteError::OpenTableWriter {
-                table: name.to_owned(),
-                path: path.clone(),
-                source,
-            }
-        })?;
-        Ok(DatasetTableWriter {
-            table: name.to_owned(),
-            path,
-            writer,
-        })
+        begin_table(&self.tables, &mut self.table_names, name, schema, false)
     }
 
     pub(crate) fn finish(self) -> Result<PathBuf, DatasetWriteError> {
-        let mut tables = self
-            .table_names
-            .into_iter()
-            .map(|name| (name.clone(), self.tables.join(format!("{name}.parquet"))))
-            .collect::<Vec<_>>();
-        tables.sort_by(|left, right| left.0.cmp(&right.0));
-        for (table, path) in tables {
-            let file =
-                File::open(&path).map_err(|source| DatasetWriteError::ValidateTableOpen {
-                    table: table.clone(),
-                    path: path.clone(),
-                    source,
-                })?;
-            ArrowReaderMetadata::load(&file, ArrowReaderOptions::default()).map_err(|source| {
-                DatasetWriteError::ValidateTable {
-                    table,
-                    path,
-                    source,
-                }
-            })?;
-        }
-
-        let marker = self.root.join(MARKER);
-        File::create(&marker).map_err(|source| DatasetWriteError::PublishMarker {
-            path: marker.clone(),
-            source,
-        })?;
+        validate_registered_table_metadata(&self.tables, &self.table_names)?;
+        publish_marker(&self.root)?;
         Ok(self.root)
     }
+}
+
+fn begin_table(
+    tables: &Path,
+    table_names: &mut HashSet<String>,
+    name: &str,
+    schema: Arc<Schema>,
+    flush_after_write: bool,
+) -> Result<DatasetTableWriter, DatasetWriteError> {
+    if !valid_table_name(name) {
+        return Err(DatasetWriteError::InvalidTableName {
+            name: name.to_owned(),
+        });
+    }
+    if !table_names.insert(name.to_owned()) {
+        return Err(DatasetWriteError::DuplicateTable {
+            name: name.to_owned(),
+        });
+    }
+    let mut columns = HashSet::new();
+    for field in schema.fields() {
+        if !columns.insert(field.name().as_str()) {
+            return Err(DatasetWriteError::DuplicateColumn {
+                table: name.to_owned(),
+                column: field.name().clone(),
+            });
+        }
+    }
+    let path = tables.join(format!("{name}.parquet"));
+    let file = File::create(&path).map_err(|source| DatasetWriteError::CreateTable {
+        table: name.to_owned(),
+        path: path.clone(),
+        source,
+    })?;
+    let writer = ArrowWriter::try_new(file, schema, None).map_err(|source| {
+        DatasetWriteError::OpenTableWriter {
+            table: name.to_owned(),
+            path: path.clone(),
+            source,
+        }
+    })?;
+    Ok(DatasetTableWriter {
+        table: name.to_owned(),
+        path,
+        writer,
+        flush_after_write,
+    })
+}
+
+/// 重新打开每张已注册的 Parquet 表并解析 footer/Arrow metadata，不扫描 data pages。
+fn validate_registered_table_metadata(
+    tables: &Path,
+    table_names: &HashSet<String>,
+) -> Result<(), DatasetWriteError> {
+    let mut names = table_names.iter().collect::<Vec<_>>();
+    names.sort();
+    for table in names {
+        let path = tables.join(format!("{table}.parquet"));
+        let file = File::open(&path).map_err(|source| DatasetWriteError::ValidateTableOpen {
+            table: table.clone(),
+            path: path.clone(),
+            source,
+        })?;
+        ArrowReaderMetadata::load(&file, ArrowReaderOptions::default()).map_err(|source| {
+            DatasetWriteError::ValidateTable {
+                table: table.clone(),
+                path,
+                source,
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn publish_marker(root: &Path) -> Result<(), DatasetWriteError> {
+    let marker = root.join(MARKER);
+    File::create(&marker).map_err(|source| DatasetWriteError::PublishMarker {
+        path: marker,
+        source,
+    })?;
+    Ok(())
 }
 
 pub(crate) struct DatasetTableWriter {
     table: String,
     path: PathBuf,
     writer: ArrowWriter<File>,
+    flush_after_write: bool,
 }
 
 impl DatasetTableWriter {
@@ -173,7 +302,17 @@ impl DatasetTableWriter {
                 table: self.table.clone(),
                 path: self.path.clone(),
                 source,
-            })
+            })?;
+        if self.flush_after_write {
+            self.writer
+                .flush()
+                .map_err(|source| DatasetWriteError::WriteTable {
+                    table: self.table.clone(),
+                    path: self.path.clone(),
+                    source,
+                })?;
+        }
+        Ok(())
     }
 
     pub(crate) fn finish(self) -> Result<(), DatasetWriteError> {
@@ -189,6 +328,20 @@ impl DatasetTableWriter {
 }
 
 fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteError> {
+    let InspectedWriteTarget { root, nonempty } = inspect_write_target(target)?;
+    if nonempty {
+        clear_existing_target(&root)?;
+    }
+    Ok(root)
+}
+
+fn prepare_staging_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteError> {
+    Ok(inspect_write_target(target)?.root)
+}
+
+fn inspect_write_target(
+    target: &DatasetWriteTarget,
+) -> Result<InspectedWriteTarget, DatasetWriteError> {
     match fs::metadata(&target.path) {
         Ok(metadata) => {
             if !metadata.is_dir() {
@@ -216,17 +369,20 @@ fn prepare_target(target: &DatasetWriteTarget) -> Result<PathBuf, DatasetWriteEr
             if nonempty && matches!(target.existing_contents, ExistingContents::Reject) {
                 return Err(DatasetWriteError::TargetNotEmpty { path: canonical });
             }
-            if nonempty {
-                clear_existing_target(&canonical)?;
-            }
-            Ok(canonical)
+            Ok(InspectedWriteTarget {
+                root: canonical,
+                nonempty,
+            })
         }
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             fs::create_dir_all(&target.path).map_err(|source| DatasetWriteError::CreateTarget {
                 path: target.path.clone(),
                 source,
             })?;
-            canonical_unicode(&target.path)
+            Ok(InspectedWriteTarget {
+                root: canonical_unicode(&target.path)?,
+                nonempty: false,
+            })
         }
         Err(source) => Err(DatasetWriteError::InspectTarget {
             path: target.path.clone(),
@@ -329,6 +485,36 @@ fn clear_directory(root: &Path) -> Result<(), DatasetWriteError> {
     Ok(())
 }
 
+fn clear_directory_except(root: &Path, preserved: &Path) -> Result<(), DatasetWriteError> {
+    let entries = fs::read_dir(root).map_err(|source| DatasetWriteError::ReadTarget {
+        path: root.to_path_buf(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| DatasetWriteError::ReadTarget {
+            path: root.to_path_buf(),
+            source,
+        })?;
+        let path = entry.path();
+        if path == preserved {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path).map_err(|source| {
+            DatasetWriteError::InspectTargetEntry {
+                path: path.clone(),
+                source,
+            }
+        })?;
+        let result = if metadata.file_type().is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        result.map_err(|source| DatasetWriteError::RemoveTargetEntry { path, source })?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DatasetWriteError {
     #[error("failed to inspect Dataset target {path}")]
@@ -367,6 +553,12 @@ pub enum DatasetWriteError {
     TargetNotEmpty { path: PathBuf },
     #[error("failed to create Dataset target {path}")]
     CreateTarget {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to create Dataset staging directory inside {path}")]
+    CreateStaging {
         path: PathBuf,
         #[source]
         source: io::Error,
@@ -423,14 +615,23 @@ pub enum DatasetWriteError {
         #[source]
         source: ParquetError,
     },
-    #[error("failed to reopen Dataset table {table:?} at {path} for publication validation")]
+    #[error("failed to move staged Dataset tables from {from} to {to}")]
+    PublishTables {
+        from: PathBuf,
+        to: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error(
+        "failed to open registered Dataset table {table:?} at {path} for Parquet metadata validation"
+    )]
     ValidateTableOpen {
         table: String,
         path: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("failed to validate Dataset table {table:?} at {path} before publication")]
+    #[error("failed to load Parquet metadata for registered Dataset table {table:?} at {path}")]
     ValidateTable {
         table: String,
         path: PathBuf,

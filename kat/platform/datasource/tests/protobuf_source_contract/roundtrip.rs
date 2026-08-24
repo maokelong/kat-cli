@@ -2,14 +2,14 @@ use super::*;
 
 #[tokio::test]
 async fn standalone_proto3_and_proto2_optional_fields_distinguish_absent_from_default() {
-    use generated_fixture_emitter::{
-        append_proto2_optional_root_root, append_scalar_matrix_root, new_protobuf_source_capture,
-    };
+    use generated_fixture_emitter::{append_proto2_optional_root_root, append_scalar_matrix_root};
     use proto::fixture::protobuf_source::valid::{Proto2OptionalRoot, ScalarMatrix};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
-    let mut capture =
-        new_protobuf_source_capture(SpoolOptions::new(1)).expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     append_scalar_matrix_root(&mut capture, 7_000, &ScalarMatrix::default())
         .expect("absent proto3 optional fields append");
     append_scalar_matrix_root(
@@ -36,9 +36,7 @@ async fn standalone_proto3_and_proto2_optional_fields_distinguish_absent_from_de
     )
     .expect("present-default proto2 optional fields append");
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -145,17 +143,17 @@ async fn standalone_proto3_and_proto2_optional_fields_distinguish_absent_from_de
 
 #[tokio::test]
 async fn explicit_defaults_and_nullable_struct_ancestors_survive_round_trip() {
-    use generated_fixture_emitter::{
-        append_alpha_shared_root_root, append_full_shape_root_root, new_protobuf_source_capture,
-    };
+    use generated_fixture_emitter::{append_alpha_shared_root_root, append_full_shape_root_root};
     use proto::fixture::protobuf_source::alpha::SharedRoot;
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, NullableInner, NullableOuter, ScalarMatrix,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
-    let mut capture =
-        new_protobuf_source_capture(SpoolOptions::new(1)).expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     append_full_shape_root_root(&mut capture, 1_000, &FullShapeRoot::default())
         .expect("fully absent root appends");
     append_full_shape_root_root(
@@ -205,9 +203,7 @@ async fn explicit_defaults_and_nullable_struct_ancestors_survive_round_trip() {
     append_alpha_shared_root_root(&mut capture, 1_004, &SharedRoot { alpha_value: 0 })
         .expect("direct implicit scalar root appends as a nullability counterexample");
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -449,11 +445,11 @@ fn assert_flat_schema(
 
 #[tokio::test]
 async fn oneof_membership_preserves_default_values_and_message_parentage() {
-    use generated_fixture_emitter::{append_full_shape_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_full_shape_root_root;
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, OneofMatrix, oneof_matrix::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let cases = [
         (2_000, Some(Selected::ScalarValue(0))),
@@ -470,8 +466,11 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
         ),
         (2_005, None),
     ];
-    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(2, 8))
-        .expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(2, 8), &dataset_path)
+            .expect("generated capture is valid");
     for (parent_row_id, selected) in cases {
         append_full_shape_root_root(
             &mut capture,
@@ -484,9 +483,7 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
         .expect("oneof fixture root appends");
     }
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -595,11 +592,11 @@ async fn oneof_membership_preserves_default_values_and_message_parentage() {
 
 #[tokio::test]
 async fn scalar_only_oneof_in_singular_message_stays_inline() {
-    use generated_fixture_emitter::{append_inline_oneof_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_inline_oneof_root_root;
     use proto::fixture::protobuf_source::valid::{
         InlineOneofRoot, ScalarOneofOnly, scalar_oneof_only::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let cases = [
         (2_100, None),
@@ -622,16 +619,17 @@ async fn scalar_only_oneof_in_singular_message_stays_inline() {
             }),
         ),
     ];
-    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(2, 8))
-        .expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(2, 8), &dataset_path)
+            .expect("generated capture is valid");
     for (parent_row_id, nested) in cases {
         append_inline_oneof_root_root(&mut capture, parent_row_id, &InlineOneofRoot { nested })
             .expect("inline oneof fixture root appends");
     }
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -749,17 +747,20 @@ fn parquet_arrow_metadata(
 
 #[tokio::test]
 async fn byte_limit_alone_flushes_complete_variable_width_values() {
-    use generated_fixture_emitter::{append_full_shape_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_full_shape_root_root;
     use proto::fixture::protobuf_source::valid::{FullShapeRoot, ScalarMatrix};
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let fixtures = [
         (5_000, "byte-threshold-first", vec![0x00, 0xff, 0x80, 0x01]),
         (5_001, "byte-threshold-second", vec![0x10, 0x20, 0x30, 0xfe]),
         (5_002, "byte-threshold-third", vec![0xaa, 0xbb, 0xcc, 0xdd]),
     ];
-    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(100, 1))
-        .expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(100, 1), &dataset_path)
+            .expect("generated capture is valid");
     for (parent_row_id, label, payload) in &fixtures {
         append_full_shape_root_root(
             &mut capture,
@@ -776,15 +777,14 @@ async fn byte_limit_alone_flushes_complete_variable_width_values() {
         .expect("variable-width fixture root appends");
     }
 
-    let prepared = prepare_capture(capture);
+    publish_capture(capture, publication);
     assert_eq!(
-        prepared.preflighted_row_group_count("full_shape_root"),
-        Some(3),
-        "the byte threshold alone must preflight three bounded spool row groups"
+        parquet_arrow_metadata(&dataset_path, "full_shape_root")
+            .metadata()
+            .num_row_groups(),
+        3,
+        "the byte threshold alone must write three bounded row groups"
     );
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(prepared, &dataset_path);
 
     let context = register_resolved_dataset(&dataset_path)
         .await
@@ -831,11 +831,11 @@ async fn byte_limit_alone_flushes_complete_variable_width_values() {
 
 #[tokio::test]
 async fn repeated_and_singular_relations_preserve_identity_and_order_across_flushes() {
-    use generated_fixture_emitter::{append_full_shape_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_full_shape_root_root;
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, LeafValue, Lifecycle, RelationChild, RelationContainer, RepeatedMatrix,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let roots = [
         (
@@ -893,32 +893,40 @@ async fn repeated_and_singular_relations_preserve_identity_and_order_across_flus
         ),
         (3_002, FullShapeRoot::default()),
     ];
-    let mut capture =
-        new_protobuf_source_capture(SpoolOptions::new(1)).expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     for (parent_row_id, root) in &roots {
         append_full_shape_root_root(&mut capture, *parent_row_id, root)
             .expect("multi-parent fixture root appends");
     }
 
-    let prepared = prepare_capture(capture);
+    publish_capture(capture, publication);
     assert_eq!(
-        prepared.preflighted_row_group_count("full_shape_root"),
-        Some(3),
-        "the one-row threshold must preflight one spool row group per root"
+        parquet_arrow_metadata(&dataset_path, "full_shape_root")
+            .metadata()
+            .num_row_groups(),
+        3,
+        "the one-row threshold must write one row group per root"
     );
     assert_eq!(
-        prepared.preflighted_row_group_count("full_shape_root_repeated_matrix"),
-        Some(2),
+        parquet_arrow_metadata(&dataset_path, "full_shape_root_repeated_matrix")
+            .metadata()
+            .num_row_groups(),
+        2,
         "the one-row threshold must also bound a singular child relation"
     );
     assert_eq!(
-        prepared.preflighted_row_group_count("full_shape_root_repeated_matrix_scalar_values"),
-        Some(4),
+        parquet_arrow_metadata(
+            &dataset_path,
+            "full_shape_root_repeated_matrix_scalar_values",
+        )
+        .metadata()
+        .num_row_groups(),
+        4,
         "the one-row threshold must also bound repeated descendants"
     );
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_prepared(prepared, &dataset_path);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -1182,11 +1190,11 @@ async fn repeated_and_singular_relations_preserve_identity_and_order_across_flus
 
 #[tokio::test]
 async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
-    use generated_fixture_emitter::{append_deep_repeated_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_deep_repeated_root_root;
     use proto::fixture::protobuf_source::valid::{
         DeepRepeatedRoot, RelationChild, RelationContainer,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
     let roots = [
         (
@@ -1235,16 +1243,16 @@ async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
             },
         ),
     ];
-    let mut capture =
-        new_protobuf_source_capture(SpoolOptions::new(1)).expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::new(1), &dataset_path).expect("generated capture is valid");
     for (parent_row_id, root) in &roots {
         append_deep_repeated_root_root(&mut capture, *parent_row_id, root)
             .expect("nested repeated fixture root appends");
     }
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");
@@ -1368,14 +1376,17 @@ async fn nested_repeated_relations_link_each_generation_to_its_direct_parent() {
 
 #[tokio::test]
 async fn enum_definitions_are_complete_and_unknown_numbers_remain_unmatched() {
-    use generated_fixture_emitter::{append_full_shape_root_root, new_protobuf_source_capture};
+    use generated_fixture_emitter::append_full_shape_root_root;
     use proto::fixture::protobuf_source::valid::{
         FullShapeRoot, Lifecycle, OneofMatrix, RepeatedMatrix, ScalarMatrix, oneof_matrix::Selected,
     };
-    use protobuf_source::SpoolOptions;
+    use protobuf_source::BufferOptions;
 
-    let mut capture = new_protobuf_source_capture(SpoolOptions::with_limits(1, 1))
-        .expect("generated capture is valid");
+    let directory = tempdir().expect("temporary Dataset directory is created");
+    let dataset_path = directory.path().join("dataset");
+    let (mut capture, publication) =
+        staged_capture(BufferOptions::with_limits(1, 1), &dataset_path)
+            .expect("generated capture is valid");
     append_full_shape_root_root(
         &mut capture,
         4_000,
@@ -1397,9 +1408,7 @@ async fn enum_definitions_are_complete_and_unknown_numbers_remain_unmatched() {
     )
     .expect("enum fixture root appends");
 
-    let directory = tempdir().expect("temporary Dataset directory is created");
-    let dataset_path = directory.path().join("dataset");
-    publish_capture(capture, &dataset_path);
+    publish_capture(capture, publication);
     let context = register_resolved_dataset(&dataset_path)
         .await
         .expect("formal Dataset resolver tables register in DataFusion");

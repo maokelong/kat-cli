@@ -552,8 +552,8 @@ fn every_loss_evidence_rejects_the_complete_import() {
         let message = format!("{error:?}");
         assert!(message.contains(counter), "{counter}: {message}");
         assert!(
-            !dataset.exists(),
-            "invalid capture must not publish a Dataset"
+            !dataset.join(".kat-dataset").is_file(),
+            "invalid capture must not publish a valid Dataset marker"
         );
     }
 }
@@ -614,8 +614,8 @@ fn reported_ftrace_clock_is_validated_without_supported_events() {
         let message = format!("{error:?}");
         assert!(message.contains(expected), "{expected}: {message}");
         assert!(
-            !dataset.exists(),
-            "invalid clock must not publish a Dataset"
+            !dataset.join(".kat-dataset").is_file(),
+            "invalid clock must not publish a valid Dataset marker"
         );
     }
 }

@@ -68,12 +68,12 @@ impl EnumOriginSpec {
 
 /// 字节门限按行值的逻辑大小估算；单行超过门限时仍写成一个独立批次。
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct SpoolOptions {
+pub(crate) struct BufferOptions {
     pub(super) max_buffered_rows: usize,
     pub(super) max_buffered_bytes: usize,
 }
 
-impl SpoolOptions {
+impl BufferOptions {
     pub(crate) const DEFAULT_MAX_BUFFERED_ROWS: usize = 8_192;
     pub(crate) const DEFAULT_MAX_BUFFERED_BYTES: usize = 64 * 1024 * 1024;
 
@@ -90,19 +90,19 @@ impl SpoolOptions {
 
     pub(super) fn validate(self) -> Result<()> {
         if self.max_buffered_rows == 0 {
-            bail!("protobuf Source-table spool row limit must be greater than zero");
+            bail!("protobuf Source-table buffer row limit must be greater than zero");
         }
         if i64::try_from(self.max_buffered_rows).is_err() {
-            bail!("protobuf Source-table spool row limit exceeds Parquet Int64 metadata");
+            bail!("protobuf Source-table buffer row limit exceeds Parquet Int64 metadata");
         }
         if self.max_buffered_bytes == 0 {
-            bail!("protobuf Source-table spool byte limit must be greater than zero");
+            bail!("protobuf Source-table buffer byte limit must be greater than zero");
         }
         Ok(())
     }
 }
 
-impl Default for SpoolOptions {
+impl Default for BufferOptions {
     fn default() -> Self {
         Self::new(Self::DEFAULT_MAX_BUFFERED_ROWS)
     }
