@@ -68,7 +68,7 @@ pub(crate) mod proto {
         }
     }
 
-    pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginResult};
+    pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginConfig, TracePluginResult};
     pub(crate) use kat::native_hook::{BatchNativeHookData, NativeHookConfig};
 
     #[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
@@ -86,7 +86,6 @@ mod generated_fixture_emitter {
     ));
 }
 
-#[allow(dead_code)]
 mod generated_profiler_source_emitter {
     include!(concat!(env!("OUT_DIR"), "/profiler_source_emitter.rs"));
 }

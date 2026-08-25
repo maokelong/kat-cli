@@ -20,6 +20,7 @@ use native_hook_fixture::{
     native_hook_frame, native_hook_relation_names, profiler_section,
 };
 
+mod ftrace;
 mod real_sample;
 
 struct NativeHookCaptureFixture {

@@ -30,6 +30,7 @@ use protobuf_source_codegen::{RootSpec, compile_for_profiler_capture};
 
 const FTRACE_PAYLOAD_PROTO_FILES: &[&str] = &[
     "proto/ftrace_data/ftrace_event.proto",
+    "proto/ftrace_data/trace_plugin_config.proto",
     "proto/ftrace_data/trace_plugin_result.proto",
 ];
 const PROFILER_ENVELOPE_PROTO_FILES: &[&str] = &["proto/profiler/profiler_plugin_data.proto"];
@@ -98,6 +99,10 @@ fn main() {
         ".kat.native_hook.NativeHookData.event",
         "#[allow(clippy::enum_variant_names)]",
     );
+    config.enum_attribute(
+        ".kat.hitrace.FtraceEvent.event",
+        "#[allow(clippy::enum_variant_names)]",
+    );
     for message_name in
         native_hook_serializable_messages(&native_hook_messages, &native_hook_events)
     {
@@ -148,9 +153,11 @@ fn generate_profiler_source_emitter(descriptors: &prost_types::FileDescriptorSet
                 "batch_native_hook_data",
             ),
             RootSpec::new("kat.native_hook.NativeHookConfig", "native_hook_config"),
+            RootSpec::new("kat.hitrace.TracePluginResult", "trace_plugin_result"),
+            RootSpec::new("kat.hitrace.TracePluginConfig", "trace_plugin_config"),
         ],
     )
-    .expect("Native Hook protobuf Source roots compile")
+    .expect("profiler protobuf Source roots compile")
     .with_enum_symbol_accessor(
         descriptors,
         "kat.hitrace.ProfilerPluginData.ClockId",
