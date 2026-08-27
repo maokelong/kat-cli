@@ -478,6 +478,57 @@ def analyze(ctx: kat.Context):
         self.assert_failed_and_clean(response, candidate)
         self.assertEqual(close_log.read_text(encoding="utf-8"), "closed\n")
 
+    def test_registration_failure_poisons_and_cleans(self) -> None:
+        close_log = self.root / "registration-close-log"
+        pack = self.pack(
+            f'''from contextlib import contextmanager
+from pathlib import Path
+
+import kat
+import pyarrow as pa
+
+
+class DuplicateFieldExecutor:
+    @contextmanager
+    def execute(self, sql, params, *, scratch):
+        schema = pa.schema([
+            ("value", pa.int64()),
+            ("value", pa.string()),
+        ])
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1]), pa.array(["one"])],
+            schema=schema,
+        )
+        yield pa.RecordBatchReader.from_batches(schema, [batch])
+
+    def close(self):
+        with Path({close_log.as_posix()!r}).open("a", encoding="utf-8") as log:
+            log.write("closed\\n")
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """A fusion-catalog registration failure poisons the operation."""
+    try:
+        ctx.provider(DuplicateFieldExecutor()).query("rows", name="rows")
+    except Exception:
+        pass
+    return ctx.from_arrow(pa.table({{"value": [99]}}))
+'''
+        )
+        candidate_id, candidate, data_home = self.candidate()
+
+        _, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate, data_home)
+        )
+
+        self.assert_failed_and_clean(
+            response,
+            candidate,
+            cause="DuplicateQualifiedField",
+        )
+        self.assertEqual(close_log.read_text(encoding="utf-8"), "closed\n")
+
     def test_parquet_source_with_corrupt_data_page_fails_before_table(self) -> None:
         corruption_proof = self.root / "corrupt-page-proof"
         pack = self.pack(

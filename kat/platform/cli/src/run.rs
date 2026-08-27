@@ -207,9 +207,17 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
     let Some(candidate_path) = candidate.path().to_str().map(str::to_owned) else {
         return finish_failure(log, RunOperationError::PrivateCandidatePath);
     };
-    let Some(datasource_root_path) = datasource_root_from_candidate(candidate.path(), pack.name())
-    else {
-        return finish_failure(log, RunOperationError::PrivateCandidateLayout);
+    let datasource_root_path = match datasource_root_from_data_home(&data_home, pack.name()) {
+        Ok(path) => path,
+        Err(source) => {
+            return finish_failure(
+                log,
+                RunOperationError::CanonicalDataHome {
+                    path: data_home,
+                    source,
+                },
+            );
+        }
     };
     let Some(datasource_root) = datasource_root_path.to_str().map(str::to_owned) else {
         return finish_failure(log, RunOperationError::PrivateDatasourceRootPath);
@@ -324,11 +332,10 @@ fn create_run_candidate(data_home: &Path, id: &str) -> Result<RunCandidate, RunO
     Ok(candidate)
 }
 
-fn datasource_root_from_candidate(candidate: &Path, pack_name: &str) -> Option<PathBuf> {
-    candidate
-        .parent()?
-        .parent()
-        .map(|data_home| data_home.join("datasources").join(pack_name))
+fn datasource_root_from_data_home(data_home: &Path, pack_name: &str) -> io::Result<PathBuf> {
+    Ok(dunce::canonicalize(data_home)?
+        .join("datasources")
+        .join(pack_name))
 }
 
 fn publish_run_manifest(candidate: &Path, manifest: &RunManifest) -> Result<(), RunOperationError> {
@@ -469,8 +476,12 @@ enum RunOperationError {
     },
     #[error("private Run candidate path is not representable as native Unicode")]
     PrivateCandidatePath,
-    #[error("private Run candidate is outside the expected KAT Data Home layout")]
-    PrivateCandidateLayout,
+    #[error("failed to resolve the selected KAT Data Home")]
+    CanonicalDataHome {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("private Datasource root path is not representable as native Unicode")]
     PrivateDatasourceRootPath,
 }
@@ -498,14 +509,40 @@ mod tests {
     }
 
     #[test]
-    fn datasource_root_is_derived_from_the_canonical_candidate_root() {
+    fn datasource_root_is_derived_from_the_selected_data_home() {
         let temporary = tempfile::tempdir().unwrap();
-        let candidate =
-            create_run_candidate(temporary.path(), "019f6e00-0000-7000-8000-000000000009").unwrap();
+        create_run_candidate(temporary.path(), "019f6e00-0000-7000-8000-000000000009").unwrap();
 
         assert_eq!(
-            datasource_root_from_candidate(candidate.path(), "example").unwrap(),
+            datasource_root_from_data_home(temporary.path(), "example").unwrap(),
             dunce::canonicalize(temporary.path())
+                .unwrap()
+                .join("datasources")
+                .join("example")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_runs_directory_does_not_relocate_the_datasource_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let data_home = temporary.path().join("data-home");
+        let external_runs = temporary.path().join("external-runs");
+        fs::create_dir(&data_home).unwrap();
+        fs::create_dir(&external_runs).unwrap();
+        std::os::unix::fs::symlink(&external_runs, data_home.join("runs")).unwrap();
+
+        let candidate =
+            create_run_candidate(&data_home, "019f6e00-0000-7000-8000-000000000010").unwrap();
+        let canonical_external_runs = dunce::canonicalize(&external_runs).unwrap();
+
+        assert_eq!(
+            candidate.path().parent(),
+            Some(canonical_external_runs.as_path())
+        );
+        assert_eq!(
+            datasource_root_from_data_home(&data_home, "example").unwrap(),
+            dunce::canonicalize(&data_home)
                 .unwrap()
                 .join("datasources")
                 .join("example")

@@ -879,6 +879,44 @@ def analyze(ctx: kat.Context):
             {"value": [2]},
         )
 
+    def test_one_executor_bound_twice_is_closed_once(self) -> None:
+        close_log = self.root / "shared-executor-close-log"
+        pack = self.pack(
+            f'''from contextlib import contextmanager
+from pathlib import Path
+
+import kat
+import pyarrow as pa
+
+
+class SharedExecutor:
+    @contextmanager
+    def execute(self, sql, params, *, scratch):
+        table = pa.table({{"value": [1]}})
+        yield pa.RecordBatchReader.from_batches(table.schema, table.to_batches())
+
+    def close(self):
+        with Path({close_log.as_posix()!r}).open("a", encoding="utf-8") as log:
+            log.write("closed\\n")
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """One executor object has one operation-level cleanup."""
+    executor = SharedExecutor()
+    ctx.provider(executor)
+    return ctx.provider(executor).query("rows", name="rows")
+'''
+        )
+        candidate_id, candidate, data_home = self.candidate()
+
+        _, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate, data_home)
+        )
+
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(close_log.read_text(encoding="utf-8"), "closed\n")
+
     def test_executor_close_warning_does_not_replace_the_workflow_failure(self) -> None:
         pack = self.pack(
             '''import kat

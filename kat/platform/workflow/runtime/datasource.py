@@ -212,6 +212,9 @@ class WorkflowOperation:
                     str(final_path),
                     schema=schema,
                 )
+                # DataFusion 可能先接受 catalog 无法解析的 Schema；完成一次关系
+                # lookup，确保返回的 Table 确实能成为融合输入。
+                self._session.table(result_name)
             except BaseException:
                 try:
                     self._session.deregister_table(result_name)
