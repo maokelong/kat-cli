@@ -43,6 +43,7 @@ class RunWorkflowRequest:
     dataset: ResolvedDatasetRef | None
     arguments: list[str]
     candidate: RunCandidateRef
+    datasource_root: Path
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,7 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
         "arguments",
         "candidate_id",
         "candidate_path",
+        "datasource_root",
     }
     if set(request) not in (required, required | {"dataset"}):
         raise RuntimeRequestError("run_workflow Runtime Request has an invalid field set")
@@ -129,16 +131,30 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
         if "dataset" in request
         else None
     )
+    pack_name = request["pack_name"]
+    candidate = _read_run_candidate(
+        request["candidate_id"],
+        request["candidate_path"],
+    )
+    datasource_root = _read_creatable_directory(
+        request["datasource_root"],
+        "run_workflow Datasource root",
+    )
+    expected_datasource_root = (
+        candidate.path.parent.parent / "datasources" / pack_name
+    ).resolve(strict=False)
+    if datasource_root != expected_datasource_root:
+        raise RuntimeRequestError(
+            "run_workflow Datasource root does not match the selected PACK"
+        )
     return RunWorkflowRequest(
-        pack_name=request["pack_name"],
+        pack_name=pack_name,
         pack_path=_canonical_directory(request["pack_path"], "run_workflow PACK"),
         workflow_name=request["workflow_name"],
         dataset=dataset,
         arguments=arguments,
-        candidate=_read_run_candidate(
-            request["candidate_id"],
-            request["candidate_path"],
-        ),
+        candidate=candidate,
+        datasource_root=datasource_root,
     )
 
 
@@ -226,6 +242,24 @@ def _canonical_directory(value: str, label: str) -> Path:
 
 def _canonical_file(value: str, label: str) -> Path:
     return _canonical_path(value, label, directory=False)
+
+
+def _read_creatable_directory(value: object, label: str) -> Path:
+    if type(value) is not str:
+        raise RuntimeRequestError(f"{label} path must be a string")
+    supplied = Path(value)
+    if not supplied.is_absolute():
+        raise RuntimeRequestError(f"{label} path must be absolute")
+    try:
+        resolved = supplied.resolve(strict=False)
+    except (OSError, RuntimeError):
+        _LOGGER.exception("failed to resolve private Runtime Request path for %s", label)
+        raise RuntimeRequestError(f"{label} path is invalid") from None
+    if resolved != supplied or supplied.is_symlink():
+        raise RuntimeRequestError(f"{label} path must be canonical and must not be a link")
+    if supplied.exists() and not supplied.is_dir():
+        raise RuntimeRequestError(f"{label} path must identify a directory")
+    return supplied
 
 
 def _canonical_path(value: str, label: str, *, directory: bool) -> Path:

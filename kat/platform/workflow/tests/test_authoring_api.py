@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
 import kat
@@ -222,13 +223,136 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
+    def test_datasource_types_are_exported_from_the_top_level_package(self) -> None:
+        for name in ("SourceExecutor", "ParquetSource", "Provider", "Table"):
+            with self.subTest(name=name):
+                self.assertIn(name, kat.__all__)
+                self.assertIsNotNone(getattr(kat, name))
+
+    def test_context_documents_and_types_the_datasource_contract(self) -> None:
+        provider_signature = inspect.signature(kat.Context.provider)
+        self.assertEqual(tuple(provider_signature.parameters), ("self", "executor"))
+        self.assertEqual(
+            provider_signature.parameters["executor"].annotation,
+            "SourceExecutor",
+        )
+        self.assertEqual(provider_signature.return_annotation, "Provider")
+
+        provider_documentation = " ".join(
+            (inspect.getdoc(kat.Context.provider) or "").split()
+        )
+        for boundary in (
+            "PACK-owned Source executor",
+            "KAT Provider",
+            "result naming",
+            "operation-level executor cleanup",
+            "does not construct, subclass, or replace",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, provider_documentation)
+
+        self.assertIsInstance(kat.Context.datasource_root, property)
+        self.assertIsNone(kat.Context.datasource_root.fset)
+        datasource_root_getter = kat.Context.datasource_root.fget
+        self.assertIsNotNone(datasource_root_getter)
+        assert datasource_root_getter is not None
+        datasource_root_signature = inspect.signature(datasource_root_getter)
+        self.assertEqual(tuple(datasource_root_signature.parameters), ("self",))
+        self.assertEqual(datasource_root_signature.return_annotation, "Path")
+
+        datasource_root_documentation = " ".join(
+            (inspect.getdoc(kat.Context.datasource_root) or "").split()
+        )
+        for boundary in (
+            "PACK's long-lived Datasource storage root",
+            "KAT_DATA_HOME/datasources/<pack-name>/",
+            "isolated to the current pytest test",
+            "valid only for this Workflow execution",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, datasource_root_documentation)
+
+    def test_provider_query_has_one_eager_single_table_contract(self) -> None:
+        signature = inspect.signature(kat.Provider.query)
+        self.assertEqual(tuple(signature.parameters), ("self", "sql", "params", "name"))
+        self.assertEqual(signature.parameters["sql"].annotation, "str")
+        self.assertEqual(
+            signature.parameters["sql"].kind,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        for name, annotation in (
+            ("params", "object | None"),
+            ("name", "str | None"),
+        ):
+            with self.subTest(name=name):
+                parameter = signature.parameters[name]
+                self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+                self.assertEqual(parameter.annotation, annotation)
+                self.assertIsNone(parameter.default)
+        self.assertEqual(signature.return_annotation, "Table")
+
+        documentation = " ".join((inspect.getdoc(kat.Provider.query) or "").split())
+        self.assertIn("Synchronously execute", documentation)
+        self.assertIn("fully localize one source query", documentation)
+
+    def test_parquet_source_is_an_immutable_path_value(self) -> None:
+        path = Path("one-table.parquet")
+        source = kat.ParquetSource(path)
+        self.assertEqual(source.path, path)
+        with self.assertRaises(TypeError):
+            kat.ParquetSource("one-table.parquet")  # type: ignore[arg-type]
+        with self.assertRaises(AttributeError):
+            source.path = Path("replacement.parquet")  # type: ignore[misc]
+
+    def test_provider_and_table_are_runtime_owned_final_immutable_types(self) -> None:
+        for runtime_type, creation_message in (
+            (kat.Provider, "ctx.provider"),
+            (kat.Table, "KAT Provider"),
+        ):
+            with self.subTest(runtime_type=runtime_type.__name__, boundary="construct"):
+                with self.assertRaisesRegex(TypeError, creation_message):
+                    runtime_type()
+
+            with self.subTest(runtime_type=runtime_type.__name__, boundary="subclass"):
+                with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+                    type(f"Custom{runtime_type.__name__}", (runtime_type,), {})
+
+            instance = object.__new__(runtime_type)
+            with self.subTest(runtime_type=runtime_type.__name__, boundary="mutate"):
+                with self.assertRaisesRegex(AttributeError, "immutable"):
+                    instance.public_attribute = "replacement"
+
+    def test_table_exposes_only_read_only_logical_facts(self) -> None:
+        self.assertEqual(
+            {name for name in dir(kat.Table) if not name.startswith("_")},
+            {"name", "schema"},
+        )
+        for name, annotation in (("name", "str"), ("schema", "pa.Schema")):
+            with self.subTest(name=name):
+                descriptor = getattr(kat.Table, name)
+                self.assertIsInstance(descriptor, property)
+                self.assertIsNone(descriptor.fset)
+                self.assertIsNotNone(descriptor.fget)
+                assert descriptor.fget is not None
+                self.assertEqual(
+                    inspect.signature(descriptor.fget).return_annotation,
+                    annotation,
+                )
+
+        for name in ("path", "backing_path", "row_count", "operation"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(kat.Table, name))
+
     def test_context_documents_and_types_the_authoring_contract(self) -> None:
         sql_signature = inspect.signature(kat.Context.sql)
         self.assertEqual(sql_signature.return_annotation, "DataFrame")
         self.assertIn("Duration", str(sql_signature.parameters["params"].annotation))
 
         from_arrow_signature = inspect.signature(kat.Context.from_arrow)
-        self.assertEqual(from_arrow_signature.parameters["table"].annotation, "Table")
+        self.assertEqual(
+            from_arrow_signature.parameters["table"].annotation,
+            "pyarrow.Table",
+        )
         self.assertEqual(from_arrow_signature.return_annotation, "DataFrame")
 
         convert_signature = inspect.signature(kat.Context.convert_clock)

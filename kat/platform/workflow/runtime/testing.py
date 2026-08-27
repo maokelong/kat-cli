@@ -102,6 +102,9 @@ class KatPytestPlugin:
                         identifier=candidate_id,
                         path=run_path.resolve(strict=True),
                     ),
+                    datasource_root=(
+                        tmp_path / "datasources" / self._pack_name
+                    ).resolve(strict=False),
                 )
             # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
             # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。

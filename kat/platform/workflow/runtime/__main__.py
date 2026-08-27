@@ -139,10 +139,13 @@ def _execute(
 
 def _private_run_values(request: RunWorkflowRequest) -> tuple[str, ...]:
     candidate_path = request.candidate.path
+    datasource_root = request.datasource_root
     return (
         request.candidate.identifier,
         str(candidate_path),
         candidate_path.as_posix(),
+        str(datasource_root),
+        datasource_root.as_posix(),
     )
 
 

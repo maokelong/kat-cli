@@ -260,6 +260,147 @@ def test_not_selected():
         self.assertIn("1 passed", terminal)
         self.assertNotIn("raw node id", terminal)
 
+    def test_provider_expires_and_executor_closes_when_kat_run_returns(self) -> None:
+        pack = self.pack()
+        (pack / "helpers" / "provider_state.py").write_text(
+            '''from contextlib import contextmanager
+
+import pyarrow as pa
+
+
+providers = []
+executors = []
+
+
+class Executor:
+    def __init__(self):
+        self.execute_count = 0
+        self.close_count = 0
+
+    @contextmanager
+    def execute(self, sql, params, *, scratch):
+        self.execute_count += 1
+        table = pa.table({"value": [1]})
+        yield pa.RecordBatchReader.from_batches(table.schema, table.to_batches())
+
+    def close(self):
+        self.close_count += 1
+
+
+def create(ctx):
+    executor = Executor()
+    provider = ctx.provider(executor)
+    executors.append(executor)
+    providers.append(provider)
+    return provider
+''',
+            encoding="utf-8",
+        )
+        self.replace_workflow(
+            pack,
+            '''import kat
+from kat.pack.helpers import provider_state
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """Publish one Provider Table."""
+    return provider_state.create(ctx).query("values", name="values")
+''',
+        )
+        self.write_test(
+            pack,
+            "test_provider_lifecycle.py",
+            '''import pytest
+from kat.pack.helpers import provider_state
+
+
+def test_provider_lifecycle(kat_run):
+    result = kat_run(workflow="analyze")
+    assert result["values"].to_pydict() == {"value": [1]}
+    executor = provider_state.executors[-1]
+    provider = provider_state.providers[-1]
+    assert executor.execute_count == 1
+    assert executor.close_count == 1
+    with pytest.raises(RuntimeError, match="lease is no longer active"):
+        provider.query("must not execute", name="late")
+    assert executor.execute_count == 1
+    assert executor.close_count == 1
+''',
+        )
+
+        completed, response, report = self.run_runtime(self.request(pack), pack)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            response,
+            {"status": "success", "result": {"summary": {"passed": 1}}},
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertTrue(report.is_file())
+
+    def test_datasource_root_is_shared_within_one_test_and_isolated_between_tests(
+        self,
+    ) -> None:
+        pack = self.pack()
+        (pack / "helpers" / "datasource_state.py").write_text(
+            "roots = []\ncontexts = []\n",
+            encoding="utf-8",
+        )
+        self.replace_workflow(
+            pack,
+            '''import kat
+import pyarrow as pa
+from kat.pack.helpers import datasource_state
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """Increment a test-scoped Datasource materialization."""
+    root = ctx.datasource_root
+    counter = root / "counter.txt"
+    value = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
+    counter.write_text(str(value), encoding="utf-8")
+    datasource_state.roots.append(root)
+    datasource_state.contexts.append(ctx)
+    return ctx.from_arrow(pa.table({"value": [value]}))
+''',
+        )
+        self.write_test(
+            pack,
+            "test_datasource_root.py",
+            '''import pytest
+from kat.pack.helpers import datasource_state
+
+
+def test_shared_within_one_test(kat_run):
+    first = kat_run(workflow="analyze")
+    second = kat_run(workflow="analyze")
+    assert first["main"].to_pydict() == {"value": [1]}
+    assert second["main"].to_pydict() == {"value": [2]}
+    assert datasource_state.roots[-2] == datasource_state.roots[-1]
+    with pytest.raises(RuntimeError, match="lease is no longer active"):
+        _ = datasource_state.contexts[-1].datasource_root
+
+
+def test_isolated_from_the_previous_test(kat_run):
+    previous = datasource_state.roots[0]
+    result = kat_run(workflow="analyze")
+    assert result["main"].to_pydict() == {"value": [1]}
+    assert datasource_state.roots[-1] != previous
+''',
+        )
+
+        completed, response, report = self.run_runtime(self.request(pack), pack)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            response,
+            {"status": "success", "result": {"summary": {"passed": 2}}},
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertTrue(report.is_file())
+
     def test_private_test_request_constructs_cli_owned_facts_without_revalidation(
         self,
     ) -> None:

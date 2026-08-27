@@ -15,6 +15,7 @@ from datafusion import DataFrame, Expr, SQLOptions, SessionContext
 from kat._temporal import _duration_nanoseconds, _wall_clock_nanoseconds
 
 from .clock import ClockCapability
+from .datasource import WorkflowOperation
 from .outputs import materialize_outputs
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
@@ -36,27 +37,15 @@ class WorkflowExecutionFailure(Exception):
     """
 
 
-class ExecutionLease:
-    def __init__(self) -> None:
-        self._active = True
-
-    def require_active(self) -> None:
-        if not self._active:
-            raise RuntimeError("Workflow execution lease is no longer active")
-
-    def expire(self) -> None:
-        self._active = False
-
-
 class WorkflowContext(kat.Context):
     def __init__(
         self,
         session: SessionContext,
-        lease: ExecutionLease,
+        operation: WorkflowOperation,
         clock: ClockCapability,
     ) -> None:
         self._session = session
-        self._lease = lease
+        self._operation = operation
         self._clock = clock
         self._sql_options = (
             SQLOptions()
@@ -66,14 +55,14 @@ class WorkflowContext(kat.Context):
         )
 
     def sql(self, sql: str, **params: object) -> DataFrame:
-        self._lease.require_active()
+        self._operation.require_usable()
         if type(sql) is not str or not sql.strip():
             raise TypeError("ctx.sql requires a non-empty SQL string")
         values = {name: _sql_parameter(name, value) for name, value in params.items()}
         return self._session.sql(sql, options=self._sql_options, param_values=values)
 
     def from_arrow(self, table: object) -> DataFrame:
-        self._lease.require_active()
+        self._operation.require_usable()
         if not isinstance(table, pa.Table):
             raise TypeError("ctx.from_arrow requires a PyArrow Table")
         return self._session.from_arrow(table)
@@ -85,12 +74,19 @@ class WorkflowContext(kat.Context):
         *,
         target_domain: str,
     ) -> Expr:
-        self._lease.require_active()
+        self._operation.require_usable()
         return self._clock.convert(
             clock_domain,
             clock_value,
             target_domain=target_domain,
         )
+
+    def provider(self, executor: object) -> kat.Provider:
+        return self._operation.provider(executor)
+
+    @property
+    def datasource_root(self) -> Path:
+        return self._operation.datasource_root
 
 
 def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
@@ -108,6 +104,7 @@ def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
         dataset=dataset,
         arguments=request.arguments,
         candidate=request.candidate,
+        datasource_root=request.datasource_root,
     )
 
 
@@ -119,6 +116,7 @@ def run_loaded_workflow(
     dataset: ResolvedDatasetRef | None,
     arguments: list[str],
     candidate: RunCandidateRef,
+    datasource_root: Path,
 ) -> RunWorkflowRuntimeResult:
     candidate_id = candidate.identifier
     candidate_path = candidate.path
@@ -147,20 +145,27 @@ def run_loaded_workflow(
         raise WorkflowExecutionFailure() from error
     clock = ClockCapability(dataset)
 
-    lease = ExecutionLease()
-    context = WorkflowContext(session, lease, clock)
+    operation = WorkflowOperation(session, candidate_path, datasource_root)
+    context = WorkflowContext(session, operation, clock)
+    success = False
     try:
         with workflow_logging(candidate_id, pack_name, workflow_name):
             try:
                 value = workflow.function(context, **effective)
             except (Exception, SystemExit) as error:
+                operation.close_executors()
                 raise WorkflowExecutionFailure() from error
+            operation.close_executors()
             try:
-                outputs = materialize_outputs(value, candidate_path)
+                operation.require_publishable()
+                outputs = materialize_outputs(value, operation)
             except (Exception, SystemExit) as error:
                 raise WorkflowExecutionFailure() from error
+            success = True
     finally:
-        lease.expire()
+        operation.close_executors()
+        operation.cleanup(success=success)
+        operation.expire()
     return RunWorkflowRuntimeResult(
         effective_inputs={
             name: _project_effective_input(value) for name, value in effective.items()

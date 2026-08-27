@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 from datafusion import DataFrame, Expr
-from pyarrow import Table
+import pyarrow
 
+from ._datasource import Provider, SourceExecutor
 from ._identifiers import valid_table_name
 from ._temporal import Duration, WallClockTimestamp
 
@@ -41,13 +43,34 @@ class Context:
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
-    def from_arrow(self, table: Table) -> DataFrame:
+    def from_arrow(self, table: pyarrow.Table) -> DataFrame:
         """Expose one PyArrow Table as a DataFusion DataFrame.
 
         Other Arrow containers and table-like Python objects are not accepted.
         Context methods may be called only during the current Workflow
         execution. DataFrames are lazy and must be returned by the Workflow so
         KAT can materialize them before that execution closes.
+        """
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    def provider(self, executor: SourceExecutor) -> Provider:
+        """Bind one PACK-owned Source executor to this Workflow execution.
+
+        The returned KAT Provider owns result naming, localization, catalog
+        registration, execution leases, and operation-level executor cleanup.
+        Datasource code implements the structural SourceExecutor protocol and
+        does not construct, subclass, or replace the Provider facade.
+        """
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    @property
+    def datasource_root(self) -> Path:
+        """Return this PACK's long-lived Datasource storage root.
+
+        Production executions receive
+        ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
+        isolated to the current pytest test. The path capability is valid only
+        for this Workflow execution.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
@@ -128,9 +151,11 @@ def workflow(
     does not mean the production input Interface is valid. Inspection does
     not evaluate or publish the return annotation.
 
-    At execution, the function must return either one DataFusion ``DataFrame``
-    or an exact, non-empty ``dict`` mapping Output names to DataFusion
-    ``DataFrame`` values. A single DataFrame becomes the ``main`` Output.
+    At execution, the function must return one DataFusion ``DataFrame``, one KAT
+    ``Table``, or an exact, non-empty ``dict`` mapping Output names to either
+    value. A single DataFrame becomes the ``main`` Output; a single Table uses
+    its own ``Table.name``. Mapping keys for Table values must equal their
+    ``Table.name``.
     Output names must match ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not
     be the Windows device names ``con``, ``prn``, ``aux``, ``nul``,
     ``com1`` through ``com9``, or ``lpt1`` through ``lpt9``. KAT validates

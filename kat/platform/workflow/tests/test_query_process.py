@@ -114,6 +114,32 @@ class QueryProcessTest(unittest.TestCase):
                 self.assertEqual(set(response["result"]), {"columns", "rows"})
                 self.assertEqual(response["result"]["rows"], expected_rows)
 
+    def test_registers_directory_backed_published_output(self) -> None:
+        output = self.run_path / "outputs" / "main.parquet"
+        output.mkdir()
+        pq.write_table(
+            pa.table({"value": pa.array([2, 1], type=pa.int64())}),
+            output / "part-0.parquet",
+        )
+        pq.write_table(
+            pa.table({"value": pa.array([4, 3], type=pa.int64())}),
+            output / "part-1.parquet",
+        )
+
+        completed, response = self.run_runtime(
+            self.request("SELECT value FROM output.main ORDER BY value")
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            response["result"]["rows"], [["1"], ["2"], ["3"], ["4"]]
+        )
+
     def test_scalar_projection_is_lossless_and_positional(self) -> None:
         schema = pa.schema(
             [

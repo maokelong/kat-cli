@@ -133,8 +133,14 @@ PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 
 - `ctx.sql(sql, **params)`：普通只读 SQL。
 - `ctx.from_arrow(table)`：将 PyArrow Table 放入当前 execution plane。
+- `ctx.provider(executor)`：把 PACK 自定义 Source executor 绑定为当前执行的
+  KAT Provider；`Provider.query()` 会同步本地化并自动注册一张具名 Table。
+- `ctx.datasource_root`：当前 PACK 在 KAT Data Home 下的长期 Datasource 存储根。
 - `ctx.convert_clock(..., target_domain="...")`：通过 Runtime 私有的稳定
   Python/PyArrow batch UDF 换算时钟。
+
+完整的 PACK 级本地多表查询与融合写法见
+[`examples/packs/local-parquet-fusion`](examples/packs/local-parquet-fusion/README.md)。
 
 `kat_convert_clock(...)` 不注册为 SQL 函数；SQL 直接调用会按未知函数失败。
 

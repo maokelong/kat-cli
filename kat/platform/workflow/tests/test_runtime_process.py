@@ -709,8 +709,8 @@ def analyze(ctx: Context, value: str = invalid_default):
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
         candidate_id = str(uuid.uuid7())
-        candidate = self.root / candidate_id
-        candidate.mkdir()
+        candidate = self.root / "runs" / candidate_id
+        candidate.mkdir(parents=True)
 
         completed, response_path = self.run_runtime_process(
             {
@@ -721,6 +721,11 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "arguments": [],
                 "candidate_id": candidate_id,
                 "candidate_path": str(candidate.resolve()),
+                "datasource_root": str(
+                    (
+                        self.root / "datasources" / "run-worker-crash"
+                    ).resolve(strict=False)
+                ),
             }
         )
 
