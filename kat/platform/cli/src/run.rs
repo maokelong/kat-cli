@@ -207,6 +207,13 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
     let Some(candidate_path) = candidate.path().to_str().map(str::to_owned) else {
         return finish_failure(log, RunOperationError::PrivateCandidatePath);
     };
+    let Some(datasource_root_path) = datasource_root_from_candidate(candidate.path(), pack.name())
+    else {
+        return finish_failure(log, RunOperationError::PrivateCandidateLayout);
+    };
+    let Some(datasource_root) = datasource_root_path.to_str().map(str::to_owned) else {
+        return finish_failure(log, RunOperationError::PrivateDatasourceRootPath);
+    };
     let pack_path_log = project_inline_text(&format!("{:?}", pack.directory()));
     let dataset_log = project_inline_text(dataset_path.as_deref().unwrap_or("not provided"));
     let arguments_log = project_inline_text(&format!("{:?}", arguments.workflow_arguments));
@@ -227,6 +234,7 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
             arguments: arguments.workflow_arguments,
             candidate_id: candidate_id.clone(),
             candidate_path,
+            datasource_root,
         },
     );
     let (runtime, mut log) = match outcome {
@@ -314,6 +322,13 @@ fn create_run_candidate(data_home: &Path, id: &str) -> Result<RunCandidate, RunO
         }
     })?;
     Ok(candidate)
+}
+
+fn datasource_root_from_candidate(candidate: &Path, pack_name: &str) -> Option<PathBuf> {
+    candidate
+        .parent()?
+        .parent()
+        .map(|data_home| data_home.join("datasources").join(pack_name))
 }
 
 fn publish_run_manifest(candidate: &Path, manifest: &RunManifest) -> Result<(), RunOperationError> {
@@ -454,6 +469,10 @@ enum RunOperationError {
     },
     #[error("private Run candidate path is not representable as native Unicode")]
     PrivateCandidatePath,
+    #[error("private Run candidate is outside the expected KAT Data Home layout")]
+    PrivateCandidateLayout,
+    #[error("private Datasource root path is not representable as native Unicode")]
+    PrivateDatasourceRootPath,
 }
 
 #[cfg(test)]
@@ -476,6 +495,21 @@ mod tests {
         }
 
         assert!(!candidate_path.exists());
+    }
+
+    #[test]
+    fn datasource_root_is_derived_from_the_canonical_candidate_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let candidate =
+            create_run_candidate(temporary.path(), "019f6e00-0000-7000-8000-000000000009").unwrap();
+
+        assert_eq!(
+            datasource_root_from_candidate(candidate.path(), "example").unwrap(),
+            dunce::canonicalize(temporary.path())
+                .unwrap()
+                .join("datasources")
+                .join("example")
+        );
     }
 
     #[test]
