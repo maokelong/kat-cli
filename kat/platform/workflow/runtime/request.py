@@ -140,10 +140,22 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
         request["datasource_root"],
         "run_workflow Datasource root",
     )
-    expected_datasource_root = (
-        candidate.path.parent.parent / "datasources" / pack_name
-    ).resolve(strict=False)
-    if datasource_root != expected_datasource_root:
+    if (
+        datasource_root.name != pack_name
+        or datasource_root.parent.name != "datasources"
+    ):
+        raise RuntimeRequestError(
+            "run_workflow Datasource root does not match the selected PACK"
+        )
+    data_home = datasource_root.parent.parent
+    try:
+        selected_runs_root = (data_home / "runs").resolve(strict=True)
+    except (OSError, RuntimeError):
+        _LOGGER.exception("failed to resolve the selected Data Home runs directory")
+        raise RuntimeRequestError(
+            "run_workflow Datasource root does not match the selected PACK"
+        ) from None
+    if candidate.path.parent != selected_runs_root:
         raise RuntimeRequestError(
             "run_workflow Datasource root does not match the selected PACK"
         )
