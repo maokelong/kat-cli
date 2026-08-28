@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -8,7 +8,7 @@ from typing import Any, TypeVar
 from datafusion import DataFrame, Expr
 import pyarrow
 
-from ._datasource import Provider, SourceExecutor
+from .datasource import Table
 from ._identifiers import valid_table_name
 from ._temporal import Duration, WallClockTimestamp
 
@@ -26,20 +26,28 @@ class Context:
     def sql(
         self,
         sql: str,
-        **params: bool | int | float | str | Duration | WallClockTimestamp,
-    ) -> DataFrame:
-        """Build a DataFusion DataFrame from one read-only SQL statement.
+        *,
+        tables: Mapping[str, Table] | None = None,
+        params: Mapping[
+            str, bool | int | float | str | Duration | WallClockTimestamp
+        ]
+        | None = None,
+    ) -> Table:
+        """Execute one local read-only SQL statement as an eager Table.
+
+        ``tables`` explicitly binds call-local relation names. KAT also grants
+        the Workflow's declared Dataset tables, and rejects explicit relations
+        that would shadow those grants. Every call uses a fresh DataFusion
+        session, fully executes the statement, and returns a reusable Table;
+        query failures do not affect later calls.
 
         DataFusion performs parsing and planning. KAT disables DDL, DML, COPY,
-        session mutation, and multiple statements while retaining DataFusion's
-        read-only ``SHOW``, ``DESCRIBE``, and ``EXPLAIN`` statements. ``$name``
-        value placeholders bind only exact keyword parameters of type ``bool``,
-        signed int64, finite ``float``, ``str``, ``Duration``, or
-        ``WallClockTimestamp``; they never substitute identifiers or SQL text.
-
-        Context methods may be called only during the current Workflow
-        execution. DataFrames are lazy and must be returned by the Workflow so
-        KAT can materialize them before that execution closes.
+        session mutation, and multiple statements. ``$name`` placeholders bind
+        values supplied by the separate ``params`` mapping. Scalar values are
+        limited to exact ``bool``, signed int64, finite ``float``, ``str``,
+        ``Duration``, or ``WallClockTimestamp`` values; they never substitute
+        identifiers or SQL text. Context methods are valid only during the
+        current Workflow execution.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
@@ -50,16 +58,6 @@ class Context:
         Context methods may be called only during the current Workflow
         execution. DataFrames are lazy and must be returned by the Workflow so
         KAT can materialize them before that execution closes.
-        """
-        raise RuntimeError("Context is not bound to a Workflow execution")
-
-    def provider(self, executor: SourceExecutor) -> Provider:
-        """Bind one PACK-owned Source executor to this Workflow execution.
-
-        The returned KAT Provider owns result naming, localization, catalog
-        registration, execution leases, and operation-level executor cleanup.
-        Datasource code implements the structural SourceExecutor protocol and
-        does not construct, subclass, or replace the Provider facade.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
@@ -151,11 +149,11 @@ def workflow(
     does not mean the production input Interface is valid. Inspection does
     not evaluate or publish the return annotation.
 
-    At execution, the function must return one DataFusion ``DataFrame``, one KAT
-    ``Table``, or an exact, non-empty ``dict`` mapping Output names to either
-    value. A single DataFrame becomes the ``main`` Output; a single Table uses
-    its own ``Table.name``. Mapping keys for Table values must equal their
-    ``Table.name``.
+    At execution, the function must return one ``kat.datasource.Table``, or an
+    exact, non-empty ``dict`` mapping Output names to Tables. During migration,
+    one DataFusion ``DataFrame`` or a dict mixing Tables and DataFrames is also
+    accepted. Every single value becomes the ``main`` Output; a Table does not
+    carry an Output name.
     Output names must match ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not
     be the Windows device names ``con``, ``prn``, ``aux``, ``nul``,
     ``com1`` through ``com9``, or ``lpt1`` through ``lpt9``. KAT validates

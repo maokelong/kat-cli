@@ -220,7 +220,10 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
     """Analyze event values."""
-    return ctx.sql("SELECT value FROM events WHERE value >= $minimum", minimum=minimum)
+    return ctx.sql(
+        "SELECT value FROM events WHERE value >= $minimum",
+        params={"minimum": minimum},
+    )
 ''',
         )
         self.write_test(
@@ -260,37 +263,37 @@ def test_not_selected():
         self.assertIn("1 passed", terminal)
         self.assertNotIn("raw node id", terminal)
 
-    def test_provider_expires_and_executor_closes_when_kat_run_returns(self) -> None:
+    def test_pack_owned_datasource_provider_is_an_ordinary_python_class(self) -> None:
         pack = self.pack()
-        (pack / "helpers" / "provider_state.py").write_text(
-            '''from contextlib import contextmanager
+        datasources = pack / "datasources"
+        datasources.mkdir()
+        (datasources / "__init__.py").write_text(
+            "DEFAULT_VALUE = 1\n",
+            encoding="utf-8",
+        )
+        (datasources / "provider_state.py").write_text(
+            '''from kat import datasource as ds
 
-import pyarrow as pa
+from . import DEFAULT_VALUE
 
 
 providers = []
-executors = []
 
 
-class Executor:
+class Provider:
     def __init__(self):
-        self.execute_count = 0
-        self.close_count = 0
+        self.query_count = 0
 
-    @contextmanager
-    def execute(self, sql, params, *, scratch):
-        self.execute_count += 1
-        table = pa.table({"value": [1]})
-        yield pa.RecordBatchReader.from_batches(table.schema, table.to_batches())
-
-    def close(self):
-        self.close_count += 1
+    def query(self, value=DEFAULT_VALUE):
+        self.query_count += 1
+        return ds.table(
+            schema={"value": int},
+            columns={"value": [value]},
+        )
 
 
-def create(ctx):
-    executor = Executor()
-    provider = ctx.provider(executor)
-    executors.append(executor)
+def create():
+    provider = Provider()
     providers.append(provider)
     return provider
 ''',
@@ -299,33 +302,32 @@ def create(ctx):
         self.replace_workflow(
             pack,
             '''import kat
-from kat.pack.helpers import provider_state
+from kat.pack.datasources import provider_state
 
 
 @kat.workflow(name="analyze", title="Analyze", required_tables=[])
 def analyze(ctx: kat.Context):
-    """Publish one Provider Table."""
-    return provider_state.create(ctx).query("values", name="values")
+    """Publish one PACK-owned Provider result."""
+    return provider_state.create().query()
 ''',
         )
         self.write_test(
             pack,
             "test_provider_lifecycle.py",
-            '''import pytest
-from kat.pack.helpers import provider_state
+            '''from kat import datasource as ds
+from kat.pack.datasources import provider_state
 
 
-def test_provider_lifecycle(kat_run):
+def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
     result = kat_run(workflow="analyze")
-    assert result["values"].to_pydict() == {"value": [1]}
-    executor = provider_state.executors[-1]
+    assert result["main"].to_pydict() == {"value": [1]}
     provider = provider_state.providers[-1]
-    assert executor.execute_count == 1
-    assert executor.close_count == 1
-    with pytest.raises(RuntimeError, match="lease is no longer active"):
-        provider.query("must not execute", name="late")
-    assert executor.execute_count == 1
-    assert executor.close_count == 1
+    assert provider.query_count == 1
+
+    later = provider.query(2)
+    assert isinstance(later, ds.Table)
+    assert later["value"] == (2,)
+    assert provider.query_count == 2
 ''',
         )
 

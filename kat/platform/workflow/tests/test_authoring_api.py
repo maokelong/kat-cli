@@ -223,34 +223,42 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
-    def test_datasource_types_are_exported_from_the_top_level_package(self) -> None:
-        for name in ("SourceExecutor", "ParquetSource", "Provider", "Table"):
-            with self.subTest(name=name):
-                self.assertIn(name, kat.__all__)
-                self.assertIsNotNone(getattr(kat, name))
-
-    def test_context_documents_and_types_the_datasource_contract(self) -> None:
-        provider_signature = inspect.signature(kat.Context.provider)
-        self.assertEqual(tuple(provider_signature.parameters), ("self", "executor"))
+    def test_datasource_toolkit_is_the_only_top_level_datasource_export(self) -> None:
+        self.assertIn("datasource", kat.__all__)
+        self.assertIsNotNone(kat.datasource)
         self.assertEqual(
-            provider_signature.parameters["executor"].annotation,
+            set(kat.datasource.__all__),
+            {
+                "Schema",
+                "Table",
+                "Catalog",
+                "table",
+                "from_arrow",
+                "to_arrow",
+                "write",
+                "open",
+            },
+        )
+
+        for name in (
             "SourceExecutor",
-        )
-        self.assertEqual(provider_signature.return_annotation, "Provider")
-
-        provider_documentation = " ".join(
-            (inspect.getdoc(kat.Context.provider) or "").split()
-        )
-        for boundary in (
-            "PACK-owned Source executor",
-            "KAT Provider",
-            "result naming",
-            "operation-level executor cleanup",
-            "does not construct, subclass, or replace",
+            "ParquetSource",
+            "Provider",
+            "Schema",
+            "Table",
+            "Catalog",
+            "table",
+            "from_arrow",
+            "to_arrow",
+            "write",
+            "open",
         ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, provider_documentation)
+            with self.subTest(name=name):
+                self.assertNotIn(name, kat.__all__)
+                self.assertFalse(hasattr(kat, name))
 
+    def test_context_documents_and_types_the_datasource_root(self) -> None:
+        self.assertFalse(hasattr(kat.Context, "provider"))
         self.assertIsInstance(kat.Context.datasource_root, property)
         self.assertIsNone(kat.Context.datasource_root.fset)
         datasource_root_getter = kat.Context.datasource_root.fget
@@ -272,81 +280,28 @@ class AuthoringApiTest(unittest.TestCase):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, datasource_root_documentation)
 
-    def test_provider_query_has_one_eager_single_table_contract(self) -> None:
-        signature = inspect.signature(kat.Provider.query)
-        self.assertEqual(tuple(signature.parameters), ("self", "sql", "params", "name"))
-        self.assertEqual(signature.parameters["sql"].annotation, "str")
-        self.assertEqual(
-            signature.parameters["sql"].kind,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        )
-        for name, annotation in (
-            ("params", "object | None"),
-            ("name", "str | None"),
-        ):
-            with self.subTest(name=name):
-                parameter = signature.parameters[name]
-                self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
-                self.assertEqual(parameter.annotation, annotation)
-                self.assertIsNone(parameter.default)
-        self.assertEqual(signature.return_annotation, "Table")
-
-        documentation = " ".join((inspect.getdoc(kat.Provider.query) or "").split())
-        self.assertIn("Synchronously execute", documentation)
-        self.assertIn("fully localize one source query", documentation)
-
-    def test_parquet_source_is_an_immutable_path_value(self) -> None:
-        path = Path("one-table.parquet")
-        source = kat.ParquetSource(path)
-        self.assertEqual(source.path, path)
-        with self.assertRaises(TypeError):
-            kat.ParquetSource("one-table.parquet")  # type: ignore[arg-type]
-        with self.assertRaises(AttributeError):
-            source.path = Path("replacement.parquet")  # type: ignore[misc]
-
-    def test_provider_and_table_are_runtime_owned_final_immutable_types(self) -> None:
-        for runtime_type, creation_message in (
-            (kat.Provider, "ctx.provider"),
-            (kat.Table, "KAT Provider"),
-        ):
-            with self.subTest(runtime_type=runtime_type.__name__, boundary="construct"):
-                with self.assertRaisesRegex(TypeError, creation_message):
-                    runtime_type()
-
-            with self.subTest(runtime_type=runtime_type.__name__, boundary="subclass"):
-                with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
-                    type(f"Custom{runtime_type.__name__}", (runtime_type,), {})
-
-            instance = object.__new__(runtime_type)
-            with self.subTest(runtime_type=runtime_type.__name__, boundary="mutate"):
-                with self.assertRaisesRegex(AttributeError, "immutable"):
-                    instance.public_attribute = "replacement"
-
-    def test_table_exposes_only_read_only_logical_facts(self) -> None:
-        self.assertEqual(
-            {name for name in dir(kat.Table) if not name.startswith("_")},
-            {"name", "schema"},
-        )
-        for name, annotation in (("name", "str"), ("schema", "pa.Schema")):
-            with self.subTest(name=name):
-                descriptor = getattr(kat.Table, name)
-                self.assertIsInstance(descriptor, property)
-                self.assertIsNone(descriptor.fset)
-                self.assertIsNotNone(descriptor.fget)
-                assert descriptor.fget is not None
-                self.assertEqual(
-                    inspect.signature(descriptor.fget).return_annotation,
-                    annotation,
-                )
-
-        for name in ("path", "backing_path", "row_count", "operation"):
-            with self.subTest(name=name):
-                self.assertFalse(hasattr(kat.Table, name))
-
     def test_context_documents_and_types_the_authoring_contract(self) -> None:
         sql_signature = inspect.signature(kat.Context.sql)
-        self.assertEqual(sql_signature.return_annotation, "DataFrame")
-        self.assertIn("Duration", str(sql_signature.parameters["params"].annotation))
+        self.assertEqual(
+            tuple(sql_signature.parameters),
+            ("self", "sql", "tables", "params"),
+        )
+        self.assertEqual(sql_signature.parameters["sql"].annotation, "str")
+        self.assertEqual(
+            sql_signature.parameters["sql"].kind,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        for name in ("tables", "params"):
+            with self.subTest(name=name):
+                parameter = sql_signature.parameters[name]
+                self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+                self.assertIsNone(parameter.default)
+                self.assertIn("Mapping", str(parameter.annotation))
+        self.assertIn(
+            "Table",
+            str(sql_signature.parameters["tables"].annotation),
+        )
+        self.assertEqual(sql_signature.return_annotation, "Table")
 
         from_arrow_signature = inspect.signature(kat.Context.from_arrow)
         self.assertEqual(
@@ -362,16 +317,20 @@ class AuthoringApiTest(unittest.TestCase):
 
         sql_documentation = " ".join((inspect.getdoc(kat.Context.sql) or "").split())
         for boundary in (
-            "one read-only SQL statement",
-            "SHOW",
-            "DESCRIBE",
-            "EXPLAIN",
+            "read-only SQL statement",
+            "fresh DataFusion session",
+            "reusable Table",
+            "DDL",
+            "DML",
+            "COPY",
+            "session mutation",
+            "multiple statements",
             "signed int64",
             "finite",
             "never substitute identifiers or SQL text",
-            "Context methods may be called only during the current Workflow execution",
-            "DataFrames are lazy",
-            "materialize them before that execution closes",
+            "tables",
+            "call-local",
+            "current Workflow execution",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, sql_documentation)
@@ -418,12 +377,16 @@ class AuthoringApiTest(unittest.TestCase):
             "absolute UTC instant, not a local civil-time value",
             "Successful decoration alone does not mean the production input Interface is valid",
             "exact, non-empty ``dict``",
-            "A single DataFrame becomes the ``main`` Output",
+            "datasource.Table",
+            "single value",
+            "``main`` Output",
+            "DataFrame",
             "validates the complete returned shape before executing any lazy Output plan",
             "all-or-fail Run publication",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, documentation)
+        self.assertNotIn("Table.name", documentation)
 
     def test_complete_interface_uses_click_converted_defaults(self) -> None:
         self.assertEqual(

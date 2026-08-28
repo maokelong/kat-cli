@@ -2,7 +2,11 @@ from pathlib import Path
 
 import kat
 
-from kat.pack.helpers.datasources import parquet
+from kat.pack.datasources.parquet import (
+    EVENTS_SCHEMA,
+    OWNERS_SCHEMA,
+    LocalParquetProvider,
+)
 
 
 @kat.workflow(
@@ -23,9 +27,9 @@ def fuse_local_parquet(
     owners_path: str,
     minimum_score: int = 0,
 ):
-    """Query local catalogs independently, then fuse their localized results."""
-    qualified_events = parquet.provider(
-        ctx,
+    """显式查询本地 Provider，再融合它们返回的 eager Table。"""
+    qualified_events = LocalParquetProvider(
+        schema=EVENTS_SCHEMA,
         tables={
             "events": Path(events_path),
             "labels": Path(labels_path),
@@ -42,15 +46,13 @@ def fuse_local_parquet(
         WHERE event.score >= $minimum_score
         """,
         params={"minimum_score": minimum_score},
-        name="qualified_events",
     )
 
-    parquet.provider(
-        ctx,
+    owners = LocalParquetProvider(
+        schema=OWNERS_SCHEMA,
         tables={"owners": Path(owners_path)},
     ).query(
         "SELECT owner_id, owner_name FROM owners",
-        name="owners",
     )
 
     return ctx.sql(
@@ -63,5 +65,9 @@ def fuse_local_parquet(
         FROM qualified_events AS event
         JOIN owners AS owner USING (owner_id)
         ORDER BY event.event_id
-        """
+        """,
+        tables={
+            "qualified_events": qualified_events,
+            "owners": owners,
+        },
     )

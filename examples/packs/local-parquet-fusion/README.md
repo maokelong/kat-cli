@@ -1,23 +1,22 @@
 # Local Parquet Fusion example PACK
 
-这个 External PACK 展示本地 Datasource 的最小完整形态：PACK helper 接收显式
-`Mapping[str, Path]`，把这些 Parquet 文件或单表分片目录注册到自己的私有
-DataFusion Session；`Provider.query()` 将来源内 SQL 结果本地化并自动注册，随后
-Workflow 用 `ctx.sql()` 融合来自两个 Provider 的表。
+这个 External PACK 展示本地 Datasource 的最小完整形态：PACK 在顶层
+`datasources/` 中定义普通 `LocalParquetProvider`，用 `ds.Schema` 声明表合同，再把
+显式 `Mapping[str, Path]` 交给 `ds.open()`。Workflow 直接构造并调用两个 Provider，
+最后把查询得到的 eager `ds.Table` 显式交给 `ctx.sql(tables=...)` 融合。
 
-示例刻意不扫描目录发现表。只有传给 `parquet.provider(..., tables=...)` 的名称可被
-来源 SQL 看到；文件路径、SQL 方言、参数转换和私有 Session 生命周期都属于 PACK
-Datasource。KAT Runtime 只管理 query 结果名称、Parquet backing、融合 catalog 与
-Output 发布。来源查询通过 `RecordBatchReader` 逐 batch 交付，不先 `collect()` 成
-整张 Arrow Table。
+示例刻意不从 PACK 根目录扫描或注册 Provider。只有 Schema 和 `tables` mapping 中
+显式声明的名称可被来源 SQL 看到；单个路径既可以是一份 Parquet 文件，也可以是只
+包含该表分片的目录。`Catalog.query()` 完成来源内 SQL 后返回可重复读取的 Table；
+只有 Workflow 返回的最终 Table 会由 Runtime 发布，融合输入不会自动成为 Output。
 
 ## 目录
 
-- `helpers/datasources/parquet.py`：PACK 自己实现的本地 Parquet executor。
-- `workflows/fuse_local_parquet.py`：先在一个来源内 Join/Filter，再融合另一个
-  Provider 的结果。
+- `datasources/parquet.py`：PACK 自己定义的 Schema 与普通 Provider 类。
+- `workflows/fuse_local_parquet.py`：显式调用两个 Provider，先在来源内
+  Join/Filter，再用 `ctx.sql(tables=...)` 融合查询结果。
 - `tests/test_fuse_local_parquet.py`：生成临时 Parquet fixture，覆盖具名参数、显式
-  可见性、单文件与分片目录、跨 Provider 融合。
+  可见性、Table 重复读取、单文件与分片目录、跨 Provider 融合。
 
 ## 验证
 
@@ -46,3 +45,10 @@ kat run \
 
 Workflow 返回单个 `main` Output。它包含 `event_id`、`label`、`owner_name` 和
 `score`；结果按 `event_id` 稳定排序。
+
+使用 `kat run` 返回的 `run_id` 可以继续查询已发布结果：
+
+```bash
+kat query --run <run-id> --sql \
+  "SELECT event_id, label, owner_name, score FROM output.main ORDER BY event_id"
+```

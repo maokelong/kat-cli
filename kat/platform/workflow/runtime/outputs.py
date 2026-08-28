@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import Any, NoReturn
 
-import kat
 import pyarrow.parquet as pq
 from datafusion import DataFrame
+from kat.datasource import Table, to_arrow
 from kat._identifiers import valid_output_name
 
 from .datasource import WorkflowOperation
@@ -26,7 +26,7 @@ def materialize_outputs(
     operation: WorkflowOperation,
 ) -> dict[str, dict[str, Any]]:
     try:
-        outputs, published_tables = _normalize_outputs(value, operation)
+        outputs = _normalize_outputs(value)
     except (TypeError, ValueError) as error:
         raise OutputMaterializationError(str(error)) from error
     output_root = operation.output_root
@@ -45,9 +45,9 @@ def materialize_outputs(
             "Run Output directory could not be created"
         ) from None
 
-    for name, value in outputs.items():
+    for name in outputs:
         path = output_root / f"{name}.parquet"
-        if isinstance(value, DataFrame) and os.path.lexists(path):
+        if os.path.lexists(path):
             raise OutputMaterializationError(
                 f"Output {name!r} backing already exists"
             )
@@ -55,9 +55,12 @@ def materialize_outputs(
     materialized: dict[str, dict[str, Any]] = {}
     for name in sorted(outputs):
         value = outputs[name]
-        if isinstance(value, kat.Table):
-            schema, row_count = operation.table_facts(value)
-            materialized[name] = _output_metadata(schema, row_count)
+        if isinstance(value, Table):
+            materialized[name] = _write_table(
+                value,
+                output_root / f"{name}.parquet",
+                name,
+            )
         else:
             materialized[name] = asyncio.run(
                 _write_output(
@@ -66,54 +69,45 @@ def materialize_outputs(
                     name,
                 )
             )
-    operation.mark_published_tables(published_tables)
     return materialized
 
 
-def _normalize_outputs(
-    value: object,
-    operation: WorkflowOperation,
-) -> tuple[dict[str, DataFrame | kat.Table], set[str]]:
+def _normalize_outputs(value: object) -> dict[str, DataFrame | Table]:
     if isinstance(value, DataFrame):
         candidates: dict[object, object] = {"main": value}
-    elif isinstance(value, kat.Table):
-        candidates = {value.name: value}
+    elif isinstance(value, Table):
+        candidates = {"main": value}
     elif type(value) is dict:
         candidates = value
     else:
         raise TypeError(
-            "Workflow must return a DataFusion DataFrame, KAT Table, or a non-empty named mapping"
+            "Workflow must return a datasource.Table, DataFusion DataFrame, "
+            "or a non-empty exact dict"
         )
     if not candidates:
         raise ValueError("Workflow must return at least one Table Output")
 
-    outputs: dict[str, DataFrame | kat.Table] = {}
-    published_tables: set[str] = set()
-    dataframe_names: set[str] = set()
+    outputs: dict[str, DataFrame | Table] = {}
     for name, relation in candidates.items():
         if type(name) is not str or not valid_output_name(name):
             raise ValueError(f"invalid Output name: {name!r}")
-        if isinstance(relation, kat.Table):
-            if name != relation.name:
-                raise ValueError(
-                    f"Table Output key {name!r} must equal Table.name {relation.name!r}"
-                )
-            operation.table_facts(relation)
-            published_tables.add(name)
-        elif isinstance(relation, DataFrame):
-            dataframe_names.add(name)
-        else:
+        if not isinstance(relation, (Table, DataFrame)):
             raise TypeError(
-                f"Output {name!r} must be a DataFusion DataFrame or KAT Table"
+                f"Output {name!r} must be a datasource.Table or DataFusion DataFrame"
             )
         outputs[name] = relation
-    conflicts = sorted(dataframe_names & operation.provider_names)
-    if conflicts:
-        raise ValueError(
-            "DataFrame Output names conflict with Provider Tables: "
-            + ", ".join(conflicts)
-        )
-    return outputs, published_tables
+    return outputs
+
+
+def _write_table(
+    table: Table, output_path: Path, output_name: str
+) -> dict[str, Any]:
+    arrow_table = to_arrow(table)
+    try:
+        pq.write_table(arrow_table, output_path, compression="zstd")
+    except (Exception, SystemExit):
+        _raise_output_write_error(output_name)
+    return _output_metadata(arrow_table.schema, arrow_table.num_rows)
 
 
 async def _write_output(
