@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/ftrace2parquet",
     "kat/platform/cli",
     "kat/platform/datasource",
 ]

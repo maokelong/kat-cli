@@ -1511,6 +1511,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ftrace2parquet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array",
+ "arrow-schema",
+ "clap",
+ "parquet",
+ "tempfile",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
