@@ -7,7 +7,7 @@ use clap::Parser;
 struct Cli {
     #[arg(long, value_name = "TRACE")]
     input: PathBuf,
-    #[arg(long, value_name = "PARQUET")]
+    #[arg(long, value_name = "DIRECTORY")]
     output: PathBuf,
     #[arg(long, value_name = "NAME")]
     clock_domain: String,

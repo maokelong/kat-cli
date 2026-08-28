@@ -10,7 +10,14 @@ arrow-array.workspace = true
 arrow-schema.workspace = true
 clap.workspace = true
 parquet.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_arrow.workspace = true
 tempfile.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
