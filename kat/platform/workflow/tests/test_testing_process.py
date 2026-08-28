@@ -638,6 +638,41 @@ def analyze(ctx: kat.Context):
                 self.assertIn(expected, terminal)
                 self.assertNotIn("Traceback", terminal)
 
+    def test_workflow_failure_hides_a_suppressed_execution_context(self) -> None:
+        pack = self.pack()
+        self.replace_workflow(
+            pack,
+            '''import kat
+
+@kat.workflow(
+    name="analyze",
+    title="Analyze",
+    required_tables=[],
+)
+def analyze(ctx: kat.Context):
+    """Translate a datasource failure without exposing its private context."""
+    try:
+        raise RuntimeError("PGPASSWORD=private-sentinel")
+    except RuntimeError:
+        raise RuntimeError("PostgreSQL query failed") from None
+''',
+        )
+        self.write_test(
+            pack,
+            "test_workflow_failure.py",
+            '''def test_workflow_failure(kat_run):
+    kat_run(workflow="analyze")
+''',
+        )
+
+        completed, response, report = self.run_runtime(self.request(pack), pack)
+
+        terminal = self.assert_pack_tests_failed(completed, response, report)
+        self.assertIn("KAT Workflow test execution failed", terminal)
+        self.assertIn("PostgreSQL query failed", terminal)
+        self.assertNotIn("private-sentinel", terminal)
+        self.assertNotIn("Traceback", terminal)
+
     def test_unexpected_harness_error_keeps_its_traceback(self) -> None:
         pack = self.pack()
         self.write_test(
