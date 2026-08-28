@@ -112,6 +112,119 @@ pq.write_table(
     );
 }
 
+fn write_poison_probe_pack(pack: &Path) {
+    let datasource_root = pack.join("helpers").join("datasources");
+    let workflow_root = pack.join("workflows");
+    fs::create_dir_all(&datasource_root).expect("create poison probe datasource directory");
+    fs::create_dir(&workflow_root).expect("create poison probe workflow directory");
+    fs::copy(
+        repository_path(
+            "../../../examples/packs/postgresql-parquet-fusion/helpers/datasources/postgresql.py",
+        ),
+        datasource_root.join("postgresql.py"),
+    )
+    .expect("copy production PostgreSQL executor into poison probe");
+    fs::write(
+        pack.join("pack.toml"),
+        r#"name = "postgresql-poison-probe"
+title = "PostgreSQL Poison Probe"
+description = "Exercises a caught PostgreSQL failure through the public CLI."
+owner = "KAT Contributors"
+"#,
+    )
+    .expect("write poison probe PACK declaration");
+    fs::write(
+        workflow_root.join("probe.py"),
+        r#"import kat
+
+from kat.pack.helpers.datasources import postgresql
+
+
+@kat.workflow(
+    name="probe",
+    title="Probe PostgreSQL failure",
+    required_tables=[],
+    parameters={"profile": "service", "database": "database"},
+)
+def probe(ctx: kat.Context, profile: str, database: str):
+    """Catch a real source failure; the poisoned Context must reject publishing."""
+    try:
+        postgresql.provider(
+            ctx,
+            profile=profile,
+            database=database,
+        ).query("SELECT 1::BIGINT AS value", name="failed")
+    except RuntimeError:
+        pass
+    return None
+"#,
+    )
+    .expect("write poison probe Workflow");
+}
+
+fn assert_real_authentication_failure_is_sanitized(
+    binary: &Path,
+    root: &Path,
+    profile: &str,
+    database: &str,
+    actual_secret: &str,
+) {
+    const INVALID_SECRET: &str = "kat-invalid-password-sentinel";
+    let pack = root.join("postgresql-poison-probe");
+    write_poison_probe_pack(&pack);
+
+    let mut command = Command::new(binary);
+    command
+        .args([
+            "run",
+            "--pack",
+            "postgresql-poison-probe",
+            "--workflow",
+            "probe",
+            "--pack-dir",
+        ])
+        .arg(&pack)
+        .arg("--")
+        .args(["--profile", profile, "--database", database])
+        .env("PGPASSWORD", INVALID_SECRET);
+    test_home::configure(&mut command, root);
+    let output = command
+        .output()
+        .expect("run real authentication failure probe");
+
+    for secret in [actual_secret, INVALID_SECRET] {
+        assert_secret_absent("failed run stdout", &output.stdout, secret);
+        assert_secret_absent("failed run stderr", &output.stderr, secret);
+    }
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    assert!(response.get("result").is_none());
+    assert!(
+        response["error"]
+            .to_string()
+            .contains("PostgreSQL query failed")
+    );
+
+    let operation_log =
+        fs::read(response["log_path"].as_str().unwrap()).expect("read failed run operation log");
+    let data_home = test_home::data_home(root);
+    for secret in [actual_secret, INVALID_SECRET] {
+        assert_secret_absent("failed run operation log", &operation_log, secret);
+        assert_tree_has_no_secret(&data_home, secret);
+    }
+    let runs = data_home.join("runs");
+    assert!(
+        !runs.exists() || fs::read_dir(runs).unwrap().next().is_none(),
+        "a caught Provider failure must not publish a Run candidate"
+    );
+}
+
 #[test]
 #[ignore = "requires a real Workflow Host wheel and external libpq test services"]
 fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
@@ -282,6 +395,16 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
             ["102", "20", "system-server", "150", "0", "140", "190", 0.5],
             ["102", "20", "system-server", "200", "1", "200", "240", 0.75]
         ])
+    );
+
+    let failure_root = temporary.path().join("failure");
+    fs::create_dir(&failure_root).unwrap();
+    assert_real_authentication_failure_is_sanitized(
+        &binary,
+        &failure_root,
+        &readonly_profile,
+        &telemetry_database,
+        &secret,
     );
 
     assert_tree_has_no_secret(&test_home::data_home(temporary.path()), &secret);

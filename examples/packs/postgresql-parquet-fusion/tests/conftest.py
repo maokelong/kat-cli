@@ -14,7 +14,6 @@ class PostgreSQLTestConfig:
     writer_profile: str
     telemetry_database: str
     control_database: str
-    secret: str
 
 
 def _required_environment(name: str) -> str:
@@ -87,5 +86,4 @@ def postgresql_config() -> PostgreSQLTestConfig:
         writer_profile=writer_profile,
         telemetry_database=telemetry_database,
         control_database=control_database,
-        secret=secret,
     )
