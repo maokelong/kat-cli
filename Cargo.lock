@@ -1606,6 +1606,11 @@ dependencies = [
  "arrow-schema",
  "clap",
  "parquet",
+ "prost",
+ "prost-build",
+ "protoc-bin-vendored",
+ "serde",
+ "serde_arrow",
  "tempfile",
 ]
 

@@ -1,18 +1,32 @@
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader},
-    path::Path,
+    marker::PhantomData,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
 use anyhow::{Context, Result, bail};
-use arrow_array::{Int32Array, RecordBatch, StringArray, UInt32Array, UInt64Array};
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::{DataType, Field, FieldRef, Schema};
 use parquet::arrow::ArrowWriter;
+use serde::{Deserialize, Serialize};
+use serde_arrow::{
+    ArrayBuilder,
+    schema::{SchemaLike, TracingOptions},
+};
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 const BATCH_ROWS: usize = 8_192;
 const TICKS_PER_SECOND: u64 = 1_000_000_000;
+
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/ftrace2parquet.rs"));
+}
+
+use generated::{
+    SchedSwitch, SchedWakeup, SchedWakeupNew, TextFtraceEvent, TracingMarkWrite,
+    text_ftrace_event::Payload,
+};
 
 pub fn convert(input: &Path, output: &Path, clock_domain: &str) -> Result<()> {
     if clock_domain.is_empty() {
@@ -23,54 +37,39 @@ pub fn convert(input: &Path, output: &Path, clock_domain: &str) -> Result<()> {
     }
     let parent = output
         .parent()
-        .filter(|path| !path.as_os_str().is_empty())
+        .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let metadata = fs::metadata(parent)
-        .with_context(|| format!("failed to inspect output directory {}", parent.display()))?;
-    if !metadata.is_dir() {
+    if !fs::metadata(parent)
+        .with_context(|| format!("failed to inspect output directory {}", parent.display()))?
+        .is_dir()
+    {
         bail!("output parent is not a directory: {}", parent.display());
     }
-
     let input_file =
         File::open(input).with_context(|| format!("failed to open input {}", input.display()))?;
-    let temporary = tempfile::NamedTempFile::new_in(parent)
+    let temporary = tempfile::Builder::new()
+        .prefix(".ftrace2parquet-")
+        .tempdir_in(parent)
         .with_context(|| format!("failed to create temporary output in {}", parent.display()))?;
-    let schema = event_schema();
-    let parquet_file = temporary
-        .reopen()
-        .context("failed to reopen temporary output")?;
-    let mut writer = ArrowWriter::try_new(parquet_file, schema.clone(), None)
-        .context("failed to create Parquet writer")?;
-    let event_count = convert_reader(
-        BufReader::new(input_file),
-        clock_domain,
-        schema,
-        &mut writer,
-    )?;
-    if event_count == 0 {
-        bail!("text ftrace contains no event records");
+    let mut tables = OutputTables::new(temporary.path());
+    if convert_reader(BufReader::new(input_file), clock_domain, &mut tables)? == 0 {
+        bail!("text ftrace contains no supported event records");
     }
-    writer.close().context("failed to finish Parquet output")?;
-    temporary.persist_noclobber(output).map_err(|error| {
-        anyhow::anyhow!(
-            "failed to publish output {}: {}",
-            output.display(),
-            error.error
-        )
-    })?;
+    tables.finish()?;
+    fs::rename(temporary.path(), output)
+        .with_context(|| format!("failed to publish output directory {}", output.display()))?;
     Ok(())
 }
 
 fn convert_reader(
     mut reader: impl BufRead,
     clock_domain: &str,
-    schema: SchemaRef,
-    writer: &mut ArrowWriter<File>,
+    tables: &mut OutputTables,
 ) -> Result<u64> {
     let mut bytes = Vec::new();
     let mut line_number = 0_u64;
-    let mut sequence = 0_u64;
-    let mut batch = EventBatch::new();
+    let mut source_sequence = 0_u64;
+    let mut supported = 0_u64;
     loop {
         let next_line = line_number
             .checked_add(1)
@@ -91,38 +90,22 @@ fn convert_reader(
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let event = parse_event(line)
-            .with_context(|| format!("invalid ftrace event at line {line_number}"))?;
-        batch.push(sequence, clock_domain, event);
-        sequence = sequence
+        if let Some(event) = parse_event(line, clock_domain)
+            .with_context(|| format!("invalid ftrace event at line {line_number}"))?
+        {
+            tables.push(source_sequence, event)?;
+            supported = supported
+                .checked_add(1)
+                .context("supported event count overflows")?;
+        }
+        source_sequence = source_sequence
             .checked_add(1)
             .context("source event sequence overflows")?;
-        if batch.len() == BATCH_ROWS {
-            writer
-                .write(&batch.finish(schema.clone())?)
-                .context("failed to write Parquet batch")?;
-        }
     }
-    if !batch.is_empty() {
-        writer
-            .write(&batch.finish(schema)?)
-            .context("failed to write final Parquet batch")?;
-    }
-    Ok(sequence)
+    Ok(supported)
 }
 
-struct ParsedEvent<'a> {
-    clock_value: u64,
-    cpu: u32,
-    emitter_thread_name: &'a str,
-    emitter_thread_id: i32,
-    emitter_process_id: Option<i32>,
-    context_flags: &'a str,
-    event_name: &'a str,
-    payload: &'a str,
-}
-
-fn parse_event(line: &str) -> Result<ParsedEvent<'_>> {
+fn parse_event(line: &str, clock_domain: &str) -> Result<Option<TextFtraceEvent>> {
     let first_separator = line.find(": ").context("missing event separator")?;
     let cpu_start = line[..first_separator]
         .rfind(" [")
@@ -131,32 +114,100 @@ fn parse_event(line: &str) -> Result<ParsedEvent<'_>> {
     let cpu_end = line[cpu_start..].find("] ").context("invalid CPU field")? + cpu_start;
     let cpu = parse_u32(&line[cpu_start + 1..cpu_end], "CPU")?;
     let emitter = line[..cpu_start].trim_end();
-    let suffix = &line[cpu_end + 2..];
-    let (flags_and_clock, event_and_payload) =
-        suffix.split_once(": ").context("missing event name")?;
+    let (flags_and_clock, event_and_payload) = line[cpu_end + 2..]
+        .split_once(": ")
+        .context("missing event name")?;
     let (context_flags, clock) = flags_and_clock
         .rsplit_once(char::is_whitespace)
         .context("missing context flags or clock value")?;
     if context_flags.is_empty() {
         bail!("context flags must not be empty");
     }
-    let (event_name, payload) = event_and_payload
+    let (event_name, payload_text) = event_and_payload
         .split_once(": ")
         .context("missing event payload")?;
     if event_name.is_empty() {
         bail!("event name must not be empty");
     }
-    let (emitter_thread_name, emitter_thread_id, emitter_process_id) = parse_emitter(emitter)?;
-    Ok(ParsedEvent {
-        clock_value: parse_clock_value(clock)?,
+    let (name, tid, tgid) = parse_emitter(emitter)?;
+    let clock_value = parse_clock_value(clock)?;
+    let payload = match event_name {
+        "sched_switch" => Payload::SchedSwitch(parse_sched_switch(payload_text)?),
+        "sched_wakeup" => Payload::SchedWakeup(parse_sched_wakeup(payload_text)?),
+        "sched_wakeup_new" => Payload::SchedWakeupNew(parse_sched_wakeup_new(payload_text)?),
+        "tracing_mark_write" => Payload::TracingMarkWrite(TracingMarkWrite {
+            content: payload_text.to_owned(),
+        }),
+        _ => return Ok(None),
+    };
+    Ok(Some(TextFtraceEvent {
+        clock_domain: clock_domain.to_owned(),
+        clock_value,
         cpu,
-        emitter_thread_name,
-        emitter_thread_id,
-        emitter_process_id,
-        context_flags,
-        event_name,
-        payload,
+        emitter_thread_name: name.to_owned(),
+        emitter_thread_id: tid,
+        emitter_process_id: tgid,
+        context_flags: context_flags.to_owned(),
+        payload: Some(payload),
+    }))
+}
+
+fn parse_sched_switch(payload: &str) -> Result<SchedSwitch> {
+    let (previous_thread_name, rest) = take_between(payload, "prev_comm=", " prev_pid=")?;
+    let (previous_thread_id, rest) = take_between(rest, "", " prev_prio=")?;
+    let (previous_priority, rest) = take_between(rest, "", " prev_state=")?;
+    let (previous_state, rest) = take_between(rest, "", " ==> next_comm=")?;
+    let (next_thread_name, rest) = take_between(rest, "", " next_pid=")?;
+    let (next_thread_id, next_priority) = take_between(rest, "", " next_prio=")?;
+    Ok(SchedSwitch {
+        previous_thread_name: previous_thread_name.to_owned(),
+        previous_thread_id: parse_i32(previous_thread_id, "prev_pid")?,
+        previous_priority: parse_i32(previous_priority, "prev_prio")?,
+        previous_state: previous_state.to_owned(),
+        next_thread_name: next_thread_name.to_owned(),
+        next_thread_id: parse_i32(next_thread_id, "next_pid")?,
+        next_priority: parse_i32(next_priority, "next_prio")?,
     })
+}
+
+fn parse_sched_wakeup(payload: &str) -> Result<SchedWakeup> {
+    let (thread_name, thread_id, priority, target_cpu) = parse_wakeup_fields(payload)?;
+    Ok(SchedWakeup {
+        thread_name,
+        thread_id,
+        priority,
+        target_cpu,
+    })
+}
+
+fn parse_sched_wakeup_new(payload: &str) -> Result<SchedWakeupNew> {
+    let (thread_name, thread_id, priority, target_cpu) = parse_wakeup_fields(payload)?;
+    Ok(SchedWakeupNew {
+        thread_name,
+        thread_id,
+        priority,
+        target_cpu,
+    })
+}
+
+fn parse_wakeup_fields(payload: &str) -> Result<(String, i32, i32, u32)> {
+    let (thread_name, rest) = take_between(payload, "comm=", " pid=")?;
+    let (thread_id, rest) = take_between(rest, "", " prio=")?;
+    let (priority, target_cpu) = take_between(rest, "", " target_cpu=")?;
+    Ok((
+        thread_name.to_owned(),
+        parse_i32(thread_id, "pid")?,
+        parse_i32(priority, "prio")?,
+        parse_u32(target_cpu, "target_cpu")?,
+    ))
+}
+
+fn take_between<'a>(value: &'a str, prefix: &str, separator: &str) -> Result<(&'a str, &'a str)> {
+    value
+        .strip_prefix(prefix)
+        .context("missing payload field")?
+        .split_once(separator)
+        .context("missing payload separator")
 }
 
 fn parse_emitter(value: &str) -> Result<(&str, i32, Option<i32>)> {
@@ -186,10 +237,10 @@ fn parse_emitter(value: &str) -> Result<(&str, i32, Option<i32>)> {
 fn parse_clock_value(value: &str) -> Result<u64> {
     let (seconds, fraction) = value.split_once('.').unwrap_or((value, ""));
     let seconds = seconds.parse::<u64>().context("invalid clock seconds")?;
-    if !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !fraction.bytes().all(|b| b.is_ascii_digit()) {
         bail!("invalid fractional clock value");
     }
-    if fraction.len() > 9 && fraction.as_bytes()[9..].iter().any(|digit| *digit != b'0') {
+    if fraction.len() > 9 && fraction.as_bytes()[9..].iter().any(|d| *d != b'0') {
         bail!("clock precision exceeds nanoseconds");
     }
     let significant = &fraction[..fraction.len().min(9)];
@@ -205,14 +256,13 @@ fn parse_clock_value(value: &str) -> Result<u64> {
     }
     seconds
         .checked_mul(TICKS_PER_SECOND)
-        .and_then(|value| value.checked_add(nanos))
+        .and_then(|v| v.checked_add(nanos))
         .context("clock value overflows UInt64")
 }
 
 fn parse_i32(value: &str, label: &str) -> Result<i32> {
     value.parse().with_context(|| format!("invalid {label}"))
 }
-
 fn parse_u32(value: &str, label: &str) -> Result<u32> {
     value.parse().with_context(|| format!("invalid {label}"))
 }
@@ -229,8 +279,8 @@ fn read_bounded_line(
             if available.is_empty() {
                 return Ok(output.len());
             }
-            let newline = available.iter().position(|byte| *byte == b'\n');
-            let take = newline.map_or(available.len(), |position| position + 1);
+            let newline = available.iter().position(|b| *b == b'\n');
+            let take = newline.map_or(available.len(), |p| p + 1);
             if output.len().saturating_add(take) > MAX_LINE_BYTES {
                 bail!("line {line_number} exceeds the {MAX_LINE_BYTES}-byte limit");
             }
@@ -244,86 +294,291 @@ fn read_bounded_line(
     }
 }
 
-fn event_schema() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("source_event_sequence", DataType::UInt64, false),
-        Field::new("clock_domain", DataType::Utf8, false),
-        Field::new("clock_value", DataType::UInt64, false),
-        Field::new("cpu", DataType::UInt32, false),
-        Field::new("emitter_thread_name", DataType::Utf8, false),
-        Field::new("emitter_thread_id", DataType::Int32, false),
-        Field::new("emitter_process_id", DataType::Int32, true),
-        Field::new("context_flags", DataType::Utf8, false),
-        Field::new("event_name", DataType::Utf8, false),
-        Field::new("payload", DataType::Utf8, false),
-    ]))
+#[derive(Serialize, Deserialize)]
+struct OccurrenceRow {
+    _kat_row_id: u64,
+    source_event_sequence: u64,
+}
+#[derive(Serialize, Deserialize)]
+struct RootRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    clock_domain: String,
+    clock_value: u64,
+    cpu: u32,
+    emitter_thread_name: String,
+    emitter_thread_id: i32,
+    emitter_process_id: Option<i32>,
+    context_flags: String,
+}
+#[derive(Serialize, Deserialize)]
+struct SchedSwitchRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    previous_thread_name: String,
+    previous_thread_id: i32,
+    previous_priority: i32,
+    previous_state: String,
+    next_thread_name: String,
+    next_thread_id: i32,
+    next_priority: i32,
+}
+#[derive(Serialize, Deserialize)]
+struct WakeupRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    thread_name: String,
+    thread_id: i32,
+    priority: i32,
+    target_cpu: u32,
+}
+#[derive(Serialize, Deserialize)]
+struct TracingMarkWriteRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    content: String,
 }
 
-#[derive(Default)]
-struct EventBatch {
-    source_event_sequence: Vec<u64>,
-    clock_domain: Vec<String>,
-    clock_value: Vec<u64>,
-    cpu: Vec<u32>,
-    emitter_thread_name: Vec<String>,
-    emitter_thread_id: Vec<i32>,
-    emitter_process_id: Vec<Option<i32>>,
-    context_flags: Vec<String>,
-    event_name: Vec<String>,
-    payload: Vec<String>,
+struct TableWriter<T> {
+    name: &'static str,
+    builder: ArrayBuilder,
+    writer: ArrowWriter<File>,
+    buffered_rows: usize,
+    _row: PhantomData<T>,
+}
+impl<T> TableWriter<T>
+where
+    for<'de> T: Deserialize<'de>,
+    T: Serialize,
+{
+    fn new(directory: &Path, name: &'static str) -> Result<Self> {
+        let fields = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())?
+            .into_iter()
+            .map(|field| {
+                if field.data_type() == &DataType::LargeUtf8 {
+                    Arc::new(Field::new(
+                        field.name(),
+                        DataType::Utf8,
+                        field.is_nullable(),
+                    ))
+                } else {
+                    field
+                }
+            })
+            .collect::<Vec<_>>();
+        let schema = Arc::new(Schema::new(fields.clone()));
+        let file = File::create(directory.join(format!("{name}.parquet")))?;
+        Ok(Self {
+            name,
+            builder: ArrayBuilder::from_arrow(&fields)?,
+            writer: ArrowWriter::try_new(file, schema, None)?,
+            buffered_rows: 0,
+            _row: PhantomData,
+        })
+    }
+    fn push(&mut self, row: T) -> Result<()> {
+        self.builder.push(row)?;
+        self.buffered_rows += 1;
+        if self.buffered_rows == BATCH_ROWS {
+            self.flush()?;
+        }
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<()> {
+        if self.buffered_rows == 0 {
+            return Ok(());
+        }
+        let batch = self
+            .builder
+            .to_record_batch()
+            .with_context(|| format!("failed to build {:?} batch", self.name))?;
+        self.writer
+            .write(&batch)
+            .with_context(|| format!("failed to write {:?} batch", self.name))?;
+        self.buffered_rows = 0;
+        Ok(())
+    }
+    fn finish(mut self) -> Result<()> {
+        self.flush()?;
+        self.writer
+            .close()
+            .with_context(|| format!("failed to close {:?} table", self.name))?;
+        Ok(())
+    }
 }
 
-impl EventBatch {
-    fn new() -> Self {
-        Self::default()
+struct OutputTables {
+    directory: PathBuf,
+    occurrence: Option<TableWriter<OccurrenceRow>>,
+    root: Option<TableWriter<RootRow>>,
+    sched_switch: Option<TableWriter<SchedSwitchRow>>,
+    sched_wakeup: Option<TableWriter<WakeupRow>>,
+    sched_wakeup_new: Option<TableWriter<WakeupRow>>,
+    tracing_mark_write: Option<TableWriter<TracingMarkWriteRow>>,
+    next_root: u64,
+    next_switch: u64,
+    next_wakeup: u64,
+    next_wakeup_new: u64,
+    next_marker: u64,
+}
+impl OutputTables {
+    fn new(directory: &Path) -> Self {
+        Self {
+            directory: directory.to_owned(),
+            occurrence: None,
+            root: None,
+            sched_switch: None,
+            sched_wakeup: None,
+            sched_wakeup_new: None,
+            tracing_mark_write: None,
+            next_root: 0,
+            next_switch: 0,
+            next_wakeup: 0,
+            next_wakeup_new: 0,
+            next_marker: 0,
+        }
     }
-
-    fn len(&self) -> usize {
-        self.source_event_sequence.len()
+    fn push(&mut self, source_event_sequence: u64, event: TextFtraceEvent) -> Result<()> {
+        let root_id = take_next(&mut self.next_root)?;
+        self.occurrence()?.push(OccurrenceRow {
+            _kat_row_id: root_id,
+            source_event_sequence,
+        })?;
+        let payload = event.payload.context("supported event has no payload")?;
+        self.root()?.push(RootRow {
+            _kat_row_id: root_id,
+            _kat_parent_row_id: root_id,
+            clock_domain: event.clock_domain,
+            clock_value: event.clock_value,
+            cpu: event.cpu,
+            emitter_thread_name: event.emitter_thread_name,
+            emitter_thread_id: event.emitter_thread_id,
+            emitter_process_id: event.emitter_process_id,
+            context_flags: event.context_flags,
+        })?;
+        match payload {
+            Payload::SchedSwitch(v) => {
+                let id = take_next(&mut self.next_switch)?;
+                self.sched_switch()?.push(SchedSwitchRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    previous_thread_name: v.previous_thread_name,
+                    previous_thread_id: v.previous_thread_id,
+                    previous_priority: v.previous_priority,
+                    previous_state: v.previous_state,
+                    next_thread_name: v.next_thread_name,
+                    next_thread_id: v.next_thread_id,
+                    next_priority: v.next_priority,
+                })?;
+            }
+            Payload::SchedWakeup(v) => {
+                let id = take_next(&mut self.next_wakeup)?;
+                self.sched_wakeup()?.push(WakeupRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    thread_name: v.thread_name,
+                    thread_id: v.thread_id,
+                    priority: v.priority,
+                    target_cpu: v.target_cpu,
+                })?;
+            }
+            Payload::SchedWakeupNew(v) => {
+                let id = take_next(&mut self.next_wakeup_new)?;
+                self.sched_wakeup_new()?.push(WakeupRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    thread_name: v.thread_name,
+                    thread_id: v.thread_id,
+                    priority: v.priority,
+                    target_cpu: v.target_cpu,
+                })?;
+            }
+            Payload::TracingMarkWrite(v) => {
+                let id = take_next(&mut self.next_marker)?;
+                self.tracing_mark_write()?.push(TracingMarkWriteRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    content: v.content,
+                })?;
+            }
+        }
+        Ok(())
     }
-
-    fn is_empty(&self) -> bool {
-        self.source_event_sequence.is_empty()
-    }
-
-    fn push(&mut self, sequence: u64, clock_domain: &str, event: ParsedEvent<'_>) {
-        self.source_event_sequence.push(sequence);
-        self.clock_domain.push(clock_domain.to_owned());
-        self.clock_value.push(event.clock_value);
-        self.cpu.push(event.cpu);
-        self.emitter_thread_name
-            .push(event.emitter_thread_name.to_owned());
-        self.emitter_thread_id.push(event.emitter_thread_id);
-        self.emitter_process_id.push(event.emitter_process_id);
-        self.context_flags.push(event.context_flags.to_owned());
-        self.event_name.push(event.event_name.to_owned());
-        self.payload.push(event.payload.to_owned());
-    }
-
-    fn finish(&mut self, schema: SchemaRef) -> Result<RecordBatch> {
-        RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(UInt64Array::from(std::mem::take(
-                    &mut self.source_event_sequence,
-                ))),
-                Arc::new(StringArray::from(std::mem::take(&mut self.clock_domain))),
-                Arc::new(UInt64Array::from(std::mem::take(&mut self.clock_value))),
-                Arc::new(UInt32Array::from(std::mem::take(&mut self.cpu))),
-                Arc::new(StringArray::from(std::mem::take(
-                    &mut self.emitter_thread_name,
-                ))),
-                Arc::new(Int32Array::from(std::mem::take(
-                    &mut self.emitter_thread_id,
-                ))),
-                Arc::new(Int32Array::from(std::mem::take(
-                    &mut self.emitter_process_id,
-                ))),
-                Arc::new(StringArray::from(std::mem::take(&mut self.context_flags))),
-                Arc::new(StringArray::from(std::mem::take(&mut self.event_name))),
-                Arc::new(StringArray::from(std::mem::take(&mut self.payload))),
-            ],
+    fn occurrence(&mut self) -> Result<&mut TableWriter<OccurrenceRow>> {
+        initialize(
+            &self.directory,
+            &mut self.occurrence,
+            "text_ftrace_event_occurrence",
         )
-        .context("failed to build Arrow batch")
     }
+    fn root(&mut self) -> Result<&mut TableWriter<RootRow>> {
+        initialize(&self.directory, &mut self.root, "text_ftrace_event")
+    }
+    fn sched_switch(&mut self) -> Result<&mut TableWriter<SchedSwitchRow>> {
+        initialize(
+            &self.directory,
+            &mut self.sched_switch,
+            "text_ftrace_event_sched_switch",
+        )
+    }
+    fn sched_wakeup(&mut self) -> Result<&mut TableWriter<WakeupRow>> {
+        initialize(
+            &self.directory,
+            &mut self.sched_wakeup,
+            "text_ftrace_event_sched_wakeup",
+        )
+    }
+    fn sched_wakeup_new(&mut self) -> Result<&mut TableWriter<WakeupRow>> {
+        initialize(
+            &self.directory,
+            &mut self.sched_wakeup_new,
+            "text_ftrace_event_sched_wakeup_new",
+        )
+    }
+    fn tracing_mark_write(&mut self) -> Result<&mut TableWriter<TracingMarkWriteRow>> {
+        initialize(
+            &self.directory,
+            &mut self.tracing_mark_write,
+            "text_ftrace_event_tracing_mark_write",
+        )
+    }
+    fn finish(self) -> Result<()> {
+        finish(self.occurrence)?;
+        finish(self.root)?;
+        finish(self.sched_switch)?;
+        finish(self.sched_wakeup)?;
+        finish(self.sched_wakeup_new)?;
+        finish(self.tracing_mark_write)?;
+        Ok(())
+    }
+}
+
+fn initialize<'a, T>(
+    directory: &Path,
+    table: &'a mut Option<TableWriter<T>>,
+    name: &'static str,
+) -> Result<&'a mut TableWriter<T>>
+where
+    for<'de> T: Deserialize<'de>,
+    T: Serialize,
+{
+    if table.is_none() {
+        *table = Some(TableWriter::new(directory, name)?);
+    }
+    Ok(table.as_mut().expect("table initialized"))
+}
+fn finish<T>(table: Option<TableWriter<T>>) -> Result<()>
+where
+    for<'de> T: Deserialize<'de>,
+    T: Serialize,
+{
+    if let Some(table) = table {
+        table.finish()?;
+    }
+    Ok(())
+}
+fn take_next(value: &mut u64) -> Result<u64> {
+    let current = *value;
+    *value = value.checked_add(1).context("row id overflows")?;
+    Ok(current)
 }
