@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by 2026-08-28-pack-datasource-toolkit.md
 ---
 
 # PACK Datasource 与多数据源联合查询
+
+> 本文已由 `2026-08-28-pack-datasource-toolkit.md` 取代，只保留 Provider facade 方案的设计历史，不得作为实现合同。
 
 ## 1. 目标
 
