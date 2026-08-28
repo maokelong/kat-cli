@@ -182,6 +182,35 @@ def analyze(ctx: kat.Context):
             {"value": [2, 3]},
         )
 
+    def test_required_dataset_is_validated_before_workflow_user_code(self) -> None:
+        marker = self.root / "workflow-ran.txt"
+        pack = self.pack(
+            f'''    __import__("pathlib").Path({str(marker)!r}).write_text("ran")
+    return ds.table(schema={{"value": int}}, columns={{"value": [1]}})''',
+            required_tables="['events']",
+        )
+        dataset = self.root / "damaged-dataset"
+        dataset.mkdir()
+        events = dataset / "events.parquet"
+        events.write_bytes(b"not a Parquet file")
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(
+                pack,
+                candidate_id,
+                candidate,
+                dataset={
+                    "path": str(dataset.resolve()),
+                    "tables": {"events": str(events.resolve())},
+                },
+            )
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertFalse(marker.exists())
+
     def test_ctx_sql_call_state_is_isolated_and_failure_does_not_poison_context(
         self,
     ) -> None:

@@ -148,6 +148,11 @@ def run_loaded_workflow(
     except ValueError as error:
         raise WorkflowExecutionFailure() from error
     session = SessionContext()
+    try:
+        for table_name in required_tables:
+            session.register_parquet(table_name, str(table_paths[table_name]))
+    except (Exception, SystemExit) as error:
+        raise WorkflowExecutionFailure() from error
     clock = ClockCapability(dataset)
 
     operation = WorkflowOperation(

@@ -11,46 +11,6 @@ mod support;
 #[path = "support/test_home.rs"]
 mod test_home;
 
-fn response(output: std::process::Output) -> serde_json::Value {
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    response
-}
-
-fn repository_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(relative)
-        .canonicalize()
-        .unwrap()
-}
-
-fn assert_cpython_314(python: &Path) {
-    let output = Command::new(python)
-        .args([
-            "-c",
-            "import sys; print(f'{sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}')",
-        ])
-        .output()
-        .expect("inspect Workflow Host Python");
-    assert!(
-        output.status.success(),
-        "Workflow Host Python inspection failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "cpython 3.14",
-        "Local Parquet Fusion E2E requires CPython 3.14"
-    );
-}
-
 fn write_parquet_inputs(python: &Path, root: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let events = root.join("events.parquet");
     let labels = root.join("labels");
@@ -122,7 +82,7 @@ fn local_parquet_fusion_demo_runs_the_full_user_loop() {
         std::env::var_os("KAT_TEST_WORKFLOW_WHEEL")
             .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
     );
-    assert_cpython_314(&python);
+    support::assert_cpython_314(&python);
     let temporary = tempfile::tempdir().unwrap();
     let (_skill, binary) = support::stage_real_host_skill(
         temporary.path(),
@@ -132,14 +92,14 @@ fn local_parquet_fusion_demo_runs_the_full_user_loop() {
     );
     let (events, labels, owners) =
         write_parquet_inputs(&support::host_path(&binary), temporary.path());
-    let pack = repository_path("../../../examples/packs/local-parquet-fusion");
+    let pack = support::repository_path("../../../examples/packs/local-parquet-fusion");
 
     let mut inspect = Command::new(&binary);
     inspect
         .args(["inspect", "--pack", "local-parquet-fusion", "--pack-dir"])
         .arg(&pack);
     test_home::configure(&mut inspect, temporary.path());
-    let inspection = response(inspect.output().unwrap());
+    let inspection = support::response(inspect.output().unwrap());
     assert_eq!(inspection["result"]["name"], "local-parquet-fusion");
     assert_eq!(
         inspection["result"]["workflows"][0]["name"],
@@ -180,7 +140,7 @@ fn local_parquet_fusion_demo_runs_the_full_user_loop() {
     .arg(&owners)
     .args(["--minimum-score", "10"]);
     test_home::configure(&mut run, temporary.path());
-    let ran = response(run.output().unwrap());
+    let ran = support::response(run.output().unwrap());
     assert_eq!(ran["result"]["outputs"]["main"]["row_count"], 2);
     let run_id = ran["result"]["run_id"].as_str().unwrap();
 
@@ -192,7 +152,7 @@ fn local_parquet_fusion_demo_runs_the_full_user_loop() {
     let mut query = Command::new(&binary);
     query.args(["query", "--run", run_id, "--sql", sql]);
     test_home::configure(&mut query, temporary.path());
-    let queried = response(query.output().unwrap());
+    let queried = support::response(query.output().unwrap());
     assert_eq!(
         queried["result"]["rows"],
         serde_json::json!([

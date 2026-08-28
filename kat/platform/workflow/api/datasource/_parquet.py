@@ -99,22 +99,6 @@ class _Writer:
         try:
             if type(table_name) is not str or table_name not in self._writers:
                 raise ValueError(f"unknown Datasource table: {table_name!r}")
-            declared = tuple(self._schema[table_name])
-            if set(columns) != set(declared) or len(columns) != len(declared):
-                raise ValueError(
-                    f"columns for table {table_name!r} must exactly match {declared!r}"
-                )
-            for column_name in declared:
-                if type(columns[column_name]) is not list:
-                    raise TypeError(
-                        f"column {column_name!r} for table {table_name!r} must be a list"
-                    )
-            lengths = {len(columns[column_name]) for column_name in declared}
-            if len(lengths) != 1:
-                raise ValueError(
-                    f"columns for table {table_name!r} must have equal lengths"
-                )
-
             batch = table(schema=self._schema[table_name], columns=columns)
             self._writers[table_name].write_table(to_arrow(batch))
         except BaseException as error:
@@ -210,7 +194,7 @@ class Catalog:
         datasets: tuple[pads.Dataset, ...],
     ) -> None:
         self._session = session
-        # Keep PyArrow's providers alive for as long as DataFusion may scan them.
+        # DataFusion 扫描期间必须保持 PyArrow provider 存活。
         self._datasets = datasets
 
     def query(

@@ -174,8 +174,7 @@ def _is_admitted_type(data_type: pa.DataType) -> bool:
         or pa.types.is_binary(data_type)
         or pa.types.is_large_binary(data_type)
         or _is_utc_nanosecond_timestamp(data_type)
-        or pa.types.is_decimal128(data_type)
-        or pa.types.is_decimal256(data_type)
+        or _is_admitted_decimal(data_type)
     )
 
 
@@ -184,6 +183,13 @@ def _is_utc_nanosecond_timestamp(data_type: pa.DataType) -> bool:
         pa.types.is_timestamp(data_type)
         and data_type.unit == "ns"
         and data_type.tz == "UTC"
+    )
+
+
+def _is_admitted_decimal(data_type: pa.DataType) -> bool:
+    return bool(
+        (pa.types.is_decimal128(data_type) or pa.types.is_decimal256(data_type))
+        and 0 <= data_type.scale <= data_type.precision
     )
 
 

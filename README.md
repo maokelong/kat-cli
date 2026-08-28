@@ -131,13 +131,17 @@ Response 都通过校验后，CLI 才发布 Manifest。`kat query` 只接受已�
 
 PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 
-- `ctx.sql(sql, **params)`：普通只读 SQL。
+- `ctx.sql(sql, *, tables=None, params=None)`：把显式 `kat.datasource.Table`
+  与 Workflow 获准的 Dataset 表放入一次性的本地 DataFusion Session，完整执行
+  单条只读 SQL 后返回可重复读取的 eager `Table`。
 - `ctx.from_arrow(table)`：将 PyArrow Table 放入当前 execution plane。
-- `ctx.provider(executor)`：把 PACK 自定义 Source executor 绑定为当前执行的
-  KAT Provider；`Provider.query()` 会同步本地化并自动注册一张具名 Table。
 - `ctx.datasource_root`：当前 PACK 在 KAT Data Home 下的长期 Datasource 存储根。
 - `ctx.convert_clock(..., target_domain="...")`：通过 Runtime 私有的稳定
   Python/PyArrow batch UDF 换算时钟。
+
+PACK 可在顶层 `datasources/` 中定义普通 Provider 类并由 Workflow 显式调用；
+KAT 不扫描、注册、构造或包装 Provider。Schema、Parquet 写入/打开、标准 Table
+与本地查询能力统一由 `kat.datasource` Toolkit 提供。
 
 完整的 PACK 级本地多表查询与融合写法见
 [`examples/packs/local-parquet-fusion`](examples/packs/local-parquet-fusion/README.md)。

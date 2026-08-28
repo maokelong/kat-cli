@@ -252,6 +252,10 @@ class ArrowTableTest(unittest.TestCase):
             pa.table({"value": pa.array([0], type=pa.timestamp("us", tz="UTC"))}),
             pa.table({"value": pa.array([0], type=pa.timestamp("ns"))}),
             pa.table({"value": pa.array([0], type=pa.timestamp("ns", tz="Asia/Shanghai"))}),
+            pa.table({"value": pa.array([], type=pa.decimal128(38, -5))}),
+            pa.table({"value": pa.array([], type=pa.decimal128(10, 20))}),
+            pa.table({"value": pa.array([], type=pa.decimal256(50, -1))}),
+            pa.table({"value": pa.array([], type=pa.decimal256(50, 51))}),
         ]
         for arrow in invalid_tables:
             with self.subTest(schema=arrow.schema), self.assertRaises(
