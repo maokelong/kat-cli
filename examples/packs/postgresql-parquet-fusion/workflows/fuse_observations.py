@@ -2,7 +2,8 @@ from pathlib import Path
 
 import kat
 
-from kat.pack.helpers.datasources import parquet, postgresql
+from kat.pack.datasources.parquet import LocalParquetProvider
+from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 
 @kat.workflow(
@@ -10,7 +11,7 @@ from kat.pack.helpers.datasources import parquet, postgresql
     title="Fuse PostgreSQL observations with local scheduling",
     required_tables=[],
     parameters={
-        "profile": "libpq service name.",
+        "service": "libpq service name.",
         "telemetry_database": "Database containing observations.",
         "control_database": "Database containing process metadata.",
         "trace_root": "Directory containing sched_switch.parquet.",
@@ -20,54 +21,45 @@ from kat.pack.helpers.datasources import parquet, postgresql
 )
 def fuse_observations(
     ctx: kat.Context,
-    profile: str,
+    service: str,
     telemetry_database: str,
     control_database: str,
     trace_root: str,
     start_ns: int,
     end_ns: int,
 ):
-    """Localize two databases and one Parquet catalog, then fuse the results."""
+    """顺序查询两个 Database 和本地 Parquet，再显式融合 eager Table。"""
     if start_ns >= end_ns:
         raise ValueError("start_ns must be less than end_ns")
 
-    postgresql.provider(
-        ctx,
-        profile=profile,
-        database=telemetry_database,
-    ).query(
+    postgresql = PostgreSQLProvider(service=service)
+    telemetry = postgresql.query(
         """
         SELECT
             o.thread_id,
             r.process_id,
             o.observed_at,
-            o.cpu_usage
+            AVG(o.cpu_usage)::DOUBLE PRECISION AS cpu_usage
         FROM observation AS o
         JOIN thread_registry AS r USING (thread_id)
         WHERE o.observed_at >= $1
           AND o.observed_at < $2
+        GROUP BY o.thread_id, r.process_id, o.observed_at
         """,
+        database=telemetry_database,
         params=(start_ns, end_ns),
-        name="telemetry",
     )
 
-    postgresql.provider(
-        ctx,
-        profile=profile,
-        database=control_database,
-    ).query(
+    processes = postgresql.query(
         """
         SELECT process_id, process_name
         FROM process_registry
         """,
-        name="processes",
+        database=control_database,
     )
 
-    parquet.provider(
-        ctx,
-        tables={
-            "sched_switch": Path(trace_root) / "sched_switch.parquet",
-        },
+    switches = LocalParquetProvider(
+        sched_switch=Path(trace_root) / "sched_switch.parquet",
     ).query(
         """
         WITH intervals AS (
@@ -87,7 +79,6 @@ def fuse_observations(
           AND run_end > $start_ns
         """,
         params={"start_ns": start_ns, "end_ns": end_ns},
-        name="switches",
     )
 
     return ctx.sql(
@@ -108,5 +99,10 @@ def fuse_observations(
          AND t.observed_at >= s.run_start
          AND t.observed_at < s.run_end
         ORDER BY t.observed_at, t.thread_id
-        """
+        """,
+        tables={
+            "telemetry": telemetry,
+            "processes": processes,
+            "switches": switches,
+        },
     )

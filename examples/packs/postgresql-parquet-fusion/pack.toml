@@ -1,4 +1,4 @@
 name = "postgresql-parquet-fusion"
 title = "PostgreSQL and Parquet Fusion"
-description = "External PACK example for localizing PostgreSQL and Parquet queries before fusion."
+description = "External PACK example for eager PostgreSQL Tables and explicit Parquet fusion."
 owner = "KAT Contributors"
