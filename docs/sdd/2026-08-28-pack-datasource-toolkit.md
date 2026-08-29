@@ -756,14 +756,14 @@ cargo test --locked -p kat-cli --test trace_streamer_demo trace_streamer_demo_ru
 | 资源生命周期 | Table 返回前 cursor、reader、transaction 与 query-local connection 已关闭；若 Provider 选择复用长期资源，则由普通显式 context manager 管理 |
 | 只读与参数 | 服务端只读事务成立；写权限测试角色仍无法执行 DML、DDL 与 COPY；参数绑定不做 SQL 文本替换 |
 | 错误语义 | 连接、认证、SQL、读取与关闭失败不泄露 service、Database、密码或连接字符串；Workflow 可按普通 Python 规则处理 Provider 错误 |
-| 用户链 | 生产形态 example PACK 完成 inspect、test、run 与 `kat query --run`，不使用 test-only Provider |
-| 平台 | Linux、Windows 分别连接真实 PostgreSQL 服务执行同一合同与完整案例；测试未执行或被 skip 不构成支持证据 |
+| 测试归属 | Provider、Workflow 与融合案例只由 example PACK 的 pytest 维护并使用生产 Provider；Rust 只保留通用 CLI/Runtime 合同测试，不增加 PostgreSQL PACK 专用测试目标 |
+| 用户链 | `kat test` 执行 PACK pytest，并通过 `kat_run` 覆盖单源 Output 与多源融合，不使用 test-only Provider |
+| 平台 | 需要真实服务证据时，Linux、Windows 分别用同一套 PACK pytest 执行；测试未执行或被 skip 不构成支持证据 |
 
 建议记录真实环境命令：
 
 ```text
 kat test --pack-dir ./examples/packs/postgresql-parquet-fusion
-cargo test --locked -p kat-cli --test postgresql_parquet_fusion_demo postgresql_parquet_fusion_demo_runs_the_full_user_loop -- --ignored --exact
 ```
 
-以上 PostgreSQL 命令必须在 Linux 与 Windows 各执行一次，并在 PR 中记录实际通过结果、Workflow Host wheel、服务配置方式，以及秘密未进入 stdout、stderr、Operation log、Runtime Response、Run Manifest 与 KAT Data Home 的检查结果。
+需要声明 Linux 与 Windows 的真实 PostgreSQL 支持时，以上 PACK pytest 必须在两端各执行一次，并在 PR 中记录实际通过结果、Workflow Host wheel、服务配置方式，以及秘密未进入 pytest 公开错误与 Runtime Response 的检查结果。平台通用的 Operation log、Run Manifest 与 KAT Data Home 边界继续由既有 CLI/Runtime 测试负责，不在 PACK 中复制。
