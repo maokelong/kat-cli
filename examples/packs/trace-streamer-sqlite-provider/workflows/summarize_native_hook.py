@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import kat
 
@@ -11,21 +13,25 @@ from kat.pack.datasources import trace_streamer
     required_tables=[],
     parameters={
         "source_path": "HiTrace file to decode.",
-        "trace_streamer_path": "Trace Streamer executable.",
     },
 )
 def summarize_native_hook(
     ctx: kat.Context,
     source_path: str,
-    trace_streamer_path: str,
 ):
     """物化 Trace Streamer SQLite，并直接返回来源内聚合结果。"""
-    provider = trace_streamer.TraceStreamerProvider(
-        source=Path(source_path),
-        executable=Path(trace_streamer_path),
-        materialization_root=ctx.datasource_root / "trace-streamer",
-    )
-    return provider.decode().query(
-        trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
-        schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
-    )
+    executable = os.environ.get("KAT_TRACE_STREAMER_EXECUTABLE")
+    if not executable:
+        raise RuntimeError(
+            "KAT_TRACE_STREAMER_EXECUTABLE must identify the approved parser"
+        )
+    with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+        provider = trace_streamer.TraceStreamerProvider(
+            source=Path(source_path),
+            executable=Path(executable),
+            workspace=Path(workspace) / "trace-streamer",
+        ).decode()
+        return provider.query(
+            trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
+            schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
+        )

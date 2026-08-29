@@ -7,8 +7,11 @@
 ```text
 tracefs text
   -> Python 单遍按行解析
-  -> ds.write(FTRACE_SCHEMA) 分批写入两张 Parquet 表
-  -> ds.open() 打开可重复查询的 Catalog
+  -> FTRACE_SCHEMA.create() 创建两张可追加 Table
+  -> 每条 event 直接 append Python 标量
+  -> ds.write(tables) 一次写入两张 Parquet 表
+  -> ds.open(tables=...) 显式打开完整 Catalog
+  -> ds.DataFusionProvider(catalog=...) 执行本地 SQL
   -> Provider.query(SQL) 返回 eager ds.Table
   -> Workflow 直接发布 main Output
 ```
@@ -34,40 +37,47 @@ Parser 为不同 CPU 产生不同 domain，而不是直接比较这些读数。`
 
 ```python
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from kat.pack.datasources.ftrace import FtraceTextProvider
 
 
-provider = FtraceTextProvider(
-    source=Path(trace_path),
-    materialization_root=ctx.datasource_root / "ftrace-text",
-    clock_domain="capture_clock",
-).decode()
+with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+    provider = FtraceTextProvider(
+        source=Path(trace_path),
+        catalog_root=Path(workspace) / "catalog",
+        clock_domain="capture_clock",
+    ).decode()
 
-events = provider.query(
-    """
-    SELECT event, COUNT(*) AS event_count
-    FROM events
-    GROUP BY event
-    ORDER BY event_count DESC, event
-    """
-)
+    events = provider.query(
+        """
+        SELECT event, COUNT(*) AS event_count
+        FROM events
+        GROUP BY event
+        ORDER BY event_count DESC, event
+        """
+    )
 ```
 
-`decode()` 每次只重建 `materialization_root/catalog`；不会删除同一根目录下由
-Workflow 或其他 Provider 拥有的文件。解析按 4096 条事件分 batch 写入，不把整个输入
-文件读进内存。成功后同一个 Provider 可以反复查询；解析失败时 Provider 保持未
-ready，修正输入后可以再次调用 `decode()`。本例不把旧 catalog 当作跨进程状态，
-不提供缓存、迁移或恢复协议。
+Workflow 用 `TemporaryDirectory(dir=ctx.datasource_root)` 为本次执行创建 workspace，
+并把其中尚不存在的 `catalog` 路径交给 Provider 独占。`decode()` 单遍读取文本，向
+`Schema.create()` 产生的 Table 逐行 `append()`，解析结束后只调用一次 `ds.write()`；
+随后用 `ds.open(tables=...)` 显式绑定 `capture.parquet` 与 `events.parquet`。成功后同一个
+Provider 可以反复查询；任何步骤失败都会保持未 ready 并尽力删除整个独占目标，修正
+输入后可以再次调用 `decode()`。所有 query 在 workspace 存活期间完成，返回 eager
+Table 后退出 `with` 即可清理；本例不复用跨 Workflow 或跨进程旧目录，也不提供缓存、
+迁移或恢复协议。
 
-`query()` 委托 KAT 的只读本地 Catalog，因此支持具名 `params`，并在返回前形成与
-查询 Session 脱离的 eager `ds.Table`。PACK 作者可以直接返回这个 Table，也可以把
-它作为 `ctx.sql(tables=...)` 的显式多源融合输入。
+`query()` 委托只持有 Catalog 的 `ds.DataFusionProvider`，因此支持具名 `params`，并在
+返回前形成与查询 Session 和 Parquet 文件脱离的 eager `ds.Table`。PACK 作者可以直接
+返回这个 Table，也可以把它作为另一个 `ds.DataFusionProvider(tables=...)` 的显式
+多源融合输入。
 
 ## 运行 Workflow
 
-仓库内的 `summarize-ftrace-events` Workflow 从 `ctx.datasource_root` 派生 Provider
-目录，解析输入并直接返回按事件名称统计的 Table：
+仓库内的 `summarize-ftrace-events` Workflow 在 `ctx.datasource_root` 下创建本次执行的
+临时 workspace，解析、查询并直接返回按事件名称统计的 eager Table。返回后临时
+Parquet 已经可以安全清理：
 
 ```bash
 kat inspect --pack ftrace-text-provider \
@@ -88,8 +98,8 @@ kat query \
 
 ## 测试
 
-默认测试使用仓库内的小型文本 fixture，覆盖多表解析、纳秒精度、TGID 空值、分批
-写入、坏行诊断、失败重试、重复 decode/query 和 Workflow Output：
+默认测试使用仓库内的小型文本 fixture，覆盖多表解析、纳秒精度、TGID 空值、完整
+预期表绑定、坏行诊断、失败清理与重试、重复 decode/query 和 Workflow Output：
 
 ```bash
 kat test --pack-dir ./examples/packs/ftrace-text-provider

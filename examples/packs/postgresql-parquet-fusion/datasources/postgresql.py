@@ -85,7 +85,7 @@ class PostgreSQLProvider:
             raise RuntimeError("PostgreSQL query cleanup failed") from None
 
         try:
-            return ds.from_arrow(normalized)
+            return ds.Table.from_arrow(normalized)
         except Exception:
             raise RuntimeError(
                 "PostgreSQL query returned a type outside the KAT Table contract"

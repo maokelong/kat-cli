@@ -5,10 +5,12 @@ from decimal import Decimal
 
 import kat
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from kat import datasource as ds
 from kat.pack.datasources import postgresql as postgresql_module
+from kat.pack.datasources.parquet import LocalParquetProvider
 from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 
@@ -53,7 +55,7 @@ class _FakeCursor:
 
     def execute(self, sql, params=None) -> None:
         del sql, params
-        if self._kind == "query" and self._backend.failure == "query":
+        if self._backend.failure == self._kind:
             raise RuntimeError(_PRIVATE_CONNECTION)
 
     def fetch_record_batch(self) -> _FakeReader:
@@ -63,10 +65,13 @@ class _FakeCursor:
 
     def close(self) -> None:
         self.closed = True
+        if self._backend.failure == f"{self._kind}-close":
+            raise RuntimeError(_PRIVATE_CONNECTION)
 
 
 class _FakeConnection:
     def __init__(self, backend: _FakeBackend) -> None:
+        self._backend = backend
         self.setup = _FakeCursor(backend, "setup")
         self.query = _FakeCursor(backend, "query")
         self._cursors = iter((self.setup, self.query))
@@ -78,9 +83,13 @@ class _FakeConnection:
 
     def rollback(self) -> None:
         self.rolled_back = True
+        if self._backend.failure == "rollback":
+            raise RuntimeError(_PRIVATE_CONNECTION)
 
     def close(self) -> None:
         self.closed = True
+        if self._backend.failure == "connection-close":
+            raise RuntimeError(_PRIVATE_CONNECTION)
 
 
 @dataclass
@@ -104,6 +113,8 @@ def _install_backend(
 
     def connect(*args, **kwargs):
         del args, kwargs
+        if backend.failure == "connect":
+            raise RuntimeError(_PRIVATE_CONNECTION)
         return backend.connection
 
     monkeypatch.setattr(postgresql_module.dbapi, "connect", connect)
@@ -124,6 +135,40 @@ def test_postgresql_provider_is_a_pack_owned_ordinary_class():
 
     assert type(provider) is PostgreSQLProvider
     assert not hasattr(provider, "context")
+
+
+def test_local_catalog_and_eager_table_share_one_fusion_query(tmp_path):
+    placement = tmp_path / "thread_placement.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "thread_id": pa.array([101], type=pa.int64()),
+                "cpu": pa.array([0], type=pa.int64()),
+            }
+        ),
+        placement,
+    )
+    telemetry = ds.Table.from_arrow(
+        pa.table(
+            {
+                "thread_id": pa.array([101], type=pa.int64()),
+                "observed_at": pa.array([100], type=pa.int64()),
+            }
+        )
+    )
+
+    result = ds.DataFusionProvider(
+        tables={"telemetry": telemetry},
+        catalog=LocalParquetProvider(thread_placement=placement).catalog,
+    ).query(
+        """
+        SELECT t.thread_id, placement.cpu
+        FROM telemetry AS t
+        JOIN thread_placement AS placement USING (thread_id)
+        """,
+    )
+
+    assert result.to_rows() == [{"thread_id": 101, "cpu": 0}]
 
 
 def test_public_query_returns_a_table_after_closing_query_resources(monkeypatch):
@@ -166,7 +211,7 @@ def test_public_query_normalizes_adbc_numeric_and_absolute_timestamp(monkeypatch
         },
         {"amount": None, "observed_at": None, "text_value": None},
     ]
-    physical = ds.to_arrow(result).schema
+    physical = result.to_arrow().schema
     assert physical.field("amount").type == pa.decimal128(38, 18)
     assert physical.field("observed_at").type == pa.timestamp("ns", tz="UTC")
     assert physical.field("text_value").type == pa.string()
@@ -205,7 +250,7 @@ def test_empty_adbc_numeric_keeps_the_canonical_decimal_schema(monkeypatch):
     )
 
     assert len(result) == 0
-    assert ds.to_arrow(result).schema.field("amount").type == pa.decimal128(
+    assert result.to_arrow().schema.field("amount").type == pa.decimal128(
         38, 18
     )
     _assert_all_acquired_resources_are_closed(backend)
@@ -213,7 +258,15 @@ def test_empty_adbc_numeric_keeps_the_canonical_decimal_schema(monkeypatch):
 
 @pytest.mark.parametrize(
     "failure",
-    ["query", "read", "reader-close", "read-and-close"],
+    [
+        "query",
+        "read",
+        "reader-close",
+        "read-and-close",
+        "query-close",
+        "rollback",
+        "connection-close",
+    ],
 )
 def test_public_query_failures_close_resources_without_exposing_connection_values(
     monkeypatch,
@@ -234,6 +287,38 @@ def test_public_query_failures_close_resources_without_exposing_connection_value
     if failure == "read-and-close":
         assert "cleanup" not in rendered
     _assert_all_acquired_resources_are_closed(backend)
+
+
+@pytest.mark.parametrize("failure", ["setup", "setup-close"])
+def test_setup_failures_close_the_connection_without_exposing_values(
+    monkeypatch,
+    failure,
+):
+    backend = _install_backend(monkeypatch, failure=failure)
+
+    with pytest.raises(RuntimeError, match="PostgreSQL query failed") as captured:
+        PostgreSQLProvider(service=_PRIVATE_SERVICE).query(
+            "SELECT 7",
+            database=_PRIVATE_DATABASE,
+        )
+
+    assert _PRIVATE_CONNECTION not in str(captured.value)
+    assert backend.connection.setup.closed
+    assert not backend.connection.query.closed
+    assert backend.connection.rolled_back
+    assert backend.connection.closed
+
+
+def test_connect_failure_does_not_expose_connection_values(monkeypatch):
+    _install_backend(monkeypatch, failure="connect")
+
+    with pytest.raises(RuntimeError, match="PostgreSQL query failed") as captured:
+        PostgreSQLProvider(service=_PRIVATE_SERVICE).query(
+            "SELECT 7",
+            database=_PRIVATE_DATABASE,
+        )
+
+    assert _PRIVATE_CONNECTION not in str(captured.value)
 
 
 @pytest.mark.parametrize(

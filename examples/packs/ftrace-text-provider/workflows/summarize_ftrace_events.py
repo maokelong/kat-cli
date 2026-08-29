@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import kat
 
@@ -19,17 +20,18 @@ def summarize_ftrace_events(
     trace_path: str,
     clock_domain: str,
 ):
-    """Parse one Ftrace text file and publish event counts."""
-    provider = FtraceTextProvider(
-        source=Path(trace_path),
-        materialization_root=ctx.datasource_root / "ftrace-text",
-        clock_domain=clock_domain,
-    ).decode()
-    return provider.query(
-        """
-        SELECT event, COUNT(*) AS event_count
-        FROM events
-        GROUP BY event
-        ORDER BY event_count DESC, event
-        """
-    )
+    """解析一份 Ftrace 文本并发布事件计数。"""
+    with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+        provider = FtraceTextProvider(
+            source=Path(trace_path),
+            catalog_root=Path(workspace) / "catalog",
+            clock_domain=clock_domain,
+        ).decode()
+        return provider.query(
+            """
+            SELECT event, COUNT(*) AS event_count
+            FROM events
+            GROUP BY event
+            ORDER BY event_count DESC, event
+            """
+        )

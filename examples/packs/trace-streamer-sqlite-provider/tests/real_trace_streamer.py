@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import subprocess
 
 from kat.pack.datasources import trace_streamer
 
@@ -15,10 +16,24 @@ def _required_file(name: str) -> Path:
 
 
 def test_real_trace_streamer_native_hook_summary(tmp_path: Path):
+    executable = _required_file("KAT_TEST_TRACE_STREAMER_EXE")
+    version = subprocess.run(
+        [str(executable), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    # Trace Streamer 4.3.7 reports its version on stderr and exits with its
+    # historical non-success status.
+    assert version.returncode == 1
+    assert version.stdout == ""
+    assert version.stderr.strip() == "version 4.3.7"
+
     provider = trace_streamer.TraceStreamerProvider(
         source=_required_file("KAT_TEST_HTRACE_PATH"),
-        executable=_required_file("KAT_TEST_TRACE_STREAMER_EXE"),
-        materialization_root=tmp_path / "materialized",
+        executable=executable,
+        workspace=tmp_path / "workspace",
     ).decode()
 
     result = provider.query(

@@ -34,7 +34,6 @@ FTRACE_SCHEMA = ds.Schema(
     }
 )
 
-_BATCH_SIZE = 4096
 _TRACER = re.compile(r"^#\s*tracer:\s*(\S.*?)\s*$")
 _ENTRIES = re.compile(
     r"^#\s*entries-in-buffer/entries-written:\s*(\d+)/(\d+)\s+#P:(\d+)\s*$"
@@ -49,70 +48,65 @@ _EVENT = re.compile(
 
 
 class FtraceTextProvider:
-    """Parse one tracefs text file into a reusable local Parquet catalog."""
+    """把一份 tracefs 文本解析到当前 Provider 独占的 Parquet Catalog。"""
 
     def __init__(
         self,
         *,
         source: Path,
-        materialization_root: Path,
+        catalog_root: Path,
         clock_domain: str,
     ) -> None:
         if not isinstance(source, Path):
             raise TypeError("source must be a pathlib.Path")
-        if not isinstance(materialization_root, Path):
-            raise TypeError("materialization_root must be a pathlib.Path")
+        if not isinstance(catalog_root, Path):
+            raise TypeError("catalog_root must be a pathlib.Path")
         if type(clock_domain) is not str:
             raise TypeError("clock_domain must be a string")
         clock_domain = clock_domain.strip()
         if not clock_domain:
             raise ValueError("clock_domain must be non-empty")
         self._source = source
-        self._materialization_root = materialization_root
+        self._catalog_root = catalog_root
         self._clock_domain = clock_domain
-        self._catalog: ds.Catalog | None = None
+        self._fusion: ds.DataFusionProvider | None = None
 
     def decode(self) -> Self:
-        self._catalog = None
-        self._materialization_root.mkdir(parents=True, exist_ok=True)
-        catalog_root = self._materialization_root / "catalog"
-        _remove_owned_catalog(catalog_root)
+        self._fusion = None
+        try:
+            _remove_owned_catalog(self._catalog_root)
+            tables = FTRACE_SCHEMA.create()
+            events = tables["events"]
+            tracer: str | None = None
+            capture: tuple[int, int, int] | None = None
+            event_index = 0
+            with self._source.open("r", encoding="utf-8") as source:
+                for line_number, raw_line in enumerate(source, start=1):
+                    line = raw_line.rstrip("\r\n")
+                    if not line:
+                        continue
+                    if line.startswith("#"):
+                        tracer_match = _TRACER.fullmatch(line)
+                        if tracer_match is not None:
+                            tracer = tracer_match.group(1)
+                        entries_match = _ENTRIES.fullmatch(line)
+                        if entries_match is not None:
+                            capture = tuple(
+                                int(value) for value in entries_match.groups()
+                            )
+                        continue
 
-        tracer: str | None = None
-        capture: tuple[int, int, int] | None = None
-        event_index = 0
-        event_columns = _empty_event_columns()
-        with self._source.open("r", encoding="utf-8") as source, ds.write(
-            FTRACE_SCHEMA,
-            destination=catalog_root,
-        ) as writer:
-            for line_number, raw_line in enumerate(source, start=1):
-                line = raw_line.rstrip("\r\n")
-                if not line:
-                    continue
-                if line.startswith("#"):
-                    tracer_match = _TRACER.fullmatch(line)
-                    if tracer_match is not None:
-                        tracer = tracer_match.group(1)
-                    entries_match = _ENTRIES.fullmatch(line)
-                    if entries_match is not None:
-                        capture = tuple(int(value) for value in entries_match.groups())
-                    continue
-
-                match = _EVENT.fullmatch(line)
-                if match is None:
-                    raise ValueError(f"invalid tracefs event at line {line_number}")
-                _append_event(
-                    event_columns,
-                    match,
-                    event_index=event_index,
-                    clock_domain=self._clock_domain,
-                    line_number=line_number,
-                )
-                event_index += 1
-                if len(event_columns["clock_value"]) == _BATCH_SIZE:
-                    writer.write("events", **event_columns)
-                    event_columns = _empty_event_columns()
+                    match = _EVENT.fullmatch(line)
+                    if match is None:
+                        raise ValueError(f"invalid tracefs event at line {line_number}")
+                    _append_event(
+                        events,
+                        match,
+                        event_index=event_index,
+                        clock_domain=self._clock_domain,
+                        line_number=line_number,
+                    )
+                    event_index += 1
 
             if tracer is None:
                 raise ValueError("tracefs header is missing tracer")
@@ -121,19 +115,28 @@ class FtraceTextProvider:
                     "tracefs header is missing entries-in-buffer/entries-written"
                 )
             entries_in_buffer, entries_written, cpu_count = capture
-            writer.write(
-                "capture",
-                tracer=[tracer],
-                clock_domain=[self._clock_domain],
-                ticks_per_second=[1_000_000_000],
-                entries_in_buffer=[entries_in_buffer],
-                entries_written=[entries_written],
-                cpu_count=[cpu_count],
+            tables["capture"].append(
+                tracer=tracer,
+                clock_domain=self._clock_domain,
+                ticks_per_second=1_000_000_000,
+                entries_in_buffer=entries_in_buffer,
+                entries_written=entries_written,
+                cpu_count=cpu_count,
             )
-            if event_columns["clock_value"]:
-                writer.write("events", **event_columns)
+            ds.write(tables, destination=self._catalog_root)
 
-        self._catalog = ds.open(FTRACE_SCHEMA, root=catalog_root)
+            catalog = ds.open(
+                tables={
+                    "capture": self._catalog_root / "capture.parquet",
+                    "events": self._catalog_root / "events.parquet",
+                }
+            )
+            fusion = ds.DataFusionProvider(catalog=catalog)
+        except Exception:
+            _cleanup_owned_catalog(self._catalog_root)
+            raise
+
+        self._fusion = fusion
         return self
 
     def query(
@@ -142,10 +145,10 @@ class FtraceTextProvider:
         *,
         params: Mapping[str, object] | None = None,
     ) -> ds.Table:
-        catalog = self._catalog
-        if catalog is None:
+        fusion = self._fusion
+        if fusion is None:
             raise RuntimeError("decode() must complete before query()")
-        return catalog.query(sql, params=params)
+        return fusion.query(sql, params=params)
 
 
 def _remove_owned_catalog(catalog_root: Path) -> None:
@@ -155,31 +158,42 @@ def _remove_owned_catalog(catalog_root: Path) -> None:
         shutil.rmtree(catalog_root)
 
 
-def _empty_event_columns() -> dict[str, list[object | None]]:
-    return {name: [] for name in FTRACE_SCHEMA["events"]}
+def _cleanup_owned_catalog(catalog_root: Path) -> None:
+    try:
+        _remove_owned_catalog(catalog_root)
+    except OSError:
+        pass
 
 
 def _append_event(
-    columns: dict[str, list[object | None]],
+    table: ds.Table,
     match: re.Match[str],
     *,
     event_index: int,
     clock_domain: str,
     line_number: int,
 ) -> None:
-    tgid = match.group("tgid")
-    columns["event_index"].append(event_index)
-    columns["clock_domain"].append(clock_domain)
-    columns["clock_value"].append(
-        _clock_value(match.group("timestamp"), line_number=line_number)
-    )
-    columns["cpu"].append(int(match.group("cpu")))
-    columns["comm"].append(match.group("comm").strip())
-    columns["pid"].append(int(match.group("pid")))
-    columns["tgid"].append(None if tgid is None or tgid.startswith("-") else int(tgid))
-    columns["flags"].append(match.group("flags"))
-    columns["event"].append(match.group("event"))
-    columns["details"].append(match.group("details"))
+    try:
+        tgid = match.group("tgid")
+        table.append(
+            event_index=event_index,
+            clock_domain=clock_domain,
+            clock_value=_clock_value(
+                match.group("timestamp"),
+                line_number=line_number,
+            ),
+            cpu=int(match.group("cpu")),
+            comm=match.group("comm").strip(),
+            pid=int(match.group("pid")),
+            tgid=None if tgid is None or tgid.startswith("-") else int(tgid),
+            flags=match.group("flags"),
+            event=match.group("event"),
+            details=match.group("details"),
+        )
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            f"invalid tracefs event values at line {line_number}: {error}"
+        ) from error
 
 
 def _clock_value(value: str, *, line_number: int) -> int:

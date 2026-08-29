@@ -2,21 +2,23 @@ from pathlib import Path
 
 import kat
 
+from kat import datasource as ds
 from kat.pack.datasources.parquet import LocalParquetProvider
 from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 
 @kat.workflow(
     name="fuse-observations",
-    title="Fuse PostgreSQL observations with local scheduling",
+    title="Fuse PostgreSQL observations with local thread placement",
     required_tables=[],
     parameters={
         "service": "libpq service name.",
         "telemetry_database": "Database containing observations.",
         "control_database": "Database containing process metadata.",
-        "trace_root": "Directory containing sched_switch.parquet.",
-        "start_ns": "Inclusive observation window start.",
-        "end_ns": "Exclusive observation window end.",
+        "placement_root": "Directory containing thread_placement.parquet.",
+        "clock_domain": "Clock domain of observation.observed_at.",
+        "start_clock_value": "Inclusive observation window start.",
+        "end_clock_value": "Exclusive observation window end.",
     },
 )
 def fuse_observations(
@@ -24,13 +26,20 @@ def fuse_observations(
     service: str,
     telemetry_database: str,
     control_database: str,
-    trace_root: str,
-    start_ns: int,
-    end_ns: int,
+    placement_root: str,
+    clock_domain: str,
+    start_clock_value: int,
+    end_clock_value: int,
 ):
-    """顺序查询两个 Database 和本地 Parquet，再显式融合 eager Table。"""
-    if start_ns >= end_ns:
-        raise ValueError("start_ns must be less than end_ns")
+    """顺序查询两个 Database，再与本地 Parquet Catalog 显式融合。"""
+    del ctx
+    clock_domain = clock_domain.strip()
+    if not clock_domain:
+        raise ValueError("clock_domain must be non-empty")
+    if start_clock_value >= end_clock_value:
+        raise ValueError(
+            "start_clock_value must be less than end_clock_value"
+        )
 
     postgresql = PostgreSQLProvider(service=service)
     telemetry = postgresql.query(
@@ -38,7 +47,8 @@ def fuse_observations(
         SELECT
             o.thread_id,
             r.process_id,
-            o.observed_at,
+            $3::TEXT AS clock_domain,
+            o.observed_at AS clock_value,
             AVG(o.cpu_usage)::DOUBLE PRECISION AS cpu_usage
         FROM observation AS o
         JOIN thread_registry AS r USING (thread_id)
@@ -47,7 +57,7 @@ def fuse_observations(
         GROUP BY o.thread_id, r.process_id, o.observed_at
         """,
         database=telemetry_database,
-        params=(start_ns, end_ns),
+        params=(start_clock_value, end_clock_value, clock_domain),
     )
 
     processes = postgresql.query(
@@ -58,51 +68,30 @@ def fuse_observations(
         database=control_database,
     )
 
-    switches = LocalParquetProvider(
-        sched_switch=Path(trace_root) / "sched_switch.parquet",
-    ).query(
-        """
-        WITH intervals AS (
-            SELECT
-                cpu,
-                next_thread_id,
-                timestamp AS run_start,
-                LEAD(timestamp) OVER (
-                    PARTITION BY cpu
-                    ORDER BY timestamp
-                ) AS run_end
-            FROM sched_switch
-        )
-        SELECT cpu, next_thread_id, run_start, run_end
-        FROM intervals
-        WHERE run_start < $end_ns
-          AND run_end > $start_ns
-        """,
-        params={"start_ns": start_ns, "end_ns": end_ns},
+    local = LocalParquetProvider(
+        thread_placement=Path(placement_root) / "thread_placement.parquet",
     )
 
-    return ctx.sql(
+    fusion = ds.DataFusionProvider(
+        tables={
+            "telemetry": telemetry,
+            "processes": processes,
+        },
+        catalog=local.catalog,
+    )
+    return fusion.query(
         """
         SELECT
             t.thread_id,
             t.process_id,
             p.process_name,
-            t.observed_at,
-            s.cpu,
-            s.run_start,
-            s.run_end,
+            t.clock_domain,
+            t.clock_value,
+            placement.cpu,
             t.cpu_usage
         FROM telemetry AS t
         JOIN processes AS p USING (process_id)
-        JOIN switches AS s
-          ON t.thread_id = s.next_thread_id
-         AND t.observed_at >= s.run_start
-         AND t.observed_at < s.run_end
-        ORDER BY t.observed_at, t.thread_id
-        """,
-        tables={
-            "telemetry": telemetry,
-            "processes": processes,
-            "switches": switches,
-        },
+        JOIN thread_placement AS placement USING (thread_id)
+        ORDER BY t.clock_value, t.thread_id
+        """
     )

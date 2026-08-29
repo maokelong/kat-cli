@@ -821,7 +821,7 @@ cargo test --locked -p kat-cli --test trace_streamer_demo trace_streamer_demo_ru
 | 单源 Output | Workflow 可直接返回 PostgreSQL Table，不执行第二次远端 SQL |
 | 多库融合 | 同一 service 下依次查询两个不同 Database，并把各自 Table 与本地 Parquet Catalog 显式交给同一个 DataFusion Provider |
 | 资源生命周期 | Table 返回前 cursor、reader、transaction 与 query-local connection 已关闭；若 Provider 选择复用长期资源，则由普通显式 context manager 管理 |
-| 只读与参数 | 服务端只读事务成立；写权限测试角色仍无法执行 DML、DDL 与 COPY；参数绑定不做 SQL 文本替换 |
+| 只读与参数 | 服务端只读事务成立；锁定 ADBC prepare 路径拒绝多 command，但字符串值中的分号正常；写权限测试角色仍无法执行 DML、DDL、COPY 或用第二条 command 切回 READ WRITE；参数绑定不做 SQL 文本替换 |
 | 错误语义 | 连接、认证、SQL、读取与关闭失败不泄露 service、Database、密码或连接字符串；Workflow 可按普通 Python 规则处理 Provider 错误 |
 | 测试归属 | Provider、Workflow 与融合案例只由 example PACK 的 pytest 维护并使用生产 Provider；Rust 只保留通用 CLI/Runtime 合同测试，不增加 PostgreSQL PACK 专用测试目标 |
 | 用户链 | `kat test` 执行 PACK pytest，并通过 `kat_run` 覆盖单源 Output 与多源融合，不使用 test-only Provider |

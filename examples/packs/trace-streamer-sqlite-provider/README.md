@@ -16,42 +16,49 @@
 
 ## Provider 使用方式
 
-Workflow 显式提供来源、解析器与当前 PACK 在 KAT Data Home 下的物化根目录：
+Workflow 在 `ctx.datasource_root` 下创建本次调用独占的临时目录，再把来源、PACK
+部署时批准的解析器和该目录显式交给 Provider。生产 Workflow 从
+`KAT_TRACE_STREAMER_EXECUTABLE` 读取解析器位置，不把可执行代码路径开放为 Workflow
+argument：
 
 ```python
+import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from kat.pack.datasources import trace_streamer
 
 
-provider = trace_streamer.TraceStreamerProvider(
-    source=Path(htrace_path),
-    executable=Path(trace_streamer_path),
-    materialization_root=ctx.datasource_root / "trace-streamer",
-).decode()
+with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+    provider = trace_streamer.TraceStreamerProvider(
+        source=Path(htrace_path),
+        executable=Path(os.environ["KAT_TRACE_STREAMER_EXECUTABLE"]),
+        workspace=Path(workspace) / "trace-streamer",
+    ).decode()
 
-summary = provider.query(
-    trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
-    schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
-)
+    summary = provider.query(
+        trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
+        schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
+    )
 ```
 
-`decode()` 每次都重建 `materialization_root/workspace`；同一物化根即使由新的
-Provider 实例接管，也不会把旧 DB 当成本次结果，同时不会删除根目录下的其他文件。
-它以参数列表
+Workflow 拥有临时目录的生命周期，并从中派生尚不存在的 `trace-streamer` 子目录；
+Provider 把该子目录视为独占目标。`decode()`
+每次先清理并重建该目录，不会把旧 DB 当成本次结果。它以参数列表
 `[executable, source, "-e", database]`、`shell=False` 和该目录作为 `cwd` 启动
 Trace Streamer。只有本次进程退出码为 0、输出是普通文件、SQLite
 `quick_check` 成功且至少存在一张业务表或视图时，Provider 才进入 ready 状态。
-任何失败都会清理本次 workspace；旧 DB 不会被当成本次成功。
+任何失败都会保持 Provider 未准备并尽力清理本次 workspace；成功查询得到 eager
+Table 后，Workflow 即可退出 `with` 并删除 SQLite。
 
 `query()` 使用标准库 `sqlite3` 以 `mode=ro` 打开 DB，并额外启用
 `PRAGMA query_only`。连接 authorizer 只允许形成只读查询的 SELECT、READ、FUNCTION 和
 RECURSIVE 动作，拒绝 `ATTACH`、`DETACH`、PRAGMA、DDL、DML 与事务修改，避免查询在
 目标 DB 之外创建文件。查询表达式、参数绑定和来源内 Join/Aggregate 仍使用 SQLite
-语义；Provider 会完整 `fetchall()`，关闭 cursor 与 connection，再用显式 Python
-Schema 构造可重复读取的 `ds.Table`。因此空结果和全 NULL 结果也有确定类型，返回
-Table 不再依赖 SQLite 连接，可以直接作为 Run Output 或交给
-`ctx.sql(tables=...)` 融合。
+语义；Provider 用显式 Python Schema 创建 `ds.Table`，逐行 `append()` 查询结果，
+并在返回前关闭 cursor 与 connection。因此空结果和全 NULL 结果也有确定类型，返回
+Table 不再依赖 SQLite 连接，可以直接作为 Run Output；需要多源查询时再显式交给
+`ds.DataFusionProvider(tables=...)`。
 
 查询列名及顺序必须与 Schema 完全一致。Schema 只使用 KAT Datasource 支持的 Python
 类型，例如：
@@ -73,13 +80,14 @@ NATIVE_HOOK_SUMMARY_SCHEMA = {
 kat inspect --pack trace-streamer-sqlite-provider \
   --pack-dir ./examples/packs/trace-streamer-sqlite-provider
 
+export KAT_TRACE_STREAMER_EXECUTABLE=/absolute/path/to/trace_streamer
+
 kat run \
   --pack trace-streamer-sqlite-provider \
   --workflow summarize-native-hook \
   --pack-dir ./examples/packs/trace-streamer-sqlite-provider \
   -- \
-  --source-path /absolute/path/to/trace.htrace \
-  --trace-streamer-path /absolute/path/to/trace_streamer
+  --source-path /absolute/path/to/trace.htrace
 
 kat query \
   --run <run-id> \
@@ -111,6 +119,8 @@ kat test `
   --test tests/real_trace_streamer.py
 ```
 
-真实合同验证四行聚合：`AllocEvent` 为 `114976 / 21964373`、`FreeEvent` 为
+真实合同先确认解析器报告精确版本 `4.3.7`（该版本的 `--version` 历史退出码为
+`1`），再验证四行聚合：`AllocEvent` 为
+`114976 / 21964373`、`FreeEvent` 为
 `110359 / 20577720`、`MmapEvent` 为 `64 / 11538432`、`MunmapEvent` 为
 `57 / 3014656`（事件数 / `heap_size` 总和）。

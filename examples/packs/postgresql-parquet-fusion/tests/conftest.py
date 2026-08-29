@@ -71,16 +71,11 @@ def postgresql_config() -> PostgreSQLTestConfig:
             "the PostgreSQL fusion fixture requires two distinct Databases"
         )
     service_file = _required_file("PGSERVICEFILE")
-    password_file = _required_file("PGPASSFILE")
-    secret = _required_environment("KAT_TEST_POSTGRES_SECRET_SENTINEL")
+    _required_file("PGPASSFILE")
     _validate_service_file(
         service_file,
         profiles=(readonly_profile, writer_profile),
     )
-    if secret not in password_file.read_text(encoding="utf-8"):
-        raise RuntimeError(
-            "KAT_TEST_POSTGRES_SECRET_SENTINEL must match the test password file"
-        )
     return PostgreSQLTestConfig(
         readonly_profile=readonly_profile,
         writer_profile=writer_profile,

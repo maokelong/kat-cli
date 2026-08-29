@@ -44,40 +44,41 @@ class TraceStreamerProvider:
         *,
         source: Path,
         executable: Path,
-        materialization_root: Path,
+        workspace: Path,
     ) -> None:
         for field, value in (
             ("source", source),
             ("executable", executable),
-            ("materialization_root", materialization_root),
+            ("workspace", workspace),
         ):
             if not isinstance(value, Path):
                 raise TypeError(f"Trace Streamer {field} must be a Path")
         self._source = source
         self._executable = executable
-        self._materialization_root = materialization_root
-        self._workspace: Path | None = None
+        self._workspace = workspace
         self._database: Path | None = None
 
     def decode(self) -> TraceStreamerProvider:
         """用 Trace Streamer 生成并校验本次 Provider 私有的 SQLite。"""
-        self._discard_workspace()
-        materialization_root = self._materialization_root.resolve(strict=False)
-        workspace = materialization_root / "workspace"
-        _remove_owned_workspace(workspace)
-        if not self._source.is_file():
-            raise RuntimeError("Trace Streamer source must be an existing file")
-        if not self._executable.is_file():
-            raise RuntimeError("Trace Streamer executable must be an existing file")
-        source = self._source.resolve(strict=True)
-        executable = self._executable.resolve(strict=True)
-
-        materialization_root.mkdir(parents=True, exist_ok=True)
-        workspace.mkdir()
-        workspace = workspace.resolve(strict=True)
-        self._workspace = workspace
-        database = workspace / "trace.db"
+        self._database = None
         try:
+            # 保持调用方交付的词法 leaf，避免 resolve 后穿过 symlink 扩大删除范围。
+            _remove_owned_workspace(self._workspace)
+            if not self._source.is_file():
+                raise RuntimeError("Trace Streamer source must be an existing file")
+            if not self._executable.is_file():
+                raise RuntimeError(
+                    "Trace Streamer executable must be an existing file"
+                )
+            source = self._source.resolve(strict=True)
+            executable = self._executable.resolve(strict=True)
+
+            workspace = self._workspace.resolve(strict=False)
+            if not workspace.parent.is_dir():
+                raise RuntimeError("Trace Streamer workspace parent must exist")
+            workspace.mkdir()
+            workspace = workspace.resolve(strict=True)
+            database = workspace / "trace.db"
             completed = subprocess.run(
                 [
                     str(executable),
@@ -88,8 +89,8 @@ class TraceStreamerProvider:
                 cwd=workspace,
                 shell=False,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 check=False,
             )
             if completed.returncode != 0:
@@ -105,20 +106,13 @@ class TraceStreamerProvider:
                     "Trace Streamer produced an invalid SQLite database"
                 ) from None
         except OSError:
-            self._discard_workspace()
+            _cleanup_owned_workspace(self._workspace)
             raise RuntimeError("Trace Streamer decode failed") from None
-        except Exception:
-            self._discard_workspace()
+        except BaseException:
+            _cleanup_owned_workspace(self._workspace)
             raise
         self._database = database
         return self
-
-    def _discard_workspace(self) -> None:
-        self._database = None
-        workspace = self._workspace
-        self._workspace = None
-        if workspace is not None:
-            _remove_owned_workspace(workspace)
 
     def query(
         self,
@@ -133,6 +127,8 @@ class TraceStreamerProvider:
             raise TypeError("Trace Streamer SQL must be a non-empty string")
         if not isinstance(schema, Mapping):
             raise TypeError("Trace Streamer query schema must be a mapping")
+        validated_schema = ds.Schema({"result": dict(schema.items())})
+        expected_columns = tuple(validated_schema["result"])
 
         try:
             connection = _open_query_connection(self._database)
@@ -146,7 +142,6 @@ class TraceStreamerProvider:
                     actual_columns = tuple(
                         column[0] for column in (query.description or ())
                     )
-                    expected_columns = tuple(schema)
                     if actual_columns != expected_columns:
                         raise ValueError(
                             "Trace Streamer query columns must exactly match "
@@ -161,7 +156,14 @@ class TraceStreamerProvider:
         except sqlite3.Error:
             raise RuntimeError("Trace Streamer query failed") from None
 
-        return ds.table(schema=schema, rows=rows)
+        result = validated_schema.create()["result"]
+        for row in rows:
+            result.append(
+                **dict(zip(expected_columns, row, strict=True)),
+            )
+        del rows
+        result.to_arrow()
+        return result
 
 
 def _open_read_only(database: Path) -> sqlite3.Connection:
@@ -206,6 +208,13 @@ def _remove_owned_workspace(workspace: Path) -> None:
         workspace.unlink()
     elif workspace.exists():
         shutil.rmtree(workspace)
+
+
+def _cleanup_owned_workspace(workspace: Path) -> None:
+    try:
+        _remove_owned_workspace(workspace)
+    except OSError:
+        pass
 
 
 def _verify_database(database: Path) -> None:

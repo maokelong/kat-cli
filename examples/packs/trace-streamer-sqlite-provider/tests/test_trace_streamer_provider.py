@@ -5,6 +5,7 @@ import sys
 import pytest
 
 from kat import datasource as ds
+from kat.pack.datasources import trace_streamer as trace_streamer_module
 from kat.pack.datasources.trace_streamer import TraceStreamerProvider
 
 
@@ -39,13 +40,13 @@ connection.close()
 
 @pytest.mark.parametrize(
     "field",
-    ("source", "executable", "materialization_root"),
+    ("source", "executable", "workspace"),
 )
 def test_provider_locations_must_be_paths(tmp_path: Path, field: str):
     arguments = {
         "source": tmp_path / "input.htrace",
         "executable": tmp_path / "trace_streamer",
-        "materialization_root": tmp_path / "materialized",
+        "workspace": tmp_path / "workspace",
     }
     arguments[field] = str(arguments[field])
 
@@ -57,7 +58,7 @@ def test_query_before_decode_is_rejected(tmp_path: Path):
     provider = TraceStreamerProvider(
         source=tmp_path / "input.htrace",
         executable=tmp_path / "trace_streamer",
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     )
 
     assert type(provider) is TraceStreamerProvider
@@ -71,7 +72,7 @@ def test_decode_then_query_returns_a_reusable_eager_table(tmp_path: Path):
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     )
 
     decoded = provider.decode()
@@ -108,46 +109,94 @@ def test_decode_then_query_returns_a_reusable_eager_table(tmp_path: Path):
 
 def test_failed_redecode_discards_old_and_current_workspaces(tmp_path: Path):
     executable, source = _successful_trace_streamer(tmp_path)
-    materialization_root = tmp_path / "materialized"
+    workspace = tmp_path / "workspace"
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=materialization_root,
+        workspace=workspace,
     ).decode()
-    assert len(tuple(materialization_root.iterdir())) == 1
+    assert tuple(workspace.iterdir()) == (workspace / "trace.db",)
     source.write_text("raise SystemExit(9)", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="decode failed"):
         provider.decode()
 
-    assert tuple(materialization_root.iterdir()) == ()
+    assert not workspace.exists()
+    with pytest.raises(RuntimeError, match="decode"):
+        provider.query("SELECT 1 AS value", schema={"value": int})
+
+
+def test_decode_removes_the_lexical_workspace_leaf(monkeypatch, tmp_path: Path):
+    removed: list[Path] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        trace_streamer_module,
+        "_remove_owned_workspace",
+        removed.append,
+    )
+    provider = TraceStreamerProvider(
+        source=Path("missing.htrace"),
+        executable=Path("trace_streamer"),
+        workspace=Path("workspace"),
+    )
+
+    with pytest.raises(RuntimeError, match="source"):
+        provider.decode()
+
+    assert removed == [Path("workspace"), Path("workspace")]
+
+
+def test_workspace_removal_failure_keeps_provider_unready_and_retries_cleanup(
+    monkeypatch,
+    tmp_path: Path,
+):
+    removed: list[Path] = []
+    workspace = tmp_path / "workspace"
+
+    def fail_removal(path: Path) -> None:
+        removed.append(path)
+        raise PermissionError("workspace is busy")
+
+    monkeypatch.setattr(
+        trace_streamer_module,
+        "_remove_owned_workspace",
+        fail_removal,
+    )
+    provider = TraceStreamerProvider(
+        source=tmp_path / "input.htrace",
+        executable=tmp_path / "trace_streamer",
+        workspace=workspace,
+    )
+
+    with pytest.raises(RuntimeError, match="decode failed"):
+        provider.decode()
+
+    assert removed == [workspace, workspace]
     with pytest.raises(RuntimeError, match="decode"):
         provider.query("SELECT 1 AS value", schema={"value": int})
 
 
 def test_new_provider_rebuilds_the_same_owned_workspace(tmp_path: Path):
     executable, source = _successful_trace_streamer(tmp_path)
-    materialization_root = tmp_path / "materialized"
-    materialization_root.mkdir()
-    sibling = materialization_root / "owned-by-workflow.txt"
-    sibling.write_text("keep", encoding="utf-8")
+    workspace = tmp_path / "workspace"
     TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=materialization_root,
+        workspace=workspace,
     ).decode()
+    stale = workspace / "stale-sidecar"
+    stale.write_text("stale", encoding="utf-8")
     source.write_text("raise SystemExit(9)", encoding="utf-8")
 
     replacement = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=materialization_root,
+        workspace=workspace,
     )
     with pytest.raises(RuntimeError, match="decode failed"):
         replacement.decode()
 
-    assert tuple(materialization_root.iterdir()) == (sibling,)
-    assert sibling.read_text(encoding="utf-8") == "keep"
+    assert not workspace.exists()
 
 
 @pytest.mark.parametrize(
@@ -174,17 +223,17 @@ def test_decode_accepts_only_a_valid_sqlite_with_relations(
 ):
     source = tmp_path / "fixture.htrace"
     source.write_text(program.strip(), encoding="utf-8")
-    materialization_root = tmp_path / "materialized"
+    workspace = tmp_path / "workspace"
     provider = TraceStreamerProvider(
         source=source,
         executable=Path(sys.executable),
-        materialization_root=materialization_root,
+        workspace=workspace,
     )
 
     with pytest.raises(RuntimeError):
         provider.decode()
 
-    assert tuple(materialization_root.iterdir()) == ()
+    assert not workspace.exists()
     with pytest.raises(RuntimeError, match="decode"):
         provider.query("SELECT 1 AS value", schema={"value": int})
 
@@ -194,7 +243,7 @@ def test_query_is_read_only_and_can_retry_after_failure(tmp_path: Path):
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
 
     with pytest.raises(RuntimeError, match="query failed"):
@@ -215,7 +264,7 @@ def test_query_rejects_attach_without_creating_a_file_and_can_retry(tmp_path: Pa
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
     attached = tmp_path / "attached.db"
 
@@ -240,7 +289,7 @@ def test_query_closes_a_connection_when_read_only_setup_fails(
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
 
     class FailingConnection:
@@ -267,7 +316,7 @@ def test_query_requires_non_empty_sql(tmp_path: Path, sql: object):
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
 
     with pytest.raises(TypeError, match="non-empty string"):
@@ -279,11 +328,35 @@ def test_query_schema_must_be_a_mapping(tmp_path: Path):
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
 
     with pytest.raises(TypeError, match="schema.*mapping"):
         provider.query("SELECT 1 AS value", schema=[("value", int)])
+
+
+def test_invalid_query_schema_is_rejected_before_source_io(
+    tmp_path: Path,
+    monkeypatch,
+):
+    executable, source = _successful_trace_streamer(tmp_path)
+    provider = TraceStreamerProvider(
+        source=source,
+        executable=executable,
+        workspace=tmp_path / "workspace",
+    ).decode()
+
+    def unexpected_open(_database):
+        raise AssertionError("invalid Schema must fail before opening SQLite")
+
+    monkeypatch.setattr(
+        trace_streamer_module,
+        "_open_query_connection",
+        unexpected_open,
+    )
+
+    with pytest.raises(TypeError, match="Datasource columns"):
+        provider.query("SELECT 1 AS value", schema={"value": list})
 
 
 def test_process_start_failure_is_a_clean_decode_failure(tmp_path: Path):
@@ -291,17 +364,17 @@ def test_process_start_failure_is_a_clean_decode_failure(tmp_path: Path):
     source.write_bytes(b"trace")
     executable = tmp_path / "not-an-executable"
     executable.write_text("not executable", encoding="utf-8")
-    materialization_root = tmp_path / "materialized"
+    workspace = tmp_path / "workspace"
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=materialization_root,
+        workspace=workspace,
     )
 
     with pytest.raises(RuntimeError, match="decode failed"):
         provider.decode()
 
-    assert tuple(materialization_root.iterdir()) == ()
+    assert not workspace.exists()
     with pytest.raises(RuntimeError, match="decode"):
         provider.query("SELECT 1 AS value", schema={"value": int})
 
@@ -313,7 +386,7 @@ def test_query_enforces_schema_order_then_can_retry_with_parameters(
     provider = TraceStreamerProvider(
         source=source,
         executable=executable,
-        materialization_root=tmp_path / "materialized",
+        workspace=tmp_path / "workspace",
     ).decode()
 
     with pytest.raises(ValueError) as captured:
@@ -353,7 +426,7 @@ def test_decode_resolves_relative_paths_before_switching_workspace(
     provider = TraceStreamerProvider(
         source=Path(source.name),
         executable=executable,
-        materialization_root=Path("materialized"),
+        workspace=Path("workspace"),
     ).decode()
 
     result = provider.query(

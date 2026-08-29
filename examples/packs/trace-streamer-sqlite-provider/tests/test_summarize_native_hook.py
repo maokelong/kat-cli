@@ -2,7 +2,11 @@ from pathlib import Path
 import sys
 
 
-def test_workflow_returns_native_hook_summary(kat_run, tmp_path: Path):
+def test_workflow_returns_native_hook_summary(
+    kat_run,
+    monkeypatch,
+    tmp_path: Path,
+):
     source = tmp_path / "fixture.htrace"
     source.write_text(
         """
@@ -27,14 +31,13 @@ connection.close()
 """.strip(),
         encoding="utf-8",
     )
+    monkeypatch.setenv("KAT_TRACE_STREAMER_EXECUTABLE", sys.executable)
 
     result = kat_run(
         workflow="summarize-native-hook",
         arguments=[
             "--source-path",
             str(source),
-            "--trace-streamer-path",
-            sys.executable,
         ],
     )["main"]
 

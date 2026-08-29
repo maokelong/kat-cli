@@ -5,8 +5,8 @@
 - `query-observations` 直接把一次 PostgreSQL 查询形成的 eager `ds.Table` 作为
   `main` Output；
 - `fuse-observations` 使用同一个 `PostgreSQLProvider` 依次查询同一 service 下的
-  telemetry、control 两个 Database，再把两个远端 Table 与本地 Parquet Table
-  显式交给 `ctx.sql(tables=...)` 融合。
+  telemetry、control 两个 Database，再把两个远端 Table 与本地 Parquet Catalog
+  显式交给 `ds.DataFusionProvider(tables=..., catalog=...)` 融合。
 
 Provider 都是 `datasources/` 下由 PACK 拥有的普通 Python 类。KAT 不发现、构造或
 包装 Provider，也不自动注册来源查询结果。只有 Workflow 返回的 Table 会发布为
@@ -18,8 +18,11 @@ Run Output；仅作为融合输入的 Table 不产生 Output 文件。
 每次 query 都创建独立连接，在服务端开启只读事务，通过 ADBC 绑定位置参数并完整
 读取结果。Provider 在返回 eager `ds.Table` 前已经关闭 reader、cursor，回滚事务并
 关闭 query-local connection；后续读取、融合和 Output 发布不会再次执行远端 SQL。
+锁定的 ADBC DBAPI 会在执行前 prepare SQL，因此 PostgreSQL 只接受一条 command；
+真实合同测试同时锁定多 command 被拒绝、字符串值中的分号不被误判，以及有写权限的
+测试角色也不能借第二条 command 把事务切回 READ WRITE。
 
-ADBC 结果在进入 `ds.from_arrow()` 前遵守以下规范化边界：
+ADBC 结果在进入 `ds.Table.from_arrow()` 前遵守以下规范化边界：
 
 - PostgreSQL `NUMERIC` 必须能够无舍入地表示为固定
   `decimal128(38, 18)`；超出 precision、range 或需要舍入时立即失败；
@@ -35,13 +38,13 @@ password file 的内容。
 
 - `datasources/postgresql.py`：普通 `PostgreSQLProvider`，负责 ADBC 查询、只读事务、
   类型规范化、资源关闭与错误脱敏；
-- `datasources/parquet.py`：用 `ds.Schema` 和 `ds.open()` 显式打开
-  `sched_switch.parquet` 的薄 Provider；
+- `datasources/parquet.py`：用无 Schema 的 `ds.open()` 显式打开
+  `thread_placement.parquet`，并暴露只读 Catalog 的薄 Provider；
 - `workflows/query_observations.py`：直接返回 PostgreSQL Table；
 - `workflows/fuse_observations.py`：在 PostgreSQL 内完成 Join、Filter、Aggregate，
-  再与本地调度区间显式融合；
+  再按业务键与本地线程归属显式融合；
 - `tests/`：连接外部提供的真实 PostgreSQL fixture，验证参数、类型、只读事务、
-  单 command、资源关闭、单源 Output 和完整融合。
+  资源关闭、单源 Output 和完整融合。
 
 ## PostgreSQL 配置
 
@@ -79,8 +82,8 @@ PACK tests 需要测试环境事先提供同一 service 上的两个 Database：
 - `thread_registry`：`101→10`、`102→20`、`103→30`；
 - `process_registry`：`10→renderer`、`20→system-server`；
 - observation 主结果：`(101,100,0.25)`、`(102,150,0.5)`、
-  `(102,200,0.75)`；fixture 还包含窗口边界、缺失 thread/process 和未知调度区间
-  的行，用于证明 inner join 与半开窗口语义；
+  `(102,200,0.75)`；fixture 还包含窗口边界及缺失 thread/process 的行，用于证明
+  远端 inner join 与半开窗口语义；
 - `write_guard` 初始包含一行。
 
 将测试环境的 service 和 Database 名通过非敏感环境变量交给 PACK tests：
@@ -90,7 +93,6 @@ export KAT_TEST_POSTGRES_READONLY_PROFILE=readonly_service
 export KAT_TEST_POSTGRES_WRITER_PROFILE=writer_fixture_service
 export KAT_TEST_POSTGRES_TELEMETRY_DATABASE=telemetry
 export KAT_TEST_POSTGRES_CONTROL_DATABASE=control
-export KAT_TEST_POSTGRES_SECRET_SENTINEL='<测试 password file 中的实际密码>'
 
 kat inspect \
   --pack postgresql-parquet-fusion \
@@ -99,14 +101,16 @@ kat inspect \
 kat test --pack-dir ./examples/packs/postgresql-parquet-fusion
 ```
 
-两个 Database 名必须不同，secret sentinel 必须与 `PGPASSFILE` 的测试密码一致；
-它只用于验证响应、日志与产物没有泄漏凭据。缺少或误配这些测试配置会直接失败，
-不会静默跳过真实 PostgreSQL 合同。
+两个 Database 名必须不同。缺少或误配这些测试配置会直接失败，不会静默跳过真实
+PostgreSQL 合同。错误脱敏由不读取真实 password file 内容的可移植 Provider 合同测试
+覆盖，避免为了断言泄漏而把凭据复制到额外环境变量。
 
 ## 单源运行
 
 `query-observations` 直接返回 PostgreSQL Table，不启动本地 Fusion Session，也不会
-第二次执行来源 SQL：
+第二次执行来源 SQL。Workflow 要求调用方显式声明 `observation.observed_at` 所属的
+Clock domain，并把来源列以 `clock_domain + clock_value` 发布，不把裸 BIGINT 猜成
+纳秒或墙上时间：
 
 ```bash
 kat run \
@@ -116,18 +120,20 @@ kat run \
   -- \
   --service readonly_service \
   --database telemetry \
-  --start-ns 100 \
-  --end-ns 220
+  --clock-domain fixture.observation_clock \
+  --start-clock-value 100 \
+  --end-clock-value 220
 
 kat query \
   --run <run-id> \
-  --sql "SELECT * FROM output.main ORDER BY observed_at, thread_id"
+  --sql "SELECT * FROM output.main ORDER BY clock_value, thread_id"
 ```
 
 ## PostgreSQL 与 Parquet 融合
 
-`trace_root` 是包含 `sched_switch.parquet` 的目录。该表必须具有 nullable-compatible
-int64 列 `cpu`、`next_thread_id`、`timestamp`，并保证 `(cpu, timestamp)` 唯一。
+`placement_root` 是包含 `thread_placement.parquet` 的目录。该表必须具有
+nullable-compatible int64 列 `thread_id`、`cpu`，并保证 `thread_id` 唯一。这个本地
+关系只按业务键参与融合；示例不会在没有共同 Clock domain 证据时比较不同来源的时间值。
 
 ```bash
 kat run \
@@ -138,17 +144,19 @@ kat run \
   --service readonly_service \
   --telemetry-database telemetry \
   --control-database control \
-  --trace-root /absolute/path/to/trace \
-  --start-ns 100 \
-  --end-ns 220
+  --placement-root /absolute/path/to/placement \
+  --clock-domain fixture.observation_clock \
+  --start-clock-value 100 \
+  --end-clock-value 220
 ```
 
-Workflow 严格按 Python 调用顺序完成 telemetry query、control query、本地 Parquet
-query，最后才执行只读本地融合。最终只发布 `main`；`telemetry`、`processes` 和
-`switches` 都是 call-local 融合输入。
+Workflow 严格按 Python 调用顺序完成 telemetry query、control query，再显式打开
+本地 Parquet Catalog，最后由一个 `DataFusionProvider` 对两个内存 Table 与磁盘
+Catalog 执行只读本地融合。最终只发布 `main`；`telemetry`、`processes` 和
+`thread_placement` 都只是本次融合的输入。
 
 ```bash
 kat query \
   --run <run-id> \
-  --sql "SELECT * FROM output.main ORDER BY observed_at, thread_id"
+  --sql "SELECT * FROM output.main ORDER BY clock_value, thread_id"
 ```

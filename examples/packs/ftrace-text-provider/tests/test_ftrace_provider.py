@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from kat.pack.datasources import ftrace as ftrace_module
 from kat.pack.datasources.ftrace import FtraceTextProvider
 
 
@@ -11,7 +12,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "small.ftrace"
 def test_decode_pairs_clock_values_with_the_explicit_domain(tmp_path):
     provider = FtraceTextProvider(
         source=_FIXTURE,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     ).decode()
 
@@ -46,13 +47,13 @@ def test_clock_domain_must_be_a_nonempty_string(tmp_path):
     with pytest.raises(TypeError, match="clock_domain.*string"):
         FtraceTextProvider(
             source=_FIXTURE,
-            materialization_root=tmp_path / "wrong-type",
+            catalog_root=tmp_path / "wrong-type",
             clock_domain=None,
         )
     with pytest.raises(ValueError, match="clock_domain.*non-empty"):
         FtraceTextProvider(
             source=_FIXTURE,
-            materialization_root=tmp_path / "empty",
+            catalog_root=tmp_path / "empty",
             clock_domain="   ",
         )
 
@@ -60,7 +61,7 @@ def test_clock_domain_must_be_a_nonempty_string(tmp_path):
 def test_decode_exposes_capture_and_precise_events_as_queryable_tables(tmp_path):
     provider = FtraceTextProvider(
         source=_FIXTURE,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     ).decode()
 
@@ -127,7 +128,7 @@ def test_decode_exposes_capture_and_precise_events_as_queryable_tables(tmp_path)
 def test_query_before_decode_explains_that_decode_is_required(tmp_path):
     provider = FtraceTextProvider(
         source=_FIXTURE,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     )
 
@@ -138,7 +139,7 @@ def test_query_before_decode_explains_that_decode_is_required(tmp_path):
 def test_query_forwards_named_parameters_to_the_catalog(tmp_path):
     provider = FtraceTextProvider(
         source=_FIXTURE,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     ).decode()
 
@@ -161,7 +162,7 @@ def test_decode_maps_tracefs_missing_tgid_placeholder_to_null(tmp_path):
 
     provider = FtraceTextProvider(
         source=source,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     ).decode()
 
@@ -180,12 +181,13 @@ def test_bad_event_reports_its_line_and_the_same_provider_can_retry(tmp_path):
     )
     provider = FtraceTextProvider(
         source=source,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain="fixture_clock",
     )
 
     with pytest.raises(ValueError, match=r"invalid tracefs event at line 3$"):
         provider.decode()
+    assert not (tmp_path / "catalog").exists()
     with pytest.raises(RuntimeError, match="decode.*before query"):
         provider.query("SELECT * FROM events")
 
@@ -197,29 +199,166 @@ def test_bad_event_reports_its_line_and_the_same_provider_can_retry(tmp_path):
     ]
 
 
-def test_decode_writes_more_than_one_batch_without_touching_root_siblings(tmp_path):
+def test_event_value_outside_table_range_reports_its_source_line(tmp_path):
+    source = tmp_path / "out-of-range.ftrace"
+    source.write_text(
+        "# tracer: nop\n"
+        "# entries-in-buffer/entries-written: 1/1   #P:1\n"
+        "worker-12 [18446744073709551616] ..... 1.0: cpu_idle: state=0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"invalid tracefs event values at line 3:",
+    ):
+        FtraceTextProvider(
+            source=source,
+            catalog_root=tmp_path / "catalog",
+            clock_domain="fixture_clock",
+        ).decode()
+
+    assert not (tmp_path / "catalog").exists()
+
+
+def test_catalog_open_failure_removes_written_files_and_keeps_provider_unready(
+    monkeypatch,
+    tmp_path,
+):
+    catalog_root = tmp_path / "catalog"
+    provider = FtraceTextProvider(
+        source=_FIXTURE,
+        catalog_root=catalog_root,
+        clock_domain="fixture_clock",
+    )
+
+    def fail_open(**_kwargs):
+        raise RuntimeError("open failed")
+
+    monkeypatch.setattr("kat.pack.datasources.ftrace.ds.open", fail_open)
+
+    with pytest.raises(RuntimeError, match="open failed"):
+        provider.decode()
+
+    assert not catalog_root.exists()
+    with pytest.raises(RuntimeError, match="decode.*before query"):
+        provider.query("SELECT * FROM events")
+
+
+def test_old_target_removal_failure_retries_cleanup_and_keeps_provider_unready(
+    monkeypatch,
+    tmp_path,
+):
+    catalog_root = tmp_path / "catalog"
+    catalog_root.mkdir()
+    (catalog_root / "stale").write_text("partial", encoding="utf-8")
+    provider = FtraceTextProvider(
+        source=_FIXTURE,
+        catalog_root=catalog_root,
+        clock_domain="fixture_clock",
+    )
+    original_remove = ftrace_module._remove_owned_catalog
+    attempts = 0
+
+    def fail_first_remove(path):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("remove failed")
+        original_remove(path)
+
+    monkeypatch.setattr(ftrace_module, "_remove_owned_catalog", fail_first_remove)
+
+    with pytest.raises(PermissionError, match="remove failed"):
+        provider.decode()
+
+    assert attempts == 2
+    assert not catalog_root.exists()
+    with pytest.raises(RuntimeError, match="decode.*before query"):
+        provider.query("SELECT * FROM events")
+
+
+def test_write_failure_removes_partial_catalog_and_keeps_provider_unready(
+    monkeypatch,
+    tmp_path,
+):
+    catalog_root = tmp_path / "catalog"
+    provider = FtraceTextProvider(
+        source=_FIXTURE,
+        catalog_root=catalog_root,
+        clock_domain="fixture_clock",
+    )
+
+    def fail_write(_tables, *, destination):
+        destination.mkdir()
+        (destination / "partial.parquet").write_text("partial", encoding="utf-8")
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr("kat.pack.datasources.ftrace.ds.write", fail_write)
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        provider.decode()
+
+    assert not catalog_root.exists()
+    with pytest.raises(RuntimeError, match="decode.*before query"):
+        provider.query("SELECT * FROM events")
+
+
+def test_backend_failure_removes_written_catalog_and_keeps_provider_unready(
+    monkeypatch,
+    tmp_path,
+):
+    catalog_root = tmp_path / "catalog"
+    provider = FtraceTextProvider(
+        source=_FIXTURE,
+        catalog_root=catalog_root,
+        clock_domain="fixture_clock",
+    )
+
+    def fail_backend(*, catalog):
+        assert catalog.tables == ("capture", "events")
+        raise RuntimeError("backend failed")
+
+    monkeypatch.setattr(
+        "kat.pack.datasources.ftrace.ds.DataFusionProvider",
+        fail_backend,
+    )
+
+    with pytest.raises(RuntimeError, match="backend failed"):
+        provider.decode()
+
+    assert not catalog_root.exists()
+    with pytest.raises(RuntimeError, match="decode.*before query"):
+        provider.query("SELECT * FROM events")
+
+
+def test_decode_rebuilds_only_the_exclusive_catalog_target(tmp_path):
     source = tmp_path / "batched.ftrace"
     event = "worker-7 [001] ..... 9.000000001: cpu_idle: state=0 cpu_id=1\n"
     source.write_text(
         "# tracer: nop\n"
-        "# entries-in-buffer/entries-written: 4097/4097   #P:2\n"
-        + event * 4097,
+        "# entries-in-buffer/entries-written: 17/17   #P:2\n"
+        + event * 17,
         encoding="utf-8",
     )
-    materialization_root = tmp_path / "ftrace"
-    materialization_root.mkdir()
-    sibling = materialization_root / "owned-by-workflow.txt"
+    catalog_root = tmp_path / "catalog"
+    sibling = tmp_path / "owned-by-workflow.txt"
     sibling.write_text("keep", encoding="utf-8")
 
     provider = FtraceTextProvider(
         source=source,
-        materialization_root=materialization_root,
+        catalog_root=catalog_root,
         clock_domain="fixture_clock",
     ).decode()
     first = provider.query("SELECT COUNT(*) AS event_count FROM events")
+    (catalog_root / "stale").write_text("partial", encoding="utf-8")
     provider.decode()
     second = provider.query("SELECT COUNT(*) AS event_count FROM events")
 
-    assert first.to_rows() == [{"event_count": 4097}]
-    assert second.to_rows() == [{"event_count": 4097}]
+    assert first.to_rows() == [{"event_count": 17}]
+    assert second.to_rows() == [{"event_count": 17}]
+    assert sorted(path.name for path in catalog_root.iterdir()) == [
+        "capture.parquet",
+        "events.parquet",
+    ]
     assert sibling.read_text(encoding="utf-8") == "keep"

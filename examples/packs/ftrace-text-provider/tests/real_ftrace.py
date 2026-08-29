@@ -26,7 +26,7 @@ def test_real_ftrace_header_events_cpus_first_event_and_workflow_output(
     clock_domain = "real_fixture_clock"
     provider = FtraceTextProvider(
         source=source,
-        materialization_root=tmp_path / "ftrace",
+        catalog_root=tmp_path / "catalog",
         clock_domain=clock_domain,
     ).decode()
 

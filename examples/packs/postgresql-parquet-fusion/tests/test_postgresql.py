@@ -142,7 +142,7 @@ def test_parameterized_types_return_one_repeatable_eager_table(
     first_read[0]["text_value"] = "changed outside the Table"
     assert result.to_rows() == expected
 
-    arrow = ds.to_arrow(result)
+    arrow = result.to_arrow()
     assert arrow.schema.field("timestamp_value").type == pa.timestamp(
         "ns", tz="UTC"
     )
@@ -172,7 +172,7 @@ def test_zero_rows_keep_a_nonempty_schema(postgresql_config):
 
     assert result.columns == ("value",)
     assert len(result) == 0
-    assert ds.to_arrow(result).schema.field("value").type == pa.int64()
+    assert result.to_arrow().schema.field("value").type == pa.int64()
 
 
 def test_remote_join_filter_and_aggregate_execute_as_one_source_query(
@@ -211,6 +211,40 @@ def test_server_observes_a_read_only_transaction(postgresql_config):
     )
 
     assert result["value"] == ("on",)
+
+
+def test_prepared_execution_rejects_multiple_commands_but_not_semicolons_in_data(
+    postgresql_config,
+):
+    provider = PostgreSQLProvider(service=postgresql_config.writer_profile)
+    database = postgresql_config.telemetry_database
+    before = _direct_table(
+        postgresql_config.writer_profile,
+        database,
+        "SELECT count(*)::BIGINT AS count FROM write_guard",
+    ).column("count")[0].as_py()
+
+    assert provider.query(
+        "SELECT 'text;not-a-command'::TEXT AS value",
+        database=database,
+    ).to_rows() == [{"value": "text;not-a-command"}]
+
+    for sql in (
+        "SELECT 1 AS first; SELECT 2 AS second",
+        (
+            "SET TRANSACTION READ WRITE; "
+            "INSERT INTO write_guard(value) VALUES (99) RETURNING value"
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="PostgreSQL query failed"):
+            provider.query(sql, database=database)
+
+    after = _direct_table(
+        postgresql_config.writer_profile,
+        database,
+        "SELECT count(*)::BIGINT AS count FROM write_guard",
+    ).column("count")[0].as_py()
+    assert after == before
 
 
 def test_read_only_transaction_rejects_every_supported_write_shape(
