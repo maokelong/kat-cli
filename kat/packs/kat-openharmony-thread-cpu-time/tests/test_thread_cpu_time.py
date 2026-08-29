@@ -2,7 +2,6 @@ import pyarrow as pa
 import pytest
 from datafusion import SessionContext
 
-from kat import datasource as ds
 from kat.pack.workflows.thread_cpu_time import thread_cpu_time
 
 
@@ -45,15 +44,13 @@ class InMemoryContext:
             batches = [pa.RecordBatch.from_pylist([], schema=schema)]
         self.session.register_record_batches(name, [batches])
 
-    def sql(self, query, *, tables=None, params=None):
-        assert tables is None
-        frame = self.session.sql(query, param_values=params)
-        return ds.from_arrow(frame.to_arrow_table())
+    def sql(self, query, **params):
+        return self.session.sql(query, param_values=params)
 
 
 def run_workflow(sched_slices, threads):
     outputs = thread_cpu_time(InMemoryContext(sched_slices, threads))
-    return outputs["thread_cpu_time_by_cpu"]
+    return outputs["thread_cpu_time_by_cpu"].to_arrow_table()
 
 
 def semantic_source():
@@ -85,7 +82,7 @@ def semantic_source():
 def test_aggregates_complete_non_idle_source_slices():
     sched_slices, threads = semantic_source()
 
-    assert run_workflow(sched_slices, threads).to_rows() == [
+    assert run_workflow(sched_slices, threads).to_pylist() == [
         {
             "thread_id": 10,
             "thread_name": "worker",
@@ -115,7 +112,7 @@ def test_aggregates_complete_non_idle_source_slices():
 
 def test_excludes_unexplainable_slices_and_keeps_cpu_distinct():
     sched_slices, threads = semantic_source()
-    rows = run_workflow(sched_slices, threads).to_rows()
+    rows = run_workflow(sched_slices, threads).to_pylist()
 
     assert {row["thread_id"] for row in rows}.isdisjoint({0, 30, 31, 50})
     assert {
@@ -128,8 +125,8 @@ def test_excludes_unexplainable_slices_and_keeps_cpu_distinct():
 def test_zero_complete_non_idle_slices_has_stable_empty_schema():
     table = run_workflow([], [])
 
-    assert ds.to_arrow(table).schema.equals(EXPECTED_SCHEMA, check_metadata=False)
-    assert len(table) == 0
+    assert table.schema.equals(EXPECTED_SCHEMA, check_metadata=False)
+    assert table.num_rows == 0
 
 
 def test_rejects_source_values_that_do_not_fit_output_types():

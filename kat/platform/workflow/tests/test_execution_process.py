@@ -123,7 +123,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     logging.getLogger("pack").info("executed")
     selected = ctx.sql(
         "SELECT value FROM events WHERE value >= $minimum ORDER BY value",
-        params={"minimum": minimum},
+        minimum=minimum,
     )
     empty = ctx.sql("SELECT CAST(NULL AS BIGINT) AS value WHERE FALSE")
     return {"selected_rows": selected, "empty_rows": empty}'''
@@ -226,14 +226,10 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         "explain": ctx.sql("EXPLAIN SELECT value FROM events"),
         "tables": ctx.sql("SHOW TABLES"),
         "describe": ctx.sql("DESCRIBE events"),
-        "parameter": ctx.sql("SELECT $value AS value", params={"value": 7}),
+        "parameter": ctx.sql("SELECT $value AS value", value=7),
         "timestamp": ctx.sql(
             "SELECT $value AS value",
-            params={
-                "value": kat.WallClockTimestamp(
-                    "2262-04-11T23:47:16.854775807Z"
-                )
-            },
+            value=kat.WallClockTimestamp("2262-04-11T23:47:16.854775807Z"),
         ),
     }'''
         )

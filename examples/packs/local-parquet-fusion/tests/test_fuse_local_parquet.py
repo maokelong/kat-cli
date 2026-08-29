@@ -4,11 +4,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from kat import datasource as ds
-from kat.pack.datasources.parquet import (
-    EVENTS_SCHEMA,
-    LocalParquetProvider,
-)
+from kat.pack.datasources.parquet import LocalParquetProvider
 
 
 def _catalog(root: Path) -> tuple[Path, Path, Path]:
@@ -58,7 +54,6 @@ def _catalog(root: Path) -> tuple[Path, Path, Path]:
 
 def _events_provider(events: Path, labels: Path) -> LocalParquetProvider:
     return LocalParquetProvider(
-        schema=EVENTS_SCHEMA,
         tables={"events": events, "labels": labels},
     )
 
@@ -95,15 +90,6 @@ def test_tables_not_present_in_the_mapping_are_invisible(tmp_path):
     events, _, _ = _catalog(tmp_path)
     pq.write_table(pa.table({"secret": ["not mapped"]}), tmp_path / "hidden.parquet")
     provider = LocalParquetProvider(
-        schema=ds.Schema(
-            {
-                "events": {
-                    "event_id": int | None,
-                    "owner_id": int | None,
-                    "score": int | None,
-                }
-            }
-        ),
         tables={"events": events},
     )
 

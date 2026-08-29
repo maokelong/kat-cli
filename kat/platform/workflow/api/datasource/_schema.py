@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import types
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import get_args, get_origin
+from typing import TYPE_CHECKING, get_args, get_origin
 
 import pyarrow as pa
 
 from .._identifiers import valid_table_name
 from .._temporal import _MAX_TIMESTAMP_NS, _MIN_TIMESTAMP_NS
+
+if TYPE_CHECKING:
+    from ._table import Table
 
 
 _LOGICAL_TYPES = (bool, int, float, str, bytes, datetime, Decimal)
@@ -55,18 +58,13 @@ class Schema:
     def __getitem__(self, table_name: str) -> Mapping[str, object]:
         return self.__declarations[table_name]
 
-    def _arrow_schema(self, table_name: str) -> pa.Schema:
-        columns = self.__declarations[table_name]
-        return pa.schema(
-            [
-                pa.field(
-                    column_name,
-                    _arrow_type(annotation),
-                    nullable=_logical_type(annotation)[1],
-                )
-                for column_name, annotation in columns.items()
-            ]
-        )
+    def create(self) -> dict[str, Table]:
+        from ._table import Table
+
+        return {
+            table_name: Table(columns)
+            for table_name, columns in self.__declarations.items()
+        }
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("Schema values are immutable")
@@ -125,25 +123,6 @@ def _arrow_type(annotation: object) -> pa.DataType:
     raise AssertionError("validated logical type is not mapped to Arrow")
 
 
-def _python_values_to_array(
-    annotation: object,
-    values: Sequence[object | None],
-    *,
-    location: str,
-) -> pa.Array:
-    logical_type, nullable = _logical_type(annotation)
-    normalized = [
-        _normalize_python_value(
-            logical_type,
-            nullable,
-            value,
-            location=f"{location}[{index}]",
-        )
-        for index, value in enumerate(values)
-    ]
-    return pa.array(normalized, type=_arrow_type(annotation))
-
-
 def _normalize_python_value(
     logical_type: type[object],
     nullable: bool,
@@ -195,33 +174,53 @@ def _datetime_nanoseconds(value: datetime, *, location: str) -> int:
 
 
 def _canonical_decimal(value: Decimal, *, location: str) -> Decimal:
+    return _rescale_decimal(
+        value,
+        precision=_DECIMAL_PRECISION,
+        scale=_DECIMAL_SCALE,
+        location=location,
+    )
+
+
+def _rescale_decimal(
+    value: Decimal,
+    *,
+    precision: int,
+    scale: int,
+    location: str,
+) -> Decimal:
     if not value.is_finite():
         raise ValueError(f"{location} must be a finite Decimal")
 
     decimal_tuple = value.as_tuple()
     digits = "".join(str(digit) for digit in decimal_tuple.digits)
     if not digits or not any(digit != "0" for digit in digits):
-        return Decimal((decimal_tuple.sign, (0,), -_DECIMAL_SCALE))
+        return Decimal((decimal_tuple.sign, (0,), -scale))
 
-    shift = decimal_tuple.exponent + _DECIMAL_SCALE
+    shift = decimal_tuple.exponent + scale
     if shift >= 0:
-        if len(digits) + shift > _DECIMAL_PRECISION:
-            raise ValueError(f"{location} exceeds decimal128(38, 18)")
+        if len(digits) + shift > precision:
+            raise ValueError(
+                f"{location} exceeds Decimal precision {precision} and scale {scale}"
+            )
         scaled_digits = digits + "0" * shift
     else:
         removed = -shift
         if removed >= len(digits) or any(digit != "0" for digit in digits[-removed:]):
             raise ValueError(
-                f"{location} cannot be rescaled to 18 fractional digits without rounding"
+                f"{location} cannot be rescaled to {scale} fractional digits "
+                "without rounding"
             )
         scaled_digits = digits[:-removed]
 
-    if len(scaled_digits) > _DECIMAL_PRECISION:
-        raise ValueError(f"{location} exceeds decimal128(38, 18)")
+    if len(scaled_digits) > precision:
+        raise ValueError(
+            f"{location} exceeds Decimal precision {precision} and scale {scale}"
+        )
     return Decimal(
         (
             decimal_tuple.sign,
             tuple(int(digit) for digit in scaled_digits),
-            -_DECIMAL_SCALE,
+            -scale,
         )
     )

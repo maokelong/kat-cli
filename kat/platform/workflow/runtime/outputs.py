@@ -8,7 +8,7 @@ from typing import Any, NoReturn
 
 import pyarrow.parquet as pq
 from datafusion import DataFrame
-from kat.datasource import Table, to_arrow
+from kat.datasource import Table
 from kat._identifiers import valid_output_name
 
 from .datasource import WorkflowOperation
@@ -102,7 +102,7 @@ def _normalize_outputs(value: object) -> dict[str, DataFrame | Table]:
 def _write_table(
     table: Table, output_path: Path, output_name: str
 ) -> dict[str, Any]:
-    arrow_table = to_arrow(table)
+    arrow_table = table.to_arrow()
     try:
         pq.write_table(arrow_table, output_path, compression="zstd")
     except (Exception, SystemExit):

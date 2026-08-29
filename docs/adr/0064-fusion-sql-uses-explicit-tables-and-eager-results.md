@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # Fusion SQL 显式接收 Table 并 eager 返回 Table
+
+> 由 ADR-0066 取代。显式 relation、短命 Session 与 eager Table 结果合同迁移到 `ds.DataFusionProvider`；`ctx.sql(sql, **params) -> DataFrame` 原样保留旧 Dataset 兼容职责。
 
 `ctx.sql(sql, *, tables=None, params=None) -> ds.Table` 是唯一 Fusion query 接口。每次调用只把显式 `tables` Mapping 与迁移期旧 Dataset grants 注册到独立短命 Session，使用独立 `params` Mapping 绑定 scalar，完整执行后返回可重复读取的 eager `ds.Table`；调用不留下跨查询 catalog 状态。Provider query 不自动注册 relation，前一次查询结果只有再次显式传入才参与后续 Fusion query。
 

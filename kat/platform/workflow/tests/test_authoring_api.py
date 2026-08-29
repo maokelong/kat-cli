@@ -232,9 +232,7 @@ class AuthoringApiTest(unittest.TestCase):
                 "Schema",
                 "Table",
                 "Catalog",
-                "table",
-                "from_arrow",
-                "to_arrow",
+                "DataFusionProvider",
                 "write",
                 "open",
             },
@@ -247,6 +245,7 @@ class AuthoringApiTest(unittest.TestCase):
             "Schema",
             "Table",
             "Catalog",
+            "DataFusionProvider",
             "table",
             "from_arrow",
             "to_arrow",
@@ -256,6 +255,10 @@ class AuthoringApiTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, kat.__all__)
                 self.assertFalse(hasattr(kat, name))
+
+        for name in ("table", "from_arrow", "to_arrow"):
+            with self.subTest(datasource_name=name):
+                self.assertFalse(hasattr(kat.datasource, name))
 
     def test_context_documents_and_types_the_datasource_root(self) -> None:
         self.assertFalse(hasattr(kat.Context, "provider"))
@@ -284,29 +287,24 @@ class AuthoringApiTest(unittest.TestCase):
         sql_signature = inspect.signature(kat.Context.sql)
         self.assertEqual(
             tuple(sql_signature.parameters),
-            ("self", "sql", "tables", "params"),
+            ("self", "sql", "params"),
         )
         self.assertEqual(sql_signature.parameters["sql"].annotation, "str")
         self.assertEqual(
             sql_signature.parameters["sql"].kind,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         )
-        for name in ("tables", "params"):
-            with self.subTest(name=name):
-                parameter = sql_signature.parameters[name]
-                self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
-                self.assertIsNone(parameter.default)
-                self.assertIn("Mapping", str(parameter.annotation))
-        self.assertIn(
-            "Table",
-            str(sql_signature.parameters["tables"].annotation),
+        self.assertEqual(
+            sql_signature.parameters["params"].kind,
+            inspect.Parameter.VAR_KEYWORD,
         )
-        self.assertEqual(sql_signature.return_annotation, "Table")
+        self.assertIn("Duration", str(sql_signature.parameters["params"].annotation))
+        self.assertEqual(sql_signature.return_annotation, "DataFrame")
 
         from_arrow_signature = inspect.signature(kat.Context.from_arrow)
         self.assertEqual(
             from_arrow_signature.parameters["table"].annotation,
-            "pyarrow.Table",
+            "Table",
         )
         self.assertEqual(from_arrow_signature.return_annotation, "DataFrame")
 
@@ -317,20 +315,16 @@ class AuthoringApiTest(unittest.TestCase):
 
         sql_documentation = " ".join((inspect.getdoc(kat.Context.sql) or "").split())
         for boundary in (
-            "read-only SQL statement",
-            "fresh DataFusion session",
-            "reusable Table",
-            "DDL",
-            "DML",
-            "COPY",
-            "session mutation",
-            "multiple statements",
+            "one read-only SQL statement",
+            "SHOW",
+            "DESCRIBE",
+            "EXPLAIN",
             "signed int64",
             "finite",
             "never substitute identifiers or SQL text",
-            "tables",
-            "call-local",
-            "current Workflow execution",
+            "Context methods may be called only during the current Workflow execution",
+            "DataFrames are lazy",
+            "materialize them before that execution closes",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, sql_documentation)

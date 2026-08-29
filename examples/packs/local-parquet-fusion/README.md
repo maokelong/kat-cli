@@ -1,20 +1,23 @@
 # Local Parquet Fusion example PACK
 
 这个 External PACK 展示本地 Datasource 的最小完整形态：PACK 在顶层
-`datasources/` 中定义普通 `LocalParquetProvider`，用 `ds.Schema` 声明表合同，再把
-显式 `Mapping[str, Path]` 交给 `ds.open()`。Workflow 直接构造并调用两个 Provider，
-最后把查询得到的 eager `ds.Table` 显式交给 `ctx.sql(tables=...)` 融合。
+`datasources/` 中定义普通 `LocalParquetProvider`，把显式 `Mapping[str, Path]` 交给
+`ds.open()`，再用 `ds.DataFusionProvider(catalog=...)` 查询 Catalog。Workflow 直接
+构造并调用两个 Provider，最后把查询得到的 eager `ds.Table` 显式交给另一个
+`ds.DataFusionProvider(tables=...)` 融合。
 
-示例刻意不从 PACK 根目录扫描或注册 Provider。只有 Schema 和 `tables` mapping 中
-显式声明的名称可被来源 SQL 看到；单个路径既可以是一份 Parquet 文件，也可以是只
-包含该表分片的目录。`Catalog.query()` 完成来源内 SQL 后返回可重复读取的 Table；
-只有 Workflow 返回的最终 Table 会由 Runtime 发布，融合输入不会自动成为 Output。
+示例刻意不从 PACK 根目录扫描或注册 Provider。只有 `tables` mapping 中显式声明的
+名称可被来源 SQL 看到；`ds.open()` 从 Parquet footer 读取物理 Schema，不要求调用方
+重复声明 Schema。单个路径既可以是一份 Parquet 文件，也可以是只包含该表分片的
+目录。来源查询和内存融合都 eager 返回可重复读取的 Table；只有 Workflow 返回的最终
+Table 会由 Runtime 发布，融合输入不会自动成为 Output。
 
 ## 目录
 
-- `datasources/parquet.py`：PACK 自己定义的 Schema 与普通 Provider 类。
+- `datasources/parquet.py`：PACK 自己定义的普通 Provider 类；内部组合 Catalog 与
+  DataFusion 查询能力。
 - `workflows/fuse_local_parquet.py`：显式调用两个 Provider，先在来源内
-  Join/Filter，再用 `ctx.sql(tables=...)` 融合查询结果。
+  Join/Filter，再用 `ds.DataFusionProvider(tables=...)` 融合查询结果。
 - `tests/test_fuse_local_parquet.py`：生成临时 Parquet fixture，覆盖具名参数、显式
   可见性、Table 重复读取、单文件与分片目录、跨 Provider 融合。
 

@@ -8,49 +8,6 @@ pub fn cargo_kat() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_kat"))
 }
 
-#[allow(dead_code)]
-pub fn response(output: std::process::Output) -> serde_json::Value {
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    response
-}
-
-#[allow(dead_code)]
-pub fn repository_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(relative)
-        .canonicalize()
-        .unwrap()
-}
-
-#[allow(dead_code)]
-pub fn assert_cpython_314(python: &Path) {
-    let output = Command::new(python)
-        .args([
-            "-c",
-            "import sys; print(f'{sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}')",
-        ])
-        .output()
-        .expect("inspect Workflow Host Python");
-    assert!(
-        output.status.success(),
-        "Workflow Host Python inspection failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "cpython 3.14",
-        "real-host E2E requires CPython 3.14"
-    );
-}
-
 pub fn stage_skill(root: &Path, directory_name: &str) -> (PathBuf, PathBuf) {
     let skill = root.join(directory_name);
     let payload = skill

@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 import logging
+import math
 from pathlib import Path
 import sys
 from typing import Iterator
 
 import kat
 import pyarrow as pa
-from datafusion import DataFrame, Expr, SessionContext
+from datafusion import DataFrame, Expr, SQLOptions, SessionContext
 
-from kat.datasource import Table, to_arrow
-from kat.datasource._sql import execute_sql, require_sql_name
-from kat._temporal import _duration_nanoseconds
+from kat._temporal import _duration_nanoseconds, _wall_clock_nanoseconds
 
 from .clock import ClockCapability
 from .datasource import WorkflowOperation
@@ -49,30 +47,23 @@ class WorkflowContext(kat.Context):
         self._session = session
         self._operation = operation
         self._clock = clock
+        self._sql_options = (
+            SQLOptions()
+            .with_allow_ddl(False)
+            .with_allow_dml(False)
+            .with_allow_statements(False)
+        )
 
-    def sql(
-        self,
-        sql: str,
-        *,
-        tables: Mapping[str, Table] | None = None,
-        params: Mapping[str, object] | None = None,
-    ) -> Table:
+    def sql(self, sql: str, **params: object) -> DataFrame:
         self._operation.require_active()
-        explicit_tables = _fusion_tables(tables)
-        dataset_tables = self._operation.dataset_tables
-        conflicts = sorted(set(explicit_tables) & set(dataset_tables))
-        if conflicts:
-            raise ValueError(
-                "Fusion relation names conflict with Dataset grants: "
-                + ", ".join(conflicts)
-            )
-
-        session = SessionContext()
-        for name, path in dataset_tables.items():
-            session.register_parquet(name, str(path))
-        for name, table in explicit_tables.items():
-            session.from_arrow(to_arrow(table), name=name)
-        return execute_sql(session, sql, params=params)
+        if type(sql) is not str or not sql.strip():
+            raise TypeError("ctx.sql requires a non-empty SQL string")
+        values = {name: _sql_parameter(name, value) for name, value in params.items()}
+        return self._session.sql(
+            sql,
+            options=self._sql_options,
+            param_values=values,
+        )
 
     def from_arrow(self, table: object) -> DataFrame:
         self._operation.require_active()
@@ -158,7 +149,6 @@ def run_loaded_workflow(
     operation = WorkflowOperation(
         candidate_path,
         datasource_root,
-        {name: table_paths[name] for name in required_tables},
     )
     context = WorkflowContext(session, operation, clock)
     try:
@@ -181,21 +171,23 @@ def run_loaded_workflow(
     )
 
 
-def _fusion_tables(tables: Mapping[str, Table] | None) -> dict[str, Table]:
-    if tables is None:
-        return {}
-    if not isinstance(tables, Mapping):
-        raise TypeError("ctx.sql tables must be a mapping or None")
-    snapshot = dict(tables.items())
-    result: dict[str, Table] = {}
-    for name, table in snapshot.items():
-        relation_name = require_sql_name(name, "Fusion relation")
-        if not isinstance(table, Table):
-            raise TypeError(
-                f"Fusion relation {relation_name!r} must be a datasource.Table"
-            )
-        result[relation_name] = table
-    return result
+def _sql_parameter(name: str, value: object) -> object:
+    if type(value) is bool or type(value) is str:
+        return value
+    if type(value) is int and -(2**63) <= value < 2**63:
+        return value
+    if type(value) is float and math.isfinite(value):
+        return value
+    if isinstance(value, kat.Duration):
+        return _duration_nanoseconds(str(value))
+    if isinstance(value, kat.WallClockTimestamp):
+        return pa.scalar(
+            _wall_clock_nanoseconds(str(value)),
+            type=pa.timestamp("ns", tz="UTC"),
+        )
+    raise TypeError(
+        f"SQL parameter {name!r} must be bool, int64, finite float, str, Duration, or WallClockTimestamp"
+    )
 
 
 def _project_effective_input(value: object) -> object:

@@ -106,7 +106,7 @@ class TraceStreamerFacts:
             FROM process p JOIN frame_slice f ON f.ipid = p.ipid
             WHERE p.name = $process_name AND f.type = 0 AND f.dur > 0
             ORDER BY f.ts + f.dur, f.ts, f.id LIMIT 1
-        """, params={"process_name": process_name}), "first actual frame")
+        """, process_name=process_name), "first actual frame")
         if not rows:
             raise ValueError(f"process_name {process_name!r} has no completed positive-duration actual frame")
         return rows[0]
@@ -118,7 +118,7 @@ class TraceStreamerFacts:
                        p.pid, arrow_cast(p.name, 'Utf8') AS process_name
                 FROM thread t JOIN process p ON p.ipid = t.ipid
                 WHERE t.itid = $itid LIMIT 2
-            """, params={"itid": itid}), f"thread metadata for {itid}")
+            """, itid=itid), f"thread metadata for {itid}")
             if len(rows) != 1:
                 raise CriticalPathError(f"thread metadata for itid {itid} must contain exactly one row")
             self.cache[itid] = rows[0]
@@ -140,7 +140,7 @@ class TraceStreamerFacts:
             ) SELECT s.itid, s.ts, s.dur, s.state, s.cpu, d.io_wait_min, d.io_wait_max,
                 d.blocked_function_min, d.blocked_function_max
               FROM states s LEFT JOIN decoded d ON d.argset = s.arg_setid ORDER BY s.ts, s.dur, s.state
-        """, params={"itid": itid, "start_ts": start, "end_ts": end}), f"thread states for {itid}")
+        """, itid=itid, start_ts=start, end_ts=end), f"thread states for {itid}")
         return _state_cover(rows, itid, start, end)
 
     def sched(self, itid: int, start: int, end: int) -> list[dict[str, Any]]:
@@ -148,21 +148,21 @@ class TraceStreamerFacts:
             SELECT ts, dur, cpu, priority FROM sched_slice
             WHERE itid = $itid AND dur > 0 AND ts < $end_ts AND ts + dur > $start_ts
             ORDER BY ts, dur, cpu
-        """, params={"itid": itid, "start_ts": start, "end_ts": end}), f"sched slices for {itid}")
+        """, itid=itid, start_ts=start, end_ts=end), f"sched slices for {itid}")
 
     def callstacks(self, itid: int, start: int, end: int) -> list[dict[str, Any]]:
         return _rows(self.ctx.sql("""
             SELECT id, parent_id, depth, ts, dur, arrow_cast(name, 'Utf8') AS function_name
             FROM callstack WHERE callid = $itid AND dur > 0 AND ts < $end_ts AND ts + dur > $start_ts
             ORDER BY ts, dur, depth, id
-        """, params={"itid": itid, "start_ts": start, "end_ts": end}), f"callstacks for {itid}")
+        """, itid=itid, start_ts=start, end_ts=end), f"callstacks for {itid}")
 
     def waker(self, itid: int, end: int) -> int | None:
         rows = _rows(self.ctx.sql("""
             SELECT DISTINCT wakeup_from FROM instant
             WHERE ref_type = 'itid' AND ref = $itid AND name LIKE 'sched_wakeup%'
               AND wakeup_from IS NOT NULL AND ts = $end_ts ORDER BY wakeup_from LIMIT 2
-        """, params={"itid": itid, "end_ts": end}), f"wakeup facts for {itid}")
+        """, itid=itid, end_ts=end), f"wakeup facts for {itid}")
         if not rows:
             return None
         values = {_int(row, "wakeup_from", "wakeup fact") for row in rows}
@@ -422,7 +422,8 @@ def _join_reasons(*reasons: str | None) -> str | None:
 
 def _rows(frame: Any, label: str) -> list[dict[str, Any]]:
     try:
-        return frame.to_rows()
+        batches = frame.collect()
+        return pa.Table.from_batches(batches).to_pylist() if batches else []
     except Exception as error:
         raise CriticalPathError(f"failed to read {label}") from error
 

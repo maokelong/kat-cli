@@ -220,10 +220,7 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
     """Analyze event values."""
-    return ctx.sql(
-        "SELECT value FROM events WHERE value >= $minimum",
-        params={"minimum": minimum},
-    )
+    return ctx.sql("SELECT value FROM events WHERE value >= $minimum", minimum=minimum)
 ''',
         )
         self.write_test(
@@ -286,10 +283,9 @@ class Provider:
 
     def query(self, value=DEFAULT_VALUE):
         self.query_count += 1
-        return ds.table(
-            schema={"value": int},
-            columns={"value": [value]},
-        )
+        table = ds.Table({"value": int})
+        table.append(value=value)
+        return table
 
 
 def create():
