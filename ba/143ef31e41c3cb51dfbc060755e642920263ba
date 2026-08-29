@@ -1,0 +1,40 @@
+examples/packs/postgresql-parquet-fusion/workflows/fuse_observations.py
+  s_68cb1a3d53c6a1::t_f99c7b96f94ffd 5-6,14,24,31,35-36,42,47,49,53,58,61-62,102-107
+examples/packs/postgresql-parquet-fusion/pack.toml
+  s_68cb1a3d53c6a1::t_f99c7b96f94ffd 3
+examples/packs/postgresql-parquet-fusion/workflows/query_observations.py
+  s_68cb1a3d53c6a1::t_f99c7b96f94ffd 1-39
+examples/packs/postgresql-parquet-fusion/README.md
+  s_68cb1a3d53c6a1::t_177685182132ce 3,5-32,36-42,44,50-51,58,62,74,106-127,129-130,138,148
+examples/packs/postgresql-parquet-fusion/datasources/parquet.py
+  s_68cb1a3d53c6a1::t_f99c7b96f94ffd 1,4,7-15,18-19,21-24,27,31-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ba143ef31e41c3cb51dfbc060755e642920263ba",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 149,
+      "total_deletions": 1468,
+      "accepted_lines": 149,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
