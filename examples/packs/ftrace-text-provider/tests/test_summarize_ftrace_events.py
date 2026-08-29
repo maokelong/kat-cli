@@ -7,7 +7,12 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "small.ftrace"
 def test_workflow_decodes_ftrace_and_returns_event_counts(kat_run):
     outputs = kat_run(
         workflow="summarize-ftrace-events",
-        arguments=("--trace-path", str(_FIXTURE)),
+        arguments=(
+            "--trace-path",
+            str(_FIXTURE),
+            "--clock-domain",
+            "fixture_clock",
+        ),
     )
 
     assert outputs["main"].to_pylist() == [

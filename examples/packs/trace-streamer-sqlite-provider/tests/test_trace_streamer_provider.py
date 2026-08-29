@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 import sys
 
 import pytest
@@ -207,6 +208,57 @@ def test_query_is_read_only_and_can_retry_after_failure(tmp_path: Path):
         schema={"event_count": int},
     )
     assert result.to_rows() == [{"event_count": 3}]
+
+
+def test_query_rejects_attach_without_creating_a_file_and_can_retry(tmp_path: Path):
+    executable, source = _successful_trace_streamer(tmp_path)
+    provider = TraceStreamerProvider(
+        source=source,
+        executable=executable,
+        materialization_root=tmp_path / "materialized",
+    ).decode()
+    attached = tmp_path / "attached.db"
+
+    with pytest.raises(RuntimeError, match="query failed"):
+        provider.query(
+            f"ATTACH DATABASE '{attached.as_posix()}' AS attached",
+            schema={"value": int},
+        )
+
+    assert not attached.exists()
+    assert provider.query(
+        "SELECT COUNT(*) AS event_count FROM native_hook",
+        schema={"event_count": int},
+    ).to_rows() == [{"event_count": 3}]
+
+
+def test_query_closes_a_connection_when_read_only_setup_fails(
+    tmp_path: Path,
+    monkeypatch,
+):
+    executable, source = _successful_trace_streamer(tmp_path)
+    provider = TraceStreamerProvider(
+        source=source,
+        executable=executable,
+        materialization_root=tmp_path / "materialized",
+    ).decode()
+
+    class FailingConnection:
+        closed = False
+
+        def execute(self, sql: str):
+            raise sqlite3.OperationalError("setup failed")
+
+        def close(self):
+            self.closed = True
+
+    connection = FailingConnection()
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
+
+    with pytest.raises(RuntimeError, match="query failed"):
+        provider.query("SELECT 1 AS value", schema={"value": int})
+
+    assert connection.closed
 
 
 @pytest.mark.parametrize("sql", (None, "", "   ", b"SELECT 1"))

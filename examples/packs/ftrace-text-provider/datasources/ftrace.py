@@ -13,12 +13,16 @@ FTRACE_SCHEMA = ds.Schema(
     {
         "capture": {
             "tracer": str,
+            "clock_domain": str,
+            "ticks_per_second": int,
             "entries_in_buffer": int,
             "entries_written": int,
             "cpu_count": int,
         },
         "events": {
-            "timestamp_ns": int,
+            "event_index": int,
+            "clock_domain": str,
+            "clock_value": int,
             "cpu": int,
             "comm": str,
             "pid": int,
@@ -47,13 +51,25 @@ _EVENT = re.compile(
 class FtraceTextProvider:
     """Parse one tracefs text file into a reusable local Parquet catalog."""
 
-    def __init__(self, *, source: Path, materialization_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        source: Path,
+        materialization_root: Path,
+        clock_domain: str,
+    ) -> None:
         if not isinstance(source, Path):
             raise TypeError("source must be a pathlib.Path")
         if not isinstance(materialization_root, Path):
             raise TypeError("materialization_root must be a pathlib.Path")
+        if type(clock_domain) is not str:
+            raise TypeError("clock_domain must be a string")
+        clock_domain = clock_domain.strip()
+        if not clock_domain:
+            raise ValueError("clock_domain must be non-empty")
         self._source = source
         self._materialization_root = materialization_root
+        self._clock_domain = clock_domain
         self._catalog: ds.Catalog | None = None
 
     def decode(self) -> Self:
@@ -64,6 +80,7 @@ class FtraceTextProvider:
 
         tracer: str | None = None
         capture: tuple[int, int, int] | None = None
+        event_index = 0
         event_columns = _empty_event_columns()
         with self._source.open("r", encoding="utf-8") as source, ds.write(
             FTRACE_SCHEMA,
@@ -85,8 +102,15 @@ class FtraceTextProvider:
                 match = _EVENT.fullmatch(line)
                 if match is None:
                     raise ValueError(f"invalid tracefs event at line {line_number}")
-                _append_event(event_columns, match, line_number=line_number)
-                if len(event_columns["timestamp_ns"]) == _BATCH_SIZE:
+                _append_event(
+                    event_columns,
+                    match,
+                    event_index=event_index,
+                    clock_domain=self._clock_domain,
+                    line_number=line_number,
+                )
+                event_index += 1
+                if len(event_columns["clock_value"]) == _BATCH_SIZE:
                     writer.write("events", **event_columns)
                     event_columns = _empty_event_columns()
 
@@ -100,11 +124,13 @@ class FtraceTextProvider:
             writer.write(
                 "capture",
                 tracer=[tracer],
+                clock_domain=[self._clock_domain],
+                ticks_per_second=[1_000_000_000],
                 entries_in_buffer=[entries_in_buffer],
                 entries_written=[entries_written],
                 cpu_count=[cpu_count],
             )
-            if event_columns["timestamp_ns"]:
+            if event_columns["clock_value"]:
                 writer.write("events", **event_columns)
 
         self._catalog = ds.open(FTRACE_SCHEMA, root=catalog_root)
@@ -137,11 +163,15 @@ def _append_event(
     columns: dict[str, list[object | None]],
     match: re.Match[str],
     *,
+    event_index: int,
+    clock_domain: str,
     line_number: int,
 ) -> None:
     tgid = match.group("tgid")
-    columns["timestamp_ns"].append(
-        _timestamp_nanoseconds(match.group("timestamp"), line_number=line_number)
+    columns["event_index"].append(event_index)
+    columns["clock_domain"].append(clock_domain)
+    columns["clock_value"].append(
+        _clock_value(match.group("timestamp"), line_number=line_number)
     )
     columns["cpu"].append(int(match.group("cpu")))
     columns["comm"].append(match.group("comm").strip())
@@ -152,10 +182,10 @@ def _append_event(
     columns["details"].append(match.group("details"))
 
 
-def _timestamp_nanoseconds(value: str, *, line_number: int) -> int:
+def _clock_value(value: str, *, line_number: int) -> int:
     seconds, separator, fraction = value.partition(".")
     if separator and len(fraction) > 9:
         raise ValueError(
-            f"tracefs timestamp has more than 9 fractional digits at line {line_number}"
+            f"tracefs clock value has more than 9 fractional digits at line {line_number}"
         )
     return int(seconds) * 1_000_000_000 + int(fraction.ljust(9, "0") or "0")

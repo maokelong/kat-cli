@@ -11,13 +11,19 @@ from kat.pack.datasources.ftrace import FtraceTextProvider
     required_tables=[],
     parameters={
         "trace_path": "Path to a tracefs text file.",
+        "clock_domain": "Clock domain assigned by the capture configuration.",
     },
 )
-def summarize_ftrace_events(ctx: kat.Context, trace_path: str):
+def summarize_ftrace_events(
+    ctx: kat.Context,
+    trace_path: str,
+    clock_domain: str,
+):
     """Parse one Ftrace text file and publish event counts."""
     provider = FtraceTextProvider(
         source=Path(trace_path),
         materialization_root=ctx.datasource_root / "ftrace-text",
+        clock_domain=clock_domain,
     ).decode()
     return provider.query(
         """

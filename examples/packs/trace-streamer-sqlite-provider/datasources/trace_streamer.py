@@ -26,6 +26,15 @@ NATIVE_HOOK_SUMMARY_SCHEMA = {
     "total_heap_size": int,
 }
 
+_READ_ONLY_SQLITE_ACTIONS = frozenset(
+    {
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_RECURSIVE,
+        sqlite3.SQLITE_SELECT,
+    }
+)
+
 
 class TraceStreamerProvider:
     """PACK 自有、通过 Trace Streamer 物化 SQLite 的普通 Provider。"""
@@ -126,7 +135,7 @@ class TraceStreamerProvider:
             raise TypeError("Trace Streamer query schema must be a mapping")
 
         try:
-            connection = _open_read_only(self._database)
+            connection = _open_query_connection(self._database)
             try:
                 query = connection.cursor()
                 try:
@@ -160,9 +169,36 @@ def _open_read_only(database: Path) -> sqlite3.Connection:
         f"{database.resolve(strict=True).as_uri()}?mode=ro",
         uri=True,
     )
-    pragma = connection.execute("PRAGMA query_only = ON")
-    pragma.close()
+    try:
+        pragma = connection.execute("PRAGMA query_only = ON")
+        pragma.close()
+    except BaseException:
+        connection.close()
+        raise
     return connection
+
+
+def _open_query_connection(database: Path) -> sqlite3.Connection:
+    connection = _open_read_only(database)
+    try:
+        connection.set_authorizer(_authorize_read_only)
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _authorize_read_only(
+    action_code: int,
+    first: str | None,
+    second: str | None,
+    database: str | None,
+    trigger: str | None,
+) -> int:
+    del first, second, database, trigger
+    if action_code in _READ_ONLY_SQLITE_ACTIONS:
+        return sqlite3.SQLITE_OK
+    return sqlite3.SQLITE_DENY
 
 
 def _remove_owned_workspace(workspace: Path) -> None:

@@ -18,10 +18,16 @@ def _required_real_ftrace() -> Path:
     return path
 
 
-def test_real_ftrace_header_events_cpus_and_first_event(tmp_path):
+def test_real_ftrace_header_events_cpus_first_event_and_workflow_output(
+    kat_run,
+    tmp_path,
+):
+    source = _required_real_ftrace()
+    clock_domain = "real_fixture_clock"
     provider = FtraceTextProvider(
-        source=_required_real_ftrace(),
+        source=source,
         materialization_root=tmp_path / "ftrace",
+        clock_domain=clock_domain,
     ).decode()
 
     capture = provider.query("SELECT * FROM capture")
@@ -33,9 +39,10 @@ def test_real_ftrace_header_events_cpus_and_first_event(tmp_path):
     )
     first = provider.query(
         """
-        SELECT timestamp_ns, cpu, comm, pid, tgid, flags, event, details
+        SELECT event_index, clock_domain, clock_value,
+               cpu, comm, pid, tgid, flags, event, details
         FROM events
-        ORDER BY timestamp_ns, cpu, pid
+        ORDER BY event_index
         LIMIT 1
         """
     )
@@ -43,6 +50,8 @@ def test_real_ftrace_header_events_cpus_and_first_event(tmp_path):
     assert capture.to_rows() == [
         {
             "tracer": "nop",
+            "clock_domain": clock_domain,
+            "ticks_per_second": 1_000_000_000,
             "entries_in_buffer": 44_344,
             "entries_written": 44_344,
             "cpu_count": 4,
@@ -51,7 +60,9 @@ def test_real_ftrace_header_events_cpus_and_first_event(tmp_path):
     assert summary.to_rows() == [{"event_count": 44_344, "cpu_count": 4}]
     assert first.to_rows() == [
         {
-            "timestamp_ns": 2_488_887_356_926_000,
+            "event_index": 0,
+            "clock_domain": clock_domain,
+            "clock_value": 2_488_887_356_926_000,
             "cpu": 1,
             "comm": "<idle>",
             "pid": 0,
@@ -61,3 +72,15 @@ def test_real_ftrace_header_events_cpus_and_first_event(tmp_path):
             "details": "state=4294967295 cpu_id=1",
         }
     ]
+
+    output = kat_run(
+        workflow="summarize-ftrace-events",
+        arguments=(
+            "--trace-path",
+            str(source),
+            "--clock-domain",
+            clock_domain,
+        ),
+    )["main"]
+
+    assert sum(row["event_count"] for row in output.to_pylist()) == 44_344

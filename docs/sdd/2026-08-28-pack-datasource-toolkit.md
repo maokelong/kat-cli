@@ -626,7 +626,7 @@ Datasource Schema 首版接受 `decimal.Decimal` 与 `decimal.Decimal | None`。
 
 ### D46：PR #229 用三个独立 Example PACK 验证三类 Provider
 
-第二个交付切片不再只包含 PostgreSQL，而是分别提供远端数据库、Python 文件解析和外部二进制解析三个可复制的 Example PACK。三者只在 eager `ds.Table` 结果处收敛，不新增 Provider 基类、Protocol、Executor 或统一生命周期：PostgreSQL Provider 直接执行远端 SQL；Ftrace 文本 Provider 通过 `ds.Schema`、`ds.write()` 和 `ds.open()` 形成多表 Parquet catalog；Trace Streamer Provider 调用外部程序生成 SQLite，并用来源自己的只读 SQL 查询后按显式 Python Schema 形成 Table。
+第二个交付切片不再只包含 PostgreSQL，而是分别提供远端数据库、Python 文件解析和外部二进制解析三个可复制的 Example PACK。三者只在 eager `ds.Table` 结果处收敛，不新增 Provider 基类、Protocol、Executor 或统一生命周期：PostgreSQL Provider 直接执行远端 SQL；Ftrace 文本 Provider 通过 `ds.Schema`、`ds.write()` 和 `ds.open()` 形成多表 Parquet catalog，并要求调用方显式提供 capture 的 Clock domain；Trace Streamer Provider 调用外部程序生成 SQLite，并用来源自己的只读 SQL 查询后按显式 Python Schema 形成 Table。
 
 两个文件 Provider 的 `decode()` 每次只重建 Workflow 从 `ctx.datasource_root` 派生、明确交给该 Provider 独占的物化目录。首版不复用跨进程旧产物，不增加 cache key、manifest、原子替换或恢复协议。Ftrace 大样本、Htrace、Trace Streamer 可执行文件、生成数据库和 sidecar 都是外部测试输入，不进入仓库。
 
@@ -767,11 +767,11 @@ cargo test --locked -p kat-cli --test trace_streamer_demo trace_streamer_demo_ru
 | 用户链 | `kat test` 执行 PACK pytest，并通过 `kat_run` 覆盖单源 Output 与多源融合，不使用 test-only Provider |
 | 平台 | 需要真实服务证据时，Linux、Windows 分别用同一套 PACK pytest 执行；测试未执行或被 skip 不构成支持证据 |
 | Example PACK 分布 | PostgreSQL、Ftrace 文本与 Trace Streamer SQLite 分别拥有独立 `pack.toml`、`datasources/`、`workflows/`、`tests/` 与 README；各自前置条件互不污染 |
-| Ftrace Schema | 用基础 Python 类型声明 `capture` 与 `events` 两张表；`timestamp_ns` 是 trace clock 的整数读数，不声明为 UTC datetime |
+| Ftrace Schema | 用基础 Python 类型声明 `capture` 与 `events` 两张表；调用方显式提供本次 capture 的 `clock_domain`，事件同时携带 `clock_domain`、1 GHz `clock_value` 与源文件顺序 `event_index`，不把 Clock value 命名或声明为 UTC timestamp |
 | Ftrace decode | 单遍按行解析并分 batch 交给 `ds.write()`；坏行带行号失败；成功后 `ds.open()`；每次只重建 Provider 独占目录 |
 | Ftrace query/Output | `query()` 委托 Catalog，返回可重复读取的 Table；小 fixture 覆盖公共合同，真实样本验证 44,344 条事件、4 个 CPU 和 Workflow Output |
 | Trace Streamer decode | 使用参数数组而非 shell 执行 `trace_streamer <trace> -e <output.db>`；在 fresh Provider 目录中生成 DB；本次退出成功、DB 存在且 SQLite 完整性检查通过后才 ready；失败残留不伪装为成功 |
-| Trace Streamer query | 标准库 `sqlite3` 以只读模式执行来源 SQL，调用方用基础 Python 类型显式声明结果 Schema；完整读取并关闭数据库后通过 `ds.table()` 返回 eager Table；不整体转 Parquet，不增加 ADBC SQLite 依赖 |
+| Trace Streamer query | 标准库 `sqlite3` 以 `mode=ro`、`query_only` 与只读 authorizer 执行来源 SELECT，显式拒绝 `ATTACH` 等外部副作用；调用方用基础 Python 类型声明结果 Schema；完整读取并关闭数据库后通过 `ds.table()` 返回 eager Table；不整体转 Parquet，不增加 ADBC SQLite 依赖 |
 | Trace Streamer 真实样本 | 用外部 Trace Streamer 4.3.7 与 Htrace 生成 SQLite，验证 `native_hook` 聚合结果；外部 exe、DLL、Htrace、DB 与 sidecar 不提交 |
 | 测试归属 | 三个案例的 Provider、Workflow、真实来源与错误行为都由各自 PACK pytest 维护；不增加案例专用 Rust 测试或平台 pytest 包装 |
 

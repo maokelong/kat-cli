@@ -45,10 +45,13 @@ Trace Streamer。只有本次进程退出码为 0、输出是普通文件、SQLi
 任何失败都会清理本次 workspace；旧 DB 不会被当成本次成功。
 
 `query()` 使用标准库 `sqlite3` 以 `mode=ro` 打开 DB，并额外启用
-`PRAGMA query_only`。SQL 方言、参数绑定和来源内 Join/Aggregate 均属于 SQLite；
-Provider 会完整 `fetchall()`，关闭 cursor 与 connection，再用显式 Python Schema
-构造可重复读取的 `ds.Table`。因此空结果和全 NULL 结果也有确定类型，返回 Table
-不再依赖 SQLite 连接，可以直接作为 Run Output 或交给 `ctx.sql(tables=...)` 融合。
+`PRAGMA query_only`。连接 authorizer 只允许形成只读查询的 SELECT、READ、FUNCTION 和
+RECURSIVE 动作，拒绝 `ATTACH`、`DETACH`、PRAGMA、DDL、DML 与事务修改，避免查询在
+目标 DB 之外创建文件。查询表达式、参数绑定和来源内 Join/Aggregate 仍使用 SQLite
+语义；Provider 会完整 `fetchall()`，关闭 cursor 与 connection，再用显式 Python
+Schema 构造可重复读取的 `ds.Table`。因此空结果和全 NULL 结果也有确定类型，返回
+Table 不再依赖 SQLite 连接，可以直接作为 Run Output 或交给
+`ctx.sql(tables=...)` 融合。
 
 查询列名及顺序必须与 Schema 完全一致。Schema 只使用 KAT Datasource 支持的 Python
 类型，例如：

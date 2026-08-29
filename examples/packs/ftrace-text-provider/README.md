@@ -19,11 +19,15 @@ Provider 使用基础 Python 类型声明两张表：
 
 | 表 | 列 |
 |---|---|
-| `capture` | `tracer: str`、`entries_in_buffer: int`、`entries_written: int`、`cpu_count: int` |
-| `events` | `timestamp_ns: int`、`cpu: int`、`comm: str`、`pid: int`、`tgid: int \| None`、`flags: str`、`event: str`、`details: str` |
+| `capture` | `tracer: str`、`clock_domain: str`、`ticks_per_second: int`、`entries_in_buffer: int`、`entries_written: int`、`cpu_count: int` |
+| `events` | `event_index: int`、`clock_domain: str`、`clock_value: int`、`cpu: int`、`comm: str`、`pid: int`、`tgid: int \| None`、`flags: str`、`event: str`、`details: str` |
 
-`timestamp_ns` 是 tracefs 当前 trace clock 的整数读数，不是 Unix epoch，也不是 UTC
-时间。Provider 用十进制字符串直接换算纳秒，不经过浮点数。没有 TGID 的事件写入
+调用方必须根据采集配置显式提供本次 capture 的 `clock_domain`；Provider 不从文件名或
+数值猜测时钟语义。`clock_value` 是该 domain 下以每秒 10 亿 tick 表达的原生读数，
+不是 Unix epoch 或 UTC 时间；Provider 用十进制字符串直接换算，不经过浮点数。
+这个最小示例假设整份输入属于一个 domain；若来源使用 per-CPU local clock，应扩展
+Parser 为不同 CPU 产生不同 domain，而不是直接比较这些读数。`event_index` 只表示
+源文件顺序，可用于在不同 clock domain 之间稳定定位首条记录。没有 TGID 的事件写入
 `None`；无法识别的非注释行立即失败，并报告原文件行号。
 
 ## Provider 使用方式
@@ -37,6 +41,7 @@ from kat.pack.datasources.ftrace import FtraceTextProvider
 provider = FtraceTextProvider(
     source=Path(trace_path),
     materialization_root=ctx.datasource_root / "ftrace-text",
+    clock_domain="capture_clock",
 ).decode()
 
 events = provider.query(
@@ -50,7 +55,7 @@ events = provider.query(
 ```
 
 `decode()` 每次只重建 `materialization_root/catalog`；不会删除同一根目录下由
-Workflow 或其他 Provider 拥有的文件。解析按 4096 行分 batch 写入，不把整个输入
+Workflow 或其他 Provider 拥有的文件。解析按 4096 条事件分 batch 写入，不把整个输入
 文件读进内存。成功后同一个 Provider 可以反复查询；解析失败时 Provider 保持未
 ready，修正输入后可以再次调用 `decode()`。本例不把旧 catalog 当作跨进程状态，
 不提供缓存、迁移或恢复协议。
@@ -73,7 +78,8 @@ kat run \
   --workflow summarize-ftrace-events \
   --pack-dir ./examples/packs/ftrace-text-provider \
   -- \
-  --trace-path /absolute/path/to/trace.ftrace
+  --trace-path /absolute/path/to/trace.ftrace \
+  --clock-domain capture_clock
 
 kat query \
   --run <run-id> \
