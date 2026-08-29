@@ -1,0 +1,4 @@
+name = "trace-streamer-sqlite-provider"
+title = "Trace Streamer SQLite Provider"
+description = "External PACK example for materializing a trace with Trace Streamer and querying its SQLite database."
+owner = "KAT Contributors"
