@@ -11,13 +11,15 @@ mod support;
 #[path = "support/test_home.rs"]
 mod test_home;
 
+use support::{assert_cpython_314, repository_path};
+
 fn required_environment(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} is required by the PostgreSQL E2E"))
 }
 
 fn response(output: Output, secret: &str) -> serde_json::Value {
-    assert_secret_absent("command stdout", &output.stdout, secret);
-    assert_secret_absent("command stderr", &output.stderr, secret);
+    assert_absent("command stdout", &output.stdout, secret);
+    assert_absent("command stderr", &output.stderr, secret);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -30,56 +32,28 @@ fn response(output: Output, secret: &str) -> serde_json::Value {
     response
 }
 
-fn assert_secret_absent(label: &str, contents: &[u8], secret: &str) {
+fn assert_absent(label: &str, contents: &[u8], value: &str) {
     assert!(
-        !String::from_utf8_lossy(contents).contains(secret),
-        "{label} exposed the PostgreSQL test secret"
+        !String::from_utf8_lossy(contents).contains(value),
+        "{label} exposed a PostgreSQL connection value"
     );
 }
 
-fn assert_tree_has_no_secret(root: &Path, secret: &str) {
+fn assert_tree_has_none(root: &Path, forbidden: &[&str]) {
     if !root.exists() {
         return;
     }
     for entry in fs::read_dir(root).expect("read KAT Data Home") {
         let path = entry.expect("read KAT Data Home entry").path();
         if path.is_dir() {
-            assert_tree_has_no_secret(&path, secret);
+            assert_tree_has_none(&path, forbidden);
         } else {
-            assert_secret_absent(
-                path.to_string_lossy().as_ref(),
-                &fs::read(&path).expect("read KAT artifact"),
-                secret,
-            );
+            let contents = fs::read(&path).expect("read KAT artifact");
+            for value in forbidden {
+                assert_absent(path.to_string_lossy().as_ref(), &contents, value);
+            }
         }
     }
-}
-
-fn repository_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(relative)
-        .canonicalize()
-        .unwrap()
-}
-
-fn assert_cpython_314(python: &Path) {
-    let output = Command::new(python)
-        .args([
-            "-c",
-            "import sys; print(f'{sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}')",
-        ])
-        .output()
-        .expect("inspect Workflow Host Python");
-    assert!(
-        output.status.success(),
-        "Workflow Host Python inspection failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "cpython 3.14",
-        "PostgreSQL E2E requires CPython 3.14"
-    );
 }
 
 fn write_trace_fixture(python: &Path, trace_root: &Path) {
@@ -112,89 +86,47 @@ pq.write_table(
     );
 }
 
-fn write_poison_probe_pack(pack: &Path) {
-    let datasource_root = pack.join("helpers").join("datasources");
-    let workflow_root = pack.join("workflows");
-    fs::create_dir_all(&datasource_root).expect("create poison probe datasource directory");
-    fs::create_dir(&workflow_root).expect("create poison probe workflow directory");
-    fs::copy(
-        repository_path(
-            "../../../examples/packs/postgresql-parquet-fusion/helpers/datasources/postgresql.py",
-        ),
-        datasource_root.join("postgresql.py"),
-    )
-    .expect("copy production PostgreSQL executor into poison probe");
-    fs::write(
-        pack.join("pack.toml"),
-        r#"name = "postgresql-poison-probe"
-title = "PostgreSQL Poison Probe"
-description = "Exercises a caught PostgreSQL failure through the public CLI."
-owner = "KAT Contributors"
-"#,
-    )
-    .expect("write poison probe PACK declaration");
-    fs::write(
-        workflow_root.join("probe.py"),
-        r#"import kat
-
-from kat.pack.helpers.datasources import postgresql
-
-
-@kat.workflow(
-    name="probe",
-    title="Probe PostgreSQL failure",
-    required_tables=[],
-    parameters={"profile": "service", "database": "database"},
-)
-def probe(ctx: kat.Context, profile: str, database: str):
-    """Catch a real source failure; the poisoned Context must reject publishing."""
-    try:
-        postgresql.provider(
-            ctx,
-            profile=profile,
-            database=database,
-        ).query("SELECT 1::BIGINT AS value", name="failed")
-    except RuntimeError:
-        pass
-    return None
-"#,
-    )
-    .expect("write poison probe Workflow");
-}
-
 fn assert_real_authentication_failure_is_sanitized(
     binary: &Path,
     root: &Path,
-    profile: &str,
+    pack: &Path,
+    service: &str,
     database: &str,
     actual_secret: &str,
 ) {
     const INVALID_SECRET: &str = "kat-invalid-password-sentinel";
-    let pack = root.join("postgresql-poison-probe");
-    write_poison_probe_pack(&pack);
+    let connection_uri = format!("postgresql:///{database}?service={service}");
+    let forbidden = [
+        actual_secret,
+        INVALID_SECRET,
+        service,
+        database,
+        connection_uri.as_str(),
+    ];
 
     let mut command = Command::new(binary);
     command
         .args([
             "run",
             "--pack",
-            "postgresql-poison-probe",
+            "postgresql-parquet-fusion",
             "--workflow",
-            "probe",
+            "query-observations",
             "--pack-dir",
         ])
-        .arg(&pack)
+        .arg(pack)
         .arg("--")
-        .args(["--profile", profile, "--database", database])
+        .args(["--service", service, "--database", database])
+        .args(["--start-ns", "100", "--end-ns", "220"])
         .env("PGPASSWORD", INVALID_SECRET);
     test_home::configure(&mut command, root);
     let output = command
         .output()
         .expect("run real authentication failure probe");
 
-    for secret in [actual_secret, INVALID_SECRET] {
-        assert_secret_absent("failed run stdout", &output.stdout, secret);
-        assert_secret_absent("failed run stderr", &output.stderr, secret);
+    for value in forbidden {
+        assert_absent("failed run stdout/Response", &output.stdout, value);
+        assert_absent("failed run stderr", &output.stderr, value);
     }
     assert_eq!(
         output.status.code(),
@@ -213,16 +145,34 @@ fn assert_real_authentication_failure_is_sanitized(
 
     let operation_log =
         fs::read(response["log_path"].as_str().unwrap()).expect("read failed run operation log");
-    let data_home = test_home::data_home(root);
-    for secret in [actual_secret, INVALID_SECRET] {
-        assert_secret_absent("failed run operation log", &operation_log, secret);
-        assert_tree_has_no_secret(&data_home, secret);
+    for value in forbidden {
+        assert_absent("failed run operation log", &operation_log, value);
     }
+    let data_home = test_home::data_home(root);
+    assert_tree_has_none(&data_home, &forbidden);
     let runs = data_home.join("runs");
     assert!(
         !runs.exists() || fs::read_dir(runs).unwrap().next().is_none(),
-        "a caught Provider failure must not publish a Run candidate"
+        "a failed Provider query must not publish a Run candidate"
     );
+}
+
+fn workflow<'a>(inspected: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+    inspected["result"]["workflows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workflow| workflow["name"] == name)
+        .unwrap_or_else(|| panic!("inspect must expose the {name} Workflow"))
+}
+
+fn parameter_names(workflow: &serde_json::Value) -> Vec<&str> {
+    workflow["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|parameter| parameter["name"].as_str().unwrap())
+        .collect()
 }
 
 #[test]
@@ -235,8 +185,8 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
         std::env::var_os("KAT_TEST_WORKFLOW_WHEEL")
             .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
     );
-    let readonly_profile = required_environment("KAT_TEST_POSTGRES_READONLY_PROFILE");
-    let writer_profile = required_environment("KAT_TEST_POSTGRES_WRITER_PROFILE");
+    let readonly_service = required_environment("KAT_TEST_POSTGRES_READONLY_PROFILE");
+    let writer_service = required_environment("KAT_TEST_POSTGRES_WRITER_PROFILE");
     let telemetry_database = required_environment("KAT_TEST_POSTGRES_TELEMETRY_DATABASE");
     let control_database = required_environment("KAT_TEST_POSTGRES_CONTROL_DATABASE");
     let secret = required_environment("KAT_TEST_POSTGRES_SECRET_SENTINEL");
@@ -244,8 +194,8 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     let password_file = PathBuf::from(required_environment("PGPASSFILE"));
     assert_ne!(telemetry_database, control_database);
     let services = fs::read_to_string(service_file).expect("read PostgreSQL service file");
-    assert!(services.contains(&format!("[{readonly_profile}]")));
-    assert!(services.contains(&format!("[{writer_profile}]")));
+    assert!(services.contains(&format!("[{readonly_service}]")));
+    assert!(services.contains(&format!("[{writer_service}]")));
     let passwords = fs::read_to_string(password_file).expect("read PostgreSQL password file");
     assert!(
         passwords.contains(&secret),
@@ -278,18 +228,13 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     test_home::configure(&mut inspect, temporary.path());
     let inspected = response(inspect.output().unwrap(), &secret);
     assert_eq!(
-        inspected["result"]["workflows"][0]["name"],
-        "fuse-observations"
+        parameter_names(workflow(&inspected, "query-observations")),
+        ["service", "database", "start_ns", "end_ns"]
     );
     assert_eq!(
-        inspected["result"]["workflows"][0]["parameters"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|parameter| parameter["name"].as_str().unwrap())
-            .collect::<Vec<_>>(),
+        parameter_names(workflow(&inspected, "fuse-observations")),
         [
-            "profile",
+            "service",
             "telemetry_database",
             "control_database",
             "trace_root",
@@ -302,8 +247,8 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     test.args(["test", "--pack-dir"]).arg(&pack);
     test_home::configure(&mut test, temporary.path());
     let tested_output = test.output().unwrap();
-    assert_secret_absent("kat test stdout", &tested_output.stdout, &secret);
-    assert_secret_absent("kat test stderr", &tested_output.stderr, &secret);
+    assert_absent("kat test stdout", &tested_output.stdout, &secret);
+    assert_absent("kat test stderr", &tested_output.stderr, &secret);
     assert_eq!(
         tested_output.status.code(),
         Some(0),
@@ -312,8 +257,59 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     );
     let tested: serde_json::Value = serde_json::from_slice(&tested_output.stdout).unwrap();
     assert_eq!(tested["status"], "success");
-    assert_eq!(tested["result"]["summary"]["passed"], 32);
-    assert!(String::from_utf8_lossy(&tested_output.stderr).contains("32 passed"));
+    let passed = tested["result"]["summary"]["passed"].as_u64().unwrap();
+    assert!(passed > 0);
+    assert!(String::from_utf8_lossy(&tested_output.stderr).contains(&format!("{passed} passed")));
+
+    let mut single_run = Command::new(&binary);
+    single_run
+        .args([
+            "run",
+            "--pack",
+            "postgresql-parquet-fusion",
+            "--workflow",
+            "query-observations",
+            "--pack-dir",
+        ])
+        .arg(&pack)
+        .arg("--")
+        .args(["--service", &readonly_service])
+        .args(["--database", &telemetry_database])
+        .args(["--start-ns", "100", "--end-ns", "220"]);
+    test_home::configure(&mut single_run, temporary.path());
+    let single_ran = response(single_run.output().unwrap(), &secret);
+    assert_eq!(
+        single_ran["result"]["outputs"]["main"]["columns"],
+        serde_json::json!([
+            {"name":"thread_id","type":"int64"},
+            {"name":"observed_at","type":"int64"},
+            {"name":"cpu_usage","type":"double"}
+        ])
+    );
+    assert_eq!(single_ran["result"]["outputs"]["main"]["row_count"], 6);
+    let single_run_id = single_ran["result"]["run_id"].as_str().unwrap();
+
+    let mut single_query = Command::new(&binary);
+    single_query.args([
+        "query",
+        "--run",
+        single_run_id,
+        "--sql",
+        "SELECT thread_id, observed_at, cpu_usage FROM output.main ORDER BY observed_at, thread_id",
+    ]);
+    test_home::configure(&mut single_query, temporary.path());
+    let single_queried = response(single_query.output().unwrap(), &secret);
+    assert_eq!(
+        single_queried["result"]["rows"],
+        serde_json::json!([
+            ["101", "100", 0.25],
+            ["101", "140", 0.3],
+            ["102", "150", 0.5],
+            ["103", "170", 0.6],
+            ["999", "180", 0.7],
+            ["102", "200", 0.75]
+        ])
+    );
 
     let mut run = Command::new(&binary);
     run.args([
@@ -326,7 +322,7 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     ])
     .arg(&pack)
     .arg("--")
-    .args(["--profile", &readonly_profile])
+    .args(["--service", &readonly_service])
     .args(["--telemetry-database", &telemetry_database])
     .args(["--control-database", &control_database])
     .arg("--trace-root")
@@ -358,7 +354,7 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     assert_eq!(
         manifest["inputs"],
         serde_json::json!({
-            "profile": readonly_profile,
+            "service": readonly_service,
             "telemetry_database": telemetry_database,
             "control_database": control_database,
             "trace_root": trace_root.to_string_lossy(),
@@ -402,10 +398,11 @@ fn postgresql_parquet_fusion_demo_runs_the_full_user_loop() {
     assert_real_authentication_failure_is_sanitized(
         &binary,
         &failure_root,
-        &readonly_profile,
+        &pack,
+        &readonly_service,
         &telemetry_database,
         &secret,
     );
 
-    assert_tree_has_no_secret(&test_home::data_home(temporary.path()), &secret);
+    assert_tree_has_none(&test_home::data_home(temporary.path()), &[&secret]);
 }

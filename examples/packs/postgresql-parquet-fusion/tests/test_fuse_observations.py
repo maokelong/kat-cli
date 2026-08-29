@@ -4,7 +4,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from kat.pack.helpers.datasources.postgresql import PostgreSQLExecutor
+from kat import datasource as ds
+from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 
 EXPECTED_SCHEMA = pa.schema(
@@ -65,7 +66,7 @@ def _run(kat_run, config, trace_root: Path, start_ns: int, end_ns: int):
     return kat_run(
         workflow="fuse-observations",
         arguments=[
-            "--profile",
+            "--service",
             config.readonly_profile,
             "--telemetry-database",
             config.telemetry_database,
@@ -81,46 +82,54 @@ def _run(kat_run, config, trace_root: Path, start_ns: int, end_ns: int):
     )["main"]
 
 
-def _postgresql_table(config, database: str, sql: str, tmp_path: Path) -> pa.Table:
-    executor = PostgreSQLExecutor(
-        profile=config.readonly_profile,
-        database=database,
-    )
-    scratch = tmp_path / "fixture-query"
-    scratch.mkdir(exist_ok=True)
-    try:
-        with executor.execute(sql, None, scratch=scratch) as reader:
-            return reader.read_all()
-    finally:
-        executor.close()
+def _run_single_source(kat_run, config, start_ns: int, end_ns: int):
+    return kat_run(
+        workflow="query-observations",
+        arguments=[
+            "--service",
+            config.readonly_profile,
+            "--database",
+            config.telemetry_database,
+            "--start-ns",
+            str(start_ns),
+            "--end-ns",
+            str(end_ns),
+        ],
+    )["main"]
+
+
+def _postgresql_table(
+    provider: PostgreSQLProvider,
+    database: str,
+    sql: str,
+) -> ds.Table:
+    return provider.query(sql, database=database)
 
 
 def test_fixture_contains_every_boundary_and_join_exclusion_sentinel(
     postgresql_config,
-    tmp_path,
 ):
+    provider = PostgreSQLProvider(service=postgresql_config.readonly_profile)
     telemetry = _postgresql_table(
-        postgresql_config,
+        provider,
         postgresql_config.telemetry_database,
         """
         SELECT thread_id, observed_at, cpu_usage::TEXT AS cpu_usage
         FROM observation
         ORDER BY observed_at, thread_id
         """,
-        tmp_path,
     )
     control = _postgresql_table(
-        postgresql_config,
+        provider,
         postgresql_config.control_database,
         """
         SELECT process_id, process_name
         FROM process_registry
         ORDER BY process_id
         """,
-        tmp_path,
     )
 
-    assert telemetry.to_pylist() == [
+    assert telemetry.to_rows() == [
         {"thread_id": 101, "observed_at": 99, "cpu_usage": "0.1"},
         {"thread_id": 101, "observed_at": 100, "cpu_usage": "0.25"},
         {"thread_id": 101, "observed_at": 140, "cpu_usage": "0.3"},
@@ -130,7 +139,7 @@ def test_fixture_contains_every_boundary_and_join_exclusion_sentinel(
         {"thread_id": 102, "observed_at": 200, "cpu_usage": "0.75"},
         {"thread_id": 102, "observed_at": 220, "cpu_usage": "0.9"},
     ]
-    assert control.to_pylist() == [
+    assert control.to_rows() == [
         {"process_id": 10, "process_name": "renderer"},
         {"process_id": 20, "process_name": "system-server"},
     ]
@@ -138,6 +147,29 @@ def test_fixture_contains_every_boundary_and_join_exclusion_sentinel(
 
 def test_trace_fixture_has_no_overlapping_non_idle_thread_intervals(tmp_path):
     assert (_trace(tmp_path) / "sched_switch.parquet").is_file()
+
+
+def test_single_source_workflow_returns_the_provider_table_directly(
+    kat_run,
+    postgresql_config,
+):
+    result = _run_single_source(kat_run, postgresql_config, 100, 220)
+
+    assert result.schema == pa.schema(
+        [
+            ("thread_id", pa.int64()),
+            ("observed_at", pa.int64()),
+            ("cpu_usage", pa.float64()),
+        ]
+    )
+    assert result.to_pylist() == [
+        {"thread_id": 101, "observed_at": 100, "cpu_usage": 0.25},
+        {"thread_id": 101, "observed_at": 140, "cpu_usage": 0.3},
+        {"thread_id": 102, "observed_at": 150, "cpu_usage": 0.5},
+        {"thread_id": 103, "observed_at": 170, "cpu_usage": 0.6},
+        {"thread_id": 999, "observed_at": 180, "cpu_usage": 0.7},
+        {"thread_id": 102, "observed_at": 200, "cpu_usage": 0.75},
+    ]
 
 
 def test_workflow_fuses_two_databases_and_local_parquet(
