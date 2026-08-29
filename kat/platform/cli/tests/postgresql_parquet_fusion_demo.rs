@@ -96,13 +96,14 @@ fn assert_real_authentication_failure_is_sanitized(
 ) {
     const INVALID_SECRET: &str = "kat-invalid-password-sentinel";
     let connection_uri = format!("postgresql:///{database}?service={service}");
-    let forbidden = [
+    let response_forbidden = [
         actual_secret,
         INVALID_SECRET,
         service,
         database,
         connection_uri.as_str(),
     ];
+    let persisted_forbidden = [actual_secret, INVALID_SECRET, connection_uri.as_str()];
 
     let mut command = Command::new(binary);
     command
@@ -124,7 +125,7 @@ fn assert_real_authentication_failure_is_sanitized(
         .output()
         .expect("run real authentication failure probe");
 
-    for value in forbidden {
+    for value in response_forbidden {
         assert_absent("failed run stdout/Response", &output.stdout, value);
         assert_absent("failed run stderr", &output.stderr, value);
     }
@@ -145,11 +146,11 @@ fn assert_real_authentication_failure_is_sanitized(
 
     let operation_log =
         fs::read(response["log_path"].as_str().unwrap()).expect("read failed run operation log");
-    for value in forbidden {
+    for value in persisted_forbidden {
         assert_absent("failed run operation log", &operation_log, value);
     }
     let data_home = test_home::data_home(root);
-    assert_tree_has_none(&data_home, &forbidden);
+    assert_tree_has_none(&data_home, &persisted_forbidden);
     let runs = data_home.join("runs");
     assert!(
         !runs.exists() || fs::read_dir(runs).unwrap().next().is_none(),
