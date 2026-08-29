@@ -1,10 +1,10 @@
 ---
-status: superseded by ADR-0063 and ADR-0064
+status: superseded by ADR-0063, ADR-0065, ADR-0066, ADR-0067 and ADR-0068
 ---
 
 # PACK Datasource 使用 KAT 管理的 Provider
 
-> ADR-0063 与 ADR-0064 已取代本文的 Provider facade、`SourceExecutor`、`ctx.provider()`、operation-bound `Table`、自动落盘/注册、隐式 operation catalog 与旧 `ctx.sql()` 结果模型。本文只保留为设计历史；仍然有效的 Dataset 迁移边界由后继 ADR 和 `2026-08-28-pack-datasource-toolkit.md` 重新表述。
+> ADR-0063、ADR-0065、ADR-0066、ADR-0067 与 ADR-0068 已取代本文的 Provider facade、`SourceExecutor`、`ctx.provider()`、operation-bound `Table`、自动落盘/注册、隐式 operation catalog 与新 Datasource 融合模型。本文只保留为设计历史；仍然有效的 Dataset 迁移边界由后继 ADR 和 `2026-08-28-pack-datasource-toolkit.md` 重新表述。
 
 PACK Datasource 是所选 PACK 中由 Workflow 直接 import 的普通 Python module 或 factory。它拥有来源配置解释、定位与解析、来源内 SQL 和参数、私有 catalog、类型转换、语义透明缓存以及来源特定长期物化策略；它没有独立的平台身份，不注册、不扫描、不进入 `pack.toml`，也不增加 `kat import` variant。需要查询能力时，Datasource 创建按公开结构协议实现的 Source executor，并显式使用当前 Workflow Context 的 `ctx.provider(executor)` 取得 operation-bound Provider facade。该 facade 由 KAT 固定实现；PACK 不能直接构造、继承或替换它，也不能通过 Workflow input 注入任意 Provider 实现。
 

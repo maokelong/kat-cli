@@ -458,7 +458,9 @@ impl LongTermHitraceSink {
     fn push_ftrace(&mut self, record: FtraceRecord) -> Result<()> {
         let FtraceRecord::Event(event) = record;
         let event = *event;
-        let Some(switch) = event.event.sched_switch_format else {
+        let Some(crate::proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(switch)) =
+            event.event.event
+        else {
             return Ok(());
         };
         let cpu = event.context.cpu;

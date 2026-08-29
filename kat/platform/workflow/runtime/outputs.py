@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pyarrow.parquet as pq
 from datafusion import DataFrame
-from kat.datasource import Table, to_arrow
+from kat.datasource import Table
 from kat._identifiers import valid_output_name
-
-from .datasource import WorkflowOperation
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,34 +19,22 @@ class OutputMaterializationError(Exception):
 
 def materialize_outputs(
     value: object,
-    operation: WorkflowOperation,
+    candidate_path: Path,
 ) -> dict[str, dict[str, Any]]:
     try:
         outputs = _normalize_outputs(value)
     except (TypeError, ValueError) as error:
         raise OutputMaterializationError(str(error)) from error
-    output_root = operation.output_root
+    output_root = candidate_path / "outputs"
+    if output_root.exists():
+        raise OutputMaterializationError("Run Output directory already exists")
     try:
-        output_root.mkdir(exist_ok=True)
-        junction = getattr(output_root, "is_junction", None)
-        if (
-            not output_root.is_dir()
-            or output_root.is_symlink()
-            or (junction is not None and junction())
-        ):
-            raise OSError("Run Output path is not an ordinary directory")
+        output_root.mkdir()
     except OSError:
         _LOGGER.exception("failed to create the private Run Output directory")
         raise OutputMaterializationError(
             "Run Output directory could not be created"
         ) from None
-
-    for name in outputs:
-        path = output_root / f"{name}.parquet"
-        if os.path.lexists(path):
-            raise OutputMaterializationError(
-                f"Output {name!r} backing already exists"
-            )
 
     materialized: dict[str, dict[str, Any]] = {}
     for name in sorted(outputs):
@@ -102,7 +86,7 @@ def _normalize_outputs(value: object) -> dict[str, DataFrame | Table]:
 def _write_table(
     table: Table, output_path: Path, output_name: str
 ) -> dict[str, Any]:
-    arrow_table = to_arrow(table)
+    arrow_table = table.to_arrow()
     try:
         pq.write_table(arrow_table, output_path, compression="zstd")
     except (Exception, SystemExit):

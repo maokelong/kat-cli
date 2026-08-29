@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
 from datafusion import DataFrame, Expr
-import pyarrow
+from pyarrow import Table
 
-from .datasource import Table
 from ._identifiers import valid_table_name
 from ._temporal import Duration, WallClockTimestamp
 
@@ -26,32 +25,24 @@ class Context:
     def sql(
         self,
         sql: str,
-        *,
-        tables: Mapping[str, Table] | None = None,
-        params: Mapping[
-            str, bool | int | float | str | Duration | WallClockTimestamp
-        ]
-        | None = None,
-    ) -> Table:
-        """Execute one local read-only SQL statement as an eager Table.
-
-        ``tables`` explicitly binds call-local relation names. KAT also grants
-        the Workflow's declared Dataset tables, and rejects explicit relations
-        that would shadow those grants. Every call uses a fresh DataFusion
-        session, fully executes the statement, and returns a reusable Table;
-        query failures do not affect later calls.
+        **params: bool | int | float | str | Duration | WallClockTimestamp,
+    ) -> DataFrame:
+        """Build a DataFusion DataFrame from one read-only SQL statement.
 
         DataFusion performs parsing and planning. KAT disables DDL, DML, COPY,
-        session mutation, and multiple statements. ``$name`` placeholders bind
-        values supplied by the separate ``params`` mapping. Scalar values are
-        limited to exact ``bool``, signed int64, finite ``float``, ``str``,
-        ``Duration``, or ``WallClockTimestamp`` values; they never substitute
-        identifiers or SQL text. Context methods are valid only during the
-        current Workflow execution.
+        session mutation, and multiple statements while retaining DataFusion's
+        read-only ``SHOW``, ``DESCRIBE``, and ``EXPLAIN`` statements. ``$name``
+        value placeholders bind only exact keyword parameters of type ``bool``,
+        signed int64, finite ``float``, ``str``, ``Duration``, or
+        ``WallClockTimestamp``; they never substitute identifiers or SQL text.
+
+        Context methods may be called only during the current Workflow
+        execution. DataFrames are lazy and must be returned by the Workflow so
+        KAT can materialize them before that execution closes.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
-    def from_arrow(self, table: pyarrow.Table) -> DataFrame:
+    def from_arrow(self, table: Table) -> DataFrame:
         """Expose one PyArrow Table as a DataFusion DataFrame.
 
         Other Arrow containers and table-like Python objects are not accepted.
@@ -63,12 +54,13 @@ class Context:
 
     @property
     def datasource_root(self) -> Path:
-        """Return this PACK's long-lived Datasource storage root.
+        """Return this PACK's private Datasource storage root.
 
         Production executions receive
         ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
         isolated to the current pytest test. The path capability is valid only
-        for this Workflow execution.
+        for this Workflow execution. File Providers should create a temporary
+        per-Workflow workspace below it instead of treating old files as cache.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 

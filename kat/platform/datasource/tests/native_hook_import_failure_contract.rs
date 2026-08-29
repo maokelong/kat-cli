@@ -47,6 +47,24 @@ fn malformed_bound_native_hook_payload_fails_before_overwrite_target_mutation() 
 }
 
 #[test]
+fn malformed_bound_ftrace_payload_fails_before_overwrite_target_mutation() {
+    assert_pre_begin_rejection_preserves_target(
+        "malformed-bound-ftrace-payload",
+        vec![profiler_envelope("ftrace-plugin", vec![0x80], 7)],
+        "failed to decode ftrace-plugin payload",
+    );
+}
+
+#[test]
+fn malformed_bound_ftrace_config_fails_before_overwrite_target_mutation() {
+    assert_pre_begin_rejection_preserves_target(
+        "malformed-bound-ftrace-config",
+        vec![profiler_envelope("ftrace-plugin_config", vec![0x80], 7)],
+        "failed to decode ftrace-plugin_config payload",
+    );
+}
+
+#[test]
 fn native_hook_clock_mismatch_fails_before_overwrite_target_mutation() {
     let config = NativeHookConfig {
         clock: "boot".to_owned(),

@@ -4,7 +4,6 @@ import pyarrow as pa
 import pytest
 from datafusion import SessionContext
 
-from kat import datasource as ds
 from kat.pack.helpers import critical_path
 from kat.pack.helpers.critical_path import (
     CriticalPathError,
@@ -93,10 +92,8 @@ class InMemoryFrameContext:
         self.session.register_record_batches("frame_slice", [frame_slice.to_batches()])
         self.session.register_record_batches("thread", [thread.to_batches()])
 
-    def sql(self, query, *, tables=None, params=None):
-        assert tables is None
-        frame = self.session.sql(query, param_values=params)
-        return ds.from_arrow(frame.to_arrow_table())
+    def sql(self, query, **params):
+        return self.session.sql(query, param_values=params)
 
     def from_arrow(self, table):
         return table

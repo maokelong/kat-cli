@@ -103,23 +103,16 @@ def analyze(ctx: kat.Context):
             request["dataset"] = dataset
         return request
 
-    def test_ctx_sql_fuses_explicit_tables_and_separate_scalar_params(self) -> None:
+    def test_ctx_sql_rejects_datasource_binding_mappings(self) -> None:
         pack = self.pack(
-            '''    source = ds.table(
-        schema={"value": int, "label": str},
-        columns={"value": [1, 3, 2], "label": ["one", "three", "two"]},
-    )
-    result = ctx.sql(
-        "SELECT label, value FROM source_rows "
-        "WHERE value >= $source_rows ORDER BY value",
-        tables={"source_rows": source},
-        params={"source_rows": 2},
-    )
-    assert result.to_rows() == [
-        {"label": "two", "value": 2},
-        {"label": "three", "value": 3},
-    ]
-    return result'''
+            '''    for keyword in ("tables", "params"):
+        try:
+            ctx.sql("SELECT 1 AS value", **{keyword: {}})
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f"accepted Datasource binding keyword: {keyword}")
+    return ctx.from_arrow(__import__("pyarrow").table({"value": [1]}))'''
         )
         candidate_id, candidate = self.candidate()
 
@@ -131,22 +124,24 @@ def analyze(ctx: kat.Context):
             completed.returncode, 0, completed.stderr.decode(errors="replace")
         )
         self.assertEqual(response["status"], "success", response)
-        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 2)
+        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
         self.assertEqual(
             pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"label": ["two", "three"], "value": [2, 3]},
+            {"value": [1]},
         )
 
     def test_ctx_sql_registers_only_granted_dataset_tables_for_every_call(
         self,
     ) -> None:
         pack = self.pack(
-            '''    first = ctx.sql("SELECT value FROM events ORDER BY value")
+            '''    from datafusion import DataFrame
+    first = ctx.sql("SELECT value FROM events ORDER BY value")
     second = ctx.sql(
         "SELECT value FROM events WHERE value >= $minimum ORDER BY value",
-        params={"minimum": 2},
+        minimum=2,
     )
-    assert first["value"] == (1, 2, 3)
+    assert isinstance(first, DataFrame)
+    assert isinstance(second, DataFrame)
     return second''',
             required_tables="['events']",
         )
@@ -186,7 +181,9 @@ def analyze(ctx: kat.Context):
         marker = self.root / "workflow-ran.txt"
         pack = self.pack(
             f'''    __import__("pathlib").Path({str(marker)!r}).write_text("ran")
-    return ds.table(schema={{"value": int}}, columns={{"value": [1]}})''',
+    table = ds.Table({{"value": int}})
+    table.append(value=1)
+    return table''',
             required_tables="['events']",
         )
         dataset = self.root / "damaged-dataset"
@@ -211,106 +208,11 @@ def analyze(ctx: kat.Context):
         self.assertEqual(response["status"], "failure", response)
         self.assertFalse(marker.exists())
 
-    def test_ctx_sql_call_state_is_isolated_and_failure_does_not_poison_context(
-        self,
-    ) -> None:
-        pack = self.pack(
-            '''    source = ds.table(schema={"value": int}, columns={"value": [7]})
-    first = ctx.sql("SELECT * FROM rows", tables={"rows": source})
-    try:
-        ctx.sql("SELECT * FROM rows")
-    except Exception:
-        pass
-    else:
-        raise AssertionError("a relation from an earlier call must not remain registered")
-    return ctx.sql("SELECT * FROM rows", tables={"rows": first})'''
-        )
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(pack, candidate_id, candidate)
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"value": [7]},
-        )
-
-    def test_ctx_sql_validates_call_local_relation_names_before_planning(self) -> None:
-        pack = self.pack(
-            '''    source = ds.table(schema={"value": int}, columns={"value": [7]})
-    for invalid_name in ("BadName", "bad-name", "_rows", 7):
-        try:
-            ctx.sql("this is not sql", tables={invalid_name: source})
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"accepted invalid relation name: {invalid_name!r}")
-    return source'''
-        )
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(pack, candidate_id, candidate)
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"value": [7]},
-        )
-
-    def test_ctx_sql_rejects_dataset_relation_conflict_before_planning(self) -> None:
-        pack = self.pack(
-            '''    replacement = ds.table(
-        schema={"value": int}, columns={"value": [99]}
-    )
-    try:
-        ctx.sql("this is not sql", tables={"events": replacement})
-    except ValueError as error:
-        assert "events" in str(error)
-    else:
-        raise AssertionError("an explicit relation must not shadow a Dataset grant")
-    return ctx.sql("SELECT value FROM events")''',
-            required_tables="['events']",
-        )
-        dataset = self.root / "conflict-dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        pq.write_table(pa.table({"value": [1]}), events)
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(
-                pack,
-                candidate_id,
-                candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {"events": str(events.resolve())},
-                },
-            )
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"value": [1]},
-        )
-
     def test_output_accepts_table_and_dataframe_in_one_exact_dict(self) -> None:
         pack = self.pack(
-            '''    table = ds.table(schema={"value": int}, columns={"value": [1, 2]})
+            '''    table = ds.Table({"value": int})
+    table.append(value=1)
+    table.append(value=2)
     frame = ctx.from_arrow(__import__("pyarrow").table({"label": ["legacy"]}))
     return {"table_rows": table, "legacy_rows": frame}'''
         )
@@ -340,7 +242,8 @@ def analyze(ctx: kat.Context):
         pack = self.pack(
             '''    class Outputs(dict):
         pass
-    table = ds.table(schema={"value": int}, columns={"value": [1]})
+    table = ds.Table({"value": int})
+    table.append(value=1)
     return Outputs(main=table)'''
         )
         candidate_id, candidate = self.candidate()

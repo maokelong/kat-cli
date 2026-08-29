@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import gc
 from pathlib import Path
 import tempfile
 import unittest
+import uuid
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -25,419 +25,283 @@ class DatasourceParquetTest(unittest.TestCase):
     def write_parquet(
         self,
         path: Path,
-        fields: list[pa.Field],
-        values: dict[str, list[object]],
+        table: pa.Table,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        schema = pa.schema(fields)
-        arrays = [pa.array(values[field.name], type=field.type) for field in fields]
-        pq.write_table(pa.Table.from_arrays(arrays, schema=schema), path)
+        pq.write_table(table, path)
 
-    def test_writer_creates_flat_multitable_catalog_with_batches_and_empty_table(
-        self,
-    ) -> None:
-        schema = ds.Schema(
+    def test_write_creates_one_file_per_table_and_returns_none(self) -> None:
+        tables = ds.Schema(
             {
-                "events": {
-                    "value": int,
-                    "label": str | None,
-                    "observed_at": datetime,
-                    "amount": Decimal,
-                },
+                "events": {"value": int},
                 "empty_rows": {"payload": bytes | None},
-                "threads": {"thread_id": int},
             }
-        )
+        ).create()
+        tables["events"].append(value=7)
         destination = self.root / "catalog"
 
-        with ds.write(schema, destination=destination) as writer:
-            writer.write("threads", thread_id=[20])
-            writer.write(
-                "events",
-                value=[1],
-                label=[None],
-                observed_at=[datetime(2026, 8, 28, tzinfo=timezone.utc)],
-                amount=[Decimal("1.25")],
-            )
-            writer.write(
-                "events",
-                value=[2],
-                label=["second"],
-                observed_at=[
-                    datetime(
-                        2026,
-                        8,
-                        28,
-                        8,
-                        tzinfo=timezone.utc,
-                    )
-                ],
-                amount=[Decimal("2.500000000000000000")],
-            )
+        result = ds.write(tables, destination=destination)
 
+        self.assertIsNone(result)
         self.assertEqual(
             sorted(path.name for path in destination.iterdir()),
-            ["empty_rows.parquet", "events.parquet", "threads.parquet"],
-        )
-        physical = pq.read_schema(destination / "events.parquet")
-        self.assertEqual(physical.field("value"), pa.field("value", pa.int64(), False))
-        self.assertEqual(physical.field("label"), pa.field("label", pa.string(), True))
-        self.assertEqual(
-            physical.field("observed_at"),
-            pa.field("observed_at", pa.timestamp("ns", tz="UTC"), False),
+            ["empty_rows.parquet", "events.parquet"],
         )
         self.assertEqual(
-            physical.field("amount"),
-            pa.field("amount", pa.decimal128(38, 18), False),
-        )
-        self.assertEqual(pq.read_table(destination / "empty_rows.parquet").num_rows, 0)
-
-        result = ds.open(schema, root=destination).query(
-            "SELECT value, label, amount FROM events WHERE value >= $minimum ORDER BY value",
-            params={"minimum": 1},
+            pq.read_table(destination / "events.parquet").to_pylist(),
+            [{"value": 7}],
         )
         self.assertEqual(
-            result.to_rows(),
-            [
-                {"value": 1, "label": None, "amount": Decimal("1.250000000000000000")},
-                {
-                    "value": 2,
-                    "label": "second",
-                    "amount": Decimal("2.500000000000000000"),
-                },
-            ],
+            pq.read_table(destination / "empty_rows.parquet").num_rows,
+            0,
         )
 
-    def test_writer_requires_a_new_path_and_strict_lists(self) -> None:
-        schema = ds.Schema({"events": {"value": int, "label": str}})
+    def test_write_rejects_invalid_inputs_without_replacing_existing_content(self) -> None:
+        table = ds.Table({"value": int})
         existing = self.root / "existing"
         existing.mkdir()
-        sentinel = existing / "belongs-to-the-caller.txt"
+        sentinel = existing / "caller.txt"
         sentinel.write_text("keep", encoding="utf-8")
 
         with self.assertRaises(FileExistsError):
-            with ds.write(schema, destination=existing):
-                pass
+            ds.write({"events": table}, destination=existing)
+
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        with self.assertRaisesRegex(ValueError, "empty"):
+            ds.write({}, destination=self.root / "empty")
+        with self.assertRaisesRegex(ValueError, "table name"):
+            ds.write({"Bad-Name": table}, destination=self.root / "bad-name")
+        with self.assertRaisesRegex(TypeError, "ds.Table"):
+            ds.write({"events": object()}, destination=self.root / "bad-value")
 
-        destination = self.root / "catalog"
-        with self.assertRaisesRegex(TypeError, "list"):
-            with ds.write(schema, destination=destination) as writer:
-                writer.write("events", value=(1,), label=["one"])
-        self.assertFalse(destination.exists())
-
-    def test_writer_failure_poison_survives_a_caught_error_and_cleans_up(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        destination = self.root / "catalog"
-        first_error: BaseException | None = None
-
-        with self.assertRaisesRegex(TypeError, "value"):
-            with ds.write(schema, destination=destination) as writer:
-                try:
-                    writer.write("events", value=["not-an-int"])
-                except TypeError as error:
-                    first_error = error
-                with self.assertRaises(TypeError) as retry:
-                    writer.write("events", value=[1])
-                self.assertIs(retry.exception, first_error)
-
-        self.assertFalse(destination.exists())
-
-    def test_writer_body_failure_cleans_up_and_keeps_the_body_error(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        destination = self.root / "catalog"
-
-        with self.assertRaisesRegex(RuntimeError, "parser failed"):
-            with ds.write(schema, destination=destination) as writer:
-                writer.write("events", value=[1])
-                raise RuntimeError("parser failed")
-
-        self.assertFalse(destination.exists())
-
-    def test_open_root_discovers_only_direct_lowercase_parquet_files(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
+    def test_open_root_discovers_a_schema_less_read_only_catalog(self) -> None:
         catalog_root = self.root / "catalog"
         self.write_parquet(
+            catalog_root / "threads.parquet",
+            pa.table({"thread_id": [2]}),
+        )
+        self.write_parquet(
             catalog_root / "events.parquet",
-            [pa.field("value", pa.int32(), False)],
-            {"value": [1]},
+            pa.table({"value": [1]}),
         )
-        self.write_parquet(
-            catalog_root / "nested" / "ignored.parquet",
-            [pa.field("value", pa.int32(), False)],
-            {"value": [99]},
-        )
-        (catalog_root / "notes.txt").write_text("ignored", encoding="utf-8")
-        (catalog_root / "upper.PARQUET").write_bytes(b"ignored")
 
-        result = ds.open(schema, root=catalog_root).query("SELECT value FROM events")
+        catalog = ds.open(root=catalog_root)
 
-        self.assertEqual(result["value"], (1,))
+        self.assertEqual(catalog.tables, ("events", "threads"))
+        self.assertFalse(hasattr(catalog, "query"))
+        self.assertFalse(hasattr(catalog, "schema"))
+        self.assertFalse(hasattr(catalog, "close"))
+        with self.assertRaisesRegex(TypeError, "ds.open"):
+            ds.Catalog({})  # type: ignore[arg-type]
 
-        self.write_parquet(
-            catalog_root / "extra.parquet",
-            [pa.field("value", pa.int32(), False)],
-            {"value": [2]},
-        )
-        with self.assertRaisesRegex(ValueError, "table set"):
-            ds.open(schema, root=catalog_root)
+    def test_datafusion_provider_reuses_immutable_memory_bindings_with_fresh_snapshots(
+        self,
+    ) -> None:
+        events = ds.Table({"value": int})
+        events.append(value=1)
+        bindings = {"events": events}
+        fusion = ds.DataFusionProvider(tables=bindings)
 
-    def test_open_tables_recurses_parts_without_hive_inference(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
+        first = fusion.query("SELECT value FROM events ORDER BY value")
+        bindings.clear()
+        events.append(value=2)
+        second = fusion.query("SELECT value FROM events ORDER BY value")
+
+        self.assertEqual(first["value"], (1,))
+        self.assertEqual(second["value"], (1, 2))
+
+    def test_explicit_parts_catalog_is_queried_without_hive_inference(self) -> None:
         parts = self.root / "parts"
         self.write_parquet(
             parts / "z" / "02.parquet",
-            [pa.field("value", pa.uint16(), False)],
-            {"value": [2]},
+            pa.table({"value": pa.array([2], type=pa.uint16())}),
         )
         self.write_parquet(
             parts / "partition=seven" / "01.parquet",
-            [pa.field("value", pa.uint16(), False)],
-            {"value": [1]},
+            pa.table({"value": pa.array([1], type=pa.uint16())}),
         )
         (parts / "ignored.json").write_text("{}", encoding="utf-8")
 
-        catalog = ds.open(schema, tables={"events": parts})
-
-        self.assertEqual(
-            catalog.query("SELECT value FROM events ORDER BY value")["value"],
-            (1, 2),
-        )
-        with self.assertRaises(Exception):
-            catalog.query("SELECT partition FROM events")
-
-        (self.root / "empty").mkdir()
-        with self.assertRaisesRegex(ValueError, "at least one"):
-            ds.open(schema, tables={"events": self.root / "empty"})
-
-    def test_open_requires_exactly_one_location_form_and_exact_table_keys(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        file = self.root / "events.parquet"
-        self.write_parquet(
-            file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [1]},
-        )
-
-        with self.assertRaisesRegex(TypeError, "exactly one"):
-            ds.open(schema)
-        with self.assertRaisesRegex(TypeError, "exactly one"):
-            ds.open(schema, root=self.root, tables={"events": file})
-        with self.assertRaisesRegex(ValueError, "table set"):
-            ds.open(schema, tables={"other": file})
-        with self.assertRaisesRegex(TypeError, "Path"):
-            ds.open(schema, tables={"events": str(file)})
-
-    def test_open_explicit_single_file_does_not_require_a_parquet_suffix(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        file = self.root / "opaque-parser-output"
-        self.write_parquet(
-            file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [4]},
-        )
-
-        result = ds.open(schema, tables={"events": file}).query(
-            "SELECT value FROM events"
-        )
-
-        self.assertEqual(result["value"], (4,))
-
-    def test_open_validates_logical_types_columns_order_and_nullability(self) -> None:
-        accepted = [
-            (bool, pa.bool_()),
-            (int, pa.int8()),
-            (int, pa.uint64()),
-            (float, pa.float32()),
-            (float, pa.float64()),
-            (str, pa.string()),
-            (str, pa.large_string()),
-            (bytes, pa.binary()),
-            (bytes, pa.large_binary()),
-            (datetime, pa.timestamp("ns", tz="UTC")),
-            (Decimal, pa.decimal128(20, 4)),
-            (Decimal, pa.decimal256(60, 30)),
-        ]
-        string_view = getattr(pa, "string_view", None)
-        if string_view is not None:
-            accepted.append((str, string_view()))
-
-        for index, (logical, physical) in enumerate(accepted):
-            with self.subTest(logical=logical, physical=physical):
-                file = self.root / f"accepted-{index}.parquet"
-                self.write_parquet(
-                    file,
-                    [pa.field("value", physical, False)],
-                    {"value": []},
-                )
-                ds.open(ds.Schema({"events": {"value": logical}}), tables={"events": file})
-
-        nullable_file = self.root / "nullable.parquet"
-        self.write_parquet(
-            nullable_file,
-            [pa.field("value", pa.int64(), True)],
-            {"value": []},
-        )
-        with self.assertRaisesRegex(TypeError, "nullable"):
-            ds.open(ds.Schema({"events": {"value": int}}), tables={"events": nullable_file})
-        ds.open(
-            ds.Schema({"events": {"value": int | None}}),
-            tables={"events": nullable_file},
-        )
-
-        required_file = self.root / "required.parquet"
-        self.write_parquet(
-            required_file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": []},
-        )
-        ds.open(
-            ds.Schema({"events": {"value": int | None}}),
-            tables={"events": required_file},
-        )
-
-        wrong_order = self.root / "wrong-order.parquet"
-        self.write_parquet(
-            wrong_order,
-            [
-                pa.field("second", pa.int64(), False),
-                pa.field("first", pa.int64(), False),
-            ],
-            {"second": [], "first": []},
-        )
-        with self.assertRaisesRegex(ValueError, "columns"):
-            ds.open(
-                ds.Schema({"events": {"first": int, "second": int}}),
-                tables={"events": wrong_order},
-            )
-
-        wrong_type = self.root / "wrong-type.parquet"
-        self.write_parquet(
-            wrong_type,
-            [pa.field("value", pa.float16(), False)],
-            {"value": []},
-        )
-        with self.assertRaisesRegex(TypeError, "type"):
-            ds.open(
-                ds.Schema({"events": {"value": float}}),
-                tables={"events": wrong_type},
-            )
-
-    def test_open_requires_identical_part_schemas_and_valid_footers(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        parts = self.root / "parts"
-        self.write_parquet(
-            parts / "a.parquet",
-            [pa.field("value", pa.int32(), False)],
-            {"value": [1]},
-        )
-        self.write_parquet(
-            parts / "b.parquet",
-            [pa.field("value", pa.int64(), False)],
-            {"value": [2]},
-        )
-        with self.assertRaisesRegex(TypeError, "same physical schema"):
-            ds.open(schema, tables={"events": parts})
-
-        damaged = self.root / "damaged.parquet"
-        damaged.write_bytes(b"not parquet")
-        with self.assertRaises(Exception):
-            ds.open(schema, tables={"events": damaged})
-
-    def test_open_ignores_arrow_schema_and_field_metadata_between_parts(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        parts = self.root / "parts"
-        first = pa.schema(
-            [pa.field("value", pa.int64(), False, metadata={b"field": b"first"})],
-            metadata={b"schema": b"first"},
-        )
-        second = pa.schema(
-            [pa.field("value", pa.int64(), False, metadata={b"field": b"second"})],
-            metadata={b"schema": b"second"},
-        )
-        parts.mkdir()
-        pq.write_table(
-            pa.Table.from_arrays([pa.array([1], type=pa.int64())], schema=first),
-            parts / "a.parquet",
-        )
-        pq.write_table(
-            pa.Table.from_arrays([pa.array([2], type=pa.int64())], schema=second),
-            parts / "b.parquet",
-        )
-
-        result = ds.open(schema, tables={"events": parts}).query(
+        catalog = ds.open(tables={"events": parts})
+        result = ds.DataFusionProvider(catalog=catalog).query(
             "SELECT value FROM events ORDER BY value"
         )
 
+        self.assertEqual(catalog.tables, ("events",))
         self.assertEqual(result["value"], (1, 2))
-
-    def test_catalog_query_is_eager_detached_reusable_and_live(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
-        file = self.root / "events.parquet"
-        self.write_parquet(
-            file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [1, 2]},
-        )
-        catalog = ds.open(schema, tables={"events": file})
-
-        first = catalog.query("SELECT value FROM events ORDER BY value")
         with self.assertRaises(Exception):
-            catalog.query("SELECT missing FROM events")
-        self.assertEqual(
-            catalog.query("SELECT SUM(value) AS total FROM events")["total"],
-            (3,),
-        )
+            ds.DataFusionProvider(catalog=catalog).query(
+                "SELECT partition FROM events"
+            )
 
-        file.unlink()
-        del catalog
-        gc.collect()
-        self.assertEqual(first.to_rows(), [{"value": 1}, {"value": 2}])
-
+    def test_datafusion_provider_joins_memory_and_parquet_relations(self) -> None:
+        file = self.root / "owners.parquet"
         self.write_parquet(
             file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [7]},
+            pa.table(
+                {
+                    "thread_id": pa.array([1, 2], type=pa.int64()),
+                    "owner": ["render", "system"],
+                }
+            ),
         )
-        live = ds.open(schema, tables={"events": file})
-        self.assertEqual(live.query("SELECT value FROM events")["value"], (7,))
-        file.unlink()
-        self.write_parquet(
-            file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [8]},
-        )
-        self.assertEqual(live.query("SELECT value FROM events")["value"], (8,))
+        samples = ds.Table({"thread_id": int, "cpu": float})
+        samples.append(thread_id=1, cpu=0.75)
 
-    def test_catalog_query_accepts_read_only_single_statements_and_named_scalars(self) -> None:
-        schema = ds.Schema({"events": {"value": int}})
+        result = ds.DataFusionProvider(
+            tables={"samples": samples},
+            catalog=ds.open(tables={"owners": file}),
+        ).query(
+            "SELECT o.owner, s.cpu FROM samples s "
+            "JOIN owners o USING (thread_id)"
+        )
+
+        self.assertEqual(result.to_rows(), [{"owner": "render", "cpu": 0.75}])
+
+    def test_datafusion_provider_rejects_invalid_or_overlapping_bindings(self) -> None:
+        table = ds.Table({"value": int})
         file = self.root / "events.parquet"
-        self.write_parquet(
-            file,
-            [pa.field("value", pa.int64(), False)],
-            {"value": [1]},
+        self.write_parquet(file, pa.table({"value": [1]}))
+        catalog = ds.open(tables={"events": file})
+
+        with self.assertRaisesRegex(ValueError, "requires"):
+            ds.DataFusionProvider()
+        with self.assertRaisesRegex(ValueError, "relation name"):
+            ds.DataFusionProvider(tables={"Bad-Name": table})
+        with self.assertRaisesRegex(TypeError, "ds.Table"):
+            ds.DataFusionProvider(tables={"events": object()})
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            ds.DataFusionProvider(tables={"events": table}, catalog=catalog)
+        with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+            class CustomCatalog(ds.Catalog):
+                pass
+
+        fusion = ds.DataFusionProvider(tables={"events": table})
+        for method in ("register", "remove", "replace"):
+            with self.subTest(method=method):
+                self.assertFalse(hasattr(fusion, method))
+
+    def test_query_normalizes_the_explicit_scalar_parameter_set(self) -> None:
+        fusion = ds.DataFusionProvider(tables={"unused": ds.Table({"value": int})})
+
+        result = fusion.query(
+            "SELECT $truth AS truth, $number AS number, $ratio AS ratio, "
+            "$text AS text, $payload AS payload, $instant AS instant, "
+            "$wall AS wall, $amount AS amount, $duration AS duration",
+            params={
+                "truth": True,
+                "number": 3,
+                "ratio": 1.5,
+                "text": "value",
+                "payload": b"bytes",
+                "instant": datetime(
+                    2026,
+                    8,
+                    29,
+                    8,
+                    tzinfo=timezone(timedelta(hours=8)),
+                ),
+                "wall": WallClockTimestamp("2026-08-29T00:00:00.000000001Z"),
+                "amount": Decimal("1E-40"),
+                "duration": Duration("2ns"),
+            },
         )
-        catalog = ds.open(schema, tables={"events": file})
 
         self.assertEqual(
-            catalog.query(
-                "SELECT $truth AS truth, $number AS number, $ratio AS ratio, "
-                "$text AS text, $duration AS duration, $instant AS instant",
-                params={
+            result.to_rows(),
+            [
+                {
                     "truth": True,
                     "number": 3,
                     "ratio": 1.5,
                     "text": "value",
-                    "duration": Duration("2ns"),
-                    "instant": WallClockTimestamp("2026-08-28T00:00:00.000000001Z"),
-                },
-            )["number"],
-            (3,),
+                    "payload": b"bytes",
+                    "instant": WallClockTimestamp("2026-08-29T00:00:00Z"),
+                    "wall": WallClockTimestamp("2026-08-29T00:00:00.000000001Z"),
+                    "amount": Decimal("1E-40"),
+                    "duration": 2,
+                }
+            ],
         )
-        self.assertEqual(catalog.query("VALUES (1)")["column1"], (1,))
-        self.assertGreater(len(catalog.query("DESCRIBE events")), 0)
-        self.assertGreater(len(catalog.query("EXPLAIN SELECT * FROM events")), 0)
-        self.assertGreater(len(catalog.query("SHOW TABLES")), 0)
+
+    def test_query_rejects_ambiguous_parameters_without_poisoning_the_provider(
+        self,
+    ) -> None:
+        fusion = ds.DataFusionProvider(tables={"unused": ds.Table({"value": int})})
+        invalid = (
+            None,
+            2**63,
+            float("inf"),
+            bytearray(b"bytes"),
+            memoryview(b"bytes"),
+            datetime(2026, 8, 29),
+            timedelta(seconds=1),
+            Decimal("NaN"),
+            Decimal("1E-77"),
+            Decimal("1E+1000000"),
+            pa.scalar(1),
+            [1],
+        )
+
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises((TypeError, ValueError)):
+                fusion.query("SELECT $value AS value", params={"value": value})
+
+        with self.assertRaisesRegex(ValueError, "parameter name"):
+            fusion.query("SELECT 1", params={"Bad-Name": 1})
+        self.assertEqual(fusion.query("SELECT 7 AS value")["value"], (7,))
+
+    def test_wide_catalog_requires_a_standard_planned_result_schema(self) -> None:
+        file = self.root / "wide.parquet"
+        self.write_parquet(
+            file,
+            pa.table(
+                {
+                    "items": pa.array([[1, 2]], type=pa.list_(pa.int64())),
+                    "details": pa.array(
+                        [{"label": "ready"}],
+                        type=pa.struct([pa.field("label", pa.string())]),
+                    ),
+                    "day": pa.array([0], type=pa.date32()),
+                    "elapsed": pa.array([5], type=pa.duration("ns")),
+                }
+            ),
+        )
+        fusion = ds.DataFusionProvider(
+            catalog=ds.open(tables={"wide": file})
+        )
+
+        with self.assertRaisesRegex(TypeError, "unsupported Arrow type"):
+            fusion.query("SELECT * FROM wide")
+
+        result = fusion.query(
+            "SELECT cardinality(items) AS item_count, "
+            "details['label'] AS label, CAST(day AS VARCHAR) AS day_text, "
+            "CAST(elapsed AS BIGINT) AS elapsed_ns FROM wide"
+        )
+        self.assertEqual(
+            result.to_rows(),
+            [
+                {
+                    "item_count": 2,
+                    "label": "ready",
+                    "day_text": "1970-01-01",
+                    "elapsed_ns": 5,
+                }
+            ],
+        )
+
+    def test_query_accepts_one_read_only_statement_and_rejects_session_mutation(
+        self,
+    ) -> None:
+        events = ds.Table({"value": int})
+        events.append(value=1)
+        fusion = ds.DataFusionProvider(tables={"events": events})
+
+        self.assertEqual(fusion.query("VALUES (1)")["column1"], (1,))
+        self.assertGreater(len(fusion.query("DESCRIBE events")), 0)
+        self.assertGreater(len(fusion.query("EXPLAIN SELECT * FROM events")), 0)
+        self.assertGreater(len(fusion.query("SHOW TABLES")), 0)
 
         for sql in (
             "SELECT 1; SELECT 2",
@@ -445,18 +309,73 @@ class DatasourceParquetTest(unittest.TestCase):
             "INSERT INTO events VALUES (2)",
             "COPY events TO 'bad.parquet'",
             "SET datafusion.execution.batch_size = 1",
+            "SHOW FUNCTIONS",
         ):
             with self.subTest(sql=sql), self.assertRaises(Exception):
-                catalog.query(sql)
+                fusion.query(sql)
 
         with self.assertRaisesRegex(TypeError, "non-empty"):
-            catalog.query(" ")
-        with self.assertRaisesRegex(ValueError, "parameter name"):
-            catalog.query("SELECT 1", params={"Bad-Name": 1})
-        with self.assertRaisesRegex(TypeError, "finite float"):
-            catalog.query("SELECT $value", params={"value": float("inf")})
-        with self.assertRaises(TypeError):
-            catalog.query("SHOW FUNCTIONS")
+            fusion.query(" ")
+
+    def test_open_validates_discovery_paths_names_footers_and_part_schemas(self) -> None:
+        root = self.root / "root"
+        self.write_parquet(root / "events.parquet", pa.table({"value": [1]}))
+        self.write_parquet(root / "nested" / "ignored.parquet", pa.table({"value": [2]}))
+        (root / "notes.txt").write_text("ignored", encoding="utf-8")
+
+        self.assertEqual(ds.open(root=root).tables, ("events",))
+        with self.assertRaisesRegex(TypeError, "exactly one"):
+            ds.open()
+        with self.assertRaisesRegex(TypeError, "exactly one"):
+            ds.open(root=root, tables={"events": root / "events.parquet"})
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            ds.open(tables={})
+        with self.assertRaisesRegex(TypeError, "Path"):
+            ds.open(tables={"events": str(root / "events.parquet")})
+
+        self.write_parquet(root / "Bad-Name.parquet", pa.table({"value": [1]}))
+        with self.assertRaisesRegex(ValueError, "table name"):
+            ds.open(root=root)
+
+        parts = self.root / "mismatched"
+        self.write_parquet(
+            parts / "a.parquet",
+            pa.table({"value": pa.array([1], type=pa.int32())}),
+        )
+        self.write_parquet(
+            parts / "b.parquet",
+            pa.table({"value": pa.array([2], type=pa.int64())}),
+        )
+        with self.assertRaisesRegex(TypeError, "same physical schema"):
+            ds.open(tables={"events": parts})
+
+        damaged = self.root / "damaged.parquet"
+        damaged.write_bytes(b"not parquet")
+        with self.assertRaises(Exception):
+            ds.open(tables={"events": damaged})
+
+        empty_column = self.root / "empty-column.parquet"
+        self.write_parquet(
+            empty_column,
+            pa.Table.from_arrays([pa.array([1])], names=[""]),
+        )
+        with self.assertRaisesRegex(ValueError, "column name"):
+            ds.open(tables={"events": empty_column})
+
+        extension = self.root / "extension.parquet"
+        self.write_parquet(
+            extension,
+            pa.table(
+                {
+                    "value": pa.array(
+                        [uuid.UUID(int=0)],
+                        type=pa.uuid(),
+                    )
+                }
+            ),
+        )
+        with self.assertRaisesRegex(TypeError, "unsupported Catalog Arrow type"):
+            ds.open(tables={"events": extension})
 
 
 if __name__ == "__main__":

@@ -1,12 +1,9 @@
 from pathlib import Path
 
 import kat
+from kat import datasource as ds
 
-from kat.pack.datasources.parquet import (
-    EVENTS_SCHEMA,
-    OWNERS_SCHEMA,
-    LocalParquetProvider,
-)
+from kat.pack.datasources.parquet import LocalParquetProvider
 
 
 @kat.workflow(
@@ -27,9 +24,8 @@ def fuse_local_parquet(
     owners_path: str,
     minimum_score: int = 0,
 ):
-    """显式查询本地 Provider，再融合它们返回的 eager Table。"""
+    """显式查询本地 Provider，再把 eager Table 与磁盘 Catalog 融合。"""
     qualified_events = LocalParquetProvider(
-        schema=EVENTS_SCHEMA,
         tables={
             "events": Path(events_path),
             "labels": Path(labels_path),
@@ -48,14 +44,12 @@ def fuse_local_parquet(
         params={"minimum_score": minimum_score},
     )
 
-    owners = LocalParquetProvider(
-        schema=OWNERS_SCHEMA,
-        tables={"owners": Path(owners_path)},
-    ).query(
-        "SELECT owner_id, owner_name FROM owners",
-    )
+    owners = ds.open(tables={"owners": Path(owners_path)})
 
-    return ctx.sql(
+    return ds.DataFusionProvider(
+        tables={"qualified_events": qualified_events},
+        catalog=owners,
+    ).query(
         """
         SELECT
             event.event_id,
@@ -65,9 +59,5 @@ def fuse_local_parquet(
         FROM qualified_events AS event
         JOIN owners AS owner USING (owner_id)
         ORDER BY event.event_id
-        """,
-        tables={
-            "qualified_events": qualified_events,
-            "owners": owners,
-        },
+        """
     )

@@ -8,8 +8,8 @@ from types import MappingProxyType
 
 import pyarrow as pa
 
-import kat
 from kat import datasource as ds
+from kat import WallClockTimestamp
 
 
 class SchemaTest(unittest.TestCase):
@@ -42,6 +42,7 @@ class SchemaTest(unittest.TestCase):
             {"BadName": {"value": int}},
             {"con": {"value": int}},
             {"events": {"": int}},
+            {"events": {"\ud800": str}},
             {"events": {1: int}},
             {"events": {"value": object}},
             {"events": {"value": int | str}},
@@ -64,82 +65,107 @@ class SchemaTest(unittest.TestCase):
         schema = ds.Schema(declaration)
         self.assertEqual(tuple(schema["values"]), tuple(declaration["values"]))
 
+    def test_create_returns_one_empty_appendable_table_per_declaration(self) -> None:
+        schema = ds.Schema(
+            {
+                "capture": {"tracer": str, "cpu_count": int},
+                "events": {"timestamp": int, "name": str | None},
+            }
+        )
+
+        tables = schema.create()
+
+        self.assertIs(type(tables), dict)
+        self.assertEqual(tuple(tables), ("capture", "events"))
+        self.assertEqual(tables["capture"].columns, ("tracer", "cpu_count"))
+        self.assertEqual(len(tables["capture"]), 0)
+        tables["capture"].append(tracer="nop", cpu_count=4)
+        self.assertEqual(
+            tables["capture"].to_rows(),
+            [{"tracer": "nop", "cpu_count": 4}],
+        )
+
 
 class PythonTableTest(unittest.TestCase):
-    def test_columns_and_rows_build_the_same_isolated_reusable_table(self) -> None:
-        schema = {"id": int, "label": str | None}
-        ids = [1, 2]
-        labels = ["one", None]
-        from_columns = ds.table(
-            schema=schema,
-            columns={"label": labels, "id": ids},
+    def test_constructor_copies_schema_and_reads_are_reusable_and_isolated(self) -> None:
+        schema: dict[str, object] = {"id": int, "label": str | None}
+        table = ds.Table(schema)
+        schema["late"] = bytes
+
+        table.append(label="one", id=1)
+        table.append(id=2, label=None)
+
+        self.assertEqual(len(table), 2)
+        self.assertEqual(table.columns, ("id", "label"))
+        self.assertFalse(table.to_arrow().schema.field("id").nullable)
+        self.assertTrue(table.to_arrow().schema.field("label").nullable)
+        self.assertEqual(table["id"], (1, 2))
+        self.assertEqual(table["label"], ("one", None))
+        first = table.to_rows()
+        first[0]["id"] = 99
+        first.append({"id": 3, "label": "three"})
+        self.assertEqual(
+            table.to_rows(),
+            [{"id": 1, "label": "one"}, {"id": 2, "label": None}],
         )
-        from_rows = ds.table(schema=schema, rows=[(1, "one"), (2, None)])
-        ids[0] = 99
-        labels.append("late")
 
-        for table in (from_columns, from_rows):
-            with self.subTest(table=table):
-                self.assertEqual(len(table), 2)
-                self.assertEqual(table.columns, ("id", "label"))
-                self.assertFalse(ds.to_arrow(table).schema.field("id").nullable)
-                self.assertTrue(ds.to_arrow(table).schema.field("label").nullable)
-                self.assertEqual(table["id"], (1, 2))
-                self.assertEqual(table["label"], ("one", None))
-                first = table.to_rows()
-                first[0]["id"] = 99
-                first.append({"id": 3, "label": "three"})
-                self.assertEqual(
-                    table.to_rows(),
-                    [{"id": 1, "label": "one"}, {"id": 2, "label": None}],
-                )
+    def test_append_requires_one_complete_valid_row_and_fails_atomically(self) -> None:
+        table = ds.Table({"left": int, "right": str, "optional": bytes | None})
+        table.append(left=1, right="one", optional=None)
+        before = table.to_arrow()
 
-    def test_table_requires_exactly_one_input_and_valid_shapes(self) -> None:
-        with self.assertRaises(ValueError):
-            ds.table(schema={"value": int})
-        with self.assertRaises(ValueError):
-            ds.table(schema={"value": int}, columns={"value": []}, rows=[])
-        with self.assertRaises(ValueError):
-            ds.table(schema={}, rows=[])
-        with self.assertRaises(ValueError):
-            ds.table(schema={"left": int, "right": int}, columns={"left": [1]})
-        with self.assertRaises(ValueError):
-            ds.table(
-                schema={"left": int, "right": int},
-                columns={"left": [1], "right": [2, 3]},
+        invalid_rows = [
+            {"left": 2, "right": "two"},
+            {"left": 2, "right": "two", "optional": None, "extra": 3},
+            {"left": True, "right": "two", "optional": None},
+            {"left": 2**63, "right": "two", "optional": None},
+            {"left": 2, "right": str.__new__(type("Text", (str,), {}), "two"), "optional": None},
+            {"left": 2, "right": "\ud800", "optional": None},
+            {"left": 2, "right": "two", "optional": bytearray(b"x")},
+        ]
+        for row in invalid_rows:
+            with self.subTest(row=row), self.assertRaises((TypeError, ValueError)):
+                table.append(**row)
+            self.assertIs(table.to_arrow(), before)
+            self.assertEqual(
+                table.to_rows(),
+                [{"left": 1, "right": "one", "optional": None}],
             )
-        with self.assertRaises(ValueError):
-            ds.table(schema={"left": int, "right": int}, rows=[(1,)])
-        with self.assertRaises(TypeError):
-            ds.table(schema={"value": int}, columns={"value": (1,)})  # type: ignore[arg-type]
 
     def test_python_values_use_exact_types_ranges_and_nullability(self) -> None:
         cases = [
-            ({"value": bool}, [1]),
-            ({"value": int}, [True]),
-            ({"value": int}, [2**63]),
-            ({"value": int}, [-(2**63) - 1]),
-            ({"value": float}, [1]),
-            ({"value": str}, [str.__new__(type("Text", (str,), {}), "value")]),
-            ({"value": bytes}, [bytearray(b"value")]),
-            ({"value": int}, [None]),
+            (bool, 1),
+            (int, True),
+            (int, 2**63),
+            (int, -(2**63) - 1),
+            (float, 1),
+            (str, str.__new__(type("Text", (str,), {}), "value")),
+            (bytes, bytearray(b"value")),
+            (int, None),
         ]
-        for schema, values in cases:
-            with self.subTest(schema=schema, values=values), self.assertRaises(
+        for annotation, value in cases:
+            with self.subTest(annotation=annotation, value=value), self.assertRaises(
                 (TypeError, ValueError)
             ):
-                ds.table(schema=schema, columns={"value": values})
+                ds.Table({"value": annotation}).append(value=value)
 
-        table = ds.table(
-            schema={
+        table = ds.Table(
+            {
                 "flag": bool,
                 "number": int,
                 "ratio": float,
                 "text": str,
                 "payload": bytes,
                 "optional": int | None,
-            },
-            rows=[(True, -(2**63), math.inf, "value", b"bytes", None)],
+            }
+        )
+        table.append(
+            flag=True,
+            number=-(2**63),
+            ratio=math.inf,
+            text="value",
+            payload=b"bytes",
+            optional=None,
         )
         self.assertEqual(table["ratio"], (math.inf,))
 
@@ -154,12 +180,13 @@ class PythonTableTest(unittest.TestCase):
             123456,
             tzinfo=timezone(timedelta(hours=8)),
         )
-        table = ds.table(schema={"at": datetime}, columns={"at": [value]})
+        table = ds.Table({"at": datetime})
+        table.append(at=value)
         self.assertEqual(
             table["at"],
-            (kat.WallClockTimestamp("2026-08-28T04:30:00.123456Z"),),
+            (WallClockTimestamp("2026-08-28T04:30:00.123456Z"),),
         )
-        self.assertEqual(ds.to_arrow(table).schema.field("at").type, pa.timestamp("ns", tz="UTC"))
+        self.assertEqual(table.to_arrow().schema.field("at").type, pa.timestamp("ns", tz="UTC"))
 
         for invalid in (
             datetime(2026, 8, 28, 12, 30),
@@ -167,7 +194,7 @@ class PythonTableTest(unittest.TestCase):
             datetime(2300, 1, 1, tzinfo=timezone.utc),
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                ds.table(schema={"at": datetime}, columns={"at": [invalid]})
+                ds.Table({"at": datetime}).append(at=invalid)
 
     def test_decimal_uses_exact_decimal128_38_18_rescaling(self) -> None:
         values = [
@@ -175,9 +202,11 @@ class PythonTableTest(unittest.TestCase):
             Decimal("1.2300000000000000000"),
             Decimal("99999999999999999999.999999999999999999"),
         ]
-        table = ds.table(schema={"value": Decimal}, columns={"value": values})
+        table = ds.Table({"value": Decimal})
+        for value in values:
+            table.append(value=value)
         self.assertEqual(
-            ds.to_arrow(table).schema.field("value").type,
+            table.to_arrow().schema.field("value").type,
             pa.decimal128(38, 18),
         )
         self.assertEqual(
@@ -196,48 +225,58 @@ class PythonTableTest(unittest.TestCase):
             Decimal("100000000000000000000"),
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                ds.table(schema={"value": Decimal}, columns={"value": [invalid]})
+                ds.Table({"value": Decimal}).append(value=invalid)
 
 
 class ArrowTableTest(unittest.TestCase):
     def test_bridge_preserves_the_table_and_all_admitted_physical_types(self) -> None:
+        values_and_types = {
+            "boolean": (True, pa.bool_()),
+            "int8": (-1, pa.int8()),
+            "int16": (-1, pa.int16()),
+            "int32": (-1, pa.int32()),
+            "int64": (-1, pa.int64()),
+            "uint8": (1, pa.uint8()),
+            "uint16": (1, pa.uint16()),
+            "uint32": (1, pa.uint32()),
+            "uint64": (1, pa.uint64()),
+            "float16": (1.5, pa.float16()),
+            "float32": (1.5, pa.float32()),
+            "float64": (1.5, pa.float64()),
+            "utf8": ("text", pa.string()),
+            "large_utf8": ("text", pa.large_string()),
+            "utf8_view": ("text", pa.string_view()),
+            "binary": (b"bytes", pa.binary()),
+            "large_binary": (b"bytes", pa.large_binary()),
+            "timestamp": (0, pa.timestamp("ns", tz="UTC")),
+            "decimal128": (Decimal("1.20"), pa.decimal128(10, 2)),
+            "decimal256": (Decimal("1.20"), pa.decimal256(50, 2)),
+        }
         arrays = [
-            pa.array([True], type=pa.bool_()),
-            pa.array([-1], type=pa.int8()),
-            pa.array([1], type=pa.uint64()),
-            pa.array([1.5], type=pa.float16()),
-            pa.array([1.5], type=pa.float32()),
-            pa.array([1.5], type=pa.float64()),
-            pa.array(["text"], type=pa.string()),
-            pa.array(["text"], type=pa.large_string()),
-            pa.array(["text"], type=pa.string_view()),
-            pa.array([b"bytes"], type=pa.binary()),
-            pa.array([b"bytes"], type=pa.large_binary()),
-            pa.array([0], type=pa.timestamp("ns", tz="UTC")),
-            pa.array([Decimal("1.20")], type=pa.decimal128(10, 2)),
-            pa.array([Decimal("1.20")], type=pa.decimal256(50, 2)),
+            pa.array([value], type=data_type)
+            for value, data_type in values_and_types.values()
         ]
         fields = [
-            pa.field(f"column_{index}", array.type, nullable=True)
-            for index, array in enumerate(arrays)
+            pa.field(name, array.type, nullable=True)
+            for name, array in zip(values_and_types, arrays, strict=True)
         ]
         arrow = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
 
-        table = ds.from_arrow(arrow)
+        table = ds.Table.from_arrow(arrow)
 
-        self.assertIs(ds.to_arrow(table), arrow)
+        self.assertIs(table.to_arrow(), arrow)
         self.assertEqual(table.columns, tuple(field.name for field in fields))
-        self.assertEqual(table["column_11"], (kat.WallClockTimestamp("1970-01-01T00:00:00Z"),))
-        self.assertEqual(table["column_12"], (Decimal("1.20"),))
+        self.assertEqual(table["timestamp"], (WallClockTimestamp("1970-01-01T00:00:00Z"),))
+        self.assertEqual(table["decimal128"], (Decimal("1.20"),))
 
     def test_timestamp_projection_preserves_all_nine_fractional_digits(self) -> None:
         arrow = pa.table(
             {"at": pa.array([1_725_000_000_123_456_789], type=pa.timestamp("ns", tz="UTC"))}
         )
-        table = ds.from_arrow(arrow)
+        table = ds.Table.from_arrow(arrow)
         self.assertEqual(
             table["at"],
-            (kat.WallClockTimestamp("2024-08-30T06:40:00.123456789Z"),),
+            (WallClockTimestamp("2024-08-30T06:40:00.123456789Z"),),
         )
 
     def test_bridge_rejects_invalid_names_and_unsupported_types(self) -> None:
@@ -261,7 +300,7 @@ class ArrowTableTest(unittest.TestCase):
             with self.subTest(schema=arrow.schema), self.assertRaises(
                 (TypeError, ValueError)
             ):
-                ds.from_arrow(arrow)
+                ds.Table.from_arrow(arrow)
 
     def test_non_nullable_fields_scan_nulls_across_all_chunks(self) -> None:
         arrow = pa.Table.from_arrays(
@@ -269,7 +308,7 @@ class ArrowTableTest(unittest.TestCase):
             schema=pa.schema([pa.field("value", pa.int64(), nullable=False)]),
         )
         with self.assertRaises(ValueError):
-            ds.from_arrow(arrow)
+            ds.Table.from_arrow(arrow)
 
     def test_metadata_is_not_a_table_contract(self) -> None:
         arrow = pa.Table.from_arrays(
@@ -279,14 +318,162 @@ class ArrowTableTest(unittest.TestCase):
                 metadata={b"schema": b"ignored"},
             ),
         )
-        table = ds.from_arrow(arrow)
+        table = ds.Table.from_arrow(arrow)
         self.assertEqual(table["value"], (1,))
 
     def test_bridge_requires_the_documented_exact_objects(self) -> None:
         with self.assertRaises(TypeError):
-            ds.from_arrow(pa.record_batch([[1]], names=["value"]))  # type: ignore[arg-type]
+            ds.Table.from_arrow(pa.record_batch([[1]], names=["value"]))  # type: ignore[arg-type]
+
+    def test_physical_append_preserves_schema_chunks_and_old_snapshot(self) -> None:
+        arrow = pa.table({"value": pa.array([1], type=pa.int8())})
+        table = ds.Table.from_arrow(arrow)
+        before = table.to_arrow()
+        before_buffer = before.column("value").chunk(0).buffers()[1]
+
+        table.append(value=2)
+        after = table.to_arrow()
+
+        self.assertEqual(after.schema, arrow.schema)
+        self.assertEqual(after.column("value").num_chunks, 2)
+        self.assertEqual(after.column("value").to_pylist(), [1, 2])
+        self.assertEqual(before.column("value").to_pylist(), [1])
+        self.assertEqual(
+            after.column("value").chunk(0).buffers()[1].address,
+            before_buffer.address,
+        )
+
+        table.append(value=3)
+        self.assertEqual(table["value"], (1, 2, 3))
+        self.assertEqual(after.column("value").to_pylist(), [1, 2])
+
+    def test_physical_append_accepts_every_documented_python_value_family(self) -> None:
+        fields_and_values = {
+            "boolean": (pa.bool_(), True),
+            "signed": (pa.int8(), -128),
+            "unsigned": (pa.uint64(), 2**64 - 1),
+            "float16": (pa.float16(), 1.1),
+            "float32": (pa.float32(), -3.25),
+            "float64": (pa.float64(), math.inf),
+            "utf8": (pa.string(), "text"),
+            "large_utf8": (pa.large_string(), "text"),
+            "utf8_view": (pa.string_view(), "text"),
+            "binary": (pa.binary(), b"bytes"),
+            "large_binary": (pa.large_binary(), b"bytes"),
+            "timestamp": (
+                pa.timestamp("ns", tz="UTC"),
+                WallClockTimestamp("2026-08-28T04:30:00.123456789Z"),
+            ),
+            "decimal128": (pa.decimal128(10, 2), Decimal("12.30")),
+            "decimal256": (pa.decimal256(50, 20), Decimal("1.2")),
+            "nullable": (pa.int16(), None),
+        }
+        schema = pa.schema(
+            [
+                pa.field(name, data_type, nullable=True)
+                for name, (data_type, _) in fields_and_values.items()
+            ]
+        )
+        arrow = pa.Table.from_arrays(
+            [pa.array([], type=field.type) for field in schema],
+            schema=schema,
+        )
+        table = ds.Table.from_arrow(arrow)
+
+        table.append(**{name: value for name, (_, value) in fields_and_values.items()})
+
+        self.assertEqual(table.to_arrow().schema, schema)
+        self.assertEqual(table["signed"], (-128,))
+        self.assertEqual(table["unsigned"], (2**64 - 1,))
+        self.assertAlmostEqual(table["float16"][0], 1.099609375)
+        self.assertEqual(
+            table["timestamp"],
+            (WallClockTimestamp("2026-08-28T04:30:00.123456789Z"),),
+        )
+        self.assertEqual(table["decimal256"], (Decimal("1.20000000000000000000"),))
+        self.assertEqual(table["nullable"], (None,))
+
+        timestamp = ds.Table.from_arrow(
+            pa.Table.from_arrays(
+                [pa.array([], type=pa.timestamp("ns", tz="UTC"))],
+                schema=pa.schema(
+                    [pa.field("at", pa.timestamp("ns", tz="UTC"), nullable=False)]
+                ),
+            )
+        )
+        timestamp.append(
+            at=datetime(2026, 8, 28, 12, 30, tzinfo=timezone(timedelta(hours=8)))
+        )
+        self.assertEqual(
+            timestamp["at"],
+            (WallClockTimestamp("2026-08-28T04:30:00Z"),),
+        )
+
+    def test_physical_append_rejects_coercion_range_and_rounding(self) -> None:
+        cases = [
+            (pa.bool_(), 1),
+            (pa.int8(), True),
+            (pa.int8(), -129),
+            (pa.int8(), 128),
+            (pa.uint8(), -1),
+            (pa.uint8(), 256),
+            (pa.float16(), 1),
+            (pa.float16(), 70_000.0),
+            (pa.float32(), 3.5e38),
+            (pa.string(), str.__new__(type("Text", (str,), {}), "text")),
+            (pa.string(), "\ud800"),
+            (pa.binary(), bytearray(b"bytes")),
+            (pa.timestamp("ns", tz="UTC"), datetime(2026, 8, 28)),
+            (pa.timestamp("ns", tz="UTC"), "2026-08-28T00:00:00Z"),
+            (pa.timestamp("ns", tz="UTC"), 0),
+            (pa.decimal128(4, 2), Decimal("1.001")),
+            (pa.decimal128(4, 2), Decimal("100.00")),
+            (pa.decimal128(4, 2), Decimal("NaN")),
+            (pa.decimal128(4, 2), 1),
+        ]
+        for data_type, value in cases:
+            with self.subTest(data_type=data_type, value=value):
+                arrow = pa.Table.from_arrays(
+                    [pa.array([], type=data_type)],
+                    schema=pa.schema([pa.field("value", data_type, nullable=False)]),
+                )
+                table = ds.Table.from_arrow(arrow)
+                before = table.to_arrow()
+                with self.assertRaises((TypeError, ValueError)):
+                    table.append(value=value)
+                self.assertIs(table.to_arrow(), before)
+                self.assertEqual(len(table), 0)
+
+        non_nullable = ds.Table.from_arrow(
+            pa.Table.from_arrays(
+                [pa.array([], type=pa.int64())],
+                schema=pa.schema([pa.field("value", pa.int64(), nullable=False)]),
+            )
+        )
+        with self.assertRaises(ValueError):
+            non_nullable.append(value=None)
+
+    def test_physical_multi_column_append_is_atomic(self) -> None:
+        schema = pa.schema(
+            [
+                pa.field("number", pa.int8(), nullable=False),
+                pa.field("label", pa.string(), nullable=False),
+            ]
+        )
+        table = ds.Table.from_arrow(
+            pa.Table.from_arrays(
+                [pa.array([], type=field.type) for field in schema],
+                schema=schema,
+            )
+        )
+        table.append(number=1, label="one")
+        before = table.to_arrow()
+
         with self.assertRaises(TypeError):
-            ds.to_arrow(object())  # type: ignore[arg-type]
+            table.append(number=2, label=b"two")
+
+        self.assertIs(table.to_arrow(), before)
+        self.assertEqual(table.to_rows(), [{"number": 1, "label": "one"}])
 
 
 if __name__ == "__main__":

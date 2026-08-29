@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[allow(dead_code)]
 mod support;
@@ -6,6 +10,46 @@ mod support;
 #[allow(dead_code)]
 #[path = "support/test_home.rs"]
 mod test_home;
+
+fn response(output: std::process::Output) -> serde_json::Value {
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    response
+}
+
+fn repository_path(relative: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(relative)
+        .canonicalize()
+        .unwrap()
+}
+
+fn assert_cpython_314(python: &Path) {
+    let output = Command::new(python)
+        .args([
+            "-c",
+            "import sys; print(f'{sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}')",
+        ])
+        .output()
+        .expect("inspect Workflow Host Python");
+    assert!(
+        output.status.success(),
+        "Workflow Host Python inspection failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "cpython 3.14",
+        "Trace Streamer E2E requires CPython 3.14"
+    );
+}
 
 #[test]
 #[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
@@ -17,7 +61,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         std::env::var_os("KAT_TEST_WORKFLOW_WHEEL")
             .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
     );
-    support::assert_cpython_314(&python);
+    assert_cpython_314(&python);
     let temporary = tempfile::tempdir().unwrap();
     let (_skill, binary) = support::stage_real_host_skill(
         temporary.path(),
@@ -27,12 +71,12 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
     );
     let source = temporary.path().join("trace-streamer.db");
     fs::copy(
-        support::repository_path("../datasource/tests/fixtures/trace-streamer-thread-cpu-time.db"),
+        repository_path("../datasource/tests/fixtures/trace-streamer-thread-cpu-time.db"),
         &source,
     )
     .unwrap();
     let dataset = temporary.path().join("dataset");
-    let pack = support::repository_path("../../packs/kat-openharmony-thread-cpu-time");
+    let pack = repository_path("../../packs/kat-openharmony-thread-cpu-time");
 
     let mut import = Command::new(&binary);
     import
@@ -42,7 +86,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         .args(["--dataset"])
         .arg(&dataset);
     test_home::configure(&mut import, temporary.path());
-    let imported = support::response(import.output().unwrap());
+    let imported = response(import.output().unwrap());
     assert_eq!(
         imported["result"]["path"],
         dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
@@ -51,7 +95,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
     let mut inspect_dataset = Command::new(&binary);
     inspect_dataset.args(["inspect", "--dataset"]).arg(&dataset);
     test_home::configure(&mut inspect_dataset, temporary.path());
-    let inspection = support::response(inspect_dataset.output().unwrap());
+    let inspection = response(inspect_dataset.output().unwrap());
     assert_eq!(
         inspection["result"]["tables"]
             .as_array()
@@ -72,7 +116,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         ])
         .arg(&pack);
     test_home::configure(&mut inspect_pack, temporary.path());
-    let pack_inspection = support::response(inspect_pack.output().unwrap());
+    let pack_inspection = response(inspect_pack.output().unwrap());
     assert_eq!(
         pack_inspection["result"]["workflows"][0]["name"],
         "thread-cpu-time"
@@ -106,7 +150,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
     .args(["--dataset"])
     .arg(&dataset);
     test_home::configure(&mut run, temporary.path());
-    let ran = support::response(run.output().unwrap());
+    let ran = response(run.output().unwrap());
     assert_eq!(
         ran["result"]["outputs"]["thread_cpu_time_by_cpu"]["row_count"],
         3
@@ -143,7 +187,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
     let mut query = Command::new(&binary);
     query.args(["query", "--run", run_id, "--sql", sql]);
     test_home::configure(&mut query, temporary.path());
-    let queried = support::response(query.output().unwrap());
+    let queried = response(query.output().unwrap());
     assert_eq!(
         queried["result"]["rows"],
         serde_json::json!([
