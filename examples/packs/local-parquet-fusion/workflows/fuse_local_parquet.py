@@ -24,7 +24,7 @@ def fuse_local_parquet(
     owners_path: str,
     minimum_score: int = 0,
 ):
-    """显式查询本地 Provider，再融合它们返回的 eager Table。"""
+    """显式查询本地 Provider，再把 eager Table 与磁盘 Catalog 融合。"""
     qualified_events = LocalParquetProvider(
         tables={
             "events": Path(events_path),
@@ -44,17 +44,11 @@ def fuse_local_parquet(
         params={"minimum_score": minimum_score},
     )
 
-    owners = LocalParquetProvider(
-        tables={"owners": Path(owners_path)},
-    ).query(
-        "SELECT owner_id, owner_name FROM owners",
-    )
+    owners = ds.open(tables={"owners": Path(owners_path)})
 
     return ds.DataFusionProvider(
-        tables={
-            "qualified_events": qualified_events,
-            "owners": owners,
-        }
+        tables={"qualified_events": qualified_events},
+        catalog=owners,
     ).query(
         """
         SELECT

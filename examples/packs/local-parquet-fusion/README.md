@@ -2,9 +2,9 @@
 
 这个 External PACK 展示本地 Datasource 的最小完整形态：PACK 在顶层
 `datasources/` 中定义普通 `LocalParquetProvider`，把显式 `Mapping[str, Path]` 交给
-`ds.open()`，再用 `ds.DataFusionProvider(catalog=...)` 查询 Catalog。Workflow 直接
-构造并调用两个 Provider，最后把查询得到的 eager `ds.Table` 显式交给另一个
-`ds.DataFusionProvider(tables=...)` 融合。
+`ds.open()`，再用 `ds.DataFusionProvider(catalog=...)` 查询 Catalog。Workflow 先
+调用 Provider 得到 eager `ds.Table`，然后把该内存 Table 与另一份磁盘 Catalog
+显式交给 `ds.DataFusionProvider(tables=..., catalog=...)` 融合。
 
 示例刻意不从 PACK 根目录扫描或注册 Provider。只有 `tables` mapping 中显式声明的
 名称可被来源 SQL 看到；`ds.open()` 从 Parquet footer 读取物理 Schema，不要求调用方
@@ -16,10 +16,10 @@ Table 会由 Runtime 发布，融合输入不会自动成为 Output。
 
 - `datasources/parquet.py`：PACK 自己定义的普通 Provider 类；内部组合 Catalog 与
   DataFusion 查询能力。
-- `workflows/fuse_local_parquet.py`：显式调用两个 Provider，先在来源内
-  Join/Filter，再用 `ds.DataFusionProvider(tables=...)` 融合查询结果。
+- `workflows/fuse_local_parquet.py`：显式调用 Provider，先在来源内 Join/Filter，
+  再用 `ds.DataFusionProvider(tables=..., catalog=...)` 融合内存结果与磁盘 relation。
 - `tests/test_fuse_local_parquet.py`：生成临时 Parquet fixture，覆盖具名参数、显式
-  可见性、Table 重复读取、单文件与分片目录、跨 Provider 融合。
+  可见性、Table 重复读取、单文件与分片目录、内存 Table 与磁盘 Catalog 融合。
 
 ## 验证
 

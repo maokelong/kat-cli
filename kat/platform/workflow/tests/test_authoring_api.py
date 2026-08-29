@@ -275,10 +275,12 @@ class AuthoringApiTest(unittest.TestCase):
             (inspect.getdoc(kat.Context.datasource_root) or "").split()
         )
         for boundary in (
-            "PACK's long-lived Datasource storage root",
+            "PACK's private Datasource storage root",
             "KAT_DATA_HOME/datasources/<pack-name>/",
             "isolated to the current pytest test",
             "valid only for this Workflow execution",
+            "temporary per-Workflow workspace",
+            "instead of treating old files as cache",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, datasource_root_documentation)

@@ -14,6 +14,9 @@ from .._identifiers import valid_table_name
 from ._table import Table
 
 
+_CATALOG_CONSTRUCTION_TOKEN = object()
+
+
 def write(tables: Mapping[str, Table], *, destination: Path) -> None:
     """Synchronously write a named Table mapping to a new flat directory."""
     _require_path(destination, "destination")
@@ -86,7 +89,7 @@ def open(
         table_name: _open_relation(table_name, paths)
         for table_name, paths in paths_by_table.items()
     }
-    return Catalog(relations)
+    return Catalog(relations, _token=_CATALOG_CONSTRUCTION_TOKEN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +111,17 @@ class Catalog:
 
     __slots__ = ("__relations", "__tables")
 
-    def __init__(self, relations: Mapping[str, _Relation]) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError("Catalog cannot be subclassed")
+
+    def __init__(
+        self,
+        relations: Mapping[str, _Relation],
+        *,
+        _token: object | None = None,
+    ) -> None:
+        if _token is not _CATALOG_CONSTRUCTION_TOKEN:
+            raise TypeError("ds.Catalog values are created by ds.open")
         snapshot = dict(relations.items())
         object.__setattr__(
             self,
@@ -128,15 +141,74 @@ class Catalog:
     def _relation_items(self) -> tuple[tuple[str, _Relation], ...]:
         return tuple(self.__relations.items())
 
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("Catalog attributes are immutable")
+
 
 def _open_relation(table_name: str, paths: tuple[Path, ...]) -> _Relation:
     physical = _read_and_validate_parts(table_name, paths)
+    for field in physical:
+        if not _is_catalog_scan_type(field.type):
+            raise TypeError(
+                f"Parquet table {table_name!r} column {field.name!r} has "
+                f"unsupported Catalog Arrow type {field.type}"
+            )
     relation = _Relation(paths, physical)
-    # Constructing the Dataset checks that PyArrow can represent this physical
-    # Parquet relation without reading its data rows. The short-lived DataFusion
-    # Session is deliberately deferred to DataFusionProvider.query().
+    # 构造 Dataset 只验证 PyArrow 可按已准入 Schema 描述这些路径，不创建
+    # DataFusion Session，也不读取数据行。
     relation.dataset()
     return relation
+
+
+def _is_catalog_scan_type(data_type: pa.DataType) -> bool:
+    if isinstance(data_type, pa.BaseExtensionType):
+        return False
+    if (
+        pa.types.is_null(data_type)
+        or pa.types.is_boolean(data_type)
+        or pa.types.is_integer(data_type)
+        or pa.types.is_floating(data_type)
+        or pa.types.is_string(data_type)
+        or pa.types.is_large_string(data_type)
+        or _matches_arrow_type("is_string_view", data_type)
+        or pa.types.is_binary(data_type)
+        or pa.types.is_large_binary(data_type)
+        or _matches_arrow_type("is_binary_view", data_type)
+        or pa.types.is_fixed_size_binary(data_type)
+        or pa.types.is_date(data_type)
+        or pa.types.is_time(data_type)
+        or pa.types.is_timestamp(data_type)
+        or pa.types.is_duration(data_type)
+        or pa.types.is_decimal(data_type)
+    ):
+        return True
+    if (
+        pa.types.is_list(data_type)
+        or pa.types.is_large_list(data_type)
+        or pa.types.is_fixed_size_list(data_type)
+    ):
+        return _is_catalog_scan_type(data_type.value_type)
+    if pa.types.is_struct(data_type):
+        return all(
+            type(field.name) is str
+            and bool(field.name)
+            and _is_catalog_scan_type(field.type)
+            for field in data_type
+        )
+    if pa.types.is_map(data_type):
+        return _is_catalog_scan_type(data_type.key_type) and _is_catalog_scan_type(
+            data_type.item_type
+        )
+    if pa.types.is_dictionary(data_type):
+        return _is_catalog_scan_type(
+            data_type.index_type
+        ) and _is_catalog_scan_type(data_type.value_type)
+    return False
+
+
+def _matches_arrow_type(predicate_name: str, data_type: pa.DataType) -> bool:
+    predicate = getattr(pa.types, predicate_name, None)
+    return bool(predicate and predicate(data_type))
 
 
 def _require_path(path: object, name: str) -> None:
@@ -180,6 +252,10 @@ def _read_and_validate_parts(
     first: pa.Schema | None = None
     for path in paths:
         physical = pq.read_schema(path)
+        if any(type(field.name) is not str or not field.name for field in physical):
+            raise ValueError(
+                f"Parquet table {table_name!r} must use non-empty column names"
+            )
         if first is None:
             first = physical
         elif not physical.equals(first, check_metadata=False):

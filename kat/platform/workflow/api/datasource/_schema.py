@@ -78,6 +78,7 @@ def _freeze_table_schema(schema: Mapping[str, object]) -> Mapping[str, object]:
     for column_name, annotation in list(schema.items()):
         if type(column_name) is not str or not column_name:
             raise ValueError("Datasource column names must be non-empty strings")
+        _require_utf8_text(column_name, location="Datasource column name")
         _logical_type(annotation)
         columns[column_name] = annotation
     if not columns:
@@ -144,10 +145,20 @@ def _normalize_python_value(
         if not _INT64_MIN <= value <= _INT64_MAX:  # type: ignore[operator]
             raise ValueError(f"{location} is outside the signed int64 range")
         return value
+    if logical_type is str:
+        return _require_utf8_text(value, location=location)  # type: ignore[arg-type]
     if logical_type is datetime:
         return _datetime_nanoseconds(value, location=location)  # type: ignore[arg-type]
     if logical_type is Decimal:
         return _canonical_decimal(value, location=location)  # type: ignore[arg-type]
+    return value
+
+
+def _require_utf8_text(value: str, *, location: str) -> str:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(f"{location} must be valid UTF-8 text") from None
     return value
 
 

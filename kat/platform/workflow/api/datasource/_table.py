@@ -14,6 +14,7 @@ from ._schema import (
     _freeze_table_schema,
     _logical_type,
     _normalize_python_value,
+    _require_utf8_text,
     _rescale_decimal,
 )
 
@@ -194,7 +195,7 @@ def _normalize_physical_value(
         or _is_string_view(data_type)
     ):
         _require_exact_type(value, str, location=location)
-        return value
+        return _require_utf8_text(value, location=location)
     if pa.types.is_binary(data_type) or pa.types.is_large_binary(data_type):
         _require_exact_type(value, bytes, location=location)
         return value

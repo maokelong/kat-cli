@@ -9,4 +9,3 @@ status: accepted
 Provider 保留构造参数中 Table 与 Catalog 的普通 Python 强引用。Provider 存活期间，这些输入及其必要 backing 不会因调用方删除原变量而释放；Provider 离开作用域且不存在其他引用后，再按普通 Python 生命周期回收，不要求日常显式 `del`。两次查询之间对输入 Table 的追加会被后一次查询观察到，但不会改变前一次查询的输入快照或结果 Table。
 
 这项边界以构造新对象表达 relation 集合变化，避免重新引入 operation catalog、Binding 或隐式全局注册，同时允许同一组稳定来源重复执行不同 SQL。它细化 ADR-0065 的 Table 快照和引用语义、ADR-0066 的短命 Session 语义，以及 ADR-0067 的 Catalog 输入边界。
-

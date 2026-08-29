@@ -141,7 +141,7 @@ def test_workflow_binds_source_query_parameters(kat_run, tmp_path):
     ]
 
 
-def test_workflow_fuses_tables_from_separate_providers(kat_run, tmp_path):
+def test_workflow_fuses_memory_table_with_parquet_catalog(kat_run, tmp_path):
     result = _run(kat_run, _catalog(tmp_path), minimum_score=0)
 
     assert result.to_pylist() == [

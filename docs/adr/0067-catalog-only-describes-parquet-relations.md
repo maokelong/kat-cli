@@ -15,4 +15,3 @@ Catalog 只公开按 relation name 排序的 `catalog.tables -> tuple[str, ...]`
 `DataFusionProvider.query()` 是新 Datasource 唯一的本地 SQL 入口。它在每次调用的短命 Session 中注册 Catalog relation 和内存 Table，直接扫描 SQL 实际使用的 Parquet 数据，并 eager 返回标准 `ds.Table`。Catalog relation name 来自 `ds.open(tables=...)` 的 Mapping key 或 `ds.open(root=...)` 发现的文件 stem，内存 relation name 来自 `tables` Mapping；两个集合必须无重名，不能覆盖或 shadow。
 
 这项拆分让 Datasource Schema 只负责 Python Table 的构造合同，让 Catalog 负责 Parquet 发现、路径绑定、footer 与物理 Schema admission，再由 DataFusion Provider 统一负责内存、磁盘和混合查询。打开已有文件不要求作者重复声明一份 Schema，也不增加 sidecar 或 Manifest。它细化 ADR-0066，并取代本文 SDD 先前为 `ds.Catalog.query()` 赋予本地查询能力的决定；远端 Datasource Provider 的来源 SQL 与迁移期旧 Dataset `ctx.sql()` 均不受其接管。
-

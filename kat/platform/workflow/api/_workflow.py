@@ -54,12 +54,13 @@ class Context:
 
     @property
     def datasource_root(self) -> Path:
-        """Return this PACK's long-lived Datasource storage root.
+        """Return this PACK's private Datasource storage root.
 
         Production executions receive
         ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
         isolated to the current pytest test. The path capability is valid only
-        for this Workflow execution.
+        for this Workflow execution. File Providers should create a temporary
+        per-Workflow workspace below it instead of treating old files as cache.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 

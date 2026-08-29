@@ -42,6 +42,7 @@ class SchemaTest(unittest.TestCase):
             {"BadName": {"value": int}},
             {"con": {"value": int}},
             {"events": {"": int}},
+            {"events": {"\ud800": str}},
             {"events": {1: int}},
             {"events": {"value": object}},
             {"events": {"value": int | str}},
@@ -119,6 +120,7 @@ class PythonTableTest(unittest.TestCase):
             {"left": True, "right": "two", "optional": None},
             {"left": 2**63, "right": "two", "optional": None},
             {"left": 2, "right": str.__new__(type("Text", (str,), {}), "two"), "optional": None},
+            {"left": 2, "right": "\ud800", "optional": None},
             {"left": 2, "right": "two", "optional": bytearray(b"x")},
         ]
         for row in invalid_rows:
@@ -419,6 +421,7 @@ class ArrowTableTest(unittest.TestCase):
             (pa.float16(), 70_000.0),
             (pa.float32(), 3.5e38),
             (pa.string(), str.__new__(type("Text", (str,), {}), "text")),
+            (pa.string(), "\ud800"),
             (pa.binary(), bytearray(b"bytes")),
             (pa.timestamp("ns", tz="UTC"), datetime(2026, 8, 28)),
             (pa.timestamp("ns", tz="UTC"), "2026-08-28T00:00:00Z"),

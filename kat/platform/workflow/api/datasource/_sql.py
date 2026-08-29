@@ -15,6 +15,7 @@ from .._temporal import (
     _duration_nanoseconds,
     _wall_clock_nanoseconds,
 )
+from ._schema import _datetime_nanoseconds
 from ._table import Table
 
 
@@ -27,7 +28,6 @@ _READ_ONLY = (
 )
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
-_UNIX_EPOCH = datetime(1970, 1, 1)
 
 
 def prepare_query(
@@ -49,8 +49,8 @@ def execute_sql(
     frame = session.sql(sql, options=_READ_ONLY, param_values=dict(values))
     planned_schema = frame.schema()
 
-    # Result admission is deliberately performed from the planned schema before
-    # collect(), so a wide Catalog projection fails without scanning data pages.
+    # collect() 前先按计划结果 Schema 准入，使宽 Catalog 投影无需扫描数据页
+    # 即可失败。
     Table.from_arrow(pa.Table.from_batches([], schema=planned_schema))
 
     batches = frame.collect()
@@ -90,7 +90,7 @@ def _sql_scalar(name: str, value: object) -> object:
         return pa.scalar(value, type=pa.binary())
     if type(value) is datetime:
         return pa.scalar(
-            _datetime_nanoseconds(value, name=name),
+            _datetime_nanoseconds(value, location=f"SQL parameter {name!r}"),
             type=pa.timestamp("ns", tz="UTC"),
         )
     if type(value) is WallClockTimestamp:
@@ -106,32 +106,6 @@ def _sql_scalar(name: str, value: object) -> object:
         f"SQL parameter {name!r} must be bool, int64, finite float, str, bytes, "
         "aware datetime, WallClockTimestamp, finite Decimal, or Duration"
     )
-
-
-def _datetime_nanoseconds(value: datetime, *, name: str) -> int:
-    try:
-        offset = value.utcoffset()
-    except Exception as error:
-        raise ValueError(
-            f"SQL parameter {name!r} must have a valid UTC offset"
-        ) from error
-    if offset is None:
-        raise ValueError(f"SQL parameter {name!r} must be an aware datetime")
-
-    try:
-        utc_value = value.replace(tzinfo=None) - offset
-        delta = utc_value - _UNIX_EPOCH
-    except (OverflowError, ValueError) as error:
-        raise ValueError(
-            f"SQL parameter {name!r} cannot be normalized to UTC"
-        ) from error
-    nanoseconds = (
-        (delta.days * 86_400 + delta.seconds) * 1_000_000_000
-        + delta.microseconds * 1_000
-    )
-    if not _INT64_MIN <= nanoseconds <= _INT64_MAX:
-        raise ValueError(f"SQL parameter {name!r} is outside timestamp(ns) range")
-    return nanoseconds
 
 
 def _decimal_scalar(value: Decimal, *, name: str) -> pa.Decimal128Scalar | pa.Decimal256Scalar:
@@ -151,6 +125,8 @@ def _decimal_scalar(value: Decimal, *, name: str) -> pa.Decimal128Scalar | pa.De
     if exponent >= 0:
         precision = len(digits) + exponent
         scale = 0
+        if precision > 76:
+            raise ValueError(f"SQL parameter {name!r} exceeds Decimal256 precision")
         normalized_digits = (*digits, *((0,) * exponent))
     else:
         scale = -exponent

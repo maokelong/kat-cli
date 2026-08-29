@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 import tempfile
 import unittest
+import uuid
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -90,6 +91,8 @@ class DatasourceParquetTest(unittest.TestCase):
         self.assertFalse(hasattr(catalog, "query"))
         self.assertFalse(hasattr(catalog, "schema"))
         self.assertFalse(hasattr(catalog, "close"))
+        with self.assertRaisesRegex(TypeError, "ds.open"):
+            ds.Catalog({})  # type: ignore[arg-type]
 
     def test_datafusion_provider_reuses_immutable_memory_bindings_with_fresh_snapshots(
         self,
@@ -169,6 +172,9 @@ class DatasourceParquetTest(unittest.TestCase):
             ds.DataFusionProvider(tables={"events": object()})
         with self.assertRaisesRegex(ValueError, "overlap"):
             ds.DataFusionProvider(tables={"events": table}, catalog=catalog)
+        with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+            class CustomCatalog(ds.Catalog):
+                pass
 
         fusion = ds.DataFusionProvider(tables={"events": table})
         for method in ("register", "remove", "replace"):
@@ -232,6 +238,7 @@ class DatasourceParquetTest(unittest.TestCase):
             timedelta(seconds=1),
             Decimal("NaN"),
             Decimal("1E-77"),
+            Decimal("1E+1000000"),
             pa.scalar(1),
             [1],
         )
@@ -346,6 +353,29 @@ class DatasourceParquetTest(unittest.TestCase):
         damaged.write_bytes(b"not parquet")
         with self.assertRaises(Exception):
             ds.open(tables={"events": damaged})
+
+        empty_column = self.root / "empty-column.parquet"
+        self.write_parquet(
+            empty_column,
+            pa.Table.from_arrays([pa.array([1])], names=[""]),
+        )
+        with self.assertRaisesRegex(ValueError, "column name"):
+            ds.open(tables={"events": empty_column})
+
+        extension = self.root / "extension.parquet"
+        self.write_parquet(
+            extension,
+            pa.table(
+                {
+                    "value": pa.array(
+                        [uuid.UUID(int=0)],
+                        type=pa.uuid(),
+                    )
+                }
+            ),
+        )
+        with self.assertRaisesRegex(TypeError, "unsupported Catalog Arrow type"):
+            ds.open(tables={"events": extension})
 
 
 if __name__ == "__main__":

@@ -9,4 +9,3 @@ status: accepted
 文件 Provider 的 `decode()` 使用 fail-closed 状态转换：入口先清空 ready/backend，删除调用方明确交给该实例独占的旧目标；parse、write、schema-less `open()`、预期 relation 绑定与查询 backend 构造全部在局部变量中完成，只有全部成功后才一次提交。任何失败都保持未准备并尽力清理本次产物；后续 `query()` 报来源未准备，调用方可以重新 `decode()`。不回退旧 Catalog，也不允许同一 Provider 或同一独占路径上的并发 decode/query。
 
 这个边界让 Catalog 的 live path view 在使用期间保持不变，使失败不会留下仍显示 ready 的旧 backend，也符合可重建本地产物只在当前进程生命周期内可信的仓库原则。Provider 仍是 PACK 普通类，KAT 不增加 Provider protocol、Runtime 自动 close、cache registry、Manifest 或原子发布协议；普通 Python 与 PACK pytest 可以用 `TemporaryDirectory` 或 `tmp_path` 执行同一流程。
-

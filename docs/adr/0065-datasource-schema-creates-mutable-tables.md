@@ -15,4 +15,3 @@ Arrow/query Table 的 append 先由 KAT 按实际物理列类型检查精确 Pyt
 Schema、同步 Parquet 写入、Catalog 和已经完成的 Fusion query 都不隐藏持有调用方的输入 Table。Table 及其 Arrow buffers 只按普通 Python 强引用存活；局部构建和落盘函数返回后自然可释放，显式 `del` 不是公共工作流的一部分。
 
 本决定取代 ADR-0064 中 `ds.Table` 不可变的部分；显式 relation、call-local Fusion Session 和 eager 查询结果合同由 ADR-0066 的 DataFusion Provider 继续承接。
-

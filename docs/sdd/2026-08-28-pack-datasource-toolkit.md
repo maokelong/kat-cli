@@ -480,6 +480,8 @@ KAT 首版不提供通用 DB-API、ADBC 或数据库 executor helper。数据库
 
 `ds.open()` 不把已有 Parquet 的列映射回 Python Datasource Schema，也不要求已有 Parser 使用 `ds.write()` 或 D41 的规范物理编码。它直接从 footer 取得并保留锁定 DataFusion 可以扫描的 Arrow/Parquet 物理 Schema；除标准标量外，首版至少验证 list、struct、date 与 duration 可以作为 Catalog 来源列。打开不构造标准 Table，也不修改或重新编码来源文件。
 
+首版 Catalog 的锁定扫描集合包括 Arrow 标准标量、date/time/timestamp/duration/decimal、递归 list/fixed-size-list/large-list、struct、map 与 dictionary；extension、union、interval、run-end encoding、list-view 及其他未列类型拒绝。该集合由 footer 递归准入固定，不通过构造全局或短命 DataFusion Session 探测。
+
 同一张显式分片表的所有 Parquet part 必须具有一致的物理 Arrow Schema，使 DataFusion 可以把它们作为一张关系读取；一致性比较忽略无业务语义的 Arrow field/schema metadata。`ds.write()` 采用 D3、D44 与 D45 的规范编码；这些选择只是新写 Python 数据的确定默认值，不是 binary Parser 的接入格式要求。Catalog 宽列只有在 SQL 最终结果被投影、展开或 cast 为 D41 类型后才能形成 `ds.Table`。
 
 ### D20：Provider 不接收 Workflow Context

@@ -146,10 +146,7 @@ def run_loaded_workflow(
         raise WorkflowExecutionFailure() from error
     clock = ClockCapability(dataset)
 
-    operation = WorkflowOperation(
-        candidate_path,
-        datasource_root,
-    )
+    operation = WorkflowOperation(datasource_root)
     context = WorkflowContext(session, operation, clock)
     try:
         with workflow_logging(candidate_id, pack_name, workflow_name):
@@ -158,7 +155,7 @@ def run_loaded_workflow(
             except (Exception, SystemExit) as error:
                 raise WorkflowExecutionFailure() from error
             try:
-                outputs = materialize_outputs(value, operation)
+                outputs = materialize_outputs(value, candidate_path)
             except (Exception, SystemExit) as error:
                 raise WorkflowExecutionFailure() from error
     finally:

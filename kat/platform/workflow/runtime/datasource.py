@@ -12,11 +12,9 @@ class WorkflowOperation:
 
     def __init__(
         self,
-        candidate_path: Path,
         datasource_root: Path,
     ) -> None:
         self._datasource_root = datasource_root
-        self._output_root = candidate_path / "outputs"
         self._active = True
 
     def require_active(self) -> None:
@@ -39,11 +37,6 @@ class WorkflowOperation:
         if resolved != root or resolved.parent != parent or not resolved.is_dir():
             raise RuntimeError("Datasource root is not a canonical directory")
         return resolved
-
-    @property
-    def output_root(self) -> Path:
-        self.require_active()
-        return self._output_root
 
     def expire(self) -> None:
         self._active = False

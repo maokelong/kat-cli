@@ -36,7 +36,7 @@ class DataFusionProvider:
                         f"Fusion relation {relation_name!r} must be a ds.Table"
                     )
 
-        if catalog is not None and not isinstance(catalog, Catalog):
+        if catalog is not None and type(catalog) is not Catalog:
             raise TypeError("catalog must be a ds.Catalog or None")
         if not memory and catalog is None:
             raise ValueError("DataFusionProvider requires tables or catalog")
@@ -65,9 +65,8 @@ class DataFusionProvider:
         prepared_sql, values = prepare_query(sql, params)
         session = SessionContext()
 
-        # Keep each exported Arrow snapshot and Dataset alive until collect()
-        # completes. A later append creates another Table snapshot and is visible
-        # only to the next query call.
+        # 在 collect() 完成前保留 Arrow 快照和 Dataset；后续 append 形成的新
+        # 快照只对下一次 query 可见。
         arrow_snapshots: list[pa.Table] = []
         datasets: list[pads.Dataset] = []
         for relation_name, table in self.__tables.items():
