@@ -624,6 +624,12 @@ Datasource Schema 首版接受 `decimal.Decimal` 与 `decimal.Decimal | None`。
 
 `ds.open()` 的逻辑 Decimal 接受 D41 准入的 Decimal128/Decimal256 及其既有 precision/scale，不重写物理类型。首版不增加 `ds.Decimal(precision, scale)`、`typing.Annotated` metadata 或第二种 Schema DSL；若固定 Writer 编码不能覆盖后续真实 Python Parser，再从同一个 Python Schema 模型增量扩展。
 
+### D46：PR #229 用三个独立 Example PACK 验证三类 Provider
+
+第二个交付切片不再只包含 PostgreSQL，而是分别提供远端数据库、Python 文件解析和外部二进制解析三个可复制的 Example PACK。三者只在 eager `ds.Table` 结果处收敛，不新增 Provider 基类、Protocol、Executor 或统一生命周期：PostgreSQL Provider 直接执行远端 SQL；Ftrace 文本 Provider 通过 `ds.Schema`、`ds.write()` 和 `ds.open()` 形成多表 Parquet catalog；Trace Streamer Provider 调用外部程序生成 SQLite，并用来源自己的只读 SQL 查询后按显式 Python Schema 形成 Table。
+
+两个文件 Provider 的 `decode()` 每次只重建 Workflow 从 `ctx.datasource_root` 派生、明确交给该 Provider 独占的物化目录。首版不复用跨进程旧产物，不增加 cache key、manifest、原子替换或恢复协议。Ftrace 大样本、Htrace、Trace Streamer 可执行文件、生成数据库和 sidecar 都是外部测试输入，不进入仓库。
+
 ## 7. 迁移范围
 
 ### 7.1 公共接口迁移
@@ -671,7 +677,7 @@ Datasource Schema 首版接受 `decimal.Decimal` 与 `decimal.Decimal | None`。
 | `kat-openharmony-thread-cpu-time` | `ctx.sql()` 结果直接作为 `ds.Table` Output |
 | `kat-openharmony-critical-path` | SQL 参数改为 `params={...}`，按需要使用 `Table.to_rows()` 或显式 Arrow/DataFrame bridge |
 | PR #228 Provider 测试 | 删除 facade、自动注册、name/backing、poison 与 executor close 合同，改测 Toolkit、call-local Fusion 与最终 Output |
-| PostgreSQL 案例分支 | 在后续 PR 基于新 PR #228 重写，不把旧 `SourceExecutor` 兼容层带入新设计 |
+| PR #229 Provider 案例分支 | 分别提交 PostgreSQL、Python Ftrace 文本和 Trace Streamer SQLite 三个独立 Example PACK，不把旧 `SourceExecutor` 兼容层或 Rust Data Import 带入新设计 |
 
 Issue #226、PR #228 描述与相关 ADR 必须先同步为本文模型，再实现代码；交付说明不能继续承诺 Provider facade、自动注册或 lazy `ctx.sql()`。
 
@@ -680,9 +686,9 @@ Issue #226、PR #228 描述与相关 ADR 必须先同步为本文模型，再实
 | 切片 | 交付内容 | 明确不包含 | 完成证明 |
 |---|---|---|---|
 | PR #228：Toolkit 与本地融合 | `kat.datasource`；Schema、Table、`table()`、Arrow bridge、Writer、`open()`、Catalog；顶层 PACK `datasources/`；call-local eager `ctx.sql()`；Table Output；仓库内 breaking migration；Bundled PACK 迁移；本地 Parquet Provider 与融合案例 | PostgreSQL Provider、ADBC 依赖、远端服务测试；旧 Dataset/Import 删除；Hitrace/Ftrace 迁移 | Python 合同测试、Runtime 子进程测试、External PACK 用户链、Bundled PACK 回归、Linux/Windows Full CI |
-| 后续 PostgreSQL PR | 顶层 `datasources/postgresql.py` 普通 Provider；锁定 ADBC 依赖；动态 Arrow 结果经 `ds.from_arrow()` 形成 Table；同一 service 依次查询两个 Database 并与本地 Parquet 融合；作者 README；真实服务测试 | 通用 DB executor、数据库 registry、统一事务协议、透明 federation、Docker 生命周期管理 | Linux 与 Windows 的真实 PostgreSQL Provider 合同、External PACK inspect/test/run/query 全链与脱敏证据 |
+| PR #229：三类 Provider 案例 | 三个独立 Example PACK：PostgreSQL 远端 SQL；Python Ftrace 文本流式解析到多表 Parquet；Trace Streamer 外部二进制解析到 SQLite 后按显式结果 Schema 查询；各自 README、Workflow 与 PACK pytest | 通用 Provider/Parser 框架；数据库 registry；透明 federation；Rust Data Import 迁移；跨进程物化缓存；提交外部样本、二进制或生成数据库 | PACK pytest 公共 Interface；PostgreSQL 现有合同；真实 Ftrace 样本 44,344 条事件；真实 Trace Streamer 4.3.7 生成 SQLite 并验证 `native_hook` 聚合；本地 Workflow Output |
 
-PR #228 必须独立形成可运行的本地纵向切片。后续 PostgreSQL PR 不重新设计核心接口，只证明普通远端 Provider 能复用同一 Table、Output 与 Fusion 边界。
+PR #228 必须独立形成可运行的本地纵向切片。PR #229 不重新设计核心接口，只用三种不同来源证明普通 PACK Provider 能复用同一 Schema、Table、Output 与 Fusion 边界。
 
 ## 9. 明确不做
 
@@ -697,7 +703,8 @@ PR #228 必须独立形成可运行的本地纵向切片。后续 PostgreSQL PR 
 - 不把 `ds.Table` 扩张成 DataFrame，不增加 filter、select、group-by、表达式或 mutation API；
 - 不在首版扩张 D3、D44、D45 的七种 Python Schema 逻辑类型；高级类型只通过 Arrow bridge 或查询结果保留；
 - 不在本切片删除 `ctx.from_arrow()`、DataFrame Output、旧 Dataset、`required_tables`、Test Dataset 或 `kat import`；
-- 不迁移现有 Hitrace/Ftrace/native Parser，也不改变 Rust Datasource 的现有 Import 合同；
+- 不迁移或复用现有 Rust Hitrace/Ftrace/native Parser，也不改变 Rust Datasource 与 `kat import` 的现有合同；PR #229 的 Ftrace 与 Trace Streamer 只作为 PACK Python Provider 案例；
+- 不提交真实 Ftrace/Htrace、大型 Trace Streamer 可执行文件、其依赖 DLL、生成 SQLite 或 sidecar；
 - 不建立 Datasource materialization 的 manifest、版本、迁移、锁、恢复、原子发布或平台清理框架；
 - 不增加跨 PACK import、PACK 依赖系统或逐 PACK Python 环境；
 - 不实现自动重试、备用 Provider、跨 Provider 并行或查询缓存；
@@ -744,7 +751,7 @@ cargo test --locked -p kat-cli --test trace_streamer_demo trace_streamer_demo_ru
 
 真实 Host 条件下还应执行两个 Bundled PACK 的 `kat test`，以及本地案例 README 中的 inspect、test、run、query 命令。PR 描述必须记录实际命令、平台与结果，不能只列计划。
 
-### 10.2 后续 PostgreSQL PR
+### 10.2 PR #229：三类 Provider 案例
 
 | 边界 | 必须验证 |
 |---|---|
@@ -759,11 +766,21 @@ cargo test --locked -p kat-cli --test trace_streamer_demo trace_streamer_demo_ru
 | 测试归属 | Provider、Workflow 与融合案例只由 example PACK 的 pytest 维护并使用生产 Provider；Rust 只保留通用 CLI/Runtime 合同测试，不增加 PostgreSQL PACK 专用测试目标 |
 | 用户链 | `kat test` 执行 PACK pytest，并通过 `kat_run` 覆盖单源 Output 与多源融合，不使用 test-only Provider |
 | 平台 | 需要真实服务证据时，Linux、Windows 分别用同一套 PACK pytest 执行；测试未执行或被 skip 不构成支持证据 |
+| Example PACK 分布 | PostgreSQL、Ftrace 文本与 Trace Streamer SQLite 分别拥有独立 `pack.toml`、`datasources/`、`workflows/`、`tests/` 与 README；各自前置条件互不污染 |
+| Ftrace Schema | 用基础 Python 类型声明 `capture` 与 `events` 两张表；`timestamp_ns` 是 trace clock 的整数读数，不声明为 UTC datetime |
+| Ftrace decode | 单遍按行解析并分 batch 交给 `ds.write()`；坏行带行号失败；成功后 `ds.open()`；每次只重建 Provider 独占目录 |
+| Ftrace query/Output | `query()` 委托 Catalog，返回可重复读取的 Table；小 fixture 覆盖公共合同，真实样本验证 44,344 条事件、4 个 CPU 和 Workflow Output |
+| Trace Streamer decode | 使用参数数组而非 shell 执行 `trace_streamer <trace> -e <output.db>`；在 fresh Provider 目录中生成 DB；本次退出成功、DB 存在且 SQLite 完整性检查通过后才 ready；失败残留不伪装为成功 |
+| Trace Streamer query | 标准库 `sqlite3` 以只读模式执行来源 SQL，调用方用基础 Python 类型显式声明结果 Schema；完整读取并关闭数据库后通过 `ds.table()` 返回 eager Table；不整体转 Parquet，不增加 ADBC SQLite 依赖 |
+| Trace Streamer 真实样本 | 用外部 Trace Streamer 4.3.7 与 Htrace 生成 SQLite，验证 `native_hook` 聚合结果；外部 exe、DLL、Htrace、DB 与 sidecar 不提交 |
+| 测试归属 | 三个案例的 Provider、Workflow、真实来源与错误行为都由各自 PACK pytest 维护；不增加案例专用 Rust 测试或平台 pytest 包装 |
 
 建议记录真实环境命令：
 
 ```text
 kat test --pack-dir ./examples/packs/postgresql-parquet-fusion
+kat test --pack-dir ./examples/packs/ftrace-text-provider
+kat test --pack-dir ./examples/packs/trace-streamer-sqlite-provider
 ```
 
-需要声明 Linux 与 Windows 的真实 PostgreSQL 支持时，以上 PACK pytest 必须在两端各执行一次，并在 PR 中记录实际通过结果、Workflow Host wheel、服务配置方式，以及秘密未进入 pytest 公开错误与 Runtime Response 的检查结果。平台通用的 Operation log、Run Manifest 与 KAT Data Home 边界继续由既有 CLI/Runtime 测试负责，不在 PACK 中复制。
+需要声明 Linux 与 Windows 的真实 PostgreSQL 支持时，对应 PACK pytest 必须在两端各执行一次，并在 PR 中记录实际通过结果、Workflow Host wheel、服务配置方式，以及秘密未进入 pytest 公开错误与 Runtime Response 的检查结果。Ftrace 与 Trace Streamer 的本地支持证据必须记录实际外部样本、二进制版本和未 skip 的 PACK pytest 结果。平台通用的 Operation log、Run Manifest 与 KAT Data Home 边界继续由既有 CLI/Runtime 测试负责，不在 PACK 中复制。
