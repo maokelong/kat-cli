@@ -1,0 +1,51 @@
+examples/packs/ftrace-text-provider/tests/test_ftrace_provider.py
+  s_68cb1a3d53c6a1::t_9298373f035e25 3-75
+  s_68cb1a3d53c6a1::t_2dff449b2a9b71 78-161
+  s_68cb1a3d53c6a1::t_df7659ad53ac95 1-2
+  s_68cb1a3d53c6a1::t_2d97ba88c6dac5 76-77
+examples/packs/ftrace-text-provider/tests/test_summarize_ftrace_events.py
+  s_68cb1a3d53c6a1::t_308aeada95330c 1-17
+examples/packs/ftrace-text-provider/tests/real_ftrace.py
+  s_68cb1a3d53c6a1::t_9bcb33d8b5e3af 1-63
+examples/packs/ftrace-text-provider/datasources/ftrace.py
+  s_68cb1a3d53c6a1::t_baeb11b9d51a68 1-39
+  s_68cb1a3d53c6a1::t_7b9637f0aa3958 40-161
+examples/packs/ftrace-text-provider/tests/fixtures/small.ftrace
+  s_68cb1a3d53c6a1::t_df7659ad53ac95 1-8
+examples/packs/ftrace-text-provider/workflows/summarize_ftrace_events.py
+  s_68cb1a3d53c6a1::t_2261cf45b1f239 1-29
+examples/packs/ftrace-text-provider/README.md
+  s_68cb1a3d53c6a1::t_1ec99389e47d91 68-102
+  s_68cb1a3d53c6a1::t_1d6c98133000da 1-67
+examples/packs/ftrace-text-provider/pack.toml
+  s_68cb1a3d53c6a1::t_df7659ad53ac95 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "de363900befe662df01ee0d93a8131f2302c4180",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 545,
+      "total_deletions": 230,
+      "accepted_lines": 545,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
