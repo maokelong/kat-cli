@@ -149,6 +149,7 @@ pub(super) struct RunWorkflowRequest<'a> {
     pub(super) arguments: &'a [String],
     pub(super) candidate_id: &'a str,
     pub(super) candidate_path: &'a str,
+    pub(super) datasource_root: &'a str,
 }
 
 #[derive(Serialize)]

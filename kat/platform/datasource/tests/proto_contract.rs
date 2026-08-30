@@ -222,41 +222,40 @@ fn generated_proto_includes_upstream_sched_messages() {
 }
 
 #[test]
-fn generated_ftrace_event_uses_direct_sched_fields() {
+fn generated_ftrace_event_uses_canonical_event_oneof() {
     let value = proto::kat::hitrace::FtraceEvent {
         timestamp: 10,
         tgid: 500,
         comm: "source".to_string(),
-        sched_switch_format: Some(proto::kat::hitrace::SchedSwitchFormat {
-            prev_comm: "render".to_string(),
-            prev_pid: 42,
-            prev_prio: 120,
-            prev_state: 1,
-            next_comm: "main".to_string(),
-            next_pid: 7,
-            next_prio: 100,
-        }),
-        sched_blocked_reason_format: Some(proto::kat::hitrace::SchedBlockedReasonFormat {
-            pid: 42,
-            caller: 0xfeed_beef,
-            io_wait: 1,
-            caller_str: "finish_task_switch".to_string(),
-        }),
+        event: Some(proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(
+            proto::kat::hitrace::SchedSwitchFormat {
+                prev_comm: "render".to_string(),
+                prev_pid: 42,
+                prev_prio: 120,
+                prev_state: 1,
+                next_comm: "main".to_string(),
+                next_pid: 7,
+                next_prio: 100,
+            },
+        )),
         common_fields: Some(proto::kat::hitrace::ftrace_event::CommonFileds {
             r#type: 123,
             flags: 1,
             preempt_count: 2,
             pid: 42,
         }),
-        ..Default::default()
     };
 
     let decoded =
         proto::kat::hitrace::FtraceEvent::decode(value.encode_to_vec().as_slice()).expect("decode");
 
     assert_eq!(decoded.timestamp, 10);
-    assert!(decoded.sched_switch_format.is_some());
-    assert!(decoded.sched_blocked_reason_format.is_some());
+    assert!(matches!(
+        decoded.event,
+        Some(proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(
+            _
+        ))
+    ));
     let common_fields = decoded.common_fields.expect("common fields decode");
     assert_eq!(common_fields.r#type, 123);
     assert_eq!(common_fields.pid, 42);
@@ -407,15 +406,17 @@ fn generated_ftrace_table_set_routes_direct_events_to_tables() {
                     timestamp: 20,
                     tgid: 500,
                     comm: "source".to_string(),
-                    sched_switch_format: Some(proto::kat::hitrace::SchedSwitchFormat {
-                        prev_comm: "render".to_string(),
-                        prev_pid: 42,
-                        prev_prio: 120,
-                        prev_state: 1,
-                        next_comm: "main".to_string(),
-                        next_pid: 7,
-                        next_prio: 100,
-                    }),
+                    event: Some(proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(
+                        proto::kat::hitrace::SchedSwitchFormat {
+                            prev_comm: "render".to_string(),
+                            prev_pid: 42,
+                            prev_prio: 120,
+                            prev_state: 1,
+                            next_comm: "main".to_string(),
+                            next_pid: 7,
+                            next_prio: 100,
+                        },
+                    )),
                     ..Default::default()
                 },
             ),

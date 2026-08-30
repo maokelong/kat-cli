@@ -278,7 +278,18 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
             .iter()
             .map(|table| table["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["clock_domain", "clock_snapshot", "sched_switch"]
+        [
+            "clock_domain",
+            "clock_snapshot",
+            "profiler_payload_occurrence",
+            "protobuf_enum_symbol",
+            "trace_plugin_result",
+            "trace_plugin_result_ftrace_cpu_detail",
+            "trace_plugin_result_ftrace_cpu_detail_event",
+            "trace_plugin_result_ftrace_cpu_detail_event_sched_switch_format",
+            "trace_plugin_result_ftrace_cpu_stats",
+            "trace_plugin_result_ftrace_cpu_stats_per_cpu_stats",
+        ]
     );
 }
 
@@ -429,7 +440,7 @@ fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
     assert!(log.contains("unsupported plugin \"future-plugin\" at byte "));
     assert!(log.contains("status: failure"));
-    assert!(!dataset.exists());
+    assert!(!dataset.join(".kat-dataset").is_file());
 }
 
 #[test]

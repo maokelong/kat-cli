@@ -1,0 +1,157 @@
+# dist local-artifact 阶段、full-ci PR 与手动冷构建诊断共用的 Platform Payload 编排。
+name: Build KAT Platform Payloads
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: Initial dist manifest; the host job regenerates its upload manifest.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      cold-build:
+        description: 本次运行跳过 Rust 编译缓存
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci') &&
+      github.event.pull_request.number ||
+      github.run_id
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    }}
+
+jobs:
+  release-channel:
+    name: Verify the release channel contract
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
+    runs-on: ubuntu-24.04
+    outputs:
+      app-version: ${{ steps.verify.outputs.app-version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Record the release checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_checkout=$(git rev-parse HEAD)
+          actual_tree=$(git rev-parse HEAD^{tree})
+          test "$actual_checkout" = "$GITHUB_SHA"
+          echo "KAT_RELEASE_CHECKOUT_SHA=${actual_checkout}"
+          echo "KAT_RELEASE_CHECKOUT_TREE=${actual_tree}"
+
+      - name: Install Python 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Verify versions and the initial release channel
+        id: verify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN: ${{ inputs.plan }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "pull_request" ]]; then
+            python -I -B build/verify_release_versions.py
+            version=$(python -I -B -c 'import tomllib; print(tomllib.load(open("release/kat/dist.toml", "rb"))["package"]["version"])')
+          else
+            version=$(jq -er '
+              .releases
+              | map(.app_version)
+              | unique
+              | if length == 1 then .[0] else error("release versions are not unique") end
+            ' <<< "$PLAN")
+
+            test "$EVENT_NAME" = "push"
+            test "$RELEASE_REF_TYPE" = "tag"
+            expected_tag="kat/${version}"
+            test "$RELEASE_REF_NAME" = "$expected_tag"
+            test "$(jq -er '.announcement_tag' <<< "$PLAN")" = "$expected_tag"
+            # plan-stage manifest 只提供早期信号；生成的 host job 从第二份 manifest
+            # 取得 Release 参数，finalizer 再独立核对 GitHub Release 的实际状态。
+            initial_prerelease=$(jq -er '
+              .announcement_is_prerelease
+              | if type == "boolean" then tostring else error("prerelease state is not boolean") end
+            ' <<< "$PLAN")
+            version_without_build="${version%%+*}"
+            if [[ "$version_without_build" == *-* ]]; then
+              expected_prerelease=true
+            else
+              expected_prerelease=false
+            fi
+            test "$initial_prerelease" = "$expected_prerelease"
+            python -I -B build/verify_release_versions.py --tag "$RELEASE_REF_NAME"
+          fi
+
+          echo "app-version=${version}" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    name: Prepare shared Payload inputs
+    needs: release-channel
+    uses: ./.github/workflows/prepare-payload-ci.yml
+
+  build-linux:
+    name: Build Linux Payload
+    needs:
+      - release-channel
+      - prepare
+    uses: ./.github/workflows/build-linux-payload-ci.yml
+    with:
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
+
+  build-windows:
+    name: Build Windows Payload
+    needs:
+      - release-channel
+      - prepare
+    uses: ./.github/workflows/build-windows-payload-ci.yml
+    with:
+      cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
+
+  assemble-and-smoke:
+    name: Assemble and smoke the selected candidate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
+    needs:
+      - release-channel
+      - build-linux
+      - build-windows
+    uses: ./.github/workflows/payload-ci.yml
+    with:
+      app-version: ${{ needs.release-channel.outputs['app-version'] }}

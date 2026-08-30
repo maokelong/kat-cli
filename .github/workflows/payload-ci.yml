@@ -1,179 +1,62 @@
-# CI-only verification for an exact commit. Versioning, checksums, hosting, and
-# GitHub Releases remain owned by dist as decided in ADR-0002.
-name: Verify dual-platform Skill payload
+# Global artifact adapter called by dist after both native payload jobs complete.
+name: Assemble and verify KAT Skill
 
 on:
-  workflow_dispatch:
-  pull_request:
-    types:
-      - labeled
-      - synchronize
-      - reopened
+  workflow_call:
+    inputs:
+      plan:
+        description: Complete dist manifest for tag publication.
+        required: false
+        default: ""
+        type: string
+      app-version:
+        description: Validated KAT release version for the candidate.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  workflow-wheel:
-    name: Build the single Workflow Host wheel
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'full-ci')
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Install Python 3.14
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.14"
-
-      - name: Build and hash the private wheel once
-        run: >-
-          python build/build_workflow_wheel.py
-          --output target/kat/workflow-wheel
-
-      - name: Upload the private wheel input
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: kat-workflow-wheel
-          path: target/kat/workflow-wheel/
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
-
-  requirements-locks:
-    name: Verify generated platform requirement locks
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'full-ci')
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      - name: Install locked uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.11.28"
-          enable-cache: false
-
-      - name: Regenerate both platform locks
-        shell: bash
-        run: |
-          set -euo pipefail
-          read -r python_version uv_version < <(
-            python -c 'import json; d=json.load(open("build/runtime-inputs.json")); print(d["python"]["version"], d["uv"]["version"])'
-          )
-          test "$(uv --version | cut -d ' ' -f 2)" = "$uv_version"
-          uv pip compile kat/platform/workflow/pyproject.toml \
-            --python-version "$python_version" \
-            --python-platform x86_64-unknown-linux-gnu \
-            --only-binary :all: \
-            --generate-hashes \
-            --no-config \
-            --no-progress \
-            --output-file build/requirements-linux.lock.txt
-          uv pip compile kat/platform/workflow/pyproject.toml \
-            --python-version "$python_version" \
-            --python-platform x86_64-pc-windows-msvc \
-            --only-binary :all: \
-            --generate-hashes \
-            --no-config \
-            --no-progress \
-            --output-file build/requirements-windows.lock.txt
-          git diff --exit-code -- \
-            build/requirements-linux.lock.txt \
-            build/requirements-windows.lock.txt
-
-  builder-tests:
-    name: Builder tests (${{ matrix.os }})
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'full-ci')
-    needs: requirements-locks
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - windows-2025
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      - name: Install Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.14"
-
-      - name: Install locked Builder dependencies
-        run: >-
-          python -m pip install
-          --disable-pip-version-check
-          --no-deps
-          --only-binary=:all:
-          --require-hashes
-          -r build/requirements-builder.lock.txt
-
-      - name: Test Builder and Assembly contracts
-        run: python -I -B -m unittest discover -s build/tests -v
-
-  linux-payload:
-    name: Build Linux payload
-    needs:
-      - workflow-wheel
-      - builder-tests
-    uses: ./.github/workflows/build-linux-payload-ci.yml
-    with:
-      workflow-wheel-artifact: kat-workflow-wheel
-
-  windows-payload:
-    name: Build Windows payload
-    needs:
-      - workflow-wheel
-      - builder-tests
-    uses: ./.github/workflows/build-windows-payload-ci.yml
-    with:
-      workflow-wheel-artifact: kat-workflow-wheel
-
   assemble:
-    name: Assemble the dual-platform Skill
-    needs:
-      - linux-payload
-      - windows-payload
+    name: Assemble the release Skill
     runs-on: ubuntu-24.04
+    env:
+      PLAN: ${{ inputs.plan }}
+      APP_VERSION: ${{ inputs['app-version'] }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - name: Download both black-box payloads
+      - name: Download Linux payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: artifacts-kat-*-payload
+          name: kat-linux-payload
           path: target/distrib
-          merge-multiple: true
 
-      - name: Extract and assemble
+      - name: Download Windows payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kat-windows-payload
+          path: target/distrib
+
+      - name: Extract, assemble, and checksum
+        id: artifact
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p target/kat/payloads
+          if [[ -n "$APP_VERSION" ]]; then
+            test -z "$PLAN"
+            version="$APP_VERSION"
+          else
+            test -n "$PLAN"
+            version=$(jq -er '.releases | map(.app_version) | unique | if length == 1 then .[0] else error("release versions are not unique") end' <<< "$PLAN")
+          fi
+          mkdir -p target/kat/payloads target/distrib/release
           tar -xzf target/distrib/.payload-inputs/linux-x86_64.tar.gz -C target/kat/payloads
           tar -xzf target/distrib/.payload-inputs/windows-x86_64.tar.gz -C target/kat/payloads
           python build/assemble_skill.py \
@@ -181,42 +64,79 @@ jobs:
             --packs kat/packs \
             --linux-payload target/kat/payloads/linux-x86_64 \
             --windows-payload target/kat/payloads/windows-x86_64 \
-            --output target/kat/final-skill
+            --output target/kat/release/kat
+          artifact="kat-skill-${version}.tar.gz"
           tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
             --format=posix --pax-option=delete=atime,delete=ctime \
-            -C target/kat -czf target/kat/kat-dual-platform-skill.tar.gz final-skill
+            -C target/kat/release -czf "target/distrib/release/${artifact}" kat
+          (
+            cd target/distrib/release
+            sha256sum "$artifact" > "${artifact}.sha256"
+          )
+          echo "name=$artifact" >> "$GITHUB_OUTPUT"
 
-      - name: Upload the assembled Skill
+      - name: Upload the release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: kat-dual-platform-skill
-          path: target/kat/kat-dual-platform-skill.tar.gz
+          # dist 0.32 会收集 artifacts-*；最终公开输入必须保留此前缀。
+          name: artifacts-kat-skill
+          path: target/distrib/release/
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
 
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+
+  verify-release-artifact:
+    name: Verify the release artifact contract
+    needs: assemble
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download assembled Skill
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: artifacts-kat-skill
+          path: target/kat/artifact
+
+      - name: Verify the exact asset set and SHA-256
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
+        run: |
+          set -euo pipefail
+          cd target/kat/artifact
+          expected=$(printf '%s\n' "$ARTIFACT_NAME" "${ARTIFACT_NAME}.sha256" | sort)
+          actual=$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test "$actual" = "$expected"
+          sha256sum -c "${ARTIFACT_NAME}.sha256"
+
   linux-smoke:
-    name: Linux glibc 2.28 relocated payload smoke
+    name: Linux release Skill full-loop smoke
     needs: assemble
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Download assembled Skill
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: kat-dual-platform-skill
+          name: artifacts-kat-skill
           path: target/kat/artifact
 
-      - name: Relocate and cross the public CLI-to-Host seam
+      - name: Relocate and verify Import to Query
         shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
         run: |
           set -euo pipefail
           mkdir -p target/kat/smoke-input
-          tar -xzf target/kat/artifact/kat-dual-platform-skill.tar.gz \
-            -C target/kat/smoke-input
+          tar -xzf "target/kat/artifact/${ARTIFACT_NAME}" -C target/kat/smoke-input
           image='almalinux@sha256:dd9015a46bf86d46801080d9f37990528b2072b1d4a3f3851c6a5a79088adf82'
           docker pull "$image"
           docker run --rm --network none \
@@ -234,49 +154,84 @@ jobs:
               export PYTHONUSERBASE=/work/poison-user
               export TMPDIR=/work/tmp
               unset KAT_DATA_HOME
-              payload=/repo/target/kat/smoke-input/final-skill/scripts/targets/linux-x86_64
-              response=$("$payload/kat" inspect --pack kat-openharmony-thread-cpu-time)
-              if [[ $response != \{\"status\":\"success\",* ]]; then
-                echo "unexpected KAT Response: $response" >&2
-                exit 1
-              fi
+              skill=/repo/target/kat/smoke-input/kat
+              payload=$skill/scripts/targets/linux-x86_64
+              cli=$payload/kat
+              python=$payload/python/bin/python3
+              pack=$skill/assets/packs/kat-openharmony-thread-cpu-time
+              fixture=/repo/kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.db
+              "$cli" import trace-streamer --database "$fixture" --dataset /work/dataset >/work/import.json
+              "$cli" inspect --dataset /work/dataset >/work/inspect-dataset.json
+              "$cli" inspect --pack kat-openharmony-thread-cpu-time --pack-dir "$pack" >/work/inspect-pack.json
+              "$cli" test --pack-dir "$pack" >/work/test.json
+              "$cli" run --pack kat-openharmony-thread-cpu-time --workflow thread-cpu-time --pack-dir "$pack" --dataset /work/dataset >/work/run.json
+              run_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -c "import json; print(json.load(open(\"/work/run.json\"))[\"result\"][\"run_id\"])")
+              "$cli" query --run "$run_id" --sql "SELECT COUNT(*) AS rows FROM output.thread_cpu_time_by_cpu" >/work/query.json
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -c "import json; files=[\"import\",\"inspect-dataset\",\"inspect-pack\",\"test\",\"run\",\"query\"]; assert all(json.load(open(\"/work/\"+name+\".json\"))[\"status\"]==\"success\" for name in files)"
             '
 
   windows-smoke:
-    name: Windows relocated payload smoke
+    name: Windows candidate - builder-image archive smoke
     needs: assemble
     runs-on: windows-2025
 
     steps:
+      - name: Record the candidate validation boundary
+        shell: pwsh
+        run: |
+          @'
+          ### Windows candidate validation boundary
+
+          当前 job 运行在 GitHub 托管的 `windows-2025` builder image，只验证候选归档的装配、重定位、Bundled Python 选择与操作链路。
+          它不构成 #143 要求的 clean-client 验收，也不证明 Windows 10/11 客户端无需系统级 VC Runtime。
+          '@ | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Download assembled Skill
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: kat-dual-platform-skill
+          name: artifacts-kat-skill
           path: target/kat/artifact
 
-      - name: Relocate and cross the public CLI-to-Host seam
+      - name: Relocate and verify Import to Query on the builder image
         shell: pwsh
+        env:
+          ARTIFACT_NAME: ${{ needs.assemble.outputs.artifact-name }}
         run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force "target/kat/smoke-input" | Out-Null
-          tar -xzf "target/kat/artifact/kat-dual-platform-skill.tar.gz" `
-            -C "target/kat/smoke-input"
+          tar -xzf "target/kat/artifact/$env:ARTIFACT_NAME" -C "target/kat/smoke-input"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $skill = "target/kat/smoke-input/final-skill"
-          $payload = "$skill/scripts/targets/windows-x86_64"
-          $env:HOME = Join-Path $env:RUNNER_TEMP "kat-payload-home"
-          $env:APPDATA = Join-Path $env:RUNNER_TEMP "kat-payload-appdata"
-          New-Item -ItemType Directory -Force $env:HOME, $env:APPDATA | Out-Null
+          $skill = (Resolve-Path "target/kat/smoke-input/kat").Path
+          $payload = Join-Path $skill "scripts/targets/windows-x86_64"
+          $cli = Join-Path $payload "kat.exe"
+          $pack = Join-Path $skill "assets/packs/kat-openharmony-thread-cpu-time"
+          $fixture = (Resolve-Path "kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.db").Path
+          $work = Join-Path $env:RUNNER_TEMP "kat-release-smoke"
+          $dataset = Join-Path $work "dataset"
+          $env:HOME = Join-Path $work "home"
+          $env:APPDATA = Join-Path $work "appdata"
+          New-Item -ItemType Directory -Force $work, $env:HOME, $env:APPDATA | Out-Null
           $env:PATH = ""
-          $env:PYTHONHOME = Join-Path $env:RUNNER_TEMP "poison-home"
-          $env:PYTHONPATH = Join-Path $env:RUNNER_TEMP "poison-path"
-          $env:PYTHONUSERBASE = Join-Path $env:RUNNER_TEMP "poison-user"
+          $env:PYTHONHOME = Join-Path $work "poison-home"
+          $env:PYTHONPATH = Join-Path $work "poison-path"
+          $env:PYTHONUSERBASE = Join-Path $work "poison-user"
           Remove-Item Env:KAT_DATA_HOME -ErrorAction SilentlyContinue
-          $response = & "$payload/kat.exe" inspect --pack kat-openharmony-thread-cpu-time |
-            ConvertFrom-Json
+          $responses = @()
+          $responses += (& $cli import trace-streamer --database $fixture --dataset $dataset | ConvertFrom-Json)
+          $responses += (& $cli inspect --dataset $dataset | ConvertFrom-Json)
+          $responses += (& $cli inspect --pack kat-openharmony-thread-cpu-time --pack-dir $pack | ConvertFrom-Json)
+          $responses += (& $cli test --pack-dir $pack | ConvertFrom-Json)
+          $run = & $cli run --pack kat-openharmony-thread-cpu-time --workflow thread-cpu-time --pack-dir $pack --dataset $dataset | ConvertFrom-Json
+          $responses += $run
+          $responses += (& $cli query --run $run.result.run_id --sql "SELECT COUNT(*) AS rows FROM output.thread_cpu_time_by_cpu" | ConvertFrom-Json)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($response.status -ne "success") {
-            throw "unexpected KAT Response status: $($response.status)"
+          if ($responses.Count -ne 6 -or ($responses | Where-Object status -ne "success").Count -ne 0) {
+            throw "release Skill full-loop smoke did not return only success responses"
           }

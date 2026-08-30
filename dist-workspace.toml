@@ -1,0 +1,26 @@
+[workspace]
+members = ["dist:release/kat"]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# 只让 KAT tag namespace 进入 GitHub Release workflow。
+tag-namespace = "kat"
+# The installers to generate for each app
+installers = []
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Where to host releases
+hosting = "github"
+# dist 0.32 的 extra-artifacts 无法同时保留私有原生载荷、配套校验和与
+# PR smoke，因此不能替代自定义 global job；probe 证据见 docs/release-rehearsal.md。
+checksum = "false"
+source-tarball = false
+pr-run-mode = "plan"
+build-local-artifacts = false
+local-artifacts-jobs = ["./build-payloads-ci"]
+global-artifacts-jobs = ["./payload-ci"]
+post-announce-jobs = ["./finalize-release-assets"]

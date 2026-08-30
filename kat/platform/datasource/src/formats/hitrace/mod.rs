@@ -1,6 +1,6 @@
 //! `.htrace` profiler container format adapter.
 
-mod file;
+pub(crate) mod file;
 pub(crate) mod profiler;
 
 use std::{
@@ -24,7 +24,8 @@ use file::{
     HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE, has_profiler_header, read_profiler_section,
 };
 use profiler::{
-    PluginPayloadRegistry, decode_plugin_section_body, decode_plugin_section_body_with_observer,
+    PluginPayloadClaimant, PluginPayloadRegistry, decode_plugin_section_body,
+    decode_plugin_section_body_with_claimant_and_observer,
 };
 
 #[derive(Debug, Default)]
@@ -64,12 +65,13 @@ pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Resul
 pub(crate) fn decode_file_with_report(
     path: &Path,
     sink: &mut impl TraceRecordSink,
+    claimant: &mut impl PluginPayloadClaimant,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> std::result::Result<HitraceDecodeReport, HitraceDecodeFailure> {
     debug!("decoding hitrace format from {}", path.display());
     let mut report = HitraceDecodeReport::default();
     let result = with_mapped_file(path, |bytes| {
-        decode_bytes_with_report(bytes, sink, &mut report, observe_unsupported)
+        decode_bytes_with_report(bytes, sink, &mut report, claimant, observe_unsupported)
     });
     match result {
         Ok(()) => Ok(report),
@@ -89,32 +91,41 @@ fn decode_bytes_with_report(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
+    claimant: &mut impl PluginPayloadClaimant,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> Result<()> {
     if !has_profiler_header(bytes) {
         bail!("invalid hitrace file: missing OHOSPROF header");
     }
 
-    decode_sections_with_report(bytes, sink, report, observe_unsupported)
+    decode_sections_with_report(bytes, sink, report, claimant, observe_unsupported)
 }
 
 fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    decode_sections_inner(bytes, sink, None, None)
+    decode_sections_inner(bytes, sink, None, None, None)
 }
 
 fn decode_sections_with_report(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     report: &mut HitraceDecodeReport,
+    claimant: &mut impl PluginPayloadClaimant,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
 ) -> Result<()> {
-    decode_sections_inner(bytes, sink, Some(report), Some(observe_unsupported))
+    decode_sections_inner(
+        bytes,
+        sink,
+        Some(report),
+        Some(claimant),
+        Some(observe_unsupported),
+    )
 }
 
 fn decode_sections_inner(
     bytes: &[u8],
     sink: &mut impl TraceRecordSink,
     mut report: Option<&mut HitraceDecodeReport>,
+    mut claimant: Option<&mut dyn PluginPayloadClaimant>,
     mut observe_unsupported: Option<&mut UnsupportedContentObserver<'_>>,
 ) -> Result<()> {
     let mut offset = 0usize;
@@ -158,11 +169,15 @@ fn decode_sections_inner(
 
         let section_body_start = section.start + PROFILER_HEADER_SIZE;
         if let Some(report) = report.as_deref_mut() {
-            decode_plugin_section_body_with_observer(
+            let claimant = claimant
+                .as_deref_mut()
+                .expect("reported Hitrace decode requires a payload claimant");
+            decode_plugin_section_body_with_claimant_and_observer(
                 section.body(bytes),
                 section_body_start,
                 &mut plugin_registry,
                 sink,
+                claimant,
                 |message, known, frame_offset| {
                     if !known {
                         let plugin = message

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 from datafusion import DataFrame, Expr
@@ -48,6 +49,18 @@ class Context:
         Context methods may be called only during the current Workflow
         execution. DataFrames are lazy and must be returned by the Workflow so
         KAT can materialize them before that execution closes.
+        """
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    @property
+    def datasource_root(self) -> Path:
+        """Return this PACK's private Datasource storage root.
+
+        Production executions receive
+        ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
+        isolated to the current pytest test. The path capability is valid only
+        for this Workflow execution. File Providers should create a temporary
+        per-Workflow workspace below it instead of treating old files as cache.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 
@@ -128,9 +141,11 @@ def workflow(
     does not mean the production input Interface is valid. Inspection does
     not evaluate or publish the return annotation.
 
-    At execution, the function must return either one DataFusion ``DataFrame``
-    or an exact, non-empty ``dict`` mapping Output names to DataFusion
-    ``DataFrame`` values. A single DataFrame becomes the ``main`` Output.
+    At execution, the function must return one ``kat.datasource.Table``, or an
+    exact, non-empty ``dict`` mapping Output names to Tables. During migration,
+    one DataFusion ``DataFrame`` or a dict mixing Tables and DataFrames is also
+    accepted. Every single value becomes the ``main`` Output; a Table does not
+    carry an Output name.
     Output names must match ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not
     be the Windows device names ``con``, ``prn``, ``aux``, ``nul``,
     ``com1`` through ``com9``, or ``lpt1`` through ``lpt9``. KAT validates

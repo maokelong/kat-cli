@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
 import kat
@@ -222,13 +223,91 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
+    def test_datasource_toolkit_is_the_only_top_level_datasource_export(self) -> None:
+        self.assertIn("datasource", kat.__all__)
+        self.assertIsNotNone(kat.datasource)
+        self.assertEqual(
+            set(kat.datasource.__all__),
+            {
+                "Schema",
+                "Table",
+                "Catalog",
+                "DataFusionProvider",
+                "write",
+                "open",
+            },
+        )
+
+        for name in (
+            "SourceExecutor",
+            "ParquetSource",
+            "Provider",
+            "Schema",
+            "Table",
+            "Catalog",
+            "DataFusionProvider",
+            "table",
+            "from_arrow",
+            "to_arrow",
+            "write",
+            "open",
+        ):
+            with self.subTest(name=name):
+                self.assertNotIn(name, kat.__all__)
+                self.assertFalse(hasattr(kat, name))
+
+        for name in ("table", "from_arrow", "to_arrow"):
+            with self.subTest(datasource_name=name):
+                self.assertFalse(hasattr(kat.datasource, name))
+
+    def test_context_documents_and_types_the_datasource_root(self) -> None:
+        self.assertFalse(hasattr(kat.Context, "provider"))
+        self.assertIsInstance(kat.Context.datasource_root, property)
+        self.assertIsNone(kat.Context.datasource_root.fset)
+        datasource_root_getter = kat.Context.datasource_root.fget
+        self.assertIsNotNone(datasource_root_getter)
+        assert datasource_root_getter is not None
+        datasource_root_signature = inspect.signature(datasource_root_getter)
+        self.assertEqual(tuple(datasource_root_signature.parameters), ("self",))
+        self.assertEqual(datasource_root_signature.return_annotation, "Path")
+
+        datasource_root_documentation = " ".join(
+            (inspect.getdoc(kat.Context.datasource_root) or "").split()
+        )
+        for boundary in (
+            "PACK's private Datasource storage root",
+            "KAT_DATA_HOME/datasources/<pack-name>/",
+            "isolated to the current pytest test",
+            "valid only for this Workflow execution",
+            "temporary per-Workflow workspace",
+            "instead of treating old files as cache",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, datasource_root_documentation)
+
     def test_context_documents_and_types_the_authoring_contract(self) -> None:
         sql_signature = inspect.signature(kat.Context.sql)
-        self.assertEqual(sql_signature.return_annotation, "DataFrame")
+        self.assertEqual(
+            tuple(sql_signature.parameters),
+            ("self", "sql", "params"),
+        )
+        self.assertEqual(sql_signature.parameters["sql"].annotation, "str")
+        self.assertEqual(
+            sql_signature.parameters["sql"].kind,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        self.assertEqual(
+            sql_signature.parameters["params"].kind,
+            inspect.Parameter.VAR_KEYWORD,
+        )
         self.assertIn("Duration", str(sql_signature.parameters["params"].annotation))
+        self.assertEqual(sql_signature.return_annotation, "DataFrame")
 
         from_arrow_signature = inspect.signature(kat.Context.from_arrow)
-        self.assertEqual(from_arrow_signature.parameters["table"].annotation, "Table")
+        self.assertEqual(
+            from_arrow_signature.parameters["table"].annotation,
+            "Table",
+        )
         self.assertEqual(from_arrow_signature.return_annotation, "DataFrame")
 
         convert_signature = inspect.signature(kat.Context.convert_clock)
@@ -294,12 +373,16 @@ class AuthoringApiTest(unittest.TestCase):
             "absolute UTC instant, not a local civil-time value",
             "Successful decoration alone does not mean the production input Interface is valid",
             "exact, non-empty ``dict``",
-            "A single DataFrame becomes the ``main`` Output",
+            "datasource.Table",
+            "single value",
+            "``main`` Output",
+            "DataFrame",
             "validates the complete returned shape before executing any lazy Output plan",
             "all-or-fail Run publication",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, documentation)
+        self.assertNotIn("Table.name", documentation)
 
     def test_complete_interface_uses_click_converted_defaults(self) -> None:
         self.assertEqual(

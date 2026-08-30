@@ -1,0 +1,33 @@
+---
+status: accepted
+---
+
+# Hitrace 发布完整的 descriptor-derived Source tables
+
+Hitrace Datasource 把完整、可独立消费的来源面视为平台能力。对每个显式注册的 fully-qualified protobuf payload root，KAT 必须依据随当前 KAT 固定的 descriptor，生成确定的关系映射，并将其 reachable closure 的完整 decoded protobuf semantics 发布为不可变 Source tables；不得再按当前 Workflow 或 PACK 的字段需求裁剪。只为至少产生一行来源 occurrence/fact 的 root 或 relation 创建表；空或全默认值的 bound root 仍算一个 occurrence。仅当实际发布的表含需要解释的 enum field 时创建 definition table，并保存该 field 的完整 descriptor definitions，不按本次出现值裁剪。
+
+这里的“完整”只指当前固定 descriptor 和 typed protobuf decoder 能表达的语义，包括已知字段值、显式 presence、oneof 选择、repeated 元素及其顺序；它不是 protobuf wire archive，不保留未知 wire fields、原始字段顺序、原始编码或 proto3 implicit scalar 的 wire presence。已注册 root 存在无法映射的 reachable shape 时构建失败；运行时对已绑定 payload 的解码、关系化或写入失败时，整个 Data Import 失败。合法但未注册的 plugin 或 section 继续按 ADR-0025 报告并跳过。
+
+每个成功绑定的 profiler payload occurrence 必须发布一条独立 envelope occurrence provenance，并使 payload root 可连接到它实际来自的 `ProfilerPluginData` occurrence；即使 decoded root 为空或全是默认值，两行 occurrence 也必须保留。`profiler_payload_occurrence` 是 transport envelope 的受控 provenance projection，不是 descriptor-derived protobuf root，也不进入 relational plan。私有 capture adapter 独占其固定 Schema、typed row、逻辑字节估算、descriptor-derived enum definitions、enum origin binding 与 relation slot；调用者只能提交成功绑定的 envelope 并通过 adapter 写入 root，不得组合 relation specifications、推导 relation slot 或绑定 enum origin。envelope 的 `data` 是被 typed root 解码替代的传输 bytes，不在 provenance relation 中重复保存；payload 内部的普通 `bytes` field 仍必须完整保留。`clock_id`、`tv_sec`、`tv_nsec` 等来源字段可以作为原始来源值出现，但不因此成为 payload event time、`UnifiedClock` 或可跨 clock domain 比较的 KAT 时间。规范化时间事实仍只使用 ADR-0042 的 `clock_domain + clock_value`。
+
+Descriptor-derived Source tables 与 `sched_switch` 等规范化 Trace facts 是两种不同契约：前者机械保留单条 protobuf 来源语义，后者只在来源解释、跨记录规范化或复用价值已有证据时由 Datasource 另行发布。两者可以来自同一次 decode 并共存，但必须使用不同表名；机械表不取得分析语义，规范化表也不成为第二份完整 protobuf 镜像。跨记录的分析策略继续属于 `kat.trace` 或 PACK。
+
+关系键只用于恢复当前 Dataset 内的来源结构，不是 protobuf identity、业务 identity 或跨 Import 稳定键。Dataset 不保存 descriptor digest、mapping revision、catalog 或 parent-table metadata。表名、列 Schema 和每张 child relation 的唯一父表由当前版本的静态映射合同规定；Parquet Schema 只承载列结构，不承载 parent-table metadata。Descriptor-derived 表不承诺在不同 KAT 版本间保持表名、Schema 或仍可由新版映射按同一合同解释，也不提供迁移；这不改变 ADR-0020 对合法 Dataset 的物理解析与 inspection 合同。
+
+## 方案选择与后果
+
+本决定比较了三种关系映射路径：runtime descriptor 加 generic value tree、按 root 手写 Arrow tables，以及 build-time relational plan 加 generated typed emitter。比较重点是运行时是否需要 descriptor 解释、字符串路径查找或通用中间值，Schema 与 emitter 是否共享唯一映射规则，对 prost generated naming 的耦合如何受控，以及新增 root 或 protobuf shape 时的维护与构建诊断成本。
+
+选择 build-time relational plan 加 generated typed emitter：planner 只把 reachable descriptor closure 转换为关系计划，该计划是 descriptor-derived payload roots 及 descendants 的 table topology、Schema、emitter 和 enum origin 的唯一映射真相；prost binding 只把计划连接到 generated Rust types，不决定物理 topology；renderer 只根据计划生成 typed field access，不建立第二套映射规则。这使不支持的 reachable shape 及 Schema/binding 不一致在构建期失败，并使运行时无需遍历 descriptor、查找字符串 field path 或构建 generic value tree。runtime descriptor 方案不依赖 generated naming，但会把映射解释和通用值表示带入运行时；手写 Arrow tables 则会让每个 root 的 generated Rust field access、Schema 与写入逻辑各自直接耦合，重复 descriptor 映射规则并增加漂移风险。
+
+Profiler envelope provenance 不扩展成通用 projection language。它由一个私有 capture adapter 在 descriptor-derived layout 外追加固定 occurrence relation，并复用构建期生成的 descriptor enum symbols。Relational plan 与 capture adapter 分别是各自作用域的唯一合同来源；adapter 必须隐藏 relation vector、slot 和 origin 组合，使 Native Hook、ftrace、fixed-result 等 bound roots 只依赖同一 `append bound payload` Interface。这个例外避免把排除 transport `data` 的投影伪装成完整 `ProfilerPluginData` root，也避免为单一固定 provenance 合同扩大 planner 的表达面。
+
+Profiler Source 生成 artifact 按共享 profiler 边界命名和挂载；当前编译 Native Hook 与 ftrace roots，后续 fixed-result roots 继续扩展同一个 artifact。共享 occurrence adapter 不得反向依赖任一 root 专属命名空间。
+
+Arrow 行序列化不属于关系映射规则。renderer 从同一 plan 生成强类型、借用输入值的 relation row，由仓库已有的 `serde_arrow::ArrayBuilder` 按显式 Arrow Schema 增量构建 `RecordBatch`；项目代码只保留关系键、枚举定义、逻辑字节估算和有界 Arrow row buffer，达到行数或估算字节门限后直接写入 target-local staged Parquet。这里的 buffer 只控制内存中的 `ArrayBuilder` / `RecordBatch` 批次；spool 专指落入临时文件、随后被回读或二次物化的路径。显式 Schema 固定 `Utf8`、`Binary`、nullable Struct 与数值物理类型，不采用 `serde_arrow` 的 Schema 推导，因此不会改变本决定的 protobuf 映射。合同测试覆盖 presence、oneof、非 UTF-8 bytes、nullable Struct 与跨 flush 后的 Schema 和逐值结果。
+
+本选择接受更高的构建期复杂度，以及对 prost generated naming 的受控耦合。升级 prost、`serde_arrow` 或支持新 protobuf shape 时，必须重新验证 plan、binding、renderer 和 contract test 的一致性。本决定不据此声称已获得未经 release A/B 验证的性能收益。
+
+本决定补充 ADR-0024 的直接事件表合同：descriptor-derived 直接解码表不适用其中针对跨记录、可复用规范化 facts 的多消费者门槛，该门槛本身不变。本决定部分取代 ADR-0042 对 `ProfilerPluginData` 来源字段和重复来源读数的发布限制，以及 ADR-0048 中“当前线程 CPU 闭环以外字段不发布”和“ftrace loss statistics 只用于准入、不发布表”的限制；这些内容可以出现在另名的 descriptor-derived tables 中，但不进入既有 `sched_switch`。Issue #213 的两条 ftrace Source routes 在旧 decoder 前被认领，只执行 typed decode 与 generated emitter/capture，不承担旧 ftrace 准入或旧规范化表发布；对这两条 Source routes，本决定同时取代 ADR-0042 的 ftrace 会话时钟准入，以及 ADR-0048 对正式 Hitrace Import 的 continuity/loss 准入与 `sched_switch` 发布要求，这些旧校验和表合同只保留给显式 legacy materializer 路径。Source routes 的完整性负例由独立合同测试维护。ADR-0042 的时钟值结构与换算失败合同、ADR-0048 对既有 `sched_switch` 的 Workflow 解释，以及 ADR-0020、ADR-0025、ADR-0049、ADR-0051、ADR-0058 和 ADR-0059 的其余决定继续有效。
+
+Native Hook 与 ftrace descriptor-derived Source tables 的运行期 capture 直接取得 Dataset Storage 提供的候选表 writer：decode 和 emit 产生的 `RecordBatch` 写入目标内隔离 staging 的最终 Parquet，成功发布时不再回读并重写 Source 表。这个选择取代 #192 / #196 原先记录的 Source temporary spool、完整准入后才 begin Dataset writer、再二次物化 Source 表的执行顺序；保留的是全部 decode、table close、Native Hook clock admission 与注册候选 Parquet metadata 验证成功后才发布 marker 的外部失败合同。直接写最终 Parquet 避免同一 Source table 的临时序列化、回读和第二次写入，代价是 Import 在解码前创建 target-local staging，并让 capture 持有仅能写入该候选的私有 table factory。publication 只重新打开注册表并解析 Parquet footer/Arrow metadata，不再次比较 planned Schema、expected row count 或 row-group 行数门限，也不扫描 data pages；直接写入路径不存在需要预读保护的后续回读与二次物化，恢复全表扫描只会重新增加一次完整读取。decode、emit、close、Native Hook 时钟准入或候选 metadata 校验失败都发生在 publish 替换前，只丢弃本次 staging，不改变旧 Dataset 的有效 marker；publish 开始后的替换与 marker 失败仍遵循 ADR-0020 的破坏式语义。该决定只为 descriptor-derived Source tables 选择 staged publication，不改变 legacy ftrace 表的物化合同，不要求其他 Datasource 采用同一路径，也不建立通用 Parquet adoption Interface。

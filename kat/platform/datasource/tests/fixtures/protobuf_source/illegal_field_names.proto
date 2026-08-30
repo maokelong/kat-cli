@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package fixture.protobuf_source.illegal_field_names;
+
+message UppercaseFieldRoot {
+  string CamelCase = 1;
+}
+
+message NestedFieldNames {
+  string CamelCase = 1;
+  string _kat_parent_row_id = 2;
+}
+
+message NestedFieldNameRoot {
+  NestedFieldNames nested_fields = 1;
+}
+
+message UppercaseRepeatedFieldRoot {
+  repeated string CamelCase = 1;
+}
+
+message ReservedRelationshipFieldRoot {
+  string _kat_parent_row_id = 1;
+}

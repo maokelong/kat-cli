@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kat-workflow"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 requires-python = ">=3.14,<3.15"
-dependencies = ["click==8.4.2", "datafusion==54.0.0", "pyarrow==24.0.0", "pytest==9.1.1"]
+dependencies = [
+    "adbc-driver-manager==1.11.0",
+    "adbc-driver-postgresql==1.11.0",
+    "click==8.4.2",
+    "datafusion==54.0.0",
+    "pyarrow==24.0.0",
+    "pytest==9.1.1",
+]
 
 [tool.setuptools]
-packages = ["kat", "_kat_runtime"]
+packages = ["kat", "kat.datasource", "_kat_runtime"]
 package-dir = { kat = "api", "_kat_runtime" = "runtime" }

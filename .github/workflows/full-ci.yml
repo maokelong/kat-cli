@@ -13,15 +13,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci') &&
+      github.event.pull_request.number ||
+      github.run_id
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    }}
 
 jobs:
   full-test:
     name: full-test (${{ matrix.os }})
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'full-ci')
+      (github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -53,14 +65,14 @@ jobs:
 
       - name: Test
         if: runner.os != 'Linux'
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --features kat-datasource/protobuf-source-contract-fixture --locked
 
       - name: Test (system linker on Linux)
         if: runner.os == 'Linux'
         env:
           CARGO_PROFILE_TEST_DEBUG: "0"
           RUSTFLAGS: -C linker-features=-lld
-        run: cargo test --workspace --locked --jobs 1
+        run: cargo test --workspace --features kat-datasource/protobuf-source-contract-fixture --locked --jobs 1
 
       - name: Test real Workflow Host vertical slice
         run: cargo test --locked -p kat-cli --test inspect targeted_pack_inspection_runs_real_installed_workflow_host -- --ignored --exact

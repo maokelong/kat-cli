@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from .diagnostic import _exception_chain
 from .execution import WorkflowExecutionFailure, run_loaded_workflow
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
@@ -102,6 +103,9 @@ class KatPytestPlugin:
                         identifier=candidate_id,
                         path=run_path.resolve(strict=True),
                     ),
+                    datasource_root=(
+                        tmp_path / "datasources" / self._pack_name
+                    ).resolve(strict=False),
                 )
             # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
             # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。
@@ -220,12 +224,10 @@ def _isolated_pytest_environment() -> Iterator[None]:
 
 def _test_workflow_diagnostic(error: BaseException) -> str:
     causes: list[str] = []
-    current: BaseException | None = error
-    while current is not None:
+    for current in _exception_chain(error):
         rendered = str(current).strip()
         if rendered:
             causes.append(rendered)
-        current = current.__cause__ or current.__context__
     details = "\n".join(f"caused by: {cause}" for cause in causes)
     if details:
         details += "\n"

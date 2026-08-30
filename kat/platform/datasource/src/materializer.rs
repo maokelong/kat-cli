@@ -19,16 +19,20 @@ use datafusion::{
 use futures::StreamExt;
 use parquet::arrow::{
     ArrowWriter,
-    arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder},
+    arrow_reader::{
+        ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader,
+        ParquetRecordBatchReaderBuilder,
+    },
 };
 
 use crate::{
     arrow_table::ArrowTable,
     dataset::{DatasetTableWriter, DatasetWriter},
-    dataset_writer::{DatasetWriteTarget, DatasetWriter as ManagedDatasetWriter},
+    dataset_writer::{DatasetPublication, DatasetTableFactory, DatasetWriteTarget},
     domains::ftrace::{FtraceCaptureRecord, FtraceRecord},
     formats::{hitrace, langfuse},
     proto::kat::hitrace::FtraceCpuStatsMsg,
+    protobuf_source::{BufferOptions, native_hook::NativeHookSourceCapture},
     record::{TraceRecord, TraceRecordSink},
     sinks::arrow::ArrowSink,
 };
@@ -112,10 +116,17 @@ fn import_hitrace_inner(
     target: DatasetWriteTarget,
     observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> io::Result<()>,
 ) -> std::result::Result<ImportedHitrace, HitraceImportError> {
-    // 先让迁移后的 Hitrace format/domain pipeline 完成解析与完整性校验，再授权覆盖目标。
+    let publication = DatasetPublication::stage(target)
+        .map_err(anyhow::Error::from)
+        .map_err(HitraceImportError::import)?;
     let mut sink = LongTermHitraceSink::new();
+    let mut source_capture =
+        NativeHookSourceCapture::new(BufferOptions::default(), publication.table_factory())
+            .map_err(HitraceImportError::import)?;
     let mut observer_failure = None;
     let decoded_report = {
+        let mut claim =
+            |envelope: &hitrace::profiler::PluginEnvelope<'_>| source_capture.try_claim(envelope);
         let mut observe = |content: &hitrace::UnsupportedHitraceContent| {
             let content = UnsupportedHitraceContent {
                 kind: content.kind,
@@ -128,7 +139,7 @@ fn import_hitrace_inner(
             }
             Ok(())
         };
-        hitrace::decode_file_with_report(path, &mut sink, &mut observe)
+        hitrace::decode_file_with_report(path, &mut sink, &mut claim, &mut observe)
     };
     if let Some(source) = observer_failure {
         return Err(HitraceImportError::ObserveUnsupportedContent { source });
@@ -143,37 +154,14 @@ fn import_hitrace_inner(
         }
     };
     let decoded = sink.finish(report).map_err(HitraceImportError::import)?;
-
-    (|| -> Result<ImportedHitrace> {
-        let mut writer = ManagedDatasetWriter::begin(target)?;
-        write_clock_domains(&mut writer, &decoded.clock_domains)?;
-        let clock_snapshots = decoded
-            .clock_snapshots
-            .map(ClockSnapshotSpool::into_reader)
-            .transpose()?;
-        write_clock_snapshots(
-            &mut writer,
-            &decoded.header_clock_snapshots,
-            clock_snapshots,
-        )?;
-        if let Some(switches) = decoded.switches {
-            write_sched_switches(
-                &mut writer,
-                switches.into_reader()?,
-                decoded
-                    .ftrace_clock
-                    .expect("switches require a validated clock"),
-            )?;
-        }
-        let path = writer.finish()?;
-
-        Ok(ImportedHitrace {
-            path,
-            unsupported_plugins: decoded.unsupported_plugins,
-            unsupported_section_types: decoded.unsupported_section_types,
-        })
-    })()
-    .map_err(HitraceImportError::import)
+    source_capture
+        .finish()
+        .context("failed to close staged profiler Source tables")
+        .map_err(HitraceImportError::import)?;
+    let prepared = decoded.prepare().map_err(HitraceImportError::import)?;
+    prepared
+        .publish(publication)
+        .map_err(HitraceImportError::import)
 }
 
 struct DecodedLongTermHitrace {
@@ -184,6 +172,67 @@ struct DecodedLongTermHitrace {
     ftrace_clock: Option<FtraceClock>,
     unsupported_plugins: Vec<String>,
     unsupported_section_types: Vec<u32>,
+}
+
+/// 只允许已经完成 decode、领域校验与临时 spool 预读的事实进入 Dataset 写事务。
+struct PreparedImport {
+    clock_domains: RecordBatch,
+    header_clock_snapshots: Vec<RecordBatch>,
+    clock_snapshots: Option<ParquetRecordBatchReader>,
+    sched_switches: Option<(ParquetRecordBatchReader, FtraceClock)>,
+    unsupported_plugins: Vec<String>,
+    unsupported_section_types: Vec<u32>,
+}
+
+impl DecodedLongTermHitrace {
+    fn prepare(self) -> Result<PreparedImport> {
+        let clock_domains = clock_domain_batch(&self.clock_domains)?;
+        let header_clock_snapshots = self
+            .header_clock_snapshots
+            .chunks(HITRACE_IMPORT_BATCH_ROWS)
+            .map(clock_snapshot_batch)
+            .collect::<Result<Vec<_>>>()?;
+        let clock_snapshots = self
+            .clock_snapshots
+            .map(ClockSnapshotSpool::prepare)
+            .transpose()?;
+        let sched_switches = self
+            .switches
+            .map(|switches| -> Result<_> {
+                let clock = self
+                    .ftrace_clock
+                    .expect("switches require a validated clock");
+                Ok((switches.prepare()?, clock))
+            })
+            .transpose()?;
+
+        Ok(PreparedImport {
+            clock_domains,
+            header_clock_snapshots,
+            clock_snapshots,
+            sched_switches,
+            unsupported_plugins: self.unsupported_plugins,
+            unsupported_section_types: self.unsupported_section_types,
+        })
+    }
+}
+
+impl PreparedImport {
+    fn publish(self, publication: DatasetPublication) -> Result<ImportedHitrace> {
+        let tables = publication.table_factory();
+        write_clock_domains(&tables, self.clock_domains)?;
+        write_clock_snapshots(&tables, self.header_clock_snapshots, self.clock_snapshots)?;
+        if let Some((switches, clock)) = self.sched_switches {
+            write_sched_switches(&tables, switches, clock)?;
+        }
+        let path = publication.publish()?;
+
+        Ok(ImportedHitrace {
+            path,
+            unsupported_plugins: self.unsupported_plugins,
+            unsupported_section_types: self.unsupported_section_types,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -409,7 +458,9 @@ impl LongTermHitraceSink {
     fn push_ftrace(&mut self, record: FtraceRecord) -> Result<()> {
         let FtraceRecord::Event(event) = record;
         let event = *event;
-        let Some(switch) = event.event.sched_switch_format else {
+        let Some(crate::proto::kat::hitrace::ftrace_event::Event::SchedSwitchFormat(switch)) =
+            event.event.event
+        else {
             return Ok(());
         };
         let cpu = event.context.cpu;
@@ -570,6 +621,7 @@ fn snapshot_clock_domain(id: i32) -> Result<&'static str> {
 struct ClockSnapshotSpool {
     writer: ArrowWriter<File>,
     rows: Vec<ClockSnapshot>,
+    total_rows: usize,
 }
 
 impl ClockSnapshotSpool {
@@ -579,11 +631,16 @@ impl ClockSnapshotSpool {
             writer: ArrowWriter::try_new(file, clock_snapshot_schema(), None)
                 .context("failed to open clock snapshot Parquet spool")?,
             rows: Vec::with_capacity(HITRACE_IMPORT_BATCH_ROWS),
+            total_rows: 0,
         })
     }
 
     fn push(&mut self, row: ClockSnapshot) -> Result<()> {
         self.rows.push(row);
+        self.total_rows = self
+            .total_rows
+            .checked_add(1)
+            .context("clock snapshot spool row count overflows")?;
         if self.rows.len() >= HITRACE_IMPORT_BATCH_ROWS {
             self.flush_rows()?;
         }
@@ -600,19 +657,18 @@ impl ClockSnapshotSpool {
             .context("failed to write clock snapshot Parquet spool")
     }
 
-    fn into_reader(mut self) -> Result<ParquetRecordBatchReader> {
+    fn prepare(mut self) -> Result<ParquetRecordBatchReader> {
         self.flush_rows()?;
-        let mut file = self
+        let file = self
             .writer
             .into_inner()
             .context("failed to finish clock snapshot Parquet spool")?;
-        file.seek(SeekFrom::Start(0))
-            .context("failed to rewind clock snapshot spool")?;
-        ParquetRecordBatchReaderBuilder::try_new(file)
-            .context("failed to read clock snapshot Parquet spool metadata")?
-            .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
-            .build()
-            .context("failed to open clock snapshot Parquet spool reader")
+        prepare_spool_reader(
+            file,
+            clock_snapshot_schema(),
+            self.total_rows,
+            "clock snapshot",
+        )
     }
 }
 
@@ -629,6 +685,7 @@ struct SwitchRow {
 struct SwitchSpool {
     writer: ArrowWriter<File>,
     rows: Vec<SwitchRow>,
+    total_rows: usize,
 }
 
 impl SwitchSpool {
@@ -638,11 +695,16 @@ impl SwitchSpool {
             writer: ArrowWriter::try_new(file, switch_spool_schema(), None)
                 .context("failed to open sched_switch Parquet spool")?,
             rows: Vec::with_capacity(HITRACE_IMPORT_BATCH_ROWS),
+            total_rows: 0,
         })
     }
 
     fn push(&mut self, row: SwitchRow) -> Result<()> {
         self.rows.push(row);
+        self.total_rows = self
+            .total_rows
+            .checked_add(1)
+            .context("sched_switch spool row count overflows")?;
         if self.rows.len() >= HITRACE_IMPORT_BATCH_ROWS {
             self.flush_rows()?;
         }
@@ -685,20 +747,81 @@ impl SwitchSpool {
             .context("failed to write sched_switch Parquet spool")
     }
 
-    fn into_reader(mut self) -> Result<ParquetRecordBatchReader> {
+    fn prepare(mut self) -> Result<ParquetRecordBatchReader> {
         self.flush_rows()?;
-        let mut file = self
+        let file = self
             .writer
             .into_inner()
             .context("failed to finish sched_switch Parquet spool")?;
-        file.seek(SeekFrom::Start(0))
-            .context("failed to rewind sched_switch spool")?;
-        ParquetRecordBatchReaderBuilder::try_new(file)
-            .context("failed to read sched_switch Parquet spool metadata")?
-            .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
-            .build()
-            .context("failed to open sched_switch Parquet spool reader")
+        prepare_spool_reader(file, switch_spool_schema(), self.total_rows, "sched_switch")
     }
+}
+
+fn prepare_spool_reader(
+    mut file: File,
+    expected_schema: Arc<Schema>,
+    expected_rows: usize,
+    label: &str,
+) -> Result<ParquetRecordBatchReader> {
+    file.seek(SeekFrom::Start(0))
+        .with_context(|| format!("failed to rewind {label} spool"))?;
+    let metadata = ArrowReaderMetadata::load(&file, ArrowReaderOptions::default())
+        .with_context(|| format!("failed to read {label} Parquet spool metadata"))?;
+    if metadata.schema().as_ref() != expected_schema.as_ref() {
+        bail!(
+            "{label} Parquet spool schema differs from the planned schema: planned={expected_schema:?} actual={:?}",
+            metadata.schema()
+        );
+    }
+    let actual_rows = usize::try_from(metadata.metadata().file_metadata().num_rows())
+        .with_context(|| format!("{label} Parquet spool has an invalid row count"))?;
+    if actual_rows != expected_rows {
+        bail!(
+            "{label} Parquet spool row count differs: expected {expected_rows}, actual {actual_rows}"
+        );
+    }
+
+    let mut preflight_rows = 0_usize;
+    for row_group in 0..metadata.metadata().num_row_groups() {
+        let mut reader_file = file
+            .try_clone()
+            .with_context(|| format!("failed to clone {label} spool row group {row_group}"))?;
+        reader_file
+            .seek(SeekFrom::Start(0))
+            .with_context(|| format!("failed to rewind {label} spool row group {row_group}"))?;
+        let mut reader =
+            ParquetRecordBatchReaderBuilder::new_with_metadata(reader_file, metadata.clone())
+                .with_row_groups(vec![row_group])
+                .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
+                .build()
+                .with_context(|| format!("failed to open {label} spool row group {row_group}"))?;
+        for batch in &mut reader {
+            let batch = batch.with_context(|| {
+                format!("failed to preflight {label} spool row group {row_group}")
+            })?;
+            if batch.schema().as_ref() != expected_schema.as_ref() {
+                bail!(
+                    "{label} spool batch schema differs in row group {row_group}: planned={expected_schema:?} actual={:?}",
+                    batch.schema()
+                );
+            }
+            preflight_rows = preflight_rows
+                .checked_add(batch.num_rows())
+                .with_context(|| format!("{label} spool preflight row count overflows"))?;
+        }
+    }
+    if preflight_rows != expected_rows {
+        bail!(
+            "{label} spool preflight row count differs: expected {expected_rows}, actual {preflight_rows}"
+        );
+    }
+
+    file.seek(SeekFrom::Start(0))
+        .with_context(|| format!("failed to rewind preflighted {label} spool"))?;
+    ParquetRecordBatchReaderBuilder::new_with_metadata(file, metadata)
+        .with_batch_size(HITRACE_IMPORT_BATCH_ROWS)
+        .build()
+        .with_context(|| format!("failed to open preflighted {label} spool reader"))
 }
 
 fn switch_spool_schema() -> Arc<Schema> {
@@ -746,38 +869,38 @@ fn clock_snapshot_batch(rows: &[ClockSnapshot]) -> Result<RecordBatch> {
     )?)
 }
 
-fn write_clock_domains(
-    writer: &mut ManagedDatasetWriter,
-    domains: &BTreeMap<String, String>,
-) -> Result<()> {
+fn clock_domain_batch(domains: &BTreeMap<String, String>) -> Result<RecordBatch> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("clock_domain", DataType::Utf8, false),
         Field::new("clock_type", DataType::Utf8, false),
         Field::new("ticks_per_second", DataType::UInt64, false),
     ]));
-    let batch = RecordBatch::try_new(
+    Ok(RecordBatch::try_new(
         Arc::clone(&schema),
         vec![
             Arc::new(StringArray::from_iter_values(domains.keys())),
             Arc::new(StringArray::from_iter_values(domains.values())),
             Arc::new(UInt64Array::from(vec![TICKS_PER_SECOND; domains.len()])),
         ],
-    )?;
-    let mut table = writer.begin_table("clock_domain", schema)?;
+    )?)
+}
+
+fn write_clock_domains(writer: &DatasetTableFactory, batch: RecordBatch) -> Result<()> {
+    let mut table = writer.begin_table("clock_domain", batch.schema())?;
     table.write(&batch)?;
     table.finish()?;
     Ok(())
 }
 
 fn write_clock_snapshots(
-    writer: &mut ManagedDatasetWriter,
-    header_snapshots: &[ClockSnapshot],
+    writer: &DatasetTableFactory,
+    header_snapshots: Vec<RecordBatch>,
     mut snapshots: Option<ParquetRecordBatchReader>,
 ) -> Result<()> {
     let schema = clock_snapshot_schema();
     let mut table = writer.begin_table("clock_snapshot", Arc::clone(&schema))?;
-    for rows in header_snapshots.chunks(HITRACE_IMPORT_BATCH_ROWS) {
-        table.write(&clock_snapshot_batch(rows)?)?;
+    for batch in &header_snapshots {
+        table.write(batch)?;
     }
     if let Some(snapshots) = snapshots.as_mut() {
         for batch in snapshots {
@@ -789,7 +912,7 @@ fn write_clock_snapshots(
 }
 
 fn write_sched_switches(
-    writer: &mut ManagedDatasetWriter,
+    writer: &DatasetTableFactory,
     mut switches: ParquetRecordBatchReader,
     clock: FtraceClock,
 ) -> Result<()> {

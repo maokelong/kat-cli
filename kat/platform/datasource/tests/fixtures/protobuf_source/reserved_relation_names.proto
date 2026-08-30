@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package fixture.protobuf_source.reserved_relation_names;
+
+// 这些 repeated scalar 各自产生 relation，用于验证 child relation 不能占用保留表名。
+message EnumSymbolChildRoot {
+  repeated int32 symbol = 1;
+}
+
+message ProfilerOccurrenceChildRoot {
+  repeated int32 payload_occurrence = 1;
+}
+
+message ClockDomainChildRoot {
+  repeated int32 domain = 1;
+}
+
+message ClockSnapshotChildRoot {
+  repeated int32 snapshot = 1;
+}
+
+message SchedSwitchChildRoot {
+  repeated int32 switch = 1;
+}

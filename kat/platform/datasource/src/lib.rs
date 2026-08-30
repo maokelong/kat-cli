@@ -17,9 +17,17 @@ mod mmap;
 mod native_hook_table_builders {
     include!(concat!(env!("OUT_DIR"), "/native_hook_table_builders.rs"));
 }
+mod protobuf_source;
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+#[path = "../build/protobuf_source_codegen/mod.rs"]
+mod protobuf_source_codegen;
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+#[path = "../tests/protobuf_source_contract/mod.rs"]
+mod protobuf_source_contract_tests;
 mod query;
 mod record;
 mod sinks;
+mod table_name;
 mod trace_streamer;
 
 use std::{
@@ -46,6 +54,8 @@ pub use trace_streamer::{
     ImportedDataset, TraceStreamerImportError, import_deprecated_trace_streamer,
 };
 
+pub(crate) use table_name::valid_table_name;
+
 #[allow(dead_code)]
 pub(crate) mod proto {
     pub(crate) mod kat {
@@ -58,10 +68,27 @@ pub(crate) mod proto {
         }
     }
 
-    pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginResult};
+    pub(crate) use kat::hitrace::{ProfilerPluginData, TracePluginConfig, TracePluginResult};
     pub(crate) use kat::native_hook::{BatchNativeHookData, NativeHookConfig};
+
+    #[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/protobuf_source_fixture/fixture_proto.rs"
+    ));
 }
 
+#[cfg(all(test, feature = "protobuf-source-contract-fixture"))]
+mod generated_fixture_emitter {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/protobuf_source_fixture/fixture_emitter.rs"
+    ));
+}
+
+mod generated_profiler_source_emitter {
+    include!(concat!(env!("OUT_DIR"), "/profiler_source_emitter.rs"));
+}
 pub struct DatasetInspection {
     path: PathBuf,
     tables: Vec<TableInspection>,
@@ -256,25 +283,6 @@ fn scan_table_candidates(root: &Path) -> Result<Vec<(String, PathBuf)>, DatasetI
     }
     candidates.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(candidates)
-}
-
-pub(crate) fn valid_table_name(name: &str) -> bool {
-    let valid = !name.is_empty()
-        && name.split('_').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        })
-        && name.as_bytes()[0].is_ascii_lowercase();
-    valid && !is_windows_device_name(name)
-}
-
-fn is_windows_device_name(name: &str) -> bool {
-    matches!(name, "con" | "prn" | "aux" | "nul")
-        || (name.len() == 4
-            && (name.starts_with("com") || name.starts_with("lpt"))
-            && matches!(name.as_bytes()[3], b'1'..=b'9'))
 }
 
 fn read_table(name: String, path: PathBuf) -> Result<TableInspection, DatasetInspectionError> {

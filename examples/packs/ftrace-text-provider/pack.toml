@@ -1,0 +1,4 @@
+name = "ftrace-text-provider"
+title = "Ftrace Text Provider"
+description = "External PACK example for parsing tracefs text into a reusable Parquet catalog."
+owner = "KAT Contributors"
