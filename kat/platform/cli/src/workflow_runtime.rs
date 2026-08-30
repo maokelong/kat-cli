@@ -94,6 +94,21 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) arguments: Vec<String>,
     pub(crate) candidate_id: String,
     pub(crate) candidate_path: String,
+    pub(crate) datasource_root: String,
+}
+
+fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowRequest<'_> {
+    RunWorkflowRequest {
+        operation: "run_workflow",
+        pack_name: &invocation.pack_name,
+        pack_path: &invocation.pack_path,
+        workflow_name: &invocation.workflow_name,
+        dataset: invocation.dataset.as_ref(),
+        arguments: &invocation.arguments,
+        candidate_id: &invocation.candidate_id,
+        candidate_path: &invocation.candidate_path,
+        datasource_root: &invocation.datasource_root,
+    }
 }
 
 pub(crate) struct QueryRunInvocation {
@@ -213,16 +228,7 @@ pub(crate) fn execute_workflow_runtime(
     mut log: OperationLog,
     invocation: RunWorkflowInvocation,
 ) -> Result<RunWorkflowOutcome, RunWorkflowError> {
-    let request = RunWorkflowRequest {
-        operation: "run_workflow",
-        pack_name: &invocation.pack_name,
-        pack_path: &invocation.pack_path,
-        workflow_name: &invocation.workflow_name,
-        dataset: invocation.dataset.as_ref(),
-        arguments: &invocation.arguments,
-        candidate_id: &invocation.candidate_id,
-        candidate_path: &invocation.candidate_path,
-    };
+    let request = run_workflow_request(&invocation);
     let response = match exchange_request_bytes("kat-run-workflow-", &request, &mut log) {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
@@ -386,6 +392,8 @@ fn exposes_run_private_value(
         invocation.candidate_id.clone(),
         invocation.candidate_path.clone(),
         invocation.candidate_path.replace('\\', "/"),
+        invocation.datasource_root.clone(),
+        invocation.datasource_root.replace('\\', "/"),
     ];
     values
         .iter()
@@ -465,6 +473,7 @@ fn result_violates_private_value_isolation(
     let contains_private = |value: &str| {
         value.contains(&invocation.candidate_id)
             || contains_private_path(value, &invocation.candidate_path)
+            || contains_private_path(value, &invocation.datasource_root)
     };
 
     result.effective_inputs.iter().any(|(name, value)| {
@@ -1049,7 +1058,37 @@ mod tests {
     }
 
     #[test]
-    fn run_runtime_diagnostic_rejects_private_candidate_values() {
+    fn run_workflow_request_serializes_the_datasource_root() {
+        let invocation = RunWorkflowInvocation {
+            pack_name: "example".to_owned(),
+            pack_path: "C:\\pack".to_owned(),
+            workflow_name: "analyze".to_owned(),
+            dataset: None,
+            arguments: Vec::new(),
+            candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
+            candidate_path: "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001".to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
+        };
+
+        let request = serde_json::to_value(run_workflow_request(&invocation)).unwrap();
+
+        assert_eq!(
+            request,
+            serde_json::json!({
+                "operation": "run_workflow",
+                "pack_name": "example",
+                "pack_path": "C:\\pack",
+                "workflow_name": "analyze",
+                "arguments": [],
+                "candidate_id": "019f6e00-0000-7000-8000-000000000001",
+                "candidate_path": "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001",
+                "datasource_root": "C:\\data\\datasources\\example"
+            })
+        );
+    }
+
+    #[test]
+    fn run_runtime_diagnostic_rejects_private_runtime_values() {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
@@ -1058,11 +1097,14 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
         for private in [
             invocation.candidate_id.clone(),
             invocation.candidate_path.clone(),
             invocation.candidate_path.replace('\\', "/"),
+            invocation.datasource_root.clone(),
+            invocation.datasource_root.replace('\\', "/"),
         ] {
             let diagnostic = serde_json::from_value::<KatDiagnostic>(serde_json::json!({
                 "message": "Workflow execution failed",
@@ -1075,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn run_success_rejects_candidate_values_before_the_result_becomes_trusted() {
+    fn run_success_rejects_private_runtime_values_before_the_result_becomes_trusted() {
         let invocation = RunWorkflowInvocation {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
@@ -1084,15 +1126,31 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
-        let response = format!(
-            r#"{{"status":"success","result":{{"effective_inputs":{{}},"outputs":{{"{}":{{"columns":[{{"name":"value","type":"int64"}}],"row_count":0}}}}}}}}"#,
-            invocation.candidate_id
-        );
+        for private in [
+            invocation.candidate_id.clone(),
+            invocation.candidate_path.clone(),
+            invocation.candidate_path.replace('\\', "/"),
+            invocation.datasource_root.clone(),
+            invocation.datasource_root.replace('\\', "/"),
+        ] {
+            let response = serde_json::to_vec(&serde_json::json!({
+                "status": "success",
+                "result": {
+                    "effective_inputs": {"value": private},
+                    "outputs": {
+                        "main": {
+                            "columns": [{"name": "value", "type": "int64"}],
+                            "row_count": 0
+                        }
+                    }
+                }
+            }))
+            .unwrap();
 
-        assert!(
-            decode_and_validate_run_workflow_response(response.as_bytes(), &invocation).is_err()
-        );
+            assert!(decode_and_validate_run_workflow_response(&response, &invocation).is_err());
+        }
     }
 
     #[test]
@@ -1109,6 +1167,7 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1126,6 +1185,7 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1152,6 +1212,7 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000003".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000003".to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"output_id":"0123456789abcdef0123456789abcdef","columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1187,6 +1248,7 @@ mod tests {
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
         };
         assert!(validate_run_workflow_report(result(BTreeMap::new()), &invocation).is_err());
         let output = || protocol::RawRuntimeOutput {

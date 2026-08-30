@@ -15,6 +15,7 @@ from datafusion import DataFrame, Expr, SQLOptions, SessionContext
 from kat._temporal import _duration_nanoseconds, _wall_clock_nanoseconds
 
 from .clock import ClockCapability
+from .datasource import WorkflowOperation
 from .outputs import materialize_outputs
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
@@ -36,27 +37,15 @@ class WorkflowExecutionFailure(Exception):
     """
 
 
-class ExecutionLease:
-    def __init__(self) -> None:
-        self._active = True
-
-    def require_active(self) -> None:
-        if not self._active:
-            raise RuntimeError("Workflow execution lease is no longer active")
-
-    def expire(self) -> None:
-        self._active = False
-
-
 class WorkflowContext(kat.Context):
     def __init__(
         self,
         session: SessionContext,
-        lease: ExecutionLease,
+        operation: WorkflowOperation,
         clock: ClockCapability,
     ) -> None:
         self._session = session
-        self._lease = lease
+        self._operation = operation
         self._clock = clock
         self._sql_options = (
             SQLOptions()
@@ -66,14 +55,18 @@ class WorkflowContext(kat.Context):
         )
 
     def sql(self, sql: str, **params: object) -> DataFrame:
-        self._lease.require_active()
+        self._operation.require_active()
         if type(sql) is not str or not sql.strip():
             raise TypeError("ctx.sql requires a non-empty SQL string")
         values = {name: _sql_parameter(name, value) for name, value in params.items()}
-        return self._session.sql(sql, options=self._sql_options, param_values=values)
+        return self._session.sql(
+            sql,
+            options=self._sql_options,
+            param_values=values,
+        )
 
     def from_arrow(self, table: object) -> DataFrame:
-        self._lease.require_active()
+        self._operation.require_active()
         if not isinstance(table, pa.Table):
             raise TypeError("ctx.from_arrow requires a PyArrow Table")
         return self._session.from_arrow(table)
@@ -85,12 +78,16 @@ class WorkflowContext(kat.Context):
         *,
         target_domain: str,
     ) -> Expr:
-        self._lease.require_active()
+        self._operation.require_active()
         return self._clock.convert(
             clock_domain,
             clock_value,
             target_domain=target_domain,
         )
+
+    @property
+    def datasource_root(self) -> Path:
+        return self._operation.datasource_root
 
 
 def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
@@ -108,6 +105,7 @@ def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
         dataset=dataset,
         arguments=request.arguments,
         candidate=request.candidate,
+        datasource_root=request.datasource_root,
     )
 
 
@@ -119,6 +117,7 @@ def run_loaded_workflow(
     dataset: ResolvedDatasetRef | None,
     arguments: list[str],
     candidate: RunCandidateRef,
+    datasource_root: Path,
 ) -> RunWorkflowRuntimeResult:
     candidate_id = candidate.identifier
     candidate_path = candidate.path
@@ -147,8 +146,8 @@ def run_loaded_workflow(
         raise WorkflowExecutionFailure() from error
     clock = ClockCapability(dataset)
 
-    lease = ExecutionLease()
-    context = WorkflowContext(session, lease, clock)
+    operation = WorkflowOperation(datasource_root)
+    context = WorkflowContext(session, operation, clock)
     try:
         with workflow_logging(candidate_id, pack_name, workflow_name):
             try:
@@ -160,7 +159,7 @@ def run_loaded_workflow(
             except (Exception, SystemExit) as error:
                 raise WorkflowExecutionFailure() from error
     finally:
-        lease.expire()
+        operation.expire()
     return RunWorkflowRuntimeResult(
         effective_inputs={
             name: _project_effective_input(value) for name, value in effective.items()
@@ -180,7 +179,8 @@ def _sql_parameter(name: str, value: object) -> object:
         return _duration_nanoseconds(str(value))
     if isinstance(value, kat.WallClockTimestamp):
         return pa.scalar(
-            _wall_clock_nanoseconds(str(value)), type=pa.timestamp("ns", tz="UTC")
+            _wall_clock_nanoseconds(str(value)),
+            type=pa.timestamp("ns", tz="UTC"),
         )
     raise TypeError(
         f"SQL parameter {name!r} must be bool, int64, finite float, str, Duration, or WallClockTimestamp"

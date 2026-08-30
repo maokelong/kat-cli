@@ -1,0 +1,4 @@
+name = "local-parquet-fusion"
+title = "Local Parquet Fusion"
+description = "External PACK example for querying and fusing explicitly mapped local Parquet tables."
+owner = "KAT Contributors"

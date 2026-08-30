@@ -7,8 +7,8 @@ from typing import Any, NoReturn
 
 import pyarrow.parquet as pq
 from datafusion import DataFrame
+from kat.dataprovider import Table
 from kat._identifiers import valid_output_name
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,7 +18,8 @@ class OutputMaterializationError(Exception):
 
 
 def materialize_outputs(
-    value: object, candidate_path: Path
+    value: object,
+    candidate_path: Path,
 ) -> dict[str, dict[str, Any]]:
     try:
         outputs = _normalize_outputs(value)
@@ -37,36 +38,60 @@ def materialize_outputs(
 
     materialized: dict[str, dict[str, Any]] = {}
     for name in sorted(outputs):
-        materialized[name] = asyncio.run(
-            _write_output(
-                outputs[name],
+        value = outputs[name]
+        if isinstance(value, Table):
+            materialized[name] = _write_table(
+                value,
                 output_root / f"{name}.parquet",
                 name,
             )
-        )
+        else:
+            materialized[name] = asyncio.run(
+                _write_output(
+                    value,
+                    output_root / f"{name}.parquet",
+                    name,
+                )
+            )
     return materialized
 
 
-def _normalize_outputs(value: object) -> dict[str, DataFrame]:
+def _normalize_outputs(value: object) -> dict[str, DataFrame | Table]:
     if isinstance(value, DataFrame):
         candidates: dict[object, object] = {"main": value}
+    elif isinstance(value, Table):
+        candidates = {"main": value}
     elif type(value) is dict:
         candidates = value
     else:
         raise TypeError(
-            "Workflow must return a DataFusion DataFrame or a non-empty named DataFrame mapping"
+            "Workflow must return a dataprovider.Table, DataFusion DataFrame, "
+            "or a non-empty exact dict"
         )
     if not candidates:
         raise ValueError("Workflow must return at least one Table Output")
 
-    outputs: dict[str, DataFrame] = {}
-    for name, frame in candidates.items():
+    outputs: dict[str, DataFrame | Table] = {}
+    for name, relation in candidates.items():
         if type(name) is not str or not valid_output_name(name):
             raise ValueError(f"invalid Output name: {name!r}")
-        if not isinstance(frame, DataFrame):
-            raise TypeError(f"Output {name!r} must be a DataFusion DataFrame")
-        outputs[name] = frame
+        if not isinstance(relation, (Table, DataFrame)):
+            raise TypeError(
+                f"Output {name!r} must be a dataprovider.Table or DataFusion DataFrame"
+            )
+        outputs[name] = relation
     return outputs
+
+
+def _write_table(
+    table: Table, output_path: Path, output_name: str
+) -> dict[str, Any]:
+    arrow_table = table.to_arrow()
+    try:
+        pq.write_table(arrow_table, output_path, compression="zstd")
+    except (Exception, SystemExit):
+        _raise_output_write_error(output_name)
+    return _output_metadata(arrow_table.schema, arrow_table.num_rows)
 
 
 async def _write_output(
@@ -100,6 +125,10 @@ async def _write_output(
         writer.close()
     except (Exception, SystemExit):
         _raise_output_write_error(output_name)
+    return _output_metadata(schema, row_count)
+
+
+def _output_metadata(schema: Any, row_count: int) -> dict[str, Any]:
     return {
         "columns": [
             {"name": field.name, "type": str(field.type)} for field in schema

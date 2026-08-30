@@ -76,8 +76,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
 
     def candidate(self) -> tuple[str, Path]:
         candidate_id = str(uuid.uuid7())
-        candidate = self.root / candidate_id
-        candidate.mkdir()
+        candidate = self.root / "runs" / candidate_id
+        candidate.mkdir(parents=True)
         return candidate_id, candidate.resolve()
 
     def clock_dataset(self) -> tuple[Path, Path, Path]:
@@ -109,6 +109,9 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             "arguments": arguments or [],
             "candidate_id": candidate_id,
             "candidate_path": str(candidate),
+            "datasource_root": str(
+                (self.root / "datasources" / "example").resolve(strict=False)
+            ),
         }
         if dataset is not None:
             request["dataset"] = dataset
@@ -261,8 +264,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             required_tables="[]",
         )
         candidate_id = "private-candidate"
-        candidate = self.root / candidate_id
-        candidate.mkdir()
+        candidate = self.root / "runs" / candidate_id
+        candidate.mkdir(parents=True)
 
         completed, response = self.run_runtime(
             self.request(pack, candidate_id, candidate.resolve(), dataset=None)
@@ -310,6 +313,88 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure", response)
         self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+    def test_run_request_rejects_a_datasource_root_for_another_pack(self) -> None:
+        pack = self.pack(
+            '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
+            required_tables="[]",
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate, dataset=None)
+        request["datasource_root"] = str(
+            (self.root / "datasources" / "other-pack").resolve(strict=False)
+        )
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+    def test_run_request_rejects_a_datasource_root_from_another_data_home(self) -> None:
+        pack = self.pack(
+            '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
+            required_tables="[]",
+        )
+        candidate_id, candidate = self.candidate()
+        other_data_home = self.root / "other-data-home"
+        (other_data_home / "runs").mkdir(parents=True)
+        request = self.request(pack, candidate_id, candidate, dataset=None)
+        request["datasource_root"] = str(
+            (other_data_home / "datasources" / "example").resolve(strict=False)
+        )
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+    def test_run_request_accepts_a_linked_runs_directory(self) -> None:
+        external_runs = self.root / "external-runs"
+        external_runs.mkdir()
+        runs = self.root / "runs"
+        if os.name == "nt":
+            created = subprocess.run(
+                [
+                    "cmd.exe",
+                    "/d",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    str(runs),
+                    str(external_runs),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(
+                created.returncode,
+                0,
+                created.stderr.decode(errors="replace"),
+            )
+        else:
+            try:
+                runs.symlink_to(external_runs, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"directory link creation is unavailable: {error}")
+
+        pack = self.pack(
+            '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
+            required_tables="[]",
+        )
+        candidate_id = str(uuid.uuid7())
+        (runs / candidate_id).mkdir()
+        candidate = (external_runs / candidate_id).resolve()
+
+        completed, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate, dataset=None)
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
 
     def test_workflow_system_exit_is_a_runtime_failure(self) -> None:
         pack = self.pack(
@@ -808,7 +893,7 @@ def other(ctx: Context):
             required_tables="[]",
         )
         cross_id = "019f6e00-0000-7000-8000-000000000007"
-        cross_candidate = self.root / cross_id
+        cross_candidate = self.root / "runs" / cross_id
         cross_candidate.mkdir()
         completed, response = self.run_runtime(
             self.request(
