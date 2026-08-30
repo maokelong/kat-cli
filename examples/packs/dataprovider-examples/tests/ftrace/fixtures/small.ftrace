@@ -1,0 +1,8 @@
+# tracer: nop
+#
+# entries-in-buffer/entries-written: 3/3   #P:2
+#
+#           TASK-PID       TGID    CPU#  |||||  TIMESTAMP  FUNCTION
+     render-thread-99      (     42) [001] d.h.. 1.000000001: tracing_mark_write: B|99|frame
+          <idle>-0         (-------) [000] d.... 2.500000: cpu_idle: state=0 cpu_id=0
+          worker-12        (     12) [001] ..... 2488887.356926: sched_switch: prev_comm=worker next_comm=idle

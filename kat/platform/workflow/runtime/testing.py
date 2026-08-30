@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from .diagnostic import _exception_chain
 from .execution import WorkflowExecutionFailure, run_loaded_workflow
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
@@ -223,12 +224,10 @@ def _isolated_pytest_environment() -> Iterator[None]:
 
 def _test_workflow_diagnostic(error: BaseException) -> str:
     causes: list[str] = []
-    current: BaseException | None = error
-    while current is not None:
+    for current in _exception_chain(error):
         rendered = str(current).strip()
         if rendered:
             causes.append(rendered)
-        current = current.__cause__ or current.__context__
     details = "\n".join(f"caused by: {cause}" for cause in causes)
     if details:
         details += "\n"
