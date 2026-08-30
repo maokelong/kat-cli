@@ -260,6 +260,145 @@ def test_not_selected():
         self.assertIn("1 passed", terminal)
         self.assertNotIn("raw node id", terminal)
 
+    def test_pack_owned_datasource_provider_is_an_ordinary_python_class(self) -> None:
+        pack = self.pack()
+        datasources = pack / "datasources"
+        datasources.mkdir()
+        (datasources / "__init__.py").write_text(
+            "DEFAULT_VALUE = 1\n",
+            encoding="utf-8",
+        )
+        (datasources / "provider_state.py").write_text(
+            '''from kat import dataprovider as dp
+
+from . import DEFAULT_VALUE
+
+
+providers = []
+
+
+class Provider:
+    def __init__(self):
+        self.query_count = 0
+
+    def query(self, value=DEFAULT_VALUE):
+        self.query_count += 1
+        table = dp.Table({"value": int})
+        table.append(value=value)
+        return table
+
+
+def create():
+    provider = Provider()
+    providers.append(provider)
+    return provider
+''',
+            encoding="utf-8",
+        )
+        self.replace_workflow(
+            pack,
+            '''import kat
+from kat.pack.datasources import provider_state
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """Publish one PACK-owned Provider result."""
+    return provider_state.create().query()
+''',
+        )
+        self.write_test(
+            pack,
+            "test_provider_lifecycle.py",
+            '''from kat import dataprovider as dp
+from kat.pack.datasources import provider_state
+
+
+def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
+    result = kat_run(workflow="analyze")
+    assert result["main"].to_pydict() == {"value": [1]}
+    provider = provider_state.providers[-1]
+    assert provider.query_count == 1
+
+    later = provider.query(2)
+    assert isinstance(later, dp.Table)
+    assert later["value"] == (2,)
+    assert provider.query_count == 2
+''',
+        )
+
+        completed, response, report = self.run_runtime(self.request(pack), pack)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            response,
+            {"status": "success", "result": {"summary": {"passed": 1}}},
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertTrue(report.is_file())
+
+    def test_datasource_root_is_shared_within_one_test_and_isolated_between_tests(
+        self,
+    ) -> None:
+        pack = self.pack()
+        (pack / "helpers" / "datasource_state.py").write_text(
+            "roots = []\ncontexts = []\n",
+            encoding="utf-8",
+        )
+        self.replace_workflow(
+            pack,
+            '''import kat
+import pyarrow as pa
+from kat.pack.helpers import datasource_state
+
+
+@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+def analyze(ctx: kat.Context):
+    """Increment a test-scoped Datasource materialization."""
+    root = ctx.datasource_root
+    counter = root / "counter.txt"
+    value = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
+    counter.write_text(str(value), encoding="utf-8")
+    datasource_state.roots.append(root)
+    datasource_state.contexts.append(ctx)
+    return ctx.from_arrow(pa.table({"value": [value]}))
+''',
+        )
+        self.write_test(
+            pack,
+            "test_datasource_root.py",
+            '''import pytest
+from kat.pack.helpers import datasource_state
+
+
+def test_shared_within_one_test(kat_run):
+    first = kat_run(workflow="analyze")
+    second = kat_run(workflow="analyze")
+    assert first["main"].to_pydict() == {"value": [1]}
+    assert second["main"].to_pydict() == {"value": [2]}
+    assert datasource_state.roots[-2] == datasource_state.roots[-1]
+    with pytest.raises(RuntimeError, match="lease is no longer active"):
+        _ = datasource_state.contexts[-1].datasource_root
+
+
+def test_isolated_from_the_previous_test(kat_run):
+    previous = datasource_state.roots[0]
+    result = kat_run(workflow="analyze")
+    assert result["main"].to_pydict() == {"value": [1]}
+    assert datasource_state.roots[-1] != previous
+''',
+        )
+
+        completed, response, report = self.run_runtime(self.request(pack), pack)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            response,
+            {"status": "success", "result": {"summary": {"passed": 2}}},
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertTrue(report.is_file())
+
     def test_private_test_request_constructs_cli_owned_facts_without_revalidation(
         self,
     ) -> None:

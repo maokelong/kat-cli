@@ -71,16 +71,26 @@ class RuntimeProcessTest(unittest.TestCase):
         pack = self.root / "checkout-with-unrelated-name"
         (pack / "workflows" / "nested").mkdir(parents=True)
         (pack / "helpers").mkdir()
+        (pack / "datasources").mkdir()
         (pack / "tests").mkdir()
         (pack / "helpers" / "rules.py").write_text(
             "def title():\n    return 'Helper title'\n", encoding="utf-8"
         )
+        (pack / "datasources" / "titles.py").write_text(
+            "def decorate(value):\n    return f'Datasource {value}'\n",
+            encoding="utf-8",
+        )
+        (pack / "datasources" / "must_not_import.py").write_text(
+            "raise RuntimeError('unreferenced Datasources must not be scanned')\n",
+            encoding="utf-8",
+        )
         (pack / "workflows" / "nested" / "cpu.py").write_text(
             """import math
 from kat import Context, workflow
+from kat.pack.datasources.titles import decorate
 from kat.pack.helpers.rules import title
 
-@workflow(name="cpu-time", title=title(), required_tables=["thread", "sched_slice"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title=decorate(title()), required_tables=["thread", "sched_slice"], parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     \"\"\"Analyze CPU time.\"\"\"
 """,
@@ -109,7 +119,7 @@ def analyze(ctx: Context, *, limit: int = 10):
                     "workflows": [
                         {
                             "name": "cpu-time",
-                            "title": "Helper title",
+                            "title": "Datasource Helper title",
                             "description": "Analyze CPU time.",
                             "required_tables": ["sched_slice", "thread"],
                             "parameters": [
@@ -709,8 +719,8 @@ def analyze(ctx: Context, value: str = invalid_default):
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
         candidate_id = str(uuid.uuid7())
-        candidate = self.root / candidate_id
-        candidate.mkdir()
+        candidate = self.root / "runs" / candidate_id
+        candidate.mkdir(parents=True)
 
         completed, response_path = self.run_runtime_process(
             {
@@ -721,6 +731,11 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "arguments": [],
                 "candidate_id": candidate_id,
                 "candidate_path": str(candidate.resolve()),
+                "datasource_root": str(
+                    (
+                        self.root / "datasources" / "run-worker-crash"
+                    ).resolve(strict=False)
+                ),
             }
         )
 
