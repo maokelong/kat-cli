@@ -37,5 +37,5 @@ def summarize_ftrace(
             executable=Path(executable),
             catalog_root=Path(workspace) / "catalog",
             clock_domain=clock_domain,
-        ).decode()
+        )
         return provider.query(SUMMARY_SQL)

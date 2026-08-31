@@ -1,0 +1,4 @@
+name = "mem-pack"
+title = "Memory Analysis PACK"
+description = "External PACK example for analyzing typed Ftrace relations produced by the Rust ftrace2parquet converter."
+owner = "KAT Contributors"

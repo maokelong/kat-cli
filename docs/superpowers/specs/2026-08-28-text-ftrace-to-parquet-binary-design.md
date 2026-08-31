@@ -54,9 +54,9 @@ crate 自有 `TextFtraceEvent` 根消息。公共事件头位于根，具体事�
 
 ## PACK Provider 纵向切片
 
-`examples/packs/ftrace2parquet-provider` 提供普通 Python `Ftrace2ParquetProvider`。它从部署环境取得二进制路径，在 `ctx.datasource_root` 下当前 Workflow 的唯一临时 workspace 中调用转换器，要求固定 header、occurrence 和根关系存在，再用 `ds.open(root=...)` 与 `ds.DataFusionProvider` 暴露 `query() -> ds.Table`。
+`examples/packs/mem-pack/datasources/ftrace2parquet.py` 提供普通 Python `Ftrace2ParquetProvider`。构造过程从部署环境取得二进制路径，在 `ctx.datasource_root` 下当前 Workflow 的唯一临时 workspace 中调用转换器，要求固定 header、occurrence 和根关系存在，再用 `dp.open(root=...)` 与 `dp.DataFusionProvider` 暴露 `query() -> dp.Table`。
 
-Provider 不继承 KAT 类型、不注册或自动发现，不保存跨 Workflow Catalog。转换失败、必需关系缺失或 Catalog 打开失败时保持未准备并尽力清理独占目标；成功查询返回的 eager Table 与二进制进程和 Parquet reader 生命周期脱离。具体 payload 关系仍按来源实际出现，不由 Provider 补空表。
+Provider 不继承 KAT 具体类型、不注册或自动发现，不保存跨 Workflow Catalog。转换失败、必需关系缺失或 Catalog 打开失败时构造失败并尽力清理独占目标；成功查询返回的 eager Table 与二进制进程和 Parquet reader 生命周期脱离。具体 payload 关系仍按来源实际出现，不由 Provider 补空表。
 
 ## 验证
 

@@ -233,6 +233,7 @@ class AuthoringApiTest(unittest.TestCase):
                 "Table",
                 "Catalog",
                 "DataFusionProvider",
+                "Provider",
                 "write",
                 "open",
             },

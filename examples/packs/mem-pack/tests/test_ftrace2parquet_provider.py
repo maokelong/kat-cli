@@ -5,7 +5,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from kat import datasource as ds
+from kat import dataprovider as dp
 from kat.pack.datasources import ftrace2parquet as provider_module
 from kat.pack.datasources.ftrace2parquet import Ftrace2ParquetProvider
 
@@ -79,23 +79,21 @@ def _write_catalog(root: Path, *, include_root: bool = True) -> None:
     )
 
 
-def _provider(tmp_path: Path) -> Ftrace2ParquetProvider:
+def _arguments(tmp_path: Path) -> dict[str, object]:
     executable = tmp_path / "ftrace2parquet"
     executable.write_bytes(b"fixture executable")
-    return Ftrace2ParquetProvider(
-        source=_FIXTURE,
-        executable=executable,
-        catalog_root=tmp_path / "catalog",
-        clock_domain="fixture_clock",
-    )
+    return {
+        "source": _FIXTURE,
+        "executable": executable,
+        "catalog_root": tmp_path / "catalog",
+        "clock_domain": "fixture_clock",
+    }
 
 
-def test_decode_invokes_the_converter_and_exposes_typed_relations(
+def test_construction_invokes_the_converter_and_exposes_typed_relations(
     monkeypatch,
     tmp_path,
 ):
-    provider = _provider(tmp_path)
-
     def convert(arguments, **options):
         assert arguments[1:3] == ["--input", str(_FIXTURE.resolve())]
         assert arguments[3] == "--output"
@@ -112,7 +110,7 @@ def test_decode_invokes_the_converter_and_exposes_typed_relations(
         return subprocess.CompletedProcess(arguments, 0)
 
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
-    provider.decode()
+    provider: dp.Provider = Ftrace2ParquetProvider(**_arguments(tmp_path))
 
     topology = provider.query(
         """
@@ -125,7 +123,7 @@ def test_decode_invokes_the_converter_and_exposes_typed_relations(
         """
     )
 
-    assert isinstance(topology, ds.Table)
+    assert isinstance(topology, dp.Table)
     assert topology.to_rows() == [
         {
             "source_event_sequence": 0,
@@ -135,13 +133,10 @@ def test_decode_invokes_the_converter_and_exposes_typed_relations(
     ]
 
 
-def test_query_before_decode_is_rejected(tmp_path):
-    with pytest.raises(RuntimeError, match="decode before query"):
-        _provider(tmp_path).query("SELECT 1")
-
-
-def test_failed_converter_cleans_partial_output_and_can_retry(monkeypatch, tmp_path):
-    provider = _provider(tmp_path)
+def test_failed_constructor_cleans_partial_output_and_a_new_provider_can_retry(
+    monkeypatch,
+    tmp_path,
+):
     attempts = 0
 
     def convert(arguments, **_options):
@@ -158,20 +153,16 @@ def test_failed_converter_cleans_partial_output_and_can_retry(monkeypatch, tmp_p
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
 
     with pytest.raises(RuntimeError, match="decode failed"):
-        provider.decode()
+        Ftrace2ParquetProvider(**_arguments(tmp_path))
     assert not (tmp_path / "catalog").exists()
-    with pytest.raises(RuntimeError, match="decode before query"):
-        provider.query("SELECT 1")
 
-    provider.decode()
+    provider = Ftrace2ParquetProvider(**_arguments(tmp_path))
     assert provider.query(
         "SELECT COUNT(*) AS event_count FROM text_ftrace_event"
     ).to_rows() == [{"event_count": 4}]
 
 
 def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
-    provider = _provider(tmp_path)
-
     def convert(arguments, **_options):
         _write_catalog(Path(arguments[4]), include_root=False)
         return subprocess.CompletedProcess(arguments, 0)
@@ -179,11 +170,9 @@ def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
 
     with pytest.raises(RuntimeError, match="text_ftrace_event"):
-        provider.decode()
+        Ftrace2ParquetProvider(**_arguments(tmp_path))
 
     assert not (tmp_path / "catalog").exists()
-    with pytest.raises(RuntimeError, match="decode before query"):
-        provider.query("SELECT 1")
 
 
 @pytest.mark.parametrize("field", ("source", "executable", "catalog_root"))

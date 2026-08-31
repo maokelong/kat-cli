@@ -4,9 +4,8 @@ from collections.abc import Mapping
 from pathlib import Path
 import shutil
 import subprocess
-from typing import Self
 
-from kat import datasource as ds
+from kat import dataprovider as dp
 
 
 REQUIRED_RELATIONS = frozenset(
@@ -57,11 +56,10 @@ class Ftrace2ParquetProvider:
         self._executable = executable
         self._catalog_root = catalog_root
         self._clock_domain = clock_domain
-        self._fusion: ds.DataFusionProvider | None = None
+        self._fusion = self._initialize()
 
-    def decode(self) -> Self:
+    def _initialize(self) -> dp.DataFusionProvider:
         """把当前来源完整转换为本 Provider 独占的 Parquet Catalog。"""
-        self._fusion = None
         try:
             # catalog_root 是调用方明确交付的独占 leaf；保留词法路径，避免删除穿过
             # resolve 后的 symlink 扩大到 workspace 之外。
@@ -103,14 +101,14 @@ class Ftrace2ParquetProvider:
                     "Ftrace2Parquet did not produce a regular catalog directory"
                 )
 
-            catalog = ds.open(root=catalog_root)
+            catalog = dp.open(root=catalog_root)
             missing = REQUIRED_RELATIONS.difference(catalog.tables)
             if missing:
                 raise RuntimeError(
                     "Ftrace2Parquet output is missing required relations: "
                     + ", ".join(sorted(missing))
                 )
-            fusion = ds.DataFusionProvider(catalog=catalog)
+            fusion = dp.DataFusionProvider(catalog=catalog)
         except OSError:
             _cleanup_owned_catalog(self._catalog_root)
             raise RuntimeError("Ftrace2Parquet decode failed") from None
@@ -118,19 +116,15 @@ class Ftrace2ParquetProvider:
             _cleanup_owned_catalog(self._catalog_root)
             raise
 
-        self._fusion = fusion
-        return self
+        return fusion
 
     def query(
         self,
         sql: str,
         *,
         params: Mapping[str, object] | None = None,
-    ) -> ds.Table:
-        fusion = self._fusion
-        if fusion is None:
-            raise RuntimeError("Ftrace2Parquet Provider must decode before query")
-        return fusion.query(sql, params=params)
+    ) -> dp.Table:
+        return self._fusion.query(sql, params=params)
 
 
 def _remove_owned_catalog(catalog_root: Path) -> None:

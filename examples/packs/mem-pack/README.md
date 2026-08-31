@@ -1,21 +1,21 @@
-# Ftrace2Parquet Provider example PACK
+# Memory Analysis PACK
 
 这个 External PACK 展示如何把独立 Rust 转换器接入 PACK 自有 Provider：
 
 ```text
 UTF-8 text Ftrace
-  -> Ftrace2ParquetProvider.decode()
+  -> Ftrace2ParquetProvider(...)
   -> Rust ftrace2parquet
   -> typed Parquet relations
-  -> ds.open(root=...)
-  -> ds.DataFusionProvider(catalog=...)
-  -> Provider.query(SQL) 返回 eager ds.Table
+  -> dp.open(root=...)
+  -> dp.DataFusionProvider(catalog=...)
+  -> Provider.query(SQL) 返回 eager dp.Table
   -> Workflow 发布 Run Output
 ```
 
 Rust 二进制拥有文本语法、Proto 类型合同、有限批次写入和 Parquet 目录的原子发布。
-Python Provider 不重新解析 Ftrace，也不复制关系 Schema；它负责本次 Workflow 的进程
-调用、独占 Catalog 生命周期、必需关系校验和本地查询。二进制由部署环境提供，Workflow
+Python Provider 不重新解析 Ftrace，也不复制关系 Schema；构造成功后即可查询。它负责本次
+Workflow 的进程调用、独占 Catalog 生命周期、必需关系校验和本地查询。二进制由部署环境提供，Workflow
 通过 `KAT_FTRACE2PARQUET_EXECUTABLE` 取得批准的绝对路径，不把可执行文件位置暴露成
 Workflow 参数。
 
@@ -39,16 +39,16 @@ cargo build --locked -p ftrace2parquet
 export KAT_FTRACE2PARQUET_EXECUTABLE="$PWD/target/debug/ftrace2parquet"
 
 kat run \
-  --pack ftrace2parquet-provider \
+  --pack mem-pack \
   --workflow summarize-ftrace \
-  --pack-dir ./examples/packs/ftrace2parquet-provider \
+  --pack-dir ./examples/packs/mem-pack \
   -- \
   --trace-path /absolute/path/to/trace.ftrace \
   --clock-domain monotonic
 ```
 
 Workflow 在 `ctx.datasource_root` 下创建本次执行唯一的临时 workspace。Provider 返回的
-查询结果是 eager `ds.Table`；查询完成后可以清理临时 Parquet，不影响 Run Output。
+查询结果是 eager `dp.Table`；查询完成后可以清理临时 Parquet，不影响 Run Output。
 
 ## 验证
 
@@ -61,5 +61,5 @@ cargo test --locked -p ftrace2parquet
 PACK pytest 负责 Provider 进程边界、Catalog、查询拓扑、失败清理和 Workflow Output：
 
 ```bash
-kat test --pack-dir ./examples/packs/ftrace2parquet-provider
+kat test --pack-dir ./examples/packs/mem-pack
 ```
