@@ -56,9 +56,14 @@ class Ftrace2ParquetProvider:
         self._executable = executable
         self._catalog_root = catalog_root
         self._clock_domain = clock_domain
-        self._fusion = self._initialize()
+        try:
+            catalog = self._convert_and_open_catalog()
+            self._fusion = dp.DataFusionProvider(catalog=catalog)
+        except BaseException:
+            _cleanup_owned_catalog(self._catalog_root)
+            raise
 
-    def _initialize(self) -> dp.DataFusionProvider:
+    def _convert_and_open_catalog(self) -> dp.Catalog:
         """把当前来源完整转换为本 Provider 独占的 Parquet Catalog。"""
         try:
             # catalog_root 是调用方明确交付的独占 leaf；保留词法路径，避免删除穿过
@@ -108,15 +113,10 @@ class Ftrace2ParquetProvider:
                     "Ftrace2Parquet output is missing required relations: "
                     + ", ".join(sorted(missing))
                 )
-            fusion = dp.DataFusionProvider(catalog=catalog)
         except OSError:
-            _cleanup_owned_catalog(self._catalog_root)
             raise RuntimeError("Ftrace2Parquet decode failed") from None
-        except BaseException:
-            _cleanup_owned_catalog(self._catalog_root)
-            raise
 
-        return fusion
+        return catalog
 
     def query(
         self,

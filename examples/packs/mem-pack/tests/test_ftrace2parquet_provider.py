@@ -175,6 +175,24 @@ def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
     assert not (tmp_path / "catalog").exists()
 
 
+def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_path):
+    def convert(arguments, **_options):
+        _write_catalog(Path(arguments[4]))
+        return subprocess.CompletedProcess(arguments, 0)
+
+    def reject_catalog(*, catalog):
+        assert catalog.tables
+        raise RuntimeError("query provider failed")
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
+
+    with pytest.raises(RuntimeError, match="query provider failed"):
+        Ftrace2ParquetProvider(**_arguments(tmp_path))
+
+    assert not (tmp_path / "catalog").exists()
+
+
 @pytest.mark.parametrize("field", ("source", "executable", "catalog_root"))
 def test_paths_require_pathlib_path(field, tmp_path):
     arguments = {
