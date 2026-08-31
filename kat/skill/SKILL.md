@@ -1,30 +1,29 @@
 ---
 name: kat
-description: 分析已有 KAT Dataset 或 Run，在明确的预发布边界下验证 Trace Streamer 数据，并理解、创建、修改、验证或诊断 KAT PACK。
+description: 分析本地来源输入或已有 KAT Run，并理解、创建、修改、验证或诊断 KAT PACK。
 ---
 
 # KAT
 
-KAT 是唯一面向用户的产品入口。用户用自然语言说明目标，不需要选择 `import`、`inspect`、`run`、`query` 或 `test` 等内部操作。
+KAT 是唯一面向用户的产品入口。用户用自然语言说明目标，不需要选择 `inspect`、`run`、`query` 或 `test` 等内部操作。
 
 ## 你可以请求什么
 
 ### 分析数据
 
-一次任务从一个预发布 Source、已有 Dataset，或既有 Run 及其 Run Output 元数据，加上要回答的问题开始：
+一次任务从本地来源输入，或既有 Run 及其 Run Output 元数据，加上要回答的问题开始：
 
-- 明确要求试用本地 Trace Streamer SQLite 和问题，KAT 可以通过当前预发布 PACK 完成验证性分析。
-- 提供已有 Dataset 和问题，KAT 直接分析。
+- 提供本地来源输入和问题，KAT 发现并选择能显式读取该来源的 PACK/Workflow；来源路径作为该 Workflow 已声明的普通输入传入。
 - 提供已有 Run、输出名称和 columns 及追问，KAT 只查询既有输出，不重新执行。
 
-KAT 只在缺少继续所需的事实，或多个候选会导向实质不同结论时追问。你可以选填 Dataset、PACK、Workflow 或 External PACK directory 来覆盖自动选择，但这不是正常使用的前提。
+KAT 只在缺少继续所需的事实，或多个候选会导向实质不同结论时追问。你可以选填 PACK、Workflow 或 External PACK directory 来覆盖自动选择，但这不是正常使用的前提。
 
-分析结果包含直接结论、少量可追溯证据、适用范围或不确定性，以及可选的下一步探索方向。当前可分析主题由运行时发现的 PACK 和 Workflow 决定，不维护静态能力清单。Trace Streamer 入口及依赖它的 OpenHarmony PACK 均为 Deprecated 预发布能力，只在用户明确要求试用或验证时使用，不承诺稳定 Schema、生产兼容性或迁移路径。`.htrace` 的长期 Bundled Workflow 尚未就绪；收到 `.htrace` 分析请求时如实说明能力边界，不把它改写为 Trace Streamer 结果。
+分析结果包含直接结论、少量可追溯证据、适用范围或不确定性，以及可选的下一步探索方向。当前可分析主题与来源格式由运行时发现的 PACK 和 Workflow 决定，不维护静态能力清单，也不把一种来源格式静默改写成另一种。
 
 示例：
 
-- “试用这个 Trace Streamer SQLite，查看线程 CPU 时间主要分布在哪些 CPU。”
-- “基于这个 Dataset，判断调度延迟是否集中在特定 CPU。”
+- “分析这个 Hitrace，判断调度延迟是否集中在特定 CPU。”
+- “融合这份本地 Parquet 和来源查询结果，找出异常线程。”
 - “继续查看这个 Run 中异常线程的明细。”
 
 ### 创作或维护 PACK
@@ -45,7 +44,7 @@ KAT 只在缺少继续所需的事实，或多个候选会导向实质不同结�
 
 ## 数据放在哪里
 
-KAT 在本机读取 Source，并在 KAT Data Home 创建 Dataset、Run 和日志等结果。KAT 不直接改写 Source 内容；但显式指定 Dataset 目标并使用 `--overwrite-dataset` 时，会永久清空解析后的整个目标，且不检测 Source 是否位于目标内。Agent 调用前必须让用户确认 Source 与 Dataset 目标不重叠。Bundled PACK 随 Skill 交付；External PACK 及其测试是受信任的本地代码，不在安全沙箱中运行。
+KAT 在本机读取来源输入，并在 KAT Data Home 创建 Run、Query Result、PACK 私有 Datasource workspace、测试报告和日志。KAT 不直接改写来源内容；来源解码与临时物化由被调用的 PACK Workflow 明确拥有。Bundled PACK 随 Skill 交付；External PACK 及其测试是受信任的本地代码，不在安全沙箱中运行。
 
 ### 默认位置与更换方式
 

@@ -11,22 +11,12 @@ use std::{
 use anyhow::{Result, bail};
 use log::debug;
 
-use crate::{
-    domains::{
-        ftrace::FTRACE_PLUGIN_DECODER,
-        native_hook::{HOOK_DAEMON_PLUGIN_DECODER, NATIVE_HOOK_PLUGIN_DECODER},
-    },
-    mmap::with_mapped_file,
-    record::TraceRecordSink,
-};
+use crate::mmap::with_mapped_file;
 
 use file::{
     HIPROFILER_PROTOBUF_BIN, PROFILER_HEADER_SIZE, has_profiler_header, read_profiler_section,
 };
-use profiler::{
-    PluginPayloadClaimant, PluginPayloadRegistry, decode_plugin_section_body,
-    decode_plugin_section_body_with_claimant_and_observer,
-};
+use profiler::{PluginPayloadClaimant, decode_section};
 
 #[derive(Debug, Default)]
 pub(crate) struct HitraceDecodeReport {
@@ -36,11 +26,6 @@ pub(crate) struct HitraceDecodeReport {
     pub(crate) clock_snapshots: Vec<ClockSnapshot>,
 }
 
-#[derive(Debug)]
-pub(crate) struct HitraceDecodeFailure {
-    pub(crate) source: anyhow::Error,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct ClockSnapshot {
     pub(crate) snapshot_id: u64,
@@ -48,118 +33,36 @@ pub(crate) struct ClockSnapshot {
     pub(crate) clock_value: u64,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct UnsupportedHitraceContent {
-    pub(crate) kind: &'static str,
-    pub(crate) value: String,
-    pub(crate) byte_offset: usize,
-}
-
-type UnsupportedContentObserver<'a> = dyn FnMut(&UnsupportedHitraceContent) -> Result<()> + 'a;
-
-pub(crate) fn decode_file(path: &Path, sink: &mut impl TraceRecordSink) -> Result<()> {
-    debug!("decoding hitrace format from {}", path.display());
-    with_mapped_file(path, |bytes| decode_bytes(bytes, sink))
-}
-
-pub(crate) fn decode_file_with_report(
+pub(crate) fn decode_file(
     path: &Path,
-    sink: &mut impl TraceRecordSink,
     claimant: &mut impl PluginPayloadClaimant,
-    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
-) -> std::result::Result<HitraceDecodeReport, HitraceDecodeFailure> {
+) -> Result<HitraceDecodeReport> {
     debug!("decoding hitrace format from {}", path.display());
+    with_mapped_file(path, |bytes| decode_bytes(bytes, claimant))
+}
+
+fn decode_bytes(
+    bytes: &[u8],
+    claimant: &mut impl PluginPayloadClaimant,
+) -> Result<HitraceDecodeReport> {
+    if !has_profiler_header(bytes) {
+        bail!("invalid hitrace file: missing OHOSPROF header");
+    }
+
     let mut report = HitraceDecodeReport::default();
-    let result = with_mapped_file(path, |bytes| {
-        decode_bytes_with_report(bytes, sink, &mut report, claimant, observe_unsupported)
-    });
-    match result {
-        Ok(()) => Ok(report),
-        Err(source) => Err(HitraceDecodeFailure { source }),
-    }
-}
-
-fn decode_bytes(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    if !has_profiler_header(bytes) {
-        bail!("invalid hitrace file: missing OHOSPROF header");
-    }
-
-    decode_sections(bytes, sink)
-}
-
-fn decode_bytes_with_report(
-    bytes: &[u8],
-    sink: &mut impl TraceRecordSink,
-    report: &mut HitraceDecodeReport,
-    claimant: &mut impl PluginPayloadClaimant,
-    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
-) -> Result<()> {
-    if !has_profiler_header(bytes) {
-        bail!("invalid hitrace file: missing OHOSPROF header");
-    }
-
-    decode_sections_with_report(bytes, sink, report, claimant, observe_unsupported)
-}
-
-fn decode_sections(bytes: &[u8], sink: &mut impl TraceRecordSink) -> Result<()> {
-    decode_sections_inner(bytes, sink, None, None, None)
-}
-
-fn decode_sections_with_report(
-    bytes: &[u8],
-    sink: &mut impl TraceRecordSink,
-    report: &mut HitraceDecodeReport,
-    claimant: &mut impl PluginPayloadClaimant,
-    observe_unsupported: &mut impl FnMut(&UnsupportedHitraceContent) -> Result<()>,
-) -> Result<()> {
-    decode_sections_inner(
-        bytes,
-        sink,
-        Some(report),
-        Some(claimant),
-        Some(observe_unsupported),
-    )
-}
-
-fn decode_sections_inner(
-    bytes: &[u8],
-    sink: &mut impl TraceRecordSink,
-    mut report: Option<&mut HitraceDecodeReport>,
-    mut claimant: Option<&mut dyn PluginPayloadClaimant>,
-    mut observe_unsupported: Option<&mut UnsupportedContentObserver<'_>>,
-) -> Result<()> {
     let mut offset = 0usize;
-    let decoder_specs = [
-        FTRACE_PLUGIN_DECODER,
-        NATIVE_HOOK_PLUGIN_DECODER,
-        HOOK_DAEMON_PLUGIN_DECODER,
-    ];
-    let mut plugin_registry = PluginPayloadRegistry::new(&decoder_specs);
-
     while offset < bytes.len() {
         let section = read_profiler_section(bytes, offset)?;
         offset = section.end;
 
-        if section.start == 0
-            && let Some(report) = report.as_deref_mut()
-        {
-            add_header_clock_facts(bytes, report)?;
+        if section.start == 0 {
+            add_header_clock_facts(bytes, &mut report)?;
         }
 
         if section.header.data_type != HIPROFILER_PROTOBUF_BIN {
-            let unsupported = UnsupportedHitraceContent {
-                kind: "section_type",
-                value: section.header.data_type.to_string(),
-                byte_offset: section.start,
-            };
-            if let Some(observer) = observe_unsupported.as_deref_mut() {
-                observer(&unsupported)?;
-            }
-            if let Some(report) = report.as_deref_mut() {
-                report
-                    .unsupported_section_types
-                    .insert(section.header.data_type);
-            }
+            report
+                .unsupported_section_types
+                .insert(section.header.data_type);
             debug!(
                 "skip unsupported profiler section data_type={} section_len={}",
                 section.header.data_type, section.header.length
@@ -168,46 +71,26 @@ fn decode_sections_inner(
         }
 
         let section_body_start = section.start + PROFILER_HEADER_SIZE;
-        if let Some(report) = report.as_deref_mut() {
-            let claimant = claimant
-                .as_deref_mut()
-                .expect("reported Hitrace decode requires a payload claimant");
-            decode_plugin_section_body_with_claimant_and_observer(
-                section.body(bytes),
-                section_body_start,
-                &mut plugin_registry,
-                sink,
-                claimant,
-                |message, known, frame_offset| {
-                    if !known {
-                        let plugin = message
+        decode_section(
+            section.body(bytes),
+            section_body_start,
+            claimant,
+            |message, known, _frame_offset| {
+                if !known {
+                    report.unsupported_plugins.insert(
+                        message
                             .name
                             .strip_suffix("_config")
-                            .unwrap_or(message.name.as_str());
-                        let unsupported = UnsupportedHitraceContent {
-                            kind: "plugin",
-                            value: plugin.to_owned(),
-                            byte_offset: section_body_start + frame_offset,
-                        };
-                        if let Some(observer) = observe_unsupported.as_deref_mut() {
-                            observer(&unsupported)?;
-                        }
-                        report.unsupported_plugins.insert(plugin.to_owned());
-                    }
-                    Ok(())
-                },
-            )?;
-        } else {
-            decode_plugin_section_body(
-                section.body(bytes),
-                section_body_start,
-                &mut plugin_registry,
-                sink,
-            )?;
-        }
+                            .unwrap_or(message.name.as_str())
+                            .to_owned(),
+                    );
+                }
+                Ok(())
+            },
+        )?;
     }
 
-    plugin_registry.finish(sink)
+    Ok(report)
 }
 
 fn add_header_clock_facts(bytes: &[u8], report: &mut HitraceDecodeReport) -> Result<()> {

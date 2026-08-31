@@ -1,4 +1,4 @@
-//! 固定 descriptor 驱动的 protobuf Source-table compiler。
+//! 固定 descriptor 驱动的 protobuf relation compiler。
 //!
 //! 这个仅供构建期使用的模块暴露 root [`compile`]，以及在生成结果上追加 plan 外
 //! 手写 relation 所需枚举定义的窄操作。Descriptor closure、关系计划、prost binding
@@ -17,18 +17,18 @@ use prost_types::FileDescriptorSet;
 
 use diagnostic::Diagnostic;
 
-/// 一个 canonical descriptor root 与显式 Dataset root table 的构建期绑定。
+/// 一个 canonical descriptor root 与显式 root relation 的构建期绑定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RootSpec<'a> {
     pub(crate) protobuf_fqn: &'a str,
-    pub(crate) root_table_name: &'a str,
+    pub(crate) root_relation_name: &'a str,
 }
 
 impl<'a> RootSpec<'a> {
-    pub(crate) const fn new(protobuf_fqn: &'a str, root_table_name: &'a str) -> Self {
+    pub(crate) const fn new(protobuf_fqn: &'a str, root_relation_name: &'a str) -> Self {
         Self {
             protobuf_fqn,
-            root_table_name,
+            root_relation_name,
         }
     }
 }
@@ -103,31 +103,10 @@ impl fmt::Display for CompileError {
 
 impl Error for CompileError {}
 
-/// 把固定 descriptors 编译成 schemas 与 direct typed emitters。
-///
-/// `build.rs` 与 build-contract tests 只共享这一个入口。
-#[cfg(feature = "protobuf-source-contract-fixture")]
-pub(crate) fn compile(
-    descriptors: &FileDescriptorSet,
-    roots: &[RootSpec<'_>],
-) -> Result<GeneratedRust, CompileError> {
-    compile_with_layout(descriptors, roots, render::CaptureLayout::Standalone)
-}
-
-/// 为 profiler capture adapter 编译 descriptor-derived roots，不生成可绕过 adapter 的
-/// standalone capture constructor。
-#[cfg_attr(test, allow(dead_code))]
+/// 为 profiler capture adapter 编译 descriptor-derived roots。
 pub(crate) fn compile_for_profiler_capture(
     descriptors: &FileDescriptorSet,
     roots: &[RootSpec<'_>],
-) -> Result<GeneratedRust, CompileError> {
-    compile_with_layout(descriptors, roots, render::CaptureLayout::ProfilerPayload)
-}
-
-fn compile_with_layout(
-    descriptors: &FileDescriptorSet,
-    roots: &[RootSpec<'_>],
-    capture_layout: render::CaptureLayout,
 ) -> Result<GeneratedRust, CompileError> {
     let descriptors =
         DescriptorPool::from_file_descriptor_set(descriptors.clone()).map_err(|error| {
@@ -137,7 +116,7 @@ fn compile_with_layout(
         })?;
     let relational_plan = plan::build(&descriptors, roots).map_err(compile_error)?;
     let bindings = prost_binding::bind(&descriptors, &relational_plan).map_err(compile_error)?;
-    let source = render::render(&relational_plan, &bindings, capture_layout);
+    let source = render::render(&relational_plan, &bindings);
     Ok(GeneratedRust { source })
 }
 

@@ -130,7 +130,7 @@ def _execute(
                 error,
                 request.pack_path,
                 message="Workflow execution failed",
-                help="Correct the Workflow, arguments, or Dataset and retry the complete Run",
+                help="Correct the Workflow or arguments and retry the complete Run",
                 private_values=_private_run_values(request),
             )
         )

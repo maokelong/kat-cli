@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[project]
+name = "kat-datasource"
+dynamic = ["version"]
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[tool.maturin]
+bindings = "pyo3"
+features = ["python-extension"]
+python-source = "python"
+module-name = "kat_datasource._native"
+exclude = [
+    "python/kat_datasource/__pycache__/**",
+    "python/kat_datasource/**/*.pyc",
+]

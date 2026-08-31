@@ -4,12 +4,8 @@ use std::{
     process::{Command, Stdio},
 };
 
-use base64::Engine;
-
 mod support;
 use support::cargo_kat;
-
-const DATA_DICT_PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
 fn stage_minimum_skill_layout(root: &Path) -> (PathBuf, PathBuf) {
     support::stage_skill(root, "movable-skill")
@@ -127,9 +123,12 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
     let pack = temporary.path().join("external-checkout");
     let manifest = write_pack(&pack, "alpha", "External PACK");
 
-    let output = targeted_inspect_command(&binary, temporary.path(), &pack)
-        .output()
-        .expect("inspect target PACK");
+    let mut command = targeted_inspect_command(&binary, temporary.path(), &pack);
+    command.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflows":[{"name":"analyze","title":"Analyze","description":"Analyze one source.","parameters":[]}]}}"#,
+    );
+    let output = command.output().expect("inspect target PACK");
 
     assert_eq!(
         output.status.code(),
@@ -144,7 +143,20 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
     assert_eq!(response["result"]["title"], "alpha");
     assert_eq!(response["result"]["description"], "External PACK");
     assert_eq!(response["result"]["owner"], "Test Team");
-    assert_eq!(response["result"]["workflows"], serde_json::json!([]));
+    assert_eq!(
+        response["result"]["workflows"],
+        serde_json::json!([{
+            "name": "analyze",
+            "title": "Analyze",
+            "description": "Analyze one source.",
+            "parameters": []
+        }])
+    );
+    assert!(
+        response["result"]["workflows"][0]
+            .get("required_tables")
+            .is_none()
+    );
     assert!(response["result"].get("pack").is_none());
     let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
     let log = fs::read_to_string(log_path).expect("read Operation log");
@@ -182,7 +194,7 @@ fn targeted_pack_inspection_runs_real_installed_workflow_host() {
         workflows.join("cpu.py"),
         r#"from kat import Context, workflow
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title="CPU time", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     """Analyze CPU time."""
 "#,
@@ -229,7 +241,7 @@ proxy = MetadataProxy()
 def invalid_default():
     raise RuntimeError("author default failed")
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title="CPU time", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = invalid_default):
     """Analyze CPU time."""
 "#,
@@ -444,8 +456,9 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
     assert!(operation_help.stderr.is_empty());
     assert!(!operation_help.stdout.starts_with(b"{"));
     let operation_help_text = String::from_utf8(operation_help.stdout).expect("UTF-8 help");
-    assert!(operation_help_text.contains("available PACKs, one exact PACK, or one KAT Dataset"));
-    assert!(operation_help_text.contains("managed KAT Dataset and its Parquet Schema"));
+    assert!(operation_help_text.contains("available PACKs or one exact PACK"));
+    assert!(!operation_help_text.contains("Dataset"));
+    assert!(!operation_help_text.contains("--dataset"));
     assert!(operation_help_text.contains("validation order"));
     assert!(operation_help_text.contains("sorted by PACK name"));
 
@@ -699,137 +712,21 @@ fn closed_stdout_makes_the_real_process_fail() {
 }
 
 #[test]
-fn empty_dataset_can_be_inspected_without_skill_deployment() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let dataset = temporary.path().join("empty-dataset");
-    fs::create_dir(&dataset).expect("create Dataset directory");
-    fs::write(dataset.join(".kat-dataset"), []).expect("write Dataset marker");
-    let mut command = Command::new(cargo_kat());
-    command.arg("inspect").arg("--dataset").arg(&dataset);
-    #[cfg(not(windows))]
-    command
-        .env("XDG_DATA_HOME", temporary.path().join("xdg-data"))
-        .env("HOME", temporary.path().join("home"));
-
-    let output = command.output().expect("inspect empty Dataset");
-
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    assert_eq!(
-        response["result"]["path"],
-        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
-    );
-    assert_eq!(response["result"]["tables"], serde_json::json!([]));
-    assert!(response.get("log_path").is_none());
-    #[cfg(not(windows))]
-    assert!(!data_home(temporary.path()).exists());
-}
-
-#[test]
-fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let cwd = temporary.path().join("cwd");
-    let dataset = cwd.join("relative-dataset");
-    fs::create_dir_all(&dataset).unwrap();
-    fs::write(dataset.join(".kat-dataset"), []).unwrap();
-    fs::write(dataset.join("notes.txt"), "ignored").unwrap();
-    fs::create_dir(dataset.join("tables")).unwrap();
-    fs::write(
-        dataset.join("tables/data_dict.parquet"),
-        base64::engine::general_purpose::STANDARD
-            .decode(DATA_DICT_PARQUET)
-            .unwrap(),
-    )
-    .unwrap();
-    let mut command = Command::new(binary);
-    command
-        .current_dir(&cwd)
-        .args(["inspect", "--dataset", "relative-dataset"]);
-    prepare_platform_data_home(&mut command, temporary.path());
-
-    let output = command.output().expect("inspect Dataset");
-
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    assert_eq!(
-        response["result"]["path"],
-        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
-    );
-    assert_eq!(
-        response["result"]["tables"],
-        serde_json::json!([{
-            "name": "data_dict",
-            "columns": [
-                {"name": "id", "type": "Int64", "nullable": true},
-                {"name": "data", "type": "Utf8", "nullable": true}
-            ]
-        }])
-    );
-    assert!(response.get("log_path").is_none());
-    assert!(!skill.join("assets").join("packs").exists());
-    #[cfg(not(windows))]
-    assert!(!data_home(temporary.path()).exists());
-    assert_eq!(
-        fs::read_to_string(dataset.join("notes.txt")).unwrap(),
-        "ignored"
-    );
-}
-
-#[test]
-fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let dataset = temporary.path().join("invalid-dataset");
-    fs::create_dir(&dataset).unwrap();
-    let mut command = Command::new(&binary);
-    command.arg("inspect").arg("--dataset").arg(&dataset);
-    prepare_platform_data_home(&mut command, temporary.path());
-
-    let output = command.output().expect("inspect invalid Dataset");
-
-    assert_eq!(output.status.code(), Some(1));
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["error"]["message"], "Dataset inspection failed");
-    assert!(response.get("result").is_none());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Dataset inspection failed"));
-
-    let corrupt = temporary.path().join("corrupt-dataset");
-    fs::create_dir_all(corrupt.join("tables")).unwrap();
-    fs::write(corrupt.join(".kat-dataset"), []).unwrap();
-    fs::write(corrupt.join("tables/events.parquet"), "broken").unwrap();
-    let mut corrupt_command = Command::new(&binary);
-    corrupt_command
-        .arg("inspect")
-        .arg("--dataset")
-        .arg(&corrupt);
-    prepare_platform_data_home(&mut corrupt_command, temporary.path());
-    let corrupt_output = corrupt_command.output().expect("inspect corrupt Dataset");
-    assert_eq!(corrupt_output.status.code(), Some(1));
-    let corrupt_response: serde_json::Value =
-        serde_json::from_slice(&corrupt_output.stdout).unwrap();
-    assert_eq!(
-        corrupt_response["error"]["message"],
-        "Dataset inspection failed"
-    );
-    assert!(
-        corrupt_response["error"]["causes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|cause| cause.as_str().unwrap().contains("events"))
-    );
-
-    let conflict = Command::new(binary)
-        .args(["inspect", "--dataset"])
-        .arg(&dataset)
-        .args(["--pack-dir", "pack"])
+fn inspect_dataset_option_is_not_a_cli_surface() {
+    let help = Command::new(cargo_kat())
+        .args(["inspect", "--help"])
         .output()
-        .expect("run conflicting arguments");
-    assert_eq!(conflict.status.code(), Some(2));
-    assert!(conflict.stdout.is_empty());
+        .unwrap();
+    assert_eq!(help.status.code(), Some(0));
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(!help.contains("Dataset"));
+    assert!(!help.contains("--dataset"));
+
+    let removed = Command::new(cargo_kat())
+        .args(["inspect", "--dataset", "legacy-dataset"])
+        .output()
+        .unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(removed.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&removed.stderr).contains("unexpected argument '--dataset'"));
 }

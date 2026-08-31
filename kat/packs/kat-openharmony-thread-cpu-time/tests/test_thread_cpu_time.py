@@ -1,6 +1,9 @@
+from pathlib import Path
+import sqlite3
+from tempfile import TemporaryDirectory
+
 import pyarrow as pa
 import pytest
-from datafusion import SessionContext
 
 from kat.pack.workflows.thread_cpu_time import thread_cpu_time
 
@@ -14,43 +17,28 @@ EXPECTED_SCHEMA = pa.schema(
     ]
 )
 
-SCHED_SLICE_SCHEMA = pa.schema(
-    [
-        pa.field("itid", pa.int64(), nullable=False),
-        pa.field("dur", pa.int64()),
-        pa.field("cpu", pa.int64()),
-    ]
-)
-
-THREAD_SCHEMA = pa.schema(
-    [
-        pa.field("itid", pa.int64(), nullable=False),
-        pa.field("tid", pa.int64()),
-        pa.field("name", pa.string()),
-    ]
-)
-
-
-class InMemoryContext:
-    def __init__(self, sched_slices, threads):
-        self.session = SessionContext()
-        self._register("sched_slice", sched_slices, SCHED_SLICE_SCHEMA)
-        self._register("thread", threads, THREAD_SCHEMA)
-
-    def _register(self, name, rows, schema):
-        table = pa.Table.from_pylist(rows, schema=schema)
-        batches = table.to_batches()
-        if not batches:
-            batches = [pa.RecordBatch.from_pylist([], schema=schema)]
-        self.session.register_record_batches(name, [batches])
-
-    def sql(self, query, **params):
-        return self.session.sql(query, param_values=params)
-
-
 def run_workflow(sched_slices, threads):
-    outputs = thread_cpu_time(InMemoryContext(sched_slices, threads))
-    return outputs["thread_cpu_time_by_cpu"].to_arrow_table()
+    with TemporaryDirectory() as temporary:
+        database = (Path(temporary) / "trace.db").resolve()
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute(
+                "CREATE TABLE sched_slice(itid INT, dur INT, cpu INT)"
+            )
+            connection.execute("CREATE TABLE thread(itid INT, tid INT, name TEXT)")
+            connection.executemany(
+                "INSERT INTO sched_slice VALUES (:itid, :dur, :cpu)",
+                sched_slices,
+            )
+            connection.executemany(
+                "INSERT INTO thread VALUES (:itid, :tid, :name)",
+                threads,
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        outputs = thread_cpu_time(object(), str(database))
+        return outputs["thread_cpu_time_by_cpu"].to_arrow()
 
 
 def semantic_source():
@@ -138,7 +126,7 @@ def test_rejects_source_values_that_do_not_fit_output_types():
 
 
 def test_rejects_observed_cpu_time_total_that_overflows_int64():
-    with pytest.raises(Exception, match="(?i)(cast|int64)"):
+    with pytest.raises(Exception, match="(?i)(overflow|int64)"):
         run_workflow(
             [
                 {"itid": 1, "dur": 2**62, "cpu": 0},
@@ -146,3 +134,56 @@ def test_rejects_observed_cpu_time_total_that_overflows_int64():
             ],
             [{"itid": 1, "tid": 1, "name": "overflow"}],
         )
+
+
+def test_workflow_reads_an_explicit_sqlite_provider_fixture(kat_run, tmp_path: Path):
+    sched_slices, threads = semantic_source()
+    database = (tmp_path / "trace.db").resolve()
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("CREATE TABLE sched_slice(itid INT, dur INT, cpu INT)")
+        connection.execute("CREATE TABLE thread(itid INT, tid INT, name TEXT)")
+        connection.executemany(
+            "INSERT INTO sched_slice VALUES (:itid, :dur, :cpu)",
+            sched_slices,
+        )
+        connection.executemany(
+            "INSERT INTO thread VALUES (:itid, :tid, :name)",
+            threads,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    output = kat_run(
+        workflow="thread-cpu-time",
+        arguments=["--sqlite-path", str(database)],
+    )["thread_cpu_time_by_cpu"]
+
+    assert output.schema.equals(EXPECTED_SCHEMA, check_metadata=False)
+    assert output.to_pylist() == [
+        {
+            "thread_id": 10,
+            "thread_name": "worker",
+            "cpu": 0,
+            "observed_cpu_time_ns": 70,
+        },
+        {
+            "thread_id": 20,
+            "thread_name": "mover",
+            "cpu": 1,
+            "observed_cpu_time_ns": 30,
+        },
+        {
+            "thread_id": 20,
+            "thread_name": "mover",
+            "cpu": 0,
+            "observed_cpu_time_ns": 20,
+        },
+        {
+            "thread_id": 40,
+            "thread_name": "instant",
+            "cpu": 2,
+            "observed_cpu_time_ns": 0,
+        },
+    ]

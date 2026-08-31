@@ -10,7 +10,6 @@ pub(crate) struct Workflow {
     pub(crate) name: String,
     pub(crate) title: String,
     pub(crate) description: String,
-    pub(crate) required_tables: Vec<String>,
     pub(crate) parameters: Vec<Parameter>,
 }
 
@@ -110,12 +109,6 @@ pub(super) struct InspectPackRuntimeResult {
     pub(super) workflows: Vec<Workflow>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct ResolvedDatasetRequest {
-    pub(crate) path: String,
-    pub(crate) tables: BTreeMap<String, String>,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RawRunWorkflowResult {
@@ -144,8 +137,6 @@ pub(super) struct RunWorkflowRequest<'a> {
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
     pub(super) workflow_name: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) dataset: Option<&'a ResolvedDatasetRequest>,
     pub(super) arguments: &'a [String],
     pub(super) candidate_id: &'a str,
     pub(super) candidate_path: &'a str,
@@ -172,7 +163,6 @@ pub(super) struct TestPackRequest<'a> {
     pub(super) operation: &'static str,
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
-    pub(super) datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
     pub(super) tests: &'a [String],
 }
 

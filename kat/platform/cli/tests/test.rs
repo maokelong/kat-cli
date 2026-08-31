@@ -8,14 +8,10 @@ use std::{
     time::Duration,
 };
 
-use base64::Engine;
-
 #[allow(dead_code)]
 mod support;
 #[path = "support/test_home.rs"]
 mod test_home;
-
-const PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
 fn stage_fake_host(binary: &Path) {
     let payload = binary.parent().unwrap();
@@ -114,19 +110,6 @@ fn write_pack(directory: &Path, name: &str) {
     .unwrap();
 }
 
-fn write_sample_dataset(directory: &Path) {
-    let dataset = directory.join("tests/datasets/sample");
-    fs::create_dir_all(dataset.join("tables")).unwrap();
-    fs::write(dataset.join(".kat-dataset"), []).unwrap();
-    fs::write(
-        dataset.join("tables/data_dict.parquet"),
-        base64::engine::general_purpose::STANDARD
-            .decode(PARQUET)
-            .unwrap(),
-    )
-    .unwrap();
-}
-
 fn fake_host_test_command(binary: &Path, root: &Path, pack: &Path) -> Command {
     let mut command = Command::new(binary);
     command
@@ -140,7 +123,7 @@ fn fake_host_test_command(binary: &Path, root: &Path, pack: &Path) -> Command {
 }
 
 #[test]
-fn test_success_uses_the_explicit_target_pack_from_an_arbitrary_cwd() {
+fn test_success_ignores_legacy_dataset_storage_and_omits_it_from_the_request() {
     for bundled in [false, true] {
         let temporary = tempfile::tempdir().unwrap();
         let (skill, binary) = support::stage_skill(temporary.path(), "skill");
@@ -151,7 +134,7 @@ fn test_success_uses_the_explicit_target_pack_from_an_arbitrary_cwd() {
             temporary.path().join("external-pack")
         };
         write_pack(&pack, "alpha");
-        write_sample_dataset(&pack);
+        fs::write(pack.join("tests/datasets"), "legacy storage is inert").unwrap();
         let unrelated_broken_pack = skill.join("assets/packs/unrelated-broken");
         fs::create_dir_all(&unrelated_broken_pack).unwrap();
         fs::write(
@@ -210,12 +193,7 @@ fn test_success_uses_the_explicit_target_pack_from_an_arbitrary_cwd() {
             serde_json::json!(["tests/test_flow.py::test_case[case::value]"])
         );
         assert!(request.get("test_report").is_none());
-        assert!(
-            request["datasets"]["sample"]["tables"]["data_dict"]
-                .as_str()
-                .unwrap()
-                .ends_with("data_dict.parquet")
-        );
+        assert!(request.get("datasets").is_none());
         assert_eq!(
             dunce::canonicalize(
                 fs::read_to_string(temporary.path().join("captured-cwd.txt")).unwrap()
@@ -285,36 +263,16 @@ fn test_streams_runtime_output_before_runtime_exits() {
 }
 
 #[test]
-fn test_preflight_rejects_missing_tests_invalid_selectors_and_invalid_datasets() {
-    let cases = [
-        "missing-tests",
-        "invalid-selector",
-        "invalid-dataset",
-        "invalid-marker",
-    ];
+fn test_preflight_rejects_missing_tests_and_invalid_selectors() {
+    let cases = ["missing-tests", "invalid-selector"];
     for case in cases {
         let temporary = tempfile::tempdir().unwrap();
         let (_skill, binary) = support::stage_skill(temporary.path(), "skill");
         stage_fake_host(&binary);
         let pack = temporary.path().join("pack");
         write_pack(&pack, "alpha");
-        if matches!(case, "invalid-dataset" | "invalid-marker") {
-            write_sample_dataset(&pack);
-        }
-        match case {
-            "missing-tests" => fs::remove_dir_all(pack.join("tests")).unwrap(),
-            "invalid-dataset" => {
-                fs::write(
-                    pack.join("tests/datasets/sample/tables/data_dict.parquet"),
-                    "broken",
-                )
-                .unwrap();
-            }
-            "invalid-marker" => {
-                fs::remove_file(pack.join("tests/datasets/sample/.kat-dataset")).unwrap();
-                fs::create_dir(pack.join("tests/datasets/sample/.kat-dataset")).unwrap();
-            }
-            _ => {}
+        if case == "missing-tests" {
+            fs::remove_dir_all(pack.join("tests")).unwrap();
         }
         let captured = temporary.path().join("unexpected-request.json");
         let mut command = fake_host_test_command(&binary, temporary.path(), &pack);
@@ -543,15 +501,18 @@ fn test_uses_real_installed_workflow_host_end_to_end() {
     for (case, workflow_source, test_source, expected) in [
         (
             "success",
-            r#"import kat
+            r#"import pyarrow as pa
+import kat
+from kat import dataprovider as dp
 
-@kat.workflow(name="analyze", title="Analyze", required_tables=["data_dict"])
+@kat.workflow(name="analyze", title="Analyze")
 def analyze(ctx: kat.Context):
-    """Return the fixture table."""
-    return ctx.sql("SELECT id FROM data_dict ORDER BY id")
+    """Return an ordinary Table."""
+    del ctx
+    return dp.Table.from_arrow(pa.table({"id": [1, 2]}))
 "#,
             r#"def test_case(kat_run):
-    assert kat_run(workflow="analyze", dataset="sample")["main"].num_rows == 2
+    assert kat_run(workflow="analyze")["main"].num_rows == 2
 "#,
             ExpectedOutcome::Success,
         ),
@@ -559,7 +520,7 @@ def analyze(ctx: kat.Context):
             "runtime-failure",
             r#"import kat
 
-@kat.workflow(name="broken", title="Broken", required_tables=[])
+@kat.workflow(name="broken", title="Broken")
 def broken(ctx: kat.Context):
     """Raise a deterministic execution failure."""
     raise RuntimeError("sentinel Workflow execution failure")
@@ -574,7 +535,7 @@ def broken(ctx: kat.Context):
             r#"import os
 import kat
 
-@kat.workflow(name="interrupt", title="Interrupt", required_tables=[])
+@kat.workflow(name="interrupt", title="Interrupt")
 def interrupt(ctx: kat.Context):
     """Terminate the Host before it can return a Runtime Response."""
     os._exit(17)
@@ -589,9 +550,6 @@ def interrupt(ctx: kat.Context):
         fs::create_dir_all(&case_root).unwrap();
         let pack = case_root.join("pack");
         write_pack(&pack, "alpha");
-        if matches!(expected, ExpectedOutcome::Success) {
-            write_sample_dataset(&pack);
-        }
         fs::create_dir_all(pack.join("workflows")).unwrap();
         fs::write(pack.join("workflows/workflow.py"), workflow_source).unwrap();
         fs::write(pack.join("tests/test_flow.py"), test_source).unwrap();

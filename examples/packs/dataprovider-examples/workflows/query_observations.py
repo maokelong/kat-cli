@@ -6,7 +6,6 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
 @kat.workflow(
     name="query-observations",
     title="Query PostgreSQL observations",
-    required_tables=[],
     parameters={
         "service": "libpq service name.",
         "database": "Database containing observations.",

@@ -50,6 +50,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       app-version: ${{ steps.verify.outputs.app-version }}
+      normalized-version: ${{ steps.verify.outputs.normalized-version }}
 
     steps:
       - name: Checkout
@@ -116,11 +117,14 @@ jobs:
           fi
 
           echo "app-version=${version}" >> "$GITHUB_OUTPUT"
+          echo "normalized-version=${version/-rc./rc}" >> "$GITHUB_OUTPUT"
 
   prepare:
     name: Prepare shared Payload inputs
     needs: release-channel
     uses: ./.github/workflows/prepare-payload-ci.yml
+    with:
+      expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
 
   build-linux:
     name: Build Linux Payload
@@ -130,6 +134,8 @@ jobs:
     uses: ./.github/workflows/build-linux-payload-ci.yml
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
+      expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
+      workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   build-windows:
     name: Build Windows Payload
@@ -139,6 +145,8 @@ jobs:
     uses: ./.github/workflows/build-windows-payload-ci.yml
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
+      expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
+      workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   assemble-and-smoke:
     name: Assemble and smoke the selected candidate

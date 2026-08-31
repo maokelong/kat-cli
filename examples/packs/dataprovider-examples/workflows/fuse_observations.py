@@ -9,7 +9,6 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
 @kat.workflow(
     name="fuse-observations",
     title="Fuse PostgreSQL observations with local thread placement",
-    required_tables=[],
     parameters={
         "service": "libpq service name.",
         "telemetry_database": "Database containing observations.",

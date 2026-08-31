@@ -1,7 +1,7 @@
 use crate::proto;
 use prost::Message;
 
-pub(super) fn full_native_hook_table_names() -> std::collections::BTreeSet<&'static str> {
+pub(super) fn full_native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
     [
         "batch_native_hook_data",
         "batch_native_hook_data_events",
@@ -39,13 +39,6 @@ pub(super) fn full_native_hook_table_names() -> std::collections::BTreeSet<&'sta
 }
 
 #[allow(dead_code)]
-pub(super) fn native_hook_relation_names() -> std::collections::BTreeSet<&'static str> {
-    let mut names = full_native_hook_table_names();
-    names.remove("profiler_payload_occurrence");
-    names.remove("protobuf_enum_symbol");
-    names
-}
-
 pub(super) fn profiler_section(
     envelopes: impl IntoIterator<Item = proto::kat::hitrace::ProfilerPluginData>,
 ) -> Vec<u8> {

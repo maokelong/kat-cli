@@ -7,7 +7,6 @@ from kat import dataprovider as dp
 @kat.workflow(
     name="fuse-local-parquet",
     title="Fuse explicitly mapped local Parquet tables",
-    required_tables=[],
     parameters={
         "events_path": "Parquet file containing events.",
         "labels_path": "Parquet file or sharded directory containing event labels.",

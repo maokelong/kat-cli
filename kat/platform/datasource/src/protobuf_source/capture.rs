@@ -3,17 +3,17 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use arrow_schema::{DataType, Field, Schema};
 
-use crate::dataset_writer::DatasetTableFactory;
+use crate::relation_writer::RelationWriter;
 
 use super::{
     BufferOptions, EnumOriginSpec, EstimatedRow, RelationSlot, RelationSpec,
-    buffered_table::ActiveTable,
-    spec::{PROTOBUF_ENUM_SYMBOL_TABLE, validate_specs},
+    buffered_relation::ActiveRelation,
+    spec::{PROTOBUF_ENUM_SYMBOL_RELATION, validate_specs},
 };
 
 struct RelationState {
     spec: RelationSpec,
-    active: Option<ActiveTable>,
+    active: Option<ActiveRelation>,
     next_row_id: Option<u64>,
 }
 
@@ -21,12 +21,12 @@ struct RelationState {
 ///
 /// 调用者只能把它整体交给 capture adapter 或直接构造 capture，不能读取、重排或追加
 /// relation slots。Plan 外 provenance relation 由所属 adapter 在本模块内部组合。
-pub(crate) struct SourceTableLayout {
+pub(crate) struct SourceRelationLayout {
     relations: Vec<RelationSpec>,
     enum_origins: Vec<EnumOriginSpec>,
 }
 
-impl SourceTableLayout {
+impl SourceRelationLayout {
     pub(crate) fn from_generated(
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
@@ -50,26 +50,26 @@ impl SourceTableLayout {
     pub(crate) fn into_capture(
         self,
         options: BufferOptions,
-        tables: DatasetTableFactory,
-    ) -> Result<SourceTableCapture> {
-        SourceTableCapture::new(self.relations, self.enum_origins, options, tables)
+        relations: RelationWriter,
+    ) -> Result<SourceRelationCapture> {
+        SourceRelationCapture::new(self.relations, self.enum_origins, options, relations)
     }
 }
 
-pub(crate) struct SourceTableCapture {
+pub(crate) struct SourceRelationCapture {
     relations: Vec<RelationState>,
     enum_origins: Vec<EnumOriginSpec>,
     options: BufferOptions,
-    tables: DatasetTableFactory,
+    relations_writer: RelationWriter,
     poisoned: Option<String>,
 }
 
-impl SourceTableCapture {
+impl SourceRelationCapture {
     pub(crate) fn new(
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
         options: BufferOptions,
-        tables: DatasetTableFactory,
+        relations_writer: RelationWriter,
     ) -> Result<Self> {
         options.validate()?;
         validate_specs(&relations, &enum_origins)?;
@@ -84,7 +84,7 @@ impl SourceTableCapture {
                 .collect(),
             enum_origins,
             options,
-            tables,
+            relations_writer,
             poisoned: None,
         })
     }
@@ -121,11 +121,15 @@ impl SourceTableCapture {
     {
         self.ensure_healthy()?;
         let options = self.options;
-        let tables = self.tables.clone();
+        let relations_writer = self.relations_writer.clone();
         let result = (|| {
             let state = self.relation_mut(relation)?;
             if state.active.is_none() {
-                state.active = Some(ActiveTable::new(state.spec.clone(), options, &tables)?);
+                state.active = Some(ActiveRelation::new(
+                    state.spec.clone(),
+                    options,
+                    &relations_writer,
+                )?);
             }
             state
                 .active
@@ -157,17 +161,20 @@ impl SourceTableCapture {
             collect_enum_definitions(&self.relations, &active_relations, &self.enum_origins);
 
         for state in self.relations {
-            if let Some(table) = state.active {
-                table.finish()?;
+            if let Some(relation) = state.active {
+                relation.finish()?;
             }
         }
         if !enum_definitions.is_empty() {
-            let mut table =
-                ActiveTable::new(protobuf_enum_symbol_spec(), self.options, &self.tables)?;
+            let mut relation = ActiveRelation::new(
+                protobuf_enum_symbol_spec(),
+                self.options,
+                &self.relations_writer,
+            )?;
             for definition in enum_definitions {
-                table.append_row(&definition)?;
+                relation.append_row(&definition)?;
             }
-            table.finish()?;
+            relation.finish()?;
         }
         Ok(())
     }
@@ -247,7 +254,7 @@ fn collect_enum_definitions(
 
 fn protobuf_enum_symbol_spec() -> RelationSpec {
     RelationSpec::new(
-        PROTOBUF_ENUM_SYMBOL_TABLE,
+        PROTOBUF_ENUM_SYMBOL_RELATION,
         Arc::new(Schema::new(vec![
             Field::new("origin_table", DataType::Utf8, false),
             Field::new("origin_field_path", DataType::Utf8, false),

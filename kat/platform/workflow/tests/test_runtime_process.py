@@ -90,7 +90,7 @@ from kat import Context, workflow
 from kat.pack.datasources.titles import decorate
 from kat.pack.helpers.rules import title
 
-@workflow(name="cpu-time", title=decorate(title()), required_tables=["thread", "sched_slice"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", title=decorate(title()), parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     \"\"\"Analyze CPU time.\"\"\"
 """,
@@ -121,7 +121,6 @@ def analyze(ctx: Context, *, limit: int = 10):
                             "name": "cpu-time",
                             "title": "Datasource Helper title",
                             "description": "Analyze CPU time.",
-                            "required_tables": ["sched_slice", "thread"],
                             "parameters": [
                                 {
                                     "name": "limit",
@@ -253,7 +252,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         entry.write_text(
             "from typing import Optional\n"
             "from kat import Context, workflow\n"
-            "@workflow(name='annotation', title='Annotation', required_tables=[], parameters={'value': 'Value'})\n"
+            "@workflow(name='annotation', title='Annotation', parameters={'value': 'Value'})\n"
             "def annotation(ctx: Context, value: Optional['str'] = None) -> MissingReturn:\n"
             "    \"\"\"Inspect annotations.\"\"\"\n",
             encoding="utf-8",
@@ -314,7 +313,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         pack = self.write_pack()
         (pack / "workflows" / "broken.py").write_text(
             "from kat import Context, workflow\n"
-            "@workflow(name='broken', title='Broken', required_tables=[])\n"
+            "@workflow(name='broken', title='Broken')\n"
             "def broken(ctx: Context):\n    pass\n",
             encoding="utf-8",
         )
@@ -368,13 +367,13 @@ def analyze(ctx: Context, *, limit: int = 10):
                 "entry-import",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', title='B')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -384,14 +383,14 @@ def other(ctx: Context):
                 "entry-import-dynamic-discarded",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import importlib
 from kat import Context, workflow
 importlib.import_module('kat.pack.workflows.a')
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', title='B')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -406,14 +405,14 @@ import_entry = importlib.import_module
                     "workflows/a.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
 title = cached.import_entry('kat.pack.workflows.a').SHARED
-@workflow(name='b', title=title, required_tables=[])
+@workflow(name='b', title=title)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -424,14 +423,14 @@ def other(ctx: Context):
                 {
                     "workflows/a.py": """from kat import Context, workflow
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', title='A')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import kat
 from kat import Context, workflow
 title = kat.pack.workflows.a.SHARED
-@workflow(name='b', title=title, required_tables=[])
+@workflow(name='b', title=title)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -468,7 +467,7 @@ second = importlib.import_module("kat.pack.helpers.identity")
 if first is not second or first.value is not second.value:
     raise RuntimeError("standard module cache was not preserved")
 
-@workflow(name="cached", title="Cached", required_tables=[])
+@workflow(name="cached", title="Cached")
 def analyze(ctx: Context):
     \"\"\"Inspect the standard module cache.\"\"\"
 """,
@@ -497,7 +496,7 @@ from kat import Context, workflow
 
 Path({str(worker_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
 
-@workflow(name="worker", title="Worker", required_tables=[])
+@workflow(name="worker", title="Worker")
 def analyze(ctx: Context):
     \"\"\"Record the real inspection worker.\"\"\"
 """,
@@ -624,14 +623,14 @@ except ValueError:
         cases = {
             "annotation-system-exit": """from __future__ import annotations
 from kat import Context, workflow
-@workflow(name='annotation-exit', title='Annotation exit', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='annotation-exit', title='Annotation exit', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: __import__('sys').exit('annotation requested exit')):
     \"\"\"Inspect an annotation.\"\"\"
 """,
             "callable-default-runtime-error": """from kat import Context, workflow
 def invalid_default():
     raise RuntimeError('callable default failed')
-@workflow(name='default-error', title='Default error', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='default-error', title='Default error', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: str = invalid_default):
     \"\"\"Inspect a callable default.\"\"\"
 """,
@@ -718,7 +717,7 @@ def analyze(ctx: Context, value: str = invalid_default):
         (pack / "workflows" / "crash.py").write_text(
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
-        candidate_id = str(uuid.uuid7())
+        candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate = self.root / "runs" / candidate_id
         candidate.mkdir(parents=True)
 

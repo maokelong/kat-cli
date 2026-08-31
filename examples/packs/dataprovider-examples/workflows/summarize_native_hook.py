@@ -10,7 +10,6 @@ from kat.pack.datasources import trace_streamer
 @kat.workflow(
     name="summarize-native-hook",
     title="Summarize native hook events",
-    required_tables=[],
     parameters={
         "source_path": "HiTrace file to decode.",
     },

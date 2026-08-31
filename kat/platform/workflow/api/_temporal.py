@@ -39,7 +39,7 @@ class WallClockTimestamp(str):
     """An absolute UTC instant parsed from offset-bearing RFC 3339 text.
 
     "Wall-clock" distinguishes globally aligned calendar timestamps from
-    Dataset clock-domain readings. It is not a local civil-time value: the
+    trace-local clock-domain readings. It is not a local civil-time value: the
     required offset is consumed when the value is normalized to ``Z``.
     """
 

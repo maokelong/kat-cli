@@ -9,7 +9,6 @@ from kat.pack.datasources.ftrace import FtraceTextProvider
 @kat.workflow(
     name="summarize-ftrace-events",
     title="Summarize Ftrace events",
-    required_tables=[],
     parameters={
         "trace_path": "Path to a tracefs text file.",
         "clock_domain": "Clock domain assigned by the capture configuration.",

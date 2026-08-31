@@ -1,7 +1,6 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    dataset_writer::DatasetTableFactory,
     formats::hitrace::profiler::{PluginEnvelope, PluginEnvelopeKind, decode_payload},
     generated_profiler_source_emitter::{
         append_batch_native_hook_data_root, append_native_hook_config_root,
@@ -12,6 +11,7 @@ use crate::{
         kat::hitrace::profiler_plugin_data::ClockId,
     },
     protobuf_source::{BufferOptions, profiler_occurrence::ProfilerPayloadCapture},
+    relation_writer::RelationWriter,
 };
 
 enum NativeHookRoot {
@@ -29,9 +29,9 @@ pub(crate) struct NativeHookSourceCapture {
 }
 
 impl NativeHookSourceCapture {
-    pub(crate) fn new(options: BufferOptions, tables: DatasetTableFactory) -> Result<Self> {
+    pub(crate) fn new(options: BufferOptions, relations: RelationWriter) -> Result<Self> {
         Ok(Self {
-            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options, tables)?,
+            capture: ProfilerPayloadCapture::new(protobuf_source_layout(), options, relations)?,
             terminal_error: None,
             clock_admission: NativeHookClockAdmission::default(),
         })
@@ -105,6 +105,12 @@ impl NativeHookSourceCapture {
             bail!("Native Hook Source capture is poisoned by an earlier failure: {source}");
         }
         Ok(())
+    }
+}
+
+impl crate::formats::hitrace::profiler::PluginPayloadClaimant for NativeHookSourceCapture {
+    fn try_claim(&mut self, envelope: &PluginEnvelope<'_>) -> Result<bool> {
+        NativeHookSourceCapture::try_claim(self, envelope)
     }
 }
 

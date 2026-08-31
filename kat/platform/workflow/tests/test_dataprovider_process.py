@@ -9,7 +9,6 @@ import tempfile
 import unittest
 import uuid
 
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 
@@ -53,20 +52,16 @@ class DataProviderRuntimeProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def pack(self, body: str, *, required_tables: str = "[]") -> Path:
+    def pack(self, body: str) -> Path:
         pack = self.root / f"pack-{uuid.uuid4().hex}"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
             f'''import kat
 from kat import dataprovider as dp
 
-@kat.workflow(
-    name="analyze",
-    title="Analyze",
-    required_tables={required_tables},
-)
+@kat.workflow(name="analyze", title="Analyze")
 def analyze(ctx: kat.Context):
-    """Exercise the Data Provider Runtime boundary."""
+    """Exercise the standard Output boundary."""
 {body}
 ''',
             encoding="utf-8",
@@ -80,14 +75,9 @@ def analyze(ctx: kat.Context):
         return candidate_id, candidate.resolve()
 
     def request(
-        self,
-        pack: Path,
-        candidate_id: str,
-        candidate: Path,
-        *,
-        dataset: dict[str, object] | None = None,
+        self, pack: Path, candidate_id: str, candidate: Path
     ) -> dict[str, object]:
-        request: dict[str, object] = {
+        return {
             "operation": "run_workflow",
             "pack_name": "example",
             "pack_path": str(pack),
@@ -99,162 +89,85 @@ def analyze(ctx: kat.Context):
                 (self.root / "datasources" / "example").resolve(strict=False)
             ),
         }
-        if dataset is not None:
-            request["dataset"] = dataset
-        return request
 
-    def test_ctx_sql_rejects_datasource_binding_mappings(self) -> None:
-        pack = self.pack(
-            '''    for keyword in ("tables", "params"):
-        try:
-            ctx.sql("SELECT 1 AS value", **{keyword: {}})
-        except TypeError:
-            pass
-        else:
-            raise AssertionError(f"accepted Datasource binding keyword: {keyword}")
-    return ctx.from_arrow(__import__("pyarrow").table({"value": [1]}))'''
-        )
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(pack, candidate_id, candidate)
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"value": [1]},
-        )
-
-    def test_ctx_sql_registers_only_granted_dataset_tables_for_every_call(
-        self,
-    ) -> None:
-        pack = self.pack(
-            '''    from datafusion import DataFrame
-    first = ctx.sql("SELECT value FROM events ORDER BY value")
-    second = ctx.sql(
-        "SELECT value FROM events WHERE value >= $minimum ORDER BY value",
-        minimum=2,
-    )
-    assert isinstance(first, DataFrame)
-    assert isinstance(second, DataFrame)
-    return second''',
-            required_tables="['events']",
-        )
-        dataset = self.root / "dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        secret = dataset / "secret.parquet"
-        pq.write_table(pa.table({"value": [3, 1, 2]}), events)
-        pq.write_table(pa.table({"value": [99]}), secret)
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(
-                pack,
-                candidate_id,
-                candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {
-                        "events": str(events.resolve()),
-                        "secret": str(secret.resolve()),
-                    },
-                },
-            )
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
-            {"value": [2, 3]},
-        )
-
-    def test_required_dataset_is_validated_before_workflow_user_code(self) -> None:
-        marker = self.root / "workflow-ran.txt"
-        pack = self.pack(
-            f'''    __import__("pathlib").Path({str(marker)!r}).write_text("ran")
-    table = dp.Table({{"value": int}})
+    def test_standard_outputs_accept_table_and_exact_non_empty_dict(self) -> None:
+        for name, body, expected in [
+            (
+                "single",
+                '''    table = dp.Table({"value": int})
     table.append(value=1)
     return table''',
-            required_tables="['events']",
-        )
-        dataset = self.root / "damaged-dataset"
-        dataset.mkdir()
-        events = dataset / "events.parquet"
-        events.write_bytes(b"not a Parquet file")
-        candidate_id, candidate = self.candidate()
+                {"main": {"value": [1]}},
+            ),
+            (
+                "mapping",
+                '''    first = dp.Table({"value": int})
+    first.append(value=1)
+    empty = dp.Table({"value": int})
+    return {"first": first, "empty": empty}''',
+                {"first": {"value": [1]}, "empty": {"value": []}},
+            ),
+        ]:
+            with self.subTest(name=name):
+                pack = self.pack(body)
+                candidate_id, candidate = self.candidate()
 
-        completed, response = self.run_runtime(
-            self.request(
-                pack,
-                candidate_id,
-                candidate,
-                dataset={
-                    "path": str(dataset.resolve()),
-                    "tables": {"events": str(events.resolve())},
-                },
-            )
-        )
+                completed, response = self.run_runtime(
+                    self.request(pack, candidate_id, candidate)
+                )
 
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertFalse(marker.exists())
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stderr.decode(errors="replace"),
+                )
+                self.assertEqual(response["status"], "success", response)
+                self.assertEqual(
+                    {
+                        output_name: pq.read_table(
+                            candidate / "outputs" / f"{output_name}.parquet"
+                        ).to_pydict()
+                        for output_name in response["result"]["outputs"]
+                    },
+                    expected,
+                )
 
-    def test_output_accepts_table_and_dataframe_in_one_exact_dict(self) -> None:
-        pack = self.pack(
-            '''    table = dp.Table({"value": int})
-    table.append(value=1)
-    table.append(value=2)
-    frame = ctx.from_arrow(__import__("pyarrow").table({"label": ["legacy"]}))
-    return {"table_rows": table, "legacy_rows": frame}'''
-        )
-        candidate_id, candidate = self.candidate()
-
-        completed, response = self.run_runtime(
-            self.request(pack, candidate_id, candidate)
-        )
-
-        self.assertEqual(
-            completed.returncode, 0, completed.stderr.decode(errors="replace")
-        )
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(
-            set(response["result"]["outputs"]), {"table_rows", "legacy_rows"}
-        )
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "table_rows.parquet").to_pydict(),
-            {"value": [1, 2]},
-        )
-        self.assertEqual(
-            pq.read_table(candidate / "outputs" / "legacy_rows.parquet").to_pydict(),
-            {"label": ["legacy"]},
-        )
-
-    def test_output_rejects_a_dict_subclass(self) -> None:
-        pack = self.pack(
-            '''    class Outputs(dict):
-        pass
+    def test_standard_outputs_reject_legacy_and_inexact_values_before_writing(
+        self,
+    ) -> None:
+        cases = {
+            "dataframe": '''    import pyarrow as pa
+    from datafusion import SessionContext
+    return SessionContext().from_arrow(pa.table({"value": [1]}))''',
+            "pyarrow": '''    import pyarrow as pa
+    return pa.table({"value": [1]})''',
+            "empty": "    return {}",
+            "mixed": '''    import pyarrow as pa
+    from datafusion import SessionContext
     table = dp.Table({"value": int})
     table.append(value=1)
-    return Outputs(main=table)'''
-        )
-        candidate_id, candidate = self.candidate()
+    frame = SessionContext().from_arrow(pa.table({"value": [2]}))
+    return {"table": table, "frame": frame}''',
+            "dict-subclass": '''    class Outputs(dict):
+        pass
+    table = dp.Table({"value": int})
+    return Outputs(main=table)''',
+            "table-subclass": '''    class DerivedTable(dp.Table):
+        pass
+    return DerivedTable({"value": int})''',
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name):
+                pack = self.pack(body)
+                candidate_id, candidate = self.candidate()
 
-        completed, response = self.run_runtime(
-            self.request(pack, candidate_id, candidate)
-        )
+                completed, response = self.run_runtime(
+                    self.request(pack, candidate_id, candidate)
+                )
 
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertFalse((candidate / "outputs" / "main.parquet").exists())
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(response["status"], "failure", response)
+                self.assertFalse((candidate / "outputs").exists())
 
 
 if __name__ == "__main__":

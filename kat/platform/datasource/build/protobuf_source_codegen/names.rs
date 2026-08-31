@@ -1,7 +1,7 @@
 const RESERVED_COLUMNS: &[&str] = &["_kat_row_id", "_kat_parent_row_id", "_kat_repeated_index"];
 
-pub(super) fn valid_dataset_name(name: &str) -> bool {
-    crate::table_name::valid_table_name(name)
+pub(super) fn valid_relation_name(name: &str) -> bool {
+    crate::relation_name::valid_relation_name(name)
 }
 
 pub(super) fn reserved_relationship_column(name: &str) -> bool {
@@ -9,7 +9,7 @@ pub(super) fn reserved_relationship_column(name: &str) -> bool {
 }
 
 pub(super) fn valid_generated_function_name(name: &str) -> bool {
-    valid_dataset_name(name) && rust_snake(name) == name
+    valid_relation_name(name) && rust_snake(name) == name
 }
 
 pub(super) fn relation_name(root: &str, path: &[String]) -> String {

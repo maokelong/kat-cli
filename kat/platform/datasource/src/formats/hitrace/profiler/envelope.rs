@@ -10,7 +10,6 @@ pub(crate) enum PluginEnvelopeKind {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PluginEnvelope<'a> {
-    pub(crate) plugin_name: &'a str,
     pub(crate) envelope_name: &'a str,
     pub(crate) kind: PluginEnvelopeKind,
     pub(crate) payload: &'a [u8],
@@ -28,15 +27,13 @@ impl<'a> PluginEnvelope<'a> {
         message: &'a ProfilerPluginData,
         section_start: usize,
     ) -> Self {
-        let (plugin_name, kind) =
-            if let Some(plugin_name) = message.name.strip_suffix(CONFIG_SUFFIX) {
-                (plugin_name, PluginEnvelopeKind::Config)
-            } else {
-                (message.name.as_str(), PluginEnvelopeKind::Data)
-            };
+        let kind = if message.name.ends_with(CONFIG_SUFFIX) {
+            PluginEnvelopeKind::Config
+        } else {
+            PluginEnvelopeKind::Data
+        };
 
         Self {
-            plugin_name,
             envelope_name: message.name.as_str(),
             kind,
             payload: message.data.as_slice(),
