@@ -95,9 +95,25 @@ kat run --pack <PACK名称> --workflow <Workflow名称> \
 kat query --run <Run ID> --sql <一条 SQL>
 ```
 
-`kat query` 只查询该 Workflow 已发布的 Run Output。构造 SQL 前必须已有输出名称与 columns：优先使用刚完成的 `kat run` 成功 Response 中的 `result.outputs`，也可以使用用户提供的同等元数据。只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。
+`kat query` 每次在独立 DataFusion Session 中只注册该 Run 的 `output.*` 与 `information_schema`。优先沿用刚完成的 `kat run` 成功 Response 中的 `result.outputs`；只有 Run ID 时，先依次查询实际 relation 与 columns：
 
-成功 `result.columns` 与 `result.rows` 是分析证据。不要读取 Run 内部文件、假设 KAT 会自动限制查询，或把实际执行失败包装成部分成功。只有 Run ID、没有 Output 元数据时，向用户请求输出名称和 columns；Workflow inspection 不能替代 Output 发现。
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'output'
+ORDER BY table_name
+```
+
+```sql
+SELECT table_name, column_name, data_type, ordinal_position
+FROM information_schema.columns
+WHERE table_schema = 'output'
+ORDER BY table_name, ordinal_position
+```
+
+随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Workflow inspection 提供分析策略，不替代 Output relation 发现。
+
+成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
 
 ## 测试一个 PACK
 

@@ -230,13 +230,11 @@ fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
             "run_id": INSPECT_RUN_ID,
             "pack": "alpha",
             "workflow": "analyze",
-            "inputs": {},
-            "outputs": {
-                "main": {
-                    "columns": [{"name": "value", "type": "int64"}],
-                    "row_count": 1
-                }
-            }
+            "dataset": {
+                "historical": ["shape", "is", "irrelevant", "to", "inspect"]
+            },
+            "inputs": ["historical", "shape"],
+            "outputs": "historical shape"
         }))
         .unwrap(),
     )

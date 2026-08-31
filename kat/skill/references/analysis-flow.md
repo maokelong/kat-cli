@@ -5,9 +5,9 @@
 每次先确认一个要回答的问题，以及以下一种起点：
 
 - 新分析：用户提供要分析的 Source、路径或其他业务输入；它如何进入系统由选中的 Workflow 与 Provider 决定，Agent 不预设统一中间数据模型。
-- 已有 Run：用户提供 Run ID 和 Run Output 元数据，其中至少包含输出名称与 columns。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；用户也可以提供同等元数据。
+- 已有 Run：用户提供 Run ID。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；只有 Run ID 时，后续通过 Output Query 的 `information_schema` 发现实际 relation 与 columns。
 
-缺少问题时只询问要回答什么；只有 Run ID、没有 Output 元数据时只请求输出名称与 columns。不要猜表名、读取 Run 内部文件，或为追问重新执行 Workflow。
+缺少问题时只询问要回答什么。不要猜表名、读取 Run 内部文件，或为追问重新执行 Workflow。
 
 ## 2. 渐进发现 Workflow
 
@@ -33,9 +33,9 @@
 
 ## 4. 查询最少证据
 
-根据已保留或用户提供的 Run Output 名称与 columns 构造完整 SQL，并只使用 `kat query --run ... --sql ...` 查询 Workflow 输出。先选择投影、过滤、聚合和排序；明细查询显式使用 `LIMIT`。每次只取得回答当前问题所需的 columns 与 rows。
+只使用 `kat query --run ... --sql ...` 查询 Workflow 输出。已有 `kat run` 的 `result.outputs` 时直接使用其中名称与 columns；只有 Run ID 时，先查询 `information_schema.tables` 与 `information_schema.columns`，取得实际 `output.*` relation 与列，再形成证据 SQL。不要把 Workflow guide 当作 Output Schema。
 
-KAT 不自动添加固定行数、字节数或超时限制；Agent 和用户负责查询规模、等待时间与本机资源消耗。Query 成功后保留 `result.columns` 与 `result.rows` 作为证据。执行失败时根据 Diagnostic 修正或缩小 SQL，不读取 Run 文件，也不把失败包装成部分成功。
+先选择投影、过滤、聚合和排序；明细查询显式使用 `LIMIT`。KAT 不自动添加固定行数、字节数或超时限制，Agent 和用户负责查询规模、等待时间与本机资源消耗。Query 成功 Response 恰以 `result.format="ndjson"`、`result.path` 和 `result.columns` 描述结果；只读取该 Response 给出的 NDJSON 文件，并从其中保留回答当前问题所需的对象行作为证据。执行失败时根据 Diagnostic 修正或缩小 SQL，不读取 Run 文件、猜测结果路径或把失败包装成部分成功。
 
 ## 5. 使用策略形成结论
 

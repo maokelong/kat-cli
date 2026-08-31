@@ -9,7 +9,7 @@
 按以下顺序交付：
 
 1. 对用户问题的直接结论。
-2. 少量可追溯证据：选中的 PACK/Workflow、Run identity、Run Output 名称，以及调用方主动约束范围的 Query columns/rows。
+2. 少量可追溯证据：选中的 PACK/Workflow、Run identity、Run Output 名称，以及调用方主动约束范围的 Query columns 与 NDJSON 对象行。
 3. 结论的适用范围、假设与不确定性；若使用 `--run` 读取当前 Workflow guide，避免把当前策略声称为历史 Run 的快照。
 4. 基于 Workflow analysis guide 和已有证据形成的可选下一步探索方向。
 
@@ -32,7 +32,7 @@ Workflow guide 指导分析方法，但不是数据证据。不要把 Provider g
 
 一次只提出一个澄清问题。不要要求用户预先填写内部 CLI 参数或选择内部操作。
 
-已有 Run 只有 Run ID、没有 Run Output 名称与 columns 时，属于需要补充信息。`kat inspect workflow --run` 可以取得当前 Workflow 知识，但不能替代 Output 发现；只请求用户补充输出名称和 columns。
+已有 Run 只有 Run ID 时不属于缺少用户信息：`kat inspect workflow --run` 取得当前 Workflow 知识，`kat query` 的 `information_schema` 取得实际 Output relation 与 columns。只有 Run 本身不可用，或用户问题仍不明确时才请求补充信息。
 
 ## 执行失败或受阻
 

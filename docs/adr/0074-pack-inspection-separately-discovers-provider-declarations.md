@@ -9,7 +9,8 @@ PACK 后，分析问题使用 `kat inspect workflow --pack <pack-name>`，PACK �
 来源能力时使用 `kat inspect provider --pack <pack-name>`；两种模式分别扫描、校验
 并返回自己的 declaration，不把 Provider 混入 Workflow 结果。只有 Run ID 时，
 `kat inspect workflow --run <run-id>` 从 Run Manifest 定位当前 PACK 和 Workflow，
-再读取当前安装版本的 declaration 与 guide。
+再读取当前安装版本的 declaration 与 guide。该定位只读取 Run identity，不校验或
+解释 Manifest 中的 Dataset、inputs 与 outputs 数据合同。
 
 Workflow 与 Provider 列表都只包含显式声明的 `name` 和 `description`。选中
 Workflow 后才返回 `parameters` 和可选 `guide`；选中 Provider 后才返回声明 class
@@ -37,6 +38,7 @@ Provider 类。
 operation/启动边界、ADR-0007 的 PACK discovery 命令集合，以及 ADR-0063 中
 “Runtime 从不扫描 Provider”为“只有显式 Provider inspection 扫描 metadata
 declaration”。这些替代只建立 Agent Knowledge 与 inspection 产品面；为使本改动
-不依赖其他数据架构 Issue，现有 Dataset 执行参数与兼容查询能力暂时保留；提供
-Dataset 时，其全部 Source table 对 Workflow 可见。除此之外，本决定不修改 Dataset、
-Query 的生命周期或数据架构。
+不依赖其他数据架构 Issue，现有 Dataset 执行参数暂时保留；移除
+`required_tables` 后，提供 Dataset 时其全部 Source table 对 Workflow 可见。
+Output Query 沿用当前主线合同，只查询 `output.*` 并发布原生 NDJSON，不读取历史
+Dataset。除此之外，本决定不修改 Dataset、Query 的生命周期或数据架构。

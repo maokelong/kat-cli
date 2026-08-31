@@ -43,12 +43,10 @@ enum Operation {
     /// The Operation log may retain the resolved PACK path, optional Dataset
     /// path, and all arguments after `--`. Do not pass secrets in these values.
     Run(run::RunArgs),
-    /// Query one published Run's output.* and optional current dataset.* tables.
+    /// Query one published Run's output.* tables and information_schema.
     ///
-    /// Rows are positional JSON scalars. int64/uint64 and Decimal values are
-    /// decimal strings. Timestamp(ns, UTC) values are RFC 3339 strings
-    /// normalized to UTC with Z. Other supported integers and finite floats are
-    /// JSON numbers; bool, string, and null retain their JSON kinds.
+    /// Python/DataFusion writes the native Arrow JSON mapping as NDJSON. A
+    /// successful Response returns its format, path, and column metadata.
     ///
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
@@ -205,8 +203,8 @@ fn inspect_run_workflow(
             return finish_inspect_target_failure(log, InspectTargetPackError::PublishedRun(error));
         }
     };
-    let pack_name = published_run.manifest.pack;
-    let workflow_name = published_run.manifest.workflow;
+    let pack_name = published_run.pack;
+    let workflow_name = published_run.workflow;
     if let Err(error) = log.append(
         format!(
             "pack: {}\nworkflow: {}\n",

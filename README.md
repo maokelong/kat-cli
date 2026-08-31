@@ -130,7 +130,9 @@ kat run \
 
 `manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和
 Response 都通过校验后，CLI 才发布 Manifest。`kat query` 只接受已发布 Run，并通过
-`output.<name>` 查询 Manifest 声明的输出；不存在、未发布或损坏的 Run 都明确失败。
+`output.<name>` 或 `information_schema` 查询 Manifest 声明的输出；不存在、未发布
+或损坏的 Run 都明确失败。查询成功 Response 只返回 `format`、`path` 与 `columns`，
+对象行由 Python/DataFusion 直接写入 `path` 指向的单文件 NDJSON，不内联回传 Rust。
 
 PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
 

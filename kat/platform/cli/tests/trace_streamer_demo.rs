@@ -183,7 +183,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(
-        rows,
+        serde_json::Value::Array(rows),
         serde_json::json!([
             {
                 "thread_id": 15381,

@@ -1,16 +1,33 @@
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::Path};
 
 use miette::Diagnostic;
+use serde::Deserialize;
 use thiserror::Error;
 
-use crate::{run::RunManifest, workflow_runtime};
-
 pub(super) struct PublishedRun {
-    pub(super) path: PathBuf,
-    pub(super) manifest: RunManifest,
+    pub(super) pack: String,
+    pub(super) workflow: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InspectionRunManifest {
+    run_id: String,
+    pack: String,
+    workflow: String,
+    #[serde(default, rename = "dataset", deserialize_with = "deserialize_ignored")]
+    _dataset: (),
+    #[serde(rename = "inputs", deserialize_with = "deserialize_ignored")]
+    _inputs: (),
+    #[serde(rename = "outputs", deserialize_with = "deserialize_ignored")]
+    _outputs: (),
+}
+
+fn deserialize_ignored<'de, D>(deserializer: D) -> Result<(), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde::de::IgnoredAny::deserialize(deserializer).map(drop)
 }
 
 pub(super) fn read(data_home: &Path, run_id: &str) -> Result<PublishedRun, PublishedRunError> {
@@ -41,12 +58,12 @@ pub(super) fn read(data_home: &Path, run_id: &str) -> Result<PublishedRun, Publi
     }
     let bytes =
         fs::read(run_path.join("manifest.json")).map_err(PublishedRunError::ReadManifest)?;
-    let manifest: RunManifest =
+    let manifest: InspectionRunManifest =
         serde_json::from_slice(&bytes).map_err(PublishedRunError::DecodeManifest)?;
     validate(&manifest, run_id)?;
     Ok(PublishedRun {
-        path: run_path,
-        manifest,
+        pack: manifest.pack,
+        workflow: manifest.workflow,
     })
 }
 
@@ -62,38 +79,11 @@ fn diagnostic_safe_argument(value: &str) -> String {
     rendered
 }
 
-fn validate(manifest: &RunManifest, run_id: &str) -> Result<(), PublishedRunError> {
+fn validate(manifest: &InspectionRunManifest, run_id: &str) -> Result<(), PublishedRunError> {
     if manifest.run_id != run_id
         || manifest.pack.trim().is_empty()
         || manifest.workflow.trim().is_empty()
-        || manifest.outputs.is_empty()
-        || manifest
-            .dataset
-            .as_ref()
-            .is_some_and(|path| path.is_empty() || !Path::new(path).is_absolute())
     {
-        return Err(PublishedRunError::InvalidFacts);
-    }
-    for (name, output) in &manifest.outputs {
-        if !workflow_runtime::valid_output_name(name)
-            || output
-                .columns
-                .iter()
-                .any(|column| column.name.is_empty() || column.data_type.trim().is_empty())
-        {
-            return Err(PublishedRunError::InvalidFacts);
-        }
-    }
-    if manifest.inputs.iter().any(|(name, value)| {
-        name.is_empty()
-            || !matches!(
-                value,
-                serde_json::Value::Null
-                    | serde_json::Value::Bool(_)
-                    | serde_json::Value::Number(_)
-                    | serde_json::Value::String(_)
-            )
-    }) {
         return Err(PublishedRunError::InvalidFacts);
     }
     Ok(())
