@@ -16,18 +16,6 @@ REQUIRED_RELATIONS = frozenset(
     }
 )
 
-SUMMARY_SQL = """
-SELECT
-    h.tracer,
-    h.cpu_count,
-    h.entries_written AS source_event_count,
-    COUNT(e._kat_row_id) AS supported_event_count
-FROM text_ftrace_header h
-CROSS JOIN text_ftrace_event e
-GROUP BY h.tracer, h.cpu_count, h.entries_written
-"""
-
-
 class Ftrace2ParquetProvider:
     """调用 Rust 转换器并查询其类型化 Parquet 关系。"""
 

@@ -4,10 +4,19 @@ from tempfile import TemporaryDirectory
 
 import kat
 
-from kat.pack.datasources.ftrace2parquet import (
-    Ftrace2ParquetProvider,
-    SUMMARY_SQL,
-)
+from kat.pack.datasources.ftrace2parquet import Ftrace2ParquetProvider
+
+
+SUMMARY_SQL = """
+SELECT
+    h.tracer,
+    h.cpu_count,
+    h.entries_in_buffer AS source_event_count,
+    COUNT(e._kat_row_id) AS supported_event_count
+FROM text_ftrace_header h
+CROSS JOIN text_ftrace_event e
+GROUP BY h.tracer, h.cpu_count, h.entries_in_buffer
+"""
 
 
 @kat.workflow(

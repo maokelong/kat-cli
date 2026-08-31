@@ -17,7 +17,7 @@ def _write_summary_catalog(root: Path) -> None:
             {
                 "tracer": ["nop"],
                 "entries_in_buffer": pa.array([5], type=pa.uint64()),
-                "entries_written": pa.array([5], type=pa.uint64()),
+                "entries_in_buffer": pa.array([5], type=pa.uint64()),
                 "cpu_count": pa.array([4], type=pa.uint32()),
                 "has_tgid_column": [True],
             }
