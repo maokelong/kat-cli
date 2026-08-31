@@ -31,6 +31,9 @@ Workflow 参数。
 显式保存 `clock_domain + clock_value`；调用方必须根据采集配置提供 domain，Provider
 不从文件名或数值猜测时间语义。
 
+完整的表、字段、关联关系和查询示例见 [DATA_MODEL.md](./DATA_MODEL.md)。运行时也可以使用
+`SHOW TABLES` 和 `DESCRIBE <table>` 查看当前 Trace 实际产生的关系及其物理字段。
+
 ## 构建和运行
 
 ```bash
