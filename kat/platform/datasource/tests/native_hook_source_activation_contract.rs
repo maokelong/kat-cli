@@ -11,9 +11,8 @@ mod native_hook_fixture;
 mod support;
 use native_hook_fixture::{
     full_native_hook_batches, full_native_hook_config, full_native_hook_relation_names,
-    profiler_section,
 };
-use support::{Relation, assert_no_staging};
+use support::{Relation, assert_no_staging, profiler_section};
 
 #[allow(dead_code)]
 mod proto {

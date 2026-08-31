@@ -6,6 +6,7 @@ use arrow_array::{
 };
 use arrow_schema::SchemaRef;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use prost::Message;
 
 pub(super) struct Relation {
     schema: SchemaRef,
@@ -170,4 +171,28 @@ pub(super) fn assert_no_staging(parent: &Path) {
                 .starts_with(".kat-datasource-staging-")),
         "failed decode must not leave a staging directory"
     );
+}
+
+pub(super) fn profiler_section<M>(envelopes: impl IntoIterator<Item = M>) -> Vec<u8>
+where
+    M: Message,
+{
+    const PROFILER_HEADER_SIZE: usize = 1024;
+    const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
+
+    let mut body = Vec::new();
+    for envelope in envelopes {
+        let frame = envelope.encode_to_vec();
+        body.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+        body.extend_from_slice(&frame);
+    }
+
+    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
+    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
+    bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
+    for (offset, value) in [60, 68, 76, 84, 92, 100].into_iter().zip(101_u64..=106) {
+        bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&body);
+    bytes
 }

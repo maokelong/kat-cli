@@ -7,7 +7,7 @@ use tempfile::tempdir;
 
 #[path = "support/mod.rs"]
 mod support;
-use support::{Relation, assert_no_staging};
+use support::{Relation, assert_no_staging, profiler_section};
 
 #[allow(dead_code)]
 mod proto {
@@ -343,25 +343,4 @@ fn profiler_envelope(name: &str, status: u32, data: Vec<u8>) -> ProfilerPluginDa
         version: format!("route-{status}"),
         sample_interval: status,
     }
-}
-
-fn profiler_section(envelopes: impl IntoIterator<Item = ProfilerPluginData>) -> Vec<u8> {
-    const PROFILER_HEADER_SIZE: usize = 1024;
-    const PROFILER_HEADER_MAGIC: u64 = 0x464F_5250_534F_484F;
-
-    let mut body = Vec::new();
-    for envelope in envelopes {
-        let frame = envelope.encode_to_vec();
-        body.extend_from_slice(&(frame.len() as u32).to_le_bytes());
-        body.extend_from_slice(&frame);
-    }
-
-    let mut bytes = vec![0; PROFILER_HEADER_SIZE];
-    bytes[0..8].copy_from_slice(&PROFILER_HEADER_MAGIC.to_le_bytes());
-    bytes[8..16].copy_from_slice(&((PROFILER_HEADER_SIZE + body.len()) as u64).to_le_bytes());
-    for (offset, value) in [60, 68, 76, 84, 92, 100].into_iter().zip(101_u64..=106) {
-        bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-    }
-    bytes.extend_from_slice(&body);
-    bytes
 }
