@@ -34,6 +34,14 @@ impl OperationLog {
         Self::create_named(data_home, "run", candidate_id, |file| write_header(file))
     }
 
+    pub(crate) fn create_query(
+        data_home: &Path,
+        operation_id: &str,
+        write_header: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+    ) -> Result<Self, OperationLogError> {
+        Self::create_named(data_home, "query", operation_id, |file| write_header(file))
+    }
+
     pub(crate) fn create_test(
         data_home: &Path,
         token: &str,

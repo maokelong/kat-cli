@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-import math
 from pathlib import Path
-from typing import Any
+from typing import Iterable
 
 import pyarrow as pa
-from datafusion import SQLOptions, SessionContext
+from datafusion import DataFrameWriteOptions, SQLOptions, SessionContext
 from datafusion.catalog import Schema
+from datafusion.expr import Explain
 
-from .request import QueryRunRequest, ResolvedDatasetRef
+from .request import QueryRunRequest
 
 
 _READ_ONLY = (
@@ -19,35 +18,30 @@ _READ_ONLY = (
     .with_allow_dml(False)
     .with_allow_statements(False)
 )
-_NANOSECONDS_PER_SECOND = 1_000_000_000
-_UNIX_EPOCH = datetime(1970, 1, 1)
 
 
 @dataclass(frozen=True)
 class QueryRunRuntimeResult:
     columns: list[dict[str, str]]
-    rows: list[list[object]]
 
 
 def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
-    session = SessionContext().enable_url_table()
-    _register_schema(
-        session,
-        "output",
-        {
-            name: request.run_path / "outputs" / f"{name}.parquet"
-            for name in request.outputs
-        },
-    )
-    if request.dataset is not None:
-        _register_schema(session, "dataset", request.dataset.tables)
+    session = SessionContext()
+    _register_schema(session, "output", request.outputs)
 
     frame = session.sql(request.sql, options=_READ_ONLY)
     schema = frame.schema()
-    _validate_result_types(schema)
+    _validate_unique_struct_field_names(schema)
+    if isinstance(frame.logical_plan().to_variant(), Explain):
+        # DataFusion rejects COPY TO directly above Explain because Explain must be
+        # the plan root. Cache only this bounded diagnostic relation before writing.
+        frame = frame.cache()
+    frame.write_json(
+        str(request.result_path),
+        DataFrameWriteOptions(single_file_output=True),
+    )
     return QueryRunRuntimeResult(
         columns=[{"name": field.name, "type": str(field.type)} for field in schema],
-        rows=_collect_rows(frame),
     )
 
 
@@ -62,81 +56,31 @@ def _register_schema(
     session.catalog().register_schema(name, schema)
 
 
-def _collect_rows(frame: Any) -> list[list[object]]:
-    rows: list[list[object]] = []
-    for batch in frame.collect():
-        for row_index in range(batch.num_rows):
-            rows.append(
-                [
-                    _json_scalar(batch.column(column_index), row_index)
-                    for column_index in range(batch.num_columns)
-                ]
+def _validate_unique_struct_field_names(schema: pa.Schema) -> None:
+    _validate_field_group(schema, "query result")
+
+
+def _validate_field_group(fields: Iterable[pa.Field], location: str) -> None:
+    seen: set[str] = set()
+    for field in fields:
+        if field.name in seen:
+            raise ValueError(
+                f"{location} sibling field names must be exactly unique; "
+                f"duplicate name {field.name!r}"
             )
-    return rows
+        seen.add(field.name)
+        _validate_nested_type(field.type, f"{location}.{field.name}")
 
 
-def _validate_result_types(schema: pa.Schema) -> None:
-    for field in schema:
-        data_type = field.type
-        supported = (
-            pa.types.is_null(data_type)
-            or pa.types.is_boolean(data_type)
-            or pa.types.is_integer(data_type)
-            or pa.types.is_floating(data_type)
-            or pa.types.is_decimal128(data_type)
-            or pa.types.is_decimal256(data_type)
-            or pa.types.is_string(data_type)
-            or pa.types.is_large_string(data_type)
-            or _is_string_view(data_type)
-            or _is_utc_nanosecond_timestamp(data_type)
-        )
-        if not supported:
-            raise TypeError(
-                f"query result type {data_type} is not supported; explicitly project it "
-                "to a supported scalar type in the PACK or SQL"
-            )
+def _validate_nested_type(data_type: pa.DataType, location: str) -> None:
+    if pa.types.is_struct(data_type):
+        _validate_field_group(data_type, location)
+        return
 
+    for index in range(getattr(data_type, "num_fields", 0)):
+        _validate_nested_type(data_type.field(index).type, location)
 
-def _json_scalar(array: pa.Array, index: int) -> Any:
-    scalar = array[index]
-    if not scalar.is_valid:
-        return None
-    data_type = array.type
-    if pa.types.is_int64(data_type) or pa.types.is_uint64(data_type):
-        return str(scalar.as_py())
-    if pa.types.is_timestamp(data_type):
-        return _format_utc_nanoseconds(scalar.value)
-    value = scalar.as_py()
-    if pa.types.is_decimal128(data_type) or pa.types.is_decimal256(data_type):
-        return format(value, "f")
-    if pa.types.is_floating(data_type) and not math.isfinite(value):
-        raise ValueError(
-            "query result contains a non-finite float; explicitly filter or project it"
-        )
-    return value
-
-
-def _format_utc_nanoseconds(value: int) -> str:
-    # Arrow timestamp[ns] is int64, so its full 1677–2262 range fits datetime.
-    seconds, nanoseconds = divmod(value, _NANOSECONDS_PER_SECOND)
-    instant = _UNIX_EPOCH + timedelta(seconds=seconds)
-    rendered = (
-        f"{instant.year:04d}-{instant.month:02d}-{instant.day:02d}T"
-        f"{instant.hour:02d}:{instant.minute:02d}:{instant.second:02d}"
-    )
-    if nanoseconds:
-        rendered += f".{nanoseconds:09d}".rstrip("0")
-    return rendered + "Z"
-
-
-def _is_string_view(data_type: pa.DataType) -> bool:
-    predicate = getattr(pa.types, "is_string_view", None)
-    return bool(predicate and predicate(data_type))
-
-
-def _is_utc_nanosecond_timestamp(data_type: pa.DataType) -> bool:
-    return (
-        pa.types.is_timestamp(data_type)
-        and data_type.unit == "ns"
-        and data_type.tz == "UTC"
-    )
+    for attribute in ("value_type", "storage_type"):
+        nested = getattr(data_type, attribute, None)
+        if isinstance(nested, pa.DataType):
+            _validate_nested_type(nested, location)

@@ -112,10 +112,9 @@ fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowReques
 }
 
 pub(crate) struct QueryRunInvocation {
-    pub(crate) run_path: String,
-    pub(crate) outputs: Vec<String>,
-    pub(crate) dataset: Option<ResolvedDatasetRequest>,
+    pub(crate) outputs: BTreeMap<String, String>,
     pub(crate) sql: String,
+    pub(crate) result_path: String,
 }
 
 pub(crate) struct TestPackInvocation<'a> {
@@ -170,9 +169,9 @@ pub(crate) struct DatasetProjectionError {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct QueryRunResult {
     pub(crate) columns: Vec<Column>,
-    pub(crate) rows: Vec<Vec<serde_json::Value>>,
 }
 
 pub(crate) fn inspect_pack(
@@ -271,10 +270,9 @@ pub(crate) fn execute_query_runtime(
 ) -> Result<QueryRunOutcome, QueryRunError> {
     let request = QueryRunRequest {
         operation: "query_run",
-        run_path: &invocation.run_path,
         outputs: &invocation.outputs,
-        dataset: invocation.dataset.as_ref(),
         sql: &invocation.sql,
+        result_path: &invocation.result_path,
     };
     let response = match exchange_request("kat-query-run-", &request, &mut log) {
         Ok(response) => response,
