@@ -10,14 +10,20 @@ from typing import Literal
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
 from .execution import RunWorkflowRuntimeResult, run_workflow
 from .pack import (
-    InspectPackRuntimeResult,
+    InspectWorkflowRuntimeResult,
     PackInspectionError,
     _PackInspectionWorkerError,
-    inspect_pack,
+    inspect_workflow,
+)
+from .provider_inspection import (
+    InspectProviderRuntimeResult,
+    ProviderInspectionError,
+    inspect_provider,
 )
 from .query import QueryRunRuntimeResult, query_run
 from .request import (
-    InspectPackRequest,
+    InspectProviderRequest,
+    InspectWorkflowRequest,
     QueryRunRequest,
     RunWorkflowRequest,
     RuntimeRequest,
@@ -41,7 +47,8 @@ class RuntimeFailure:
 
 
 type RuntimeResponse = (
-    RuntimeSuccess[InspectPackRuntimeResult]
+    RuntimeSuccess[InspectWorkflowRuntimeResult]
+    | RuntimeSuccess[InspectProviderRuntimeResult]
     | RuntimeSuccess[RunWorkflowRuntimeResult]
     | RuntimeSuccess[QueryRunRuntimeResult]
     | RuntimeSuccess[TestPackRuntimeResult]
@@ -79,10 +86,25 @@ def main() -> int:
 def _execute(
     request: RuntimeRequest, test_report_path: Path | None = None
 ) -> RuntimeResponse:
-    if isinstance(request, InspectPackRequest):
+    if isinstance(request, InspectWorkflowRequest):
         try:
-            result = inspect_pack(request.pack_name, request.pack_path)
+            result = inspect_workflow(
+                request.pack_name,
+                request.pack_path,
+                request.workflow_name,
+            )
         except PackInspectionError as error:
+            return RuntimeFailure(error=error.diagnostic)
+        return RuntimeSuccess(result=result)
+
+    if isinstance(request, InspectProviderRequest):
+        try:
+            result = inspect_provider(
+                request.pack_name,
+                request.pack_path,
+                request.provider_name,
+            )
+        except ProviderInspectionError as error:
             return RuntimeFailure(error=error.diagnostic)
         return RuntimeSuccess(result=result)
 

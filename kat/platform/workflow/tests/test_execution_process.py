@@ -54,7 +54,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def pack(self, body: str, *, required_tables: str = "['events']") -> Path:
+    def pack(self, body: str) -> Path:
         pack = self.root / f"pack-{uuid.uuid4().hex}"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
@@ -62,8 +62,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables={required_tables},
+    description="Analyze the provided facts.",
     parameters={{"minimum": "Minimum", "window": "Window"}},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms"):
@@ -176,10 +175,9 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertFalse((candidate / "manifest.json").exists())
 
-    def test_empty_grant_runs_without_dataset_and_extra_table_is_not_visible(self) -> None:
+    def test_workflow_runs_without_dataset_and_all_dataset_tables_are_visible(self) -> None:
         no_dataset_pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         completed, response = self.run_runtime(
@@ -189,9 +187,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(response["status"], "success", response)
         self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
 
-        isolated_id = "019f6e00-0000-7000-8000-000000000002"
-        isolated_root = self.root / isolated_id
-        isolated_root.mkdir()
+        isolated_id, isolated_root = self.candidate()
         grant_pack = self.pack('    return ctx.sql("SELECT * FROM secret")')
         dataset = self.root / "grant-dataset"
         dataset.mkdir()
@@ -214,8 +210,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             )
         )
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
+        self.assertEqual(
+            pq.read_table(isolated_root / "outputs" / "main.parquet").to_pydict(),
+            {"value": [99]},
+        )
         rendered = json.dumps(response, ensure_ascii=False)
         self.assertNotIn(isolated_id, rendered)
         self.assertNotIn(str(isolated_root.resolve()), rendered)
@@ -261,7 +261,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_run_rejects_a_non_uuidv7_candidate_without_exposing_it(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id = "private-candidate"
         candidate = self.root / "runs" / candidate_id
@@ -279,7 +278,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_run_request_rejects_explicit_null_and_unowned_dataset_paths(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         explicit_null = self.request(
@@ -317,7 +315,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_run_request_rejects_a_datasource_root_for_another_pack(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         request = self.request(pack, candidate_id, candidate, dataset=None)
@@ -334,7 +331,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_run_request_rejects_a_datasource_root_from_another_data_home(self) -> None:
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
         other_data_home = self.root / "other-data-home"
@@ -382,7 +378,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
 
         pack = self.pack(
             '    return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))',
-            required_tables="[]",
         )
         candidate_id = str(uuid.uuid7())
         (runs / candidate_id).mkdir()
@@ -399,7 +394,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     def test_workflow_system_exit_is_a_runtime_failure(self) -> None:
         pack = self.pack(
             '    raise SystemExit("Workflow requested exit")',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -427,7 +421,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             pass
     output_module.pq.ParquetWriter = FailingWriter
     return ctx.from_arrow(__import__("pyarrow").table({"value": [7]}))''',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -464,7 +457,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                 pack = self.pack(
                     f'''    frame = ctx.from_arrow(__import__("pyarrow").table({{"value": [7]}}))
     return {{"{reserved}": frame}}''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -482,7 +474,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         workflows.mkdir(parents=True)
         (workflows / "a.py").write_text(
             """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
     return ctx.from_arrow(__import__('pyarrow').table({'value': [1]}))
@@ -492,7 +484,7 @@ def analyze(ctx: Context):
         (workflows / "b.py").write_text(
             """from kat import Context, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', description='B.')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
     return ctx.from_arrow(__import__('pyarrow').table({'value': [2]}))
@@ -530,7 +522,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="realtime"
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         dataset, definitions, snapshots = self.clock_dataset()
         candidate_id, candidate = self.candidate()
@@ -575,7 +566,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="realtime"
         ).alias("realtime_clock_value")
     )''',
-                    required_tables="[]",
                 )
                 empty_id, empty_candidate = self.candidate()
                 completed, response = self.run_runtime(
@@ -661,7 +651,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="realtime"
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         invalid_id, invalid_candidate = self.candidate()
         completed, response = self.run_runtime(
@@ -707,7 +696,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain=target
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -765,7 +753,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="monotonic"
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -809,7 +796,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="monotonic"
         ).alias("clock_value")
     )''',
-                    required_tables="[]",
                 )
                 candidate_id, candidate = self.candidate()
 
@@ -854,7 +840,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="monotonic"
         ).alias("monotonic_clock_value")
     )''',
-            required_tables="[]",
         )
         candidate_id, candidate = self.candidate()
 
@@ -890,7 +875,6 @@ def other(ctx: Context):
             col("clock_domain"), col("clock_value"), target_domain="realtime"
         ).alias("realtime_clock_value")
     )''',
-            required_tables="[]",
         )
         cross_id = "019f6e00-0000-7000-8000-000000000007"
         cross_candidate = self.root / "runs" / cross_id

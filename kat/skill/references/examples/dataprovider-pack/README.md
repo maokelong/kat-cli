@@ -1,7 +1,8 @@
-# Data Provider examples PACK
+# Data Provider reference PACK
 
-这个 External PACK 在同一个 `datasources/` 模块下提供三个 sibling Provider，展示
-PACK 作者如何用 `kat.dataprovider` 统一承接远端数据库、本地文本和本地二进制解析器：
+这是 KAT Skill 随源码维护的唯一公共 reference PACK。它在同一个 `datasources/` 模块
+下提供三个 sibling Provider，展示 PACK 作者如何用 `@kat.provider` 配合
+`kat.dataprovider` 承接远端数据库、本地文本和本地二进制解析器：
 
 | Provider | 来源与物化 | 查询方式 | 示例 Workflow |
 |---|---|---|---|
@@ -9,19 +10,23 @@ PACK 作者如何用 `kat.dataprovider` 统一承接远端数据库、本地文�
 | `FtraceTextProvider` | Python 解析 tracefs 文本并写入两张 Parquet 表 | DataFusion SQL | `summarize-ftrace-events` |
 | `TraceStreamerProvider` | Trace Streamer 将 Htrace 物化为临时 SQLite | SQLite SQL | `summarize-native-hook` |
 
-Provider 都是 PACK 自有的普通 Python 类。KAT 不发现、构造或包装 Provider；Workflow
-显式调用 `decode()`、`query()` 和 Data Provider Toolkit。只有 Workflow 返回的
-`dp.Table` 会发布为 Run Output，中间 Table 和临时物化数据不会自动成为 Output。
+Provider 都是 PACK 自有的普通 Python 类。`@kat.provider` 只附加 inspection 元数据；
+KAT 可以发现声明，但不会构造或包装 Provider。Workflow 显式调用 `decode()`、`query()`
+和 Data Provider Toolkit。只有 Workflow 返回的 `dp.Table` 会发布为 Run Output，
+中间 Table 和临时物化数据不会自动成为 Output。
 
 ## 目录
 
 ```text
-dataprovider-examples/
+dataprovider-pack/
 ├─ pack.toml
 ├─ datasources/
 │  ├─ postgresql.py
 │  ├─ ftrace.py
 │  └─ trace_streamer.py
+├─ knowledge/
+│  ├─ providers/
+│  └─ workflows/
 ├─ workflows/
 │  ├─ query_observations.py
 │  ├─ fuse_observations.py
@@ -102,14 +107,18 @@ Workflow argument。
 ## 检查与默认测试
 
 import 阶段不会连接数据库、读取 trace 或检查外部 executable，因此没有外部环境也可
-列出全部四个 Workflow：
+分别列出全部 Workflow 和 Provider。以下路径以组装后的 Skill 根为准；实际调用时仍按
+公共命令速查选择平台 `kat` 载荷并使用绝对路径：
 
 ```bash
-kat inspect \
-  --pack dataprovider-examples \
-  --pack-dir ./examples/packs/dataprovider-examples
+kat inspect workflow \
+  --pack dataprovider-pack \
+  --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
+kat inspect provider \
+  --pack dataprovider-pack \
+  --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
 
-kat test --pack-dir ./examples/packs/dataprovider-examples
+kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
 ```
 
 默认测试只收集 `test_*.py`：fake ADBC 合同、小型 Ftrace fixture，以及模拟 Trace
@@ -131,9 +140,9 @@ export KAT_TEST_POSTGRES_WRITER_PROFILE=writer_fixture_service
 export KAT_TEST_POSTGRES_TELEMETRY_DATABASE=telemetry
 export KAT_TEST_POSTGRES_CONTROL_DATABASE=control
 
-kat test --pack-dir ./examples/packs/dataprovider-examples \
+kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
   --test tests/postgresql/real_postgresql.py
-kat test --pack-dir ./examples/packs/dataprovider-examples \
+kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
   --test tests/postgresql/real_fusion.py
 ```
 
@@ -141,7 +150,7 @@ Ftrace 真实合同：
 
 ```bash
 export KAT_TEST_FTRACE_PATH=/absolute/path/to/kat_complex_20260818.ftrace
-kat test --pack-dir ./examples/packs/dataprovider-examples \
+kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
   --test tests/ftrace/real_ftrace.py
 ```
 
@@ -151,6 +160,6 @@ Trace Streamer 真实合同：
 $env:KAT_TEST_TRACE_STREAMER_EXE = "C:\absolute\path\to\trace_streamer.exe"
 $env:KAT_TEST_HTRACE_PATH = "C:\absolute\path\to\trace.htrace"
 kat test `
-  --pack-dir ./examples/packs/dataprovider-examples `
+  --pack-dir "C:\absolute\path\to\kat-skill\references\examples\dataprovider-pack" `
   --test tests/trace_streamer/real_trace_streamer.py
 ```

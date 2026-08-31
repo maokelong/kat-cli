@@ -8,12 +8,12 @@ from kat.pack.datasources.ftrace import FtraceTextProvider
 
 @kat.workflow(
     name="summarize-ftrace-events",
-    title="Summarize Ftrace events",
-    required_tables=[],
+    description="解析一份 Ftrace 文本并发布事件计数。",
     parameters={
         "trace_path": "Path to a tracefs text file.",
         "clock_domain": "Clock domain assigned by the capture configuration.",
     },
+    guide="workflows/summarize-ftrace-events.md",
 )
 def summarize_ftrace_events(
     ctx: kat.Context,

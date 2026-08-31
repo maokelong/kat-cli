@@ -5,8 +5,7 @@ from kat.pack.helpers.critical_path import locate_first_actual_frame
 
 @kat.workflow(
     name="locate-first-actual-frame",
-    title="Locate First Actual Frame",
-    required_tables=["process", "thread", "frame_slice"],
+    description="定位指定进程最早完成且持续时间为正的实际帧。",
     parameters={"process_name": "Exact process name to locate."},
 )
 def locate_first_actual_frame_workflow(ctx: kat.Context, process_name: str):

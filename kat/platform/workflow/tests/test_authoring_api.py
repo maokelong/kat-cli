@@ -11,8 +11,7 @@ from _kat_runtime.inspection import compile_declared_workflow, inspect_declared_
 
 @kat.workflow(
     name="thread-time",
-    title=" Thread time ",
-    required_tables=["sched_slice", "thread", "sched_slice"],
+    description=" Inspect thread CPU time.\n\nInternal whitespace remains. ",
     parameters={
         "label": " Label filter ",
         "count": "Signed count",
@@ -41,26 +40,26 @@ def analyze(
     """
 
 
-@kat.workflow(name="return-is-not-input", title="Return", required_tables=[])
+@kat.workflow(
+    name="return-is-not-input",
+    description="The Input Compiler must not evaluate the return annotation.",
+)
 def unresolved_return(ctx: kat.Context) -> UndefinedReturn:
     """The Input Compiler must not evaluate the return annotation."""
 
 
-mutable_tables = ["thread"]
 mutable_descriptions = {"value": " Original description "}
 
 
 @kat.workflow(
     name="copied-declaration",
-    title="Copied declaration",
-    required_tables=mutable_tables,
+    description="The decorator owns an immutable declaration snapshot.",
     parameters=mutable_descriptions,
 )
 def copied_declaration(ctx: kat.Context, value: str) -> None:
     """The decorator owns an immutable declaration snapshot."""
 
 
-mutable_tables.append("sched_slice")
 mutable_descriptions["value"] = "Mutated"
 
 
@@ -68,14 +67,13 @@ lambda_workflow = lambda ctx: None
 lambda_workflow.__annotations__ = {"ctx": kat.Context}
 lambda_workflow.__doc__ = "A lambda is not a declared Workflow function."
 lambda_workflow = kat.workflow(
-    name="lambda-workflow", title="Lambda", required_tables=[]
+    name="lambda-workflow", description="A lambda is not a declared Workflow function."
 )(lambda_workflow)
 
 
 @kat.workflow(
     name="asynchronous",
-    title="Asynchronous",
-    required_tables=[],
+    description="Not a synchronous Workflow.",
     parameters={"value": "Value"},
 )
 async def asynchronous(ctx: kat.Context, value: str) -> None:
@@ -84,8 +82,7 @@ async def asynchronous(ctx: kat.Context, value: str) -> None:
 
 @kat.workflow(
     name="missing-description",
-    title="Missing description",
-    required_tables=[],
+    description="Descriptions must match.",
     parameters={},
 )
 def missing_parameter_description(ctx: kat.Context, value: str) -> None:
@@ -94,8 +91,7 @@ def missing_parameter_description(ctx: kat.Context, value: str) -> None:
 
 @kat.workflow(
     name="required-bool",
-    title="Required bool",
-    required_tables=[],
+    description="Bool requires a default.",
     parameters={"flag": "Flag"},
 )
 def required_bool(ctx: kat.Context, flag: bool) -> None:
@@ -104,8 +100,7 @@ def required_bool(ctx: kat.Context, flag: bool) -> None:
 
 @kat.workflow(
     name="invalid-bool-default",
-    title="Invalid bool default",
-    required_tables=[],
+    description="Invalid Click defaults remain PACK authoring failures.",
     parameters={"flag": "Flag"},
 )
 def invalid_bool_default(ctx: kat.Context, flag: bool = 1) -> None:  # type: ignore[assignment]
@@ -114,8 +109,7 @@ def invalid_bool_default(ctx: kat.Context, flag: bool = 1) -> None:  # type: ign
 
 @kat.workflow(
     name="overflowing-int-default",
-    title="Overflowing int default",
-    required_tables=[],
+    description="Overflowing numeric conversion remains a PACK authoring failure.",
     parameters={"count": "Count"},
 )
 def overflowing_int_default(ctx: kat.Context, count: int = float("inf")) -> None:  # type: ignore[assignment]
@@ -124,8 +118,7 @@ def overflowing_int_default(ctx: kat.Context, count: int = float("inf")) -> None
 
 @kat.workflow(
     name="none-without-optional",
-    title="None without optional",
-    required_tables=[],
+    description="None only belongs to the Optional contract.",
     parameters={"value": "Value"},
 )
 def none_without_optional(
@@ -136,8 +129,7 @@ def none_without_optional(
 
 @kat.workflow(
     name="unsupported-any",
-    title="Unsupported Any",
-    required_tables=[],
+    description="Any is outside the closed type set.",
     parameters={"value": "Value"},
 )
 def unsupported_any(ctx: kat.Context, value: Any) -> None:
@@ -146,8 +138,7 @@ def unsupported_any(ctx: kat.Context, value: Any) -> None:
 
 @kat.workflow(
     name="unsupported-annotated",
-    title="Unsupported Annotated",
-    required_tables=[],
+    description="Typing extras are outside the closed authoring type set.",
     parameters={"value": "Value"},
 )
 def unsupported_annotated(ctx: kat.Context, value: Annotated[str, "metadata"]) -> None:
@@ -156,8 +147,7 @@ def unsupported_annotated(ctx: kat.Context, value: Annotated[str, "metadata"]) -
 
 @kat.workflow(
     name="overflowing-wall-clock",
-    title="Overflowing wall clock",
-    required_tables=[],
+    description="The UTC conversion must remain inside the supported datetime range.",
     parameters={"at": "Boundary"},
 )
 def overflowing_wall_clock(
@@ -169,8 +159,7 @@ def overflowing_wall_clock(
 
 @kat.workflow(
     name="unknown-wall-clock-offset",
-    title="Unknown wall clock offset",
-    required_tables=[],
+    description="A wall-clock default must identify a known UTC offset.",
     parameters={"at": "Boundary"},
 )
 def unknown_wall_clock_offset(
@@ -182,8 +171,7 @@ def unknown_wall_clock_offset(
 
 @kat.workflow(
     name="legacy-optional",
-    title="Legacy Optional",
-    required_tables=[],
+    description="typing.Optional resolves to the supported optional type.",
     parameters={"value": "Value"},
 )
 def legacy_optional(ctx: kat.Context, value: Optional[str] = None) -> None:
@@ -192,8 +180,7 @@ def legacy_optional(ctx: kat.Context, value: Optional[str] = None) -> None:
 
 @kat.workflow(
     name="legacy-union",
-    title="Legacy Union",
-    required_tables=[],
+    description="typing.Union resolves to the supported optional type.",
     parameters={"value": "Value"},
 )
 def legacy_union(ctx: kat.Context, value: Union[str, None] = None) -> None:
@@ -202,8 +189,7 @@ def legacy_union(ctx: kat.Context, value: Union[str, None] = None) -> None:
 
 @kat.workflow(
     name="nested-forward-reference",
-    title="Nested forward reference",
-    required_tables=[],
+    description="Nested ForwardRefs resolve through the standard typing evaluator.",
     parameters={"value": "Value"},
 )
 def nested_forward_reference(
@@ -214,8 +200,7 @@ def nested_forward_reference(
 
 @kat.workflow(
     name="required-string",
-    title="Required string",
-    required_tables=[],
+    description="Required values omit their default.",
     parameters={"query": "Query text"},
 )
 def required_string(ctx: kat.Context, query: str) -> None:
@@ -223,6 +208,64 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
+    def test_provider_is_a_metadata_only_class_decorator(self) -> None:
+        class PlainProvider:
+            pass
+
+        decorated = kat.provider(
+            name="postgresql",
+            description=" Query a PostgreSQL service. ",
+            guide=" providers/postgresql.md ",
+        )(PlainProvider)
+
+        self.assertIs(decorated, PlainProvider)
+        self.assertIn("provider", kat.__all__)
+        declaration = vars(PlainProvider)["__kat_provider__"]
+        self.assertEqual(declaration.name, "postgresql")
+        self.assertEqual(declaration.description, "Query a PostgreSQL service.")
+        self.assertEqual(declaration.guide, "providers/postgresql.md")
+        self.assertEqual(PlainProvider.__bases__, (object,))
+
+        with self.assertRaisesRegex(TypeError, "name"):
+            kat.provider(  # type: ignore[arg-type]
+                name=1,
+                description="Invalid",
+                guide="providers/invalid.md",
+            )
+        with self.assertRaisesRegex(ValueError, "name"):
+            kat.provider(
+                name="  ",
+                description="Invalid",
+                guide="providers/invalid.md",
+            )
+        with self.assertRaisesRegex(TypeError, "description"):
+            kat.provider(  # type: ignore[arg-type]
+                name="invalid",
+                description=1,
+                guide="providers/invalid.md",
+            )
+        with self.assertRaisesRegex(TypeError, "guide"):
+            kat.provider(name="invalid", description="Invalid", guide=1)  # type: ignore[arg-type]
+        with self.assertRaises(TypeError):
+            kat.provider(  # type: ignore[call-arg]
+                name="invalid",
+                description="Invalid",
+                guide="providers/invalid.md",
+                module="override",
+            )
+        with self.assertRaisesRegex(TypeError, "Provider must be a class"):
+            kat.provider(name="function", description="Function", guide="function.md")(
+                lambda: None
+            )
+        with self.assertRaisesRegex(ValueError, "description"):
+            kat.provider(name="empty", description="  ", guide="empty.md")
+        with self.assertRaisesRegex(ValueError, "guide"):
+            kat.provider(name="empty", description="Empty", guide="  ")
+        with self.assertRaisesRegex(ValueError, "only one Provider"):
+            kat.provider(name="again", description="Again", guide="again.md")(
+                PlainProvider
+            )
+
     def test_dataprovider_toolkit_is_the_only_top_level_data_export(self) -> None:
         self.assertIn("dataprovider", kat.__all__)
         self.assertIsNotNone(kat.dataprovider)
@@ -368,9 +411,9 @@ class AuthoringApiTest(unittest.TestCase):
             "Non-boolean parameters without defaults are required",
             "Boolean parameters require a default",
             "optional parameters must default to None",
-            "required_tables",
+            "description",
+            "guide",
             "[a-z0-9]+(?:-[a-z0-9]+)*",
-            "[a-z][a-z0-9]*(?:_[a-z0-9]+)*",
             "known explicit UTC offset",
             "absolute UTC instant, not a local civil-time value",
             "Successful decoration alone does not mean the production input Interface is valid",
@@ -391,9 +434,7 @@ class AuthoringApiTest(unittest.TestCase):
             inspect_declared_workflow(analyze),
             {
                 "name": "thread-time",
-                "title": "Thread time",
                 "description": "Inspect thread CPU time.\n\nInternal whitespace remains.",
-                "required_tables": ["sched_slice", "thread"],
                 "parameters": [
                     {"name": "label", "option": "--label", "type": "string", "required": False, "description": "Label filter", "default": ""},
                     {"name": "count", "option": "--count", "type": "int64", "required": False, "description": "Signed count", "default": "7"},
@@ -511,18 +552,14 @@ class AuthoringApiTest(unittest.TestCase):
                 inspect_declared_workflow(function)
 
         with self.assertRaises(ValueError):
-            kat.workflow(name="invalid-table", title="Invalid table", required_tables=["CON"])
-        with self.assertRaises(ValueError):
             kat.workflow(
                 name="empty-description",
-                title="Empty description",
-                required_tables=[],
+                description="Description",
                 parameters={"value": "  "},
             )
 
     def test_decorator_copies_mutable_authoring_containers(self) -> None:
         interface = inspect_declared_workflow(copied_declaration)
-        self.assertEqual(interface["required_tables"], ["thread"])
         self.assertEqual(interface["parameters"][0]["description"], "Original description")
 
 

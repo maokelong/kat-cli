@@ -16,13 +16,14 @@ cargo build --release -p kat-cli
 ```
 
 该命令只生成 Rust 二进制，不装配相邻 Python Host。Cargo 输出可以用于编译检查和
-不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect --pack` 或 `kat run`。
+不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect workflow`、
+`kat inspect provider` 或 `kat run`。
 仅做 Rust 开发时使用 `cargo test -p kat-cli`；需要执行 Workflow 的调用必须满足
 下述运行前提。
 
 ## 运行前提
 
-`kat inspect --pack` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
+`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
@@ -99,8 +100,8 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 - `kat import hitrace`：将 HiProfiler Hitrace 导入为受管理 Dataset。
 - `kat import trace-streamer`：预发布联调用的 deprecated Trace Streamer 导入。
-- `kat inspect`：列出或检查 PACK。
-- `kat inspect --dataset <directory>`：只读检查 Dataset 与 Parquet Schema。
+- `kat inspect workflow`：发现或读取 Workflow 分析知识。
+- `kat inspect provider`：发现或读取 Provider 开发知识。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：执行一个 Workflow 并原子发布 Run。
 - `kat query`：只读查询已发布 Run 的 `output.*`。
@@ -110,7 +111,9 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 ```bash
 kat import --dataset ./dataset hitrace --trace ./capture.htrace
-kat inspect --dataset ./dataset
+kat inspect workflow \
+  --pack example \
+  --pack-dir /path/to/example-pack
 kat run \
   --pack example \
   --workflow analyze \
@@ -140,7 +143,8 @@ PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
   Python/PyArrow batch UDF 换算时钟。
 
 PACK 可在顶层 `datasources/` 中定义普通 Provider 类并由 Workflow 显式调用；
-KAT 不扫描、注册、构造或包装 Provider。可追加 Table、Schema、Parquet 写入/打开
+生产 Workflow Runtime 不扫描、注册、构造或包装 Provider，只有显式的 Provider
+inspection 会扫描其 metadata declaration。可追加 Table、Schema、Parquet 写入/打开
 与显式本地融合统一由 `kat.dataprovider` Toolkit 提供，推荐导入为
 `from kat import dataprovider as dp`；多个内存 Table、Parquet Catalog 或两者的混合
 通过普通 `dp.DataFusionProvider` 查询，不进入 Workflow Context 的隐式 catalog。

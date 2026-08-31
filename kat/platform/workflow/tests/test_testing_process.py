@@ -86,8 +86,7 @@ from kat.pack.helpers import rules
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=[],
+    description="Analyze generated values.",
     parameters={"minimum": "Minimum"},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
@@ -214,8 +213,7 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=["events"],
+    description="Analyze event values.",
     parameters={"minimum": "Minimum"},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
@@ -301,7 +299,7 @@ def create():
 from kat.pack.datasources import provider_state
 
 
-@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+@kat.workflow(name="analyze", description="Publish one PACK-owned Provider result.")
 def analyze(ctx: kat.Context):
     """Publish one PACK-owned Provider result."""
     return provider_state.create().query()
@@ -352,7 +350,7 @@ import pyarrow as pa
 from kat.pack.helpers import datasource_state
 
 
-@kat.workflow(name="analyze", title="Analyze", required_tables=[])
+@kat.workflow(name="analyze", description="Increment a test-scoped Datasource materialization.")
 def analyze(ctx: kat.Context):
     """Increment a test-scoped Datasource materialization."""
     root = ctx.datasource_root
@@ -608,8 +606,7 @@ pytest.skip("module is not available", allow_module_level=True)
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=[],
+    description="Stop the workflow with a known execution failure.",
 )
 def analyze(ctx: kat.Context):
     """Stop the workflow with a known execution failure."""
@@ -642,8 +639,7 @@ def analyze(ctx: kat.Context):
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=[],
+    description="Translate a Data Provider failure without exposing its private context.",
 )
 def analyze(ctx: kat.Context):
     """Translate a Data Provider failure without exposing its private context."""

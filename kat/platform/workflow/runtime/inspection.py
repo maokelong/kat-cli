@@ -10,7 +10,6 @@ from typing import Any, Literal, NotRequired, TypedDict, get_args, get_origin
 
 import click
 import kat
-from kat._workflow import _normalize_required_tables
 
 
 _WORKFLOW_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
@@ -32,9 +31,7 @@ class WorkflowParameter(TypedDict):
 
 class WorkflowInputInterface(TypedDict):
     name: str
-    title: str
     description: str
-    required_tables: list[str]
     parameters: list[WorkflowParameter]
 
 
@@ -80,6 +77,7 @@ class CompiledWorkflow:
     function: typing.Callable[..., Any]
     interface: WorkflowInputInterface
     command: click.Command
+    guide_ref: str | None
 
     def parse_arguments(self, arguments: typing.Sequence[str]) -> dict[str, Any]:
         try:
@@ -117,11 +115,6 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
         raise ValueError("Workflow function is missing @kat.workflow(...)")
     if _WORKFLOW_NAME.fullmatch(declaration.name) is None:
         raise ValueError(f"invalid Workflow name: {declaration.name!r}")
-    required_tables = list(_normalize_required_tables(declaration.required_tables))
-
-    description = inspect.cleandoc(function.__doc__ or "").strip()
-    if not description:
-        raise ValueError("Workflow docstring must not be empty")
     try:
         import annotationlib
     except ImportError:
@@ -200,12 +193,11 @@ def compile_declared_workflow(function: typing.Callable[..., Any]) -> CompiledWo
         function=function,
         interface={
             "name": declaration.name,
-            "title": declaration.title,
-            "description": description,
-            "required_tables": required_tables,
+            "description": declaration.description,
             "parameters": projections,
         },
         command=command,
+        guide_ref=declaration.guide,
     )
 
 

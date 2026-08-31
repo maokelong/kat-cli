@@ -21,11 +21,10 @@ mod output_spool;
 mod protocol;
 
 use output_spool::{RuntimeOutputMirror, RuntimeOutputSpool};
-pub(crate) use protocol::{
-    Column, ParameterDefault, ParameterType, ResolvedDatasetRequest, Workflow,
-};
+pub(crate) use protocol::{Column, ResolvedDatasetRequest};
 use protocol::{
-    InspectPackRequest, InspectPackRuntimeResult, QueryRunRequest, RawRunWorkflowResult,
+    InspectProviderRequest, InspectProviderResult, InspectProvidersResult, InspectWorkflowRequest,
+    InspectWorkflowResult, InspectWorkflowsResult, QueryRunRequest, RawRunWorkflowResult,
     RunWorkflowRequest, RuntimeResponse, TestPackRequest, TestPackResult,
 };
 
@@ -42,7 +41,37 @@ pub(crate) enum RuntimeOutcome<T> {
     },
 }
 
-pub(crate) type InspectPackOutcome = RuntimeOutcome<Vec<Workflow>>;
+impl<T> RuntimeOutcome<T> {
+    pub(crate) fn map<U>(self, project: impl FnOnce(T) -> U) -> RuntimeOutcome<U> {
+        match self {
+            Self::Success { result, log_path } => RuntimeOutcome::Success {
+                result: project(result),
+                log_path,
+            },
+            Self::Failure {
+                diagnostic,
+                log_path,
+            } => RuntimeOutcome::Failure {
+                diagnostic,
+                log_path,
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum WorkflowInspectionResult {
+    List(InspectWorkflowsResult),
+    Detail(InspectWorkflowResult),
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum ProviderInspectionResult {
+    List(InspectProvidersResult),
+    Detail(InspectProviderResult),
+}
 
 pub(crate) enum QueryRunOutcome {
     Success {
@@ -174,12 +203,70 @@ pub(crate) struct QueryRunResult {
     pub(crate) columns: Vec<Column>,
 }
 
-pub(crate) fn inspect_pack(
-    mut log: OperationLog,
+pub(crate) fn inspect_workflow(
+    log: OperationLog,
     pack_name: &str,
     pack_path: &Path,
-) -> Result<InspectPackOutcome, InspectPackInfrastructureError> {
-    let response = match exchange(pack_name, pack_path, &mut log) {
+    workflow_name: Option<&str>,
+) -> Result<RuntimeOutcome<WorkflowInspectionResult>, InspectPackInfrastructureError> {
+    let Some(pack_path_text) = pack_path.to_str() else {
+        return Err(finish_runtime_error(
+            log,
+            RuntimeInfrastructureError::NonUnicodePackPath(pack_path.to_path_buf()),
+        ));
+    };
+    let request = InspectWorkflowRequest {
+        operation: "inspect_workflow",
+        pack_name,
+        pack_path: pack_path_text,
+        workflow_name,
+    };
+    if workflow_name.is_some() {
+        let outcome: RuntimeOutcome<InspectWorkflowResult> =
+            inspect_request(log, "kat-inspect-workflow-", &request)?;
+        Ok(outcome.map(WorkflowInspectionResult::Detail))
+    } else {
+        let outcome: RuntimeOutcome<InspectWorkflowsResult> =
+            inspect_request(log, "kat-inspect-workflow-", &request)?;
+        Ok(outcome.map(WorkflowInspectionResult::List))
+    }
+}
+
+pub(crate) fn inspect_provider(
+    log: OperationLog,
+    pack_name: &str,
+    pack_path: &Path,
+    provider_name: Option<&str>,
+) -> Result<RuntimeOutcome<ProviderInspectionResult>, InspectPackInfrastructureError> {
+    let Some(pack_path_text) = pack_path.to_str() else {
+        return Err(finish_runtime_error(
+            log,
+            RuntimeInfrastructureError::NonUnicodePackPath(pack_path.to_path_buf()),
+        ));
+    };
+    let request = InspectProviderRequest {
+        operation: "inspect_provider",
+        pack_name,
+        pack_path: pack_path_text,
+        provider_name,
+    };
+    if provider_name.is_some() {
+        let outcome: RuntimeOutcome<InspectProviderResult> =
+            inspect_request(log, "kat-inspect-provider-", &request)?;
+        Ok(outcome.map(ProviderInspectionResult::Detail))
+    } else {
+        let outcome: RuntimeOutcome<InspectProvidersResult> =
+            inspect_request(log, "kat-inspect-provider-", &request)?;
+        Ok(outcome.map(ProviderInspectionResult::List))
+    }
+}
+
+fn inspect_request<R: DeserializeOwned>(
+    mut log: OperationLog,
+    prefix: &str,
+    request: &impl Serialize,
+) -> Result<RuntimeOutcome<R>, InspectPackInfrastructureError> {
+    let response = match exchange_request(prefix, request, &mut log) {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => {
             return Err(InspectPackInfrastructureError::operation_log(error));
@@ -197,10 +284,7 @@ pub(crate) fn inspect_pack(
             let log_path = log
                 .finish()
                 .map_err(InspectPackInfrastructureError::operation_log)?;
-            Ok(InspectPackOutcome::Success {
-                result: result.workflows,
-                log_path,
-            })
+            Ok(RuntimeOutcome::Success { result, log_path })
         }
         RuntimeResponse::Failure { error } => {
             if !error.validate() {
@@ -215,7 +299,7 @@ pub(crate) fn inspect_pack(
             let log_path = log
                 .finish()
                 .map_err(InspectPackInfrastructureError::operation_log)?;
-            Ok(InspectPackOutcome::Failure {
+            Ok(RuntimeOutcome::Failure {
                 diagnostic: error,
                 log_path,
             })
@@ -507,22 +591,6 @@ fn is_windows_device_name(name: &str) -> bool {
             name.as_bytes(),
             [b'c', b'o', b'm', b'1'..=b'9'] | [b'l', b'p', b't', b'1'..=b'9']
         )
-}
-
-fn exchange(
-    pack_name: &str,
-    pack_path: &Path,
-    log: &mut OperationLog,
-) -> Result<RuntimeResponse<InspectPackRuntimeResult>, ExchangeError> {
-    let pack_path_text = pack_path
-        .to_str()
-        .ok_or_else(|| RuntimeInfrastructureError::NonUnicodePackPath(pack_path.to_path_buf()))?;
-    let request = InspectPackRequest {
-        operation: "inspect_pack",
-        pack_name,
-        pack_path: pack_path_text,
-    };
-    exchange_request("kat-inspect-pack-", &request, log)
 }
 
 fn exchange_request<R: DeserializeOwned>(
@@ -999,7 +1067,7 @@ mod tests {
         let valid_failure =
             br#"{"status":"failure","error":{"message":"Runtime Request is invalid"}}"#;
         assert!(matches!(
-            serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(valid_failure)
+            serde_json::from_slice::<RuntimeResponse<InspectWorkflowsResult>>(valid_failure)
                 .unwrap(),
             RuntimeResponse::Failure { .. }
         ));
@@ -1009,13 +1077,23 @@ mod tests {
             br#"{"status":"failure","failure_owner":"pack","error":{"message":"failed"}}"#
                 .as_slice(),
             br#"{"status":"failure","error":{"message":"failed"},"extra":true}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}]}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}]}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflows":[{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}]}]}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflows":[{"name":"w","description":"W.","title":"W"}]}}"#.as_slice(),
         ] {
             assert!(
-                serde_json::from_slice::<RuntimeResponse<InspectPackRuntimeResult>>(invalid)
+                serde_json::from_slice::<RuntimeResponse<InspectWorkflowsResult>>(invalid)
                     .is_err()
+            );
+        }
+
+        for invalid in [
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[]}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[],"guide":null,"extra":true}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }],"guide":null}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }],"guide":null}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}],"guide":null}}}"#.as_slice(),
+        ] {
+            assert!(
+                serde_json::from_slice::<RuntimeResponse<InspectWorkflowResult>>(invalid).is_err()
             );
         }
     }
@@ -1031,11 +1109,10 @@ mod tests {
             "wall_clock_timestamp",
         ] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}]}}]}}}}"#
+                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}],"guide":null}}}}}}"#
             );
             assert!(
-                serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
-                    .is_ok(),
+                serde_json::from_str::<RuntimeResponse<InspectWorkflowResult>>(&response).is_ok(),
                 "parameter type should be part of the closed set: {parameter_type}"
             );
         }
@@ -1045,11 +1122,10 @@ mod tests {
     fn runtime_response_accepts_only_scalar_parameter_defaults() {
         for default in [r#""value""#, "42", "1.5", "true", "null"] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflows":[{{"name":"w","title":"W","description":"W.","required_tables":[],"parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}]}}]}}}}"#
+                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}],"guide":null}}}}}}"#
             );
             assert!(
-                serde_json::from_str::<RuntimeResponse<InspectPackRuntimeResult>>(&response)
-                    .is_ok(),
+                serde_json::from_str::<RuntimeResponse<InspectWorkflowResult>>(&response).is_ok(),
                 "default should be a valid JSON scalar: {default}"
             );
         }

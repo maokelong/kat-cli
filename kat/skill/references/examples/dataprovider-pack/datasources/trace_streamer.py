@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import subprocess
 
+import kat
 from kat import dataprovider as dp
 
 
@@ -36,6 +37,11 @@ _READ_ONLY_SQLITE_ACTIONS = frozenset(
 )
 
 
+@kat.provider(
+    name="trace-streamer-sqlite",
+    description="调用 Trace Streamer 解码 Htrace，并以只读 SQLite SQL 查询结果。",
+    guide="providers/trace-streamer-sqlite.md",
+)
 class TraceStreamerProvider:
     """PACK 自有、通过 Trace Streamer 物化 SQLite 的普通 Provider。"""
 

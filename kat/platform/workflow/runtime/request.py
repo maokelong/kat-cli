@@ -18,9 +18,17 @@ class RuntimeRequestError(Exception):
 
 
 @dataclass(frozen=True)
-class InspectPackRequest:
+class InspectWorkflowRequest:
     pack_name: str
     pack_path: Path
+    workflow_name: str | None
+
+
+@dataclass(frozen=True)
+class InspectProviderRequest:
+    pack_name: str
+    pack_path: Path
+    provider_name: str | None
 
 
 @dataclass(frozen=True)
@@ -62,7 +70,11 @@ class TestPackRequest:
 
 
 type RuntimeRequest = (
-    InspectPackRequest | RunWorkflowRequest | QueryRunRequest | TestPackRequest
+    InspectWorkflowRequest
+    | InspectProviderRequest
+    | RunWorkflowRequest
+    | QueryRunRequest
+    | TestPackRequest
 )
 
 
@@ -75,8 +87,10 @@ def read_request(path: Path) -> RuntimeRequest:
     if type(request) is not dict:
         raise RuntimeRequestError("Runtime Request must be a JSON object")
     operation = request.get("operation")
-    if operation == "inspect_pack":
-        return _read_inspect_pack_request(request)
+    if operation == "inspect_workflow":
+        return _read_inspect_workflow_request(request)
+    if operation == "inspect_provider":
+        return _read_inspect_provider_request(request)
     if operation == "run_workflow":
         return _read_run_workflow_request(request)
     if operation == "query_run":
@@ -86,21 +100,67 @@ def read_request(path: Path) -> RuntimeRequest:
     raise RuntimeRequestError("unsupported Runtime Request operation")
 
 
-def _read_inspect_pack_request(request: dict[str, object]) -> InspectPackRequest:
-    expected = {"operation", "pack_name", "pack_path"}
+def _read_inspect_workflow_request(
+    request: dict[str, object],
+) -> InspectWorkflowRequest:
+    expected = {"operation", "pack_name", "pack_path", "workflow_name"}
     if set(request) != expected:
         raise RuntimeRequestError(
-            f"inspect_pack Runtime Request fields must be exactly {sorted(expected)}"
+            f"inspect_workflow Runtime Request fields must be exactly {sorted(expected)}"
         )
     pack_name = request["pack_name"]
     pack_path = request["pack_path"]
+    workflow_name = request["workflow_name"]
     if type(pack_name) is not str or type(pack_path) is not str:
-        raise RuntimeRequestError("inspect_pack Runtime Request fields must be strings")
+        raise RuntimeRequestError(
+            "inspect_workflow PACK name and path fields must be strings"
+        )
     if not pack_name:
-        raise RuntimeRequestError("inspect_pack Runtime Request PACK name must not be empty")
-    return InspectPackRequest(
+        raise RuntimeRequestError(
+            "inspect_workflow Runtime Request PACK name must not be empty"
+        )
+    if workflow_name is not None and (
+        type(workflow_name) is not str or not workflow_name
+    ):
+        raise RuntimeRequestError(
+            "inspect_workflow workflow_name must be null or a non-empty string"
+        )
+    return InspectWorkflowRequest(
         pack_name=pack_name,
-        pack_path=_canonical_directory(pack_path, "inspect_pack PACK"),
+        pack_path=_canonical_directory(pack_path, "inspect_workflow PACK"),
+        workflow_name=workflow_name,
+    )
+
+
+def _read_inspect_provider_request(
+    request: dict[str, object],
+) -> InspectProviderRequest:
+    expected = {"operation", "pack_name", "pack_path", "provider_name"}
+    if set(request) != expected:
+        raise RuntimeRequestError(
+            f"inspect_provider Runtime Request fields must be exactly {sorted(expected)}"
+        )
+    pack_name = request["pack_name"]
+    pack_path = request["pack_path"]
+    provider_name = request["provider_name"]
+    if type(pack_name) is not str or type(pack_path) is not str:
+        raise RuntimeRequestError(
+            "inspect_provider PACK name and path fields must be strings"
+        )
+    if not pack_name:
+        raise RuntimeRequestError(
+            "inspect_provider Runtime Request PACK name must not be empty"
+        )
+    if provider_name is not None and (
+        type(provider_name) is not str or not provider_name
+    ):
+        raise RuntimeRequestError(
+            "inspect_provider provider_name must be null or a non-empty string"
+        )
+    return InspectProviderRequest(
+        pack_name=pack_name,
+        pack_path=_canonical_directory(pack_path, "inspect_provider PACK"),
+        provider_name=provider_name,
     )
 
 

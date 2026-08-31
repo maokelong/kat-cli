@@ -1,9 +1,11 @@
 mod configuration;
+mod inspect;
 mod operation_log;
 mod pack_discovery;
 mod query;
 mod response;
 mod run;
+mod run_manifest;
 mod test;
 mod text_projection;
 mod workflow_runtime;
@@ -11,7 +13,7 @@ mod workflow_runtime;
 use std::{
     fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 
@@ -34,25 +36,8 @@ struct Cli {
 enum Operation {
     /// Import one source into a complete KAT Dataset.
     Import(ImportArgs),
-    /// Inspect available PACKs, one exact PACK, or one KAT Dataset.
-    Inspect {
-        /// Inspect one exact PACK by manifest name.
-        #[arg(long, value_name = "NAME", conflicts_with = "dataset")]
-        pack: Option<String>,
-        /// Inspect one managed KAT Dataset and its Parquet Schema.
-        #[arg(
-            long,
-            value_name = "DIRECTORY",
-            conflicts_with_all = ["pack", "pack_directories"]
-        )]
-        dataset: Option<PathBuf>,
-        #[arg(
-            long = "pack-dir",
-            value_name = "DIRECTORY",
-            help = "Add an exact PACK candidate directory containing pack.toml. Repetition preserves validation order; results remain sorted by PACK name."
-        )]
-        pack_directories: Vec<PathBuf>,
-    },
+    /// Inspect available PACKs or one PACK's Workflow and Provider knowledge.
+    Inspect(inspect::InspectArgs),
     /// Execute one Workflow and atomically publish one Run.
     ///
     /// The Operation log may retain the resolved PACK path, optional Dataset
@@ -114,37 +99,32 @@ struct PackResult {
 }
 
 #[derive(Serialize)]
-struct InspectPackResult {
-    name: String,
-    title: String,
-    description: String,
-    owner: String,
-    workflows: Vec<InspectWorkflowResult>,
+#[serde(untagged)]
+enum InspectKnowledgeResult {
+    Workflow(workflow_runtime::WorkflowInspectionResult),
+    Provider(workflow_runtime::ProviderInspectionResult),
 }
 
-#[derive(Serialize)]
-struct InspectWorkflowResult {
-    name: String,
-    title: String,
-    description: String,
-    required_tables: Vec<String>,
-    parameters: Vec<InspectParameterResult>,
+enum InspectKnowledgeTarget {
+    Workflow(Option<String>),
+    Provider(Option<String>),
 }
 
-#[derive(Serialize)]
-struct InspectParameterResult {
-    name: String,
-    option: String,
-    #[serde(rename = "type")]
-    parameter_type: workflow_runtime::ParameterType,
-    required: bool,
-    description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    negative_option: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    choices: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "workflow_runtime::ParameterDefault::is_missing")]
-    default: workflow_runtime::ParameterDefault,
+impl InspectKnowledgeTarget {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Workflow(_) => "kat inspect workflow",
+            Self::Provider(_) => "kat inspect provider",
+        }
+    }
+
+    fn selector(&self) -> Option<(&'static str, &str)> {
+        match self {
+            Self::Workflow(Some(name)) => Some(("workflow", name)),
+            Self::Provider(Some(name)) => Some(("provider", name)),
+            Self::Workflow(None) | Self::Provider(None) => None,
+        }
+    }
 }
 
 pub fn run() -> ExitCode {
@@ -174,32 +154,7 @@ pub fn run() -> ExitCode {
             };
             response::publish(prepared)
         }
-        Operation::Inspect {
-            dataset: Some(dataset),
-            ..
-        } => {
-            let prepared = match inspect_dataset(dataset) {
-                Ok(result) => response::prepare_success(result),
-                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
-            };
-            response::publish(prepared)
-        }
-        Operation::Inspect {
-            dataset: None,
-            pack: Some(pack),
-            pack_directories,
-        } => response::publish(inspect_target_pack(pack, pack_directories)),
-        Operation::Inspect {
-            dataset: None,
-            pack: None,
-            pack_directories,
-        } => {
-            let prepared = match inspect_packs(pack_directories) {
-                Ok(result) => response::prepare_success(result),
-                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
-            };
-            response::publish(prepared)
-        }
+        Operation::Inspect(arguments) => inspect::execute(arguments),
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
         Operation::Test(arguments) => response::publish(test::execute(arguments)),
@@ -209,21 +164,75 @@ pub fn run() -> ExitCode {
 fn inspect_target_pack(
     pack_name: String,
     pack_directories: Vec<PathBuf>,
-) -> response::PreparedResponse<InspectPackResult> {
+    target: InspectKnowledgeTarget,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
+    };
+    let log = match OperationLog::create(&data_home, "inspect", |file| {
+        writeln!(file, "operation: {}", target.operation())?;
+        writeln!(file, "pack: {}", pack_name.escape_debug())?;
+        if let Some((label, name)) = target.selector() {
+            writeln!(file, "{label}: {}", name.escape_debug())?;
+        }
+        Ok(())
+    }) {
+        Ok(log) => log,
+        Err(error) => return inspect_target_log_failure(error),
+    };
+    inspect_resolved_target(&data_home, log, pack_name, pack_directories, target)
+}
+
+fn inspect_run_workflow(
+    run_id: String,
+    pack_directories: Vec<PathBuf>,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
     let data_home = match locate_data_home() {
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let mut log = match OperationLog::create(&data_home, "inspect", |file| {
-        writeln!(
-            file,
-            "operation: kat inspect --pack\npack: {}",
-            pack_name.escape_debug()
-        )
+        writeln!(file, "operation: kat inspect workflow")?;
+        writeln!(file, "run: {}", run_id.escape_debug())
     }) {
         Ok(log) => log,
         Err(error) => return inspect_target_log_failure(error),
     };
+    let published_run = match run_manifest::read(&data_home, &run_id) {
+        Ok(run) => run,
+        Err(error) => {
+            return finish_inspect_target_failure(log, InspectTargetPackError::PublishedRun(error));
+        }
+    };
+    let pack_name = published_run.manifest.pack;
+    let workflow_name = published_run.manifest.workflow;
+    if let Err(error) = log.append(
+        format!(
+            "pack: {}\nworkflow: {}\n",
+            pack_name.escape_debug(),
+            workflow_name.escape_debug()
+        )
+        .as_bytes(),
+    ) {
+        return inspect_target_log_failure(error);
+    }
+    inspect_resolved_target(
+        &data_home,
+        log,
+        pack_name,
+        pack_directories,
+        InspectKnowledgeTarget::Workflow(Some(workflow_name)),
+    )
+}
+
+fn inspect_resolved_target(
+    data_home: &Path,
+    mut log: OperationLog,
+    pack_name: String,
+    pack_directories: Vec<PathBuf>,
+    target: InspectKnowledgeTarget,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
     let skill_root = match locate_skill_root() {
         Ok(path) => path,
         Err(source) => {
@@ -253,11 +262,27 @@ fn inspect_target_pack(
         return inspect_target_log_failure(error);
     }
 
-    match workflow_runtime::inspect_pack(log, pack.name(), pack.directory()) {
-        Ok(workflow_runtime::InspectPackOutcome::Success { result, log_path }) => {
-            response::prepare_success_with_log(project_inspected_pack(pack, result), Some(log_path))
+    let outcome = match target {
+        InspectKnowledgeTarget::Workflow(workflow_name) => workflow_runtime::inspect_workflow(
+            log,
+            pack.name(),
+            pack.directory(),
+            workflow_name.as_deref(),
+        )
+        .map(|outcome| outcome.map(InspectKnowledgeResult::Workflow)),
+        InspectKnowledgeTarget::Provider(provider_name) => workflow_runtime::inspect_provider(
+            log,
+            pack.name(),
+            pack.directory(),
+            provider_name.as_deref(),
+        )
+        .map(|outcome| outcome.map(InspectKnowledgeResult::Provider)),
+    };
+    match outcome {
+        Ok(workflow_runtime::RuntimeOutcome::Success { result, log_path }) => {
+            response::prepare_success_with_log(result, Some(log_path))
         }
-        Ok(workflow_runtime::InspectPackOutcome::Failure {
+        Ok(workflow_runtime::RuntimeOutcome::Failure {
             diagnostic,
             log_path,
         }) => response::prepare_runtime_failure(diagnostic, log_path),
@@ -271,7 +296,7 @@ fn inspect_target_pack(
 fn finish_inspect_target_failure(
     mut log: OperationLog,
     error: InspectTargetPackError,
-) -> response::PreparedResponse<InspectPackResult> {
+) -> response::PreparedResponse<InspectKnowledgeResult> {
     let details = format!(
         "status: failure\nerror: {}\n",
         project_inline_text(&error.to_string())
@@ -288,7 +313,7 @@ fn finish_inspect_target_failure(
 
 fn inspect_target_log_failure(
     error: OperationLogError,
-) -> response::PreparedResponse<InspectPackResult> {
+) -> response::PreparedResponse<InspectKnowledgeResult> {
     let log_path = error.readable_path();
     let error = if log_path.is_some() {
         InspectTargetPackError::IncompleteOperationLog(error)
@@ -296,41 +321,6 @@ fn inspect_target_log_failure(
         InspectTargetPackError::OperationLog(error)
     };
     response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
-}
-
-fn project_inspected_pack(
-    pack: &DiscoveredPack,
-    workflows: Vec<workflow_runtime::Workflow>,
-) -> InspectPackResult {
-    InspectPackResult {
-        name: pack.name().to_owned(),
-        title: pack.title().to_owned(),
-        description: pack.description().to_owned(),
-        owner: pack.owner().to_owned(),
-        workflows: workflows
-            .into_iter()
-            .map(|workflow| InspectWorkflowResult {
-                name: workflow.name,
-                title: workflow.title,
-                description: workflow.description,
-                required_tables: workflow.required_tables,
-                parameters: workflow
-                    .parameters
-                    .into_iter()
-                    .map(|parameter| InspectParameterResult {
-                        name: parameter.name,
-                        option: parameter.option,
-                        parameter_type: parameter.parameter_type,
-                        required: parameter.required,
-                        description: parameter.description,
-                        negative_option: parameter.negative_option,
-                        choices: parameter.choices,
-                        default: parameter.default,
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
 }
 
 #[derive(Serialize)]
@@ -558,57 +548,6 @@ fn project_pack(pack: &DiscoveredPack) -> PackResult {
     }
 }
 
-#[derive(Serialize)]
-struct InspectDatasetResult {
-    path: String,
-    tables: Vec<DatasetTableResult>,
-}
-
-#[derive(Serialize)]
-struct DatasetTableResult {
-    name: String,
-    columns: Vec<DatasetColumnResult>,
-}
-
-#[derive(Serialize)]
-struct DatasetColumnResult {
-    name: String,
-    #[serde(rename = "type")]
-    data_type: String,
-    nullable: bool,
-}
-
-fn inspect_dataset(path: PathBuf) -> Result<InspectDatasetResult, InspectDatasetError> {
-    let inspection = kat_datasource::inspect_dataset(&path)
-        .map_err(|source| InspectDatasetError::Inspection { source })?;
-    let canonical_path = inspection
-        .path()
-        .to_str()
-        .ok_or_else(|| InspectDatasetError::NonUnicodePath {
-            path: inspection.path().to_path_buf(),
-        })?
-        .to_owned();
-    Ok(InspectDatasetResult {
-        path: canonical_path,
-        tables: inspection
-            .tables()
-            .iter()
-            .map(|table| DatasetTableResult {
-                name: table.name().to_owned(),
-                columns: table
-                    .columns()
-                    .iter()
-                    .map(|column| DatasetColumnResult {
-                        name: column.name().to_owned(),
-                        data_type: column.data_type().to_owned(),
-                        nullable: column.nullable(),
-                    })
-                    .collect(),
-            })
-            .collect(),
-    })
-}
-
 fn locate_skill_root() -> Result<PathBuf, SkillRootError> {
     let executable = std::env::current_exe().map_err(SkillRootError::CurrentExecutable)?;
     let payload = executable
@@ -742,6 +681,9 @@ enum InspectPacksError {
 
 #[derive(Debug, Error, Diagnostic)]
 enum InspectTargetPackError {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PublishedRun(#[from] run_manifest::PublishedRunError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
@@ -761,18 +703,6 @@ enum InspectTargetPackError {
         "Use the exact manifest name from `kat inspect`, or add its directory with --pack-dir"
     ))]
     UnknownPack { name: String },
-}
-
-#[derive(Debug, Error, Diagnostic)]
-enum InspectDatasetError {
-    #[error("Dataset inspection failed")]
-    #[diagnostic(help("Provide a complete KAT Dataset directory and retry"))]
-    Inspection {
-        #[source]
-        source: kat_datasource::DatasetInspectionError,
-    },
-    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
-    NonUnicodePath { path: PathBuf },
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -809,72 +739,82 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parser_accepts_ordered_repeated_pack_directories() {
-        let cli = Cli::try_parse_from([
-            "kat",
-            "inspect",
-            "--pack-dir",
-            "first",
-            "--pack-dir",
-            "second",
-        ])
-        .expect("parse inspect");
-
-        let Operation::Inspect {
-            dataset,
-            pack,
-            pack_directories,
-        } = cli.operation
-        else {
-            panic!("expected inspect operation");
-        };
-        assert!(dataset.is_none());
-        assert!(pack.is_none());
-        assert_eq!(
-            pack_directories,
-            [PathBuf::from("first"), PathBuf::from("second")]
-        );
+    fn parser_accepts_the_separate_inspection_modes() {
+        for arguments in [
+            vec![
+                "kat",
+                "inspect",
+                "--pack-dir",
+                "first",
+                "--pack-dir",
+                "second",
+            ],
+            vec![
+                "kat",
+                "inspect",
+                "workflow",
+                "--pack",
+                "cpu-pack",
+                "--pack-dir",
+                "checkout",
+            ],
+            vec![
+                "kat",
+                "inspect",
+                "workflow",
+                "--pack",
+                "cpu-pack",
+                "--workflow",
+                "thread-time",
+            ],
+            vec!["kat", "inspect", "workflow", "--run", "run-id"],
+            vec!["kat", "inspect", "provider", "--pack", "cpu-pack"],
+            vec![
+                "kat",
+                "inspect",
+                "provider",
+                "--pack",
+                "cpu-pack",
+                "--provider",
+                "postgresql",
+                "--pack-dir",
+                "checkout",
+            ],
+        ] {
+            assert!(
+                Cli::try_parse_from(&arguments).is_ok(),
+                "expected valid arguments: {arguments:?}"
+            );
+        }
     }
 
     #[test]
-    fn parser_accepts_one_exact_pack_target_and_rejects_other_inspect_modes() {
-        let cli = Cli::try_parse_from([
-            "kat",
-            "inspect",
-            "--pack",
-            "cpu-pack",
-            "--pack-dir",
-            "checkout",
-        ])
-        .expect("parse targeted PACK inspection");
-        let Operation::Inspect { pack, dataset, .. } = cli.operation else {
-            panic!("expected inspect operation");
-        };
-        assert_eq!(pack.as_deref(), Some("cpu-pack"));
-        assert!(dataset.is_none());
-
-        assert!(
-            Cli::try_parse_from([
+    fn parser_rejects_ambiguous_or_legacy_inspection_modes() {
+        for arguments in [
+            vec!["kat", "inspect", "--pack", "cpu-pack"],
+            vec!["kat", "inspect", "--dataset", "dataset"],
+            vec!["kat", "inspect", "workflow"],
+            vec!["kat", "inspect", "workflow", "--workflow", "thread-time"],
+            vec![
+                "kat", "inspect", "workflow", "--pack", "cpu-pack", "--run", "run-id",
+            ],
+            vec![
                 "kat",
                 "inspect",
-                "--pack",
-                "cpu-pack",
-                "--dataset",
-                "dataset",
-            ])
-            .is_err()
-        );
-        assert!(
-            Cli::try_parse_from([
-                "kat",
-                "inspect",
-                "--dataset",
-                "dataset",
-                "--pack-dir",
-                "checkout",
-            ])
-            .is_err()
-        );
+                "workflow",
+                "--run",
+                "run-id",
+                "--workflow",
+                "thread-time",
+            ],
+            vec!["kat", "inspect", "provider"],
+            vec!["kat", "inspect", "provider", "--run", "run-id"],
+        ] {
+            assert!(
+                Cli::try_parse_from(&arguments).is_err(),
+                "expected invalid arguments: {arguments:?}"
+            );
+        }
     }
 
     #[test]

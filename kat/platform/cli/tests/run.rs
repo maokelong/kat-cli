@@ -453,8 +453,7 @@ fn run_uses_real_installed_workflow_host_end_to_end() {
 
 @workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=["data_dict"],
+    description="Analyze the Dataset.",
 )
 def analyze(ctx: Context):
     """Analyze the Dataset."""

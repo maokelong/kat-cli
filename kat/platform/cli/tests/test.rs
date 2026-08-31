@@ -545,7 +545,7 @@ fn test_uses_real_installed_workflow_host_end_to_end() {
             "success",
             r#"import kat
 
-@kat.workflow(name="analyze", title="Analyze", required_tables=["data_dict"])
+@kat.workflow(name="analyze", description="Return the fixture table.")
 def analyze(ctx: kat.Context):
     """Return the fixture table."""
     return ctx.sql("SELECT id FROM data_dict ORDER BY id")
@@ -559,7 +559,7 @@ def analyze(ctx: kat.Context):
             "runtime-failure",
             r#"import kat
 
-@kat.workflow(name="broken", title="Broken", required_tables=[])
+@kat.workflow(name="broken", description="Raise a deterministic execution failure.")
 def broken(ctx: kat.Context):
     """Raise a deterministic execution failure."""
     raise RuntimeError("sentinel Workflow execution failure")
@@ -574,7 +574,7 @@ def broken(ctx: kat.Context):
             r#"import os
 import kat
 
-@kat.workflow(name="interrupt", title="Interrupt", required_tables=[])
+@kat.workflow(name="interrupt", description="Terminate the Host before returning a Response.")
 def interrupt(ctx: kat.Context):
     """Terminate the Host before it can return a Runtime Response."""
     os._exit(17)

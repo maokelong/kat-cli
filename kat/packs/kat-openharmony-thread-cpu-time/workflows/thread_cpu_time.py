@@ -3,8 +3,7 @@ import kat
 
 @kat.workflow(
     name="thread-cpu-time",
-    title="Thread CPU Time by CPU",
-    required_tables=["sched_slice", "thread"],
+    description="仅统计可观测完整区间，避免把 Trace 首尾的未知 CPU 时间补入结果。",
     parameters={},
 )
 def thread_cpu_time(ctx: kat.Context):
