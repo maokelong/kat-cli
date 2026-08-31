@@ -4,6 +4,17 @@
 构造成功后即可调用 `query()`；返回值是 eager `dp.Table`。转换器、Catalog 路径和物理
 存储格式不属于使用者合同。
 
+## 内部物化
+
+默认模式以来源文件内容的 SHA-256 作为内部目录名。相同内容跨 Workflow 复用已经通过
+准入检查的 Parquet；目录位置不属于公共 API。旧目录无法打开、缺少固定关系或内容损坏
+时，Provider 删除并重建。相同内容已经保存的 `clock_domain` 与本次请求不一致时明确
+失败，避免把同一时间值解释成不同的时钟域。
+
+调用方需要在 Provider 对象释放时删除内部物化结果，可以传入 `auto_cleanup=True`。该
+模式使用实例独占临时目录，不命中也不删除默认的 SHA-256 目录。未传入时默认为
+`False`，保留可供后续 Workflow 复用的内部结果。
+
 ## 运行时发现
 
 不同 Trace 可能产生不同的 payload 表。调用方应通过只读 SQL 查看当前 Catalog：
@@ -137,10 +148,10 @@ JOIN text_ftrace_event_sched_switch AS s
 ORDER BY o.source_event_sequence
 ```
 
-## 文档来源与自动生成边界
+## 文档来源
 
 `text_ftrace_event` 的业务字段以及四类 payload 字段来源于
-`crates/ftrace2parquet/proto/text_ftrace_event.proto`，可以从 Protobuf descriptor 自动生成。
+`crates/ftrace2parquet/proto/text_ftrace_event.proto`。
 
 以下内容当前不在 Proto 中，不能只根据该文件完整生成：
 
@@ -149,6 +160,5 @@ ORDER BY o.source_event_sequence
 - Proto 类型到实际 Arrow/Parquet 类型的映射；
 - 表的生成条件、时钟语义和稳定性承诺。
 
-因此，自动化应只生成 Proto-derived 字段附录，并在 CI 中校验生成结果；上述关系语义仍由
-本文件维护。若未来把完整 relational plan 也变成 descriptor-derived，才能从同一计划生成
-全部表结构文档。
+本切片不引入第二套 relational plan 或文档生成器；上述物理关系和查询语义由本文件与转换
+合同测试共同维护。

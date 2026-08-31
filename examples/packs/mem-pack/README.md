@@ -12,7 +12,7 @@ UTF-8 text Ftrace
 
 Provider 构造成功后即可查询；调用方不需要知道转换器、Catalog 路径或物理存储格式。
 实现内部由 Rust `ftrace2parquet` 拥有文本语法、Proto 类型合同、有限批次写入和原子发布，
-Python Provider 负责进程调用、临时 Catalog 生命周期、必需关系校验和本地查询。部署环境
+Python Provider 负责进程调用、内部物化复用、必需关系校验和本地查询。部署环境
 通过 `KAT_FTRACE2PARQUET_EXECUTABLE` 配置批准的转换器，Workflow 不感知其位置。
 
 固定关系为 `text_ftrace_header`、`text_ftrace_event_occurrence` 和
@@ -47,8 +47,13 @@ kat run \
   --clock-domain monotonic
 ```
 
-Provider 在 `ctx.datasource_root` 下创建并管理本次执行唯一的临时 workspace。查询结果是
-eager `dp.Table`；内部物理存储清理后不影响 Run Output。
+Provider 默认以 ftrace 文件内容的 SHA-256 为内部目录名，在 `ctx.datasource_root` 下跨
+Workflow 复用已经通过校验的 Parquet；调用方不感知目录位置。相同内容使用不同
+`clock_domain` 时明确失败，不静默复用错误的时间语义。旧目录打不开、缺少必需关系或
+损坏时直接重建。
+
+需要在 Provider 对象生命周期结束时删除物化结果时，构造参数传入
+`auto_cleanup=True`。该模式使用实例独占临时目录，不读取或删除默认的 SHA-256 目录。
 
 ## 验证
 
@@ -63,3 +68,7 @@ PACK pytest 负责 Provider 进程边界、Catalog、查询拓扑、失败清理
 ```bash
 kat test --pack-dir ./examples/packs/mem-pack
 ```
+
+真实 OpenHarmony 设备纵向用例还会执行 HDC 采集、拉取、转换、查询和第二次内容复用。
+它要求显式设置 `KAT_HDC_TARGET` 与 `KAT_FTRACE2PARQUET_EXECUTABLE`；普通 CI 没有设备时
+跳过，不会猜测或默认选择连接目标。

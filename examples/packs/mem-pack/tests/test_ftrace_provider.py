@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 import subprocess
 
@@ -13,7 +14,12 @@ from kat.pack.datasources.ftrace import FtraceProvider
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
 
 
-def _write_catalog(root: Path, *, include_root: bool = True) -> None:
+def _write_catalog(
+    root: Path,
+    *,
+    include_root: bool = True,
+    clock_domain: str = "fixture_clock",
+) -> None:
     root.mkdir()
     pq.write_table(
         pa.table(
@@ -45,7 +51,7 @@ def _write_catalog(root: Path, *, include_root: bool = True) -> None:
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
                 "_kat_parent_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
-                "clock_domain": ["fixture_clock"] * 4,
+                "clock_domain": [clock_domain] * 4,
                 "clock_value": pa.array(
                     [1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000],
                     type=pa.uint64(),
@@ -79,15 +85,24 @@ def _write_catalog(root: Path, *, include_root: bool = True) -> None:
     )
 
 
-def _arguments(tmp_path: Path, monkeypatch) -> dict[str, object]:
+def _arguments(tmp_path: Path, monkeypatch, **overrides) -> dict[str, object]:
     executable = tmp_path / "ftrace2parquet"
     executable.write_bytes(b"fixture executable")
     monkeypatch.setenv("KAT_FTRACE2PARQUET_EXECUTABLE", str(executable))
-    return {
+    arguments = {
         "source": _FIXTURE,
         "clock_domain": "fixture_clock",
         "workspace_root": tmp_path,
     }
+    arguments.update(overrides)
+    return arguments
+
+
+def _catalog_directories(workspace_root: Path) -> list[Path]:
+    cache_root = workspace_root / ".ftrace2parquet-cache"
+    if not cache_root.exists():
+        return []
+    return sorted(path for path in cache_root.iterdir() if path.is_dir())
 
 
 def test_construction_invokes_the_converter_and_exposes_typed_relations(
@@ -99,8 +114,9 @@ def test_construction_invokes_the_converter_and_exposes_typed_relations(
         assert arguments[3] == "--output"
         assert arguments[5:] == ["--clock-domain", "fixture_clock"]
         catalog_root = Path(arguments[4])
-        assert catalog_root.name == "catalog"
-        assert catalog_root.parent.parent == tmp_path
+        assert catalog_root.parent == tmp_path / ".ftrace2parquet-cache"
+        assert len(catalog_root.name) == 64
+        assert all(character in "0123456789abcdef" for character in catalog_root.name)
         assert options == {
             "cwd": catalog_root.parent,
             "shell": False,
@@ -157,7 +173,7 @@ def test_failed_constructor_cleans_partial_output_and_a_new_provider_can_retry(
 
     with pytest.raises(RuntimeError, match="decode failed"):
         FtraceProvider(**_arguments(tmp_path, monkeypatch))
-    assert not any(path.is_dir() for path in tmp_path.iterdir())
+    assert _catalog_directories(tmp_path) == []
 
     provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
     assert provider.query(
@@ -175,7 +191,7 @@ def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="text_ftrace_event"):
         FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
-    assert not any(path.is_dir() for path in tmp_path.iterdir())
+    assert _catalog_directories(tmp_path) == []
 
 
 def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_path):
@@ -193,7 +209,145 @@ def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_pa
     with pytest.raises(RuntimeError, match="query provider failed"):
         FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
-    assert not any(path.is_dir() for path in tmp_path.iterdir())
+    assert _catalog_directories(tmp_path) == []
+
+
+def test_same_file_content_reuses_the_materialized_catalog(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(arguments, **_options):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(Path(arguments[4]))
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+
+    first = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+    monkeypatch.delenv("KAT_FTRACE2PARQUET_EXECUTABLE")
+    second = FtraceProvider(
+        source=_FIXTURE,
+        clock_domain="fixture_clock",
+        workspace_root=tmp_path,
+    )
+
+    assert conversions == 1
+    assert first.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
+        {"count": 4}
+    ]
+    assert second.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
+        {"count": 4}
+    ]
+
+
+def test_different_file_content_uses_a_different_catalog(monkeypatch, tmp_path):
+    first_source = tmp_path / "first.ftrace"
+    second_source = tmp_path / "second.ftrace"
+    fixture = _FIXTURE.read_bytes()
+    first_source.write_bytes(fixture)
+    second_source.write_bytes(fixture + b"\n")
+    catalogs = []
+
+    def convert(arguments, **_options):
+        catalog = Path(arguments[4])
+        catalogs.append(catalog)
+        _write_catalog(catalog)
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+
+    FtraceProvider(
+        **_arguments(tmp_path, monkeypatch, source=first_source)
+    )
+    FtraceProvider(
+        **_arguments(tmp_path, monkeypatch, source=second_source)
+    )
+
+    assert len(catalogs) == 2
+    assert catalogs[0] != catalogs[1]
+
+
+def test_corrupt_cached_catalog_is_rebuilt(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(arguments, **_options):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(Path(arguments[4]))
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+
+    FtraceProvider(**_arguments(tmp_path, monkeypatch))
+    [catalog_root] = _catalog_directories(tmp_path)
+    (catalog_root / "text_ftrace_event.parquet").unlink()
+
+    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    assert conversions == 2
+    assert provider.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
+        {"count": 4}
+    ]
+
+
+def test_concurrent_publisher_winner_is_reused(monkeypatch, tmp_path):
+    def convert(arguments, **_options):
+        _write_catalog(Path(arguments[4]))
+        return subprocess.CompletedProcess(arguments, 9)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+
+    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    assert provider.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
+        {"count": 4}
+    ]
+
+
+def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(arguments, **_options):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(Path(arguments[4]))
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    with pytest.raises(RuntimeError, match="clock_domain"):
+        FtraceProvider(
+            **_arguments(tmp_path, monkeypatch, clock_domain="another_clock")
+        )
+
+    assert conversions == 1
+    assert len(_catalog_directories(tmp_path)) == 1
+
+
+def test_auto_cleanup_uses_and_releases_a_private_catalog(monkeypatch, tmp_path):
+    converted_catalog = None
+
+    def convert(arguments, **_options):
+        nonlocal converted_catalog
+        converted_catalog = Path(arguments[4])
+        _write_catalog(converted_catalog)
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    provider = FtraceProvider(
+        **_arguments(tmp_path, monkeypatch, auto_cleanup=True)
+    )
+
+    assert converted_catalog is not None
+    assert converted_catalog.is_dir()
+    assert converted_catalog.parent.name.startswith("ftrace-")
+    assert _catalog_directories(tmp_path) == []
+
+    del provider
+    gc.collect()
+
+    assert not converted_catalog.exists()
 
 
 @pytest.mark.parametrize("field", ("source", "workspace_root"))
@@ -221,6 +375,16 @@ def test_clock_domain_is_explicit_and_nonempty(tmp_path):
             source=_FIXTURE,
             clock_domain="   ",
             workspace_root=tmp_path,
+        )
+
+
+def test_auto_cleanup_must_be_a_bool(tmp_path):
+    with pytest.raises(TypeError, match="auto_cleanup.*bool"):
+        FtraceProvider(
+            source=_FIXTURE,
+            clock_domain="fixture_clock",
+            workspace_root=tmp_path,
+            auto_cleanup=1,
         )
 
 
