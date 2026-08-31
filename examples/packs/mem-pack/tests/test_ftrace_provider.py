@@ -113,7 +113,7 @@ def test_construction_invokes_the_converter_and_exposes_typed_relations(
         return subprocess.CompletedProcess(arguments, 0)
 
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
-    provider: dp.Provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
     topology = provider.query(
         """
