@@ -1,0 +1,4 @@
+name = "ftrace2parquet-provider"
+title = "Ftrace2Parquet Provider"
+description = "External PACK example for querying typed Ftrace relations produced by the Rust ftrace2parquet converter."
+owner = "KAT Contributors"

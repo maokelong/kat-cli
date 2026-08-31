@@ -1,0 +1,17 @@
+# tracer: nop
+#
+# entries-in-buffer/entries-written: 5/5   #P:4
+#
+# _-----=> irqs-off/BH-disabled
+# / _----=> need-resched
+# | / _---=> hardirq/softirq
+# || / _--=> preempt-depth
+# ||| / _-=> migrate-disable
+# |||| /     delay
+# TASK-PID       TGID    CPU#  |||||  TIMESTAMP  FUNCTION
+# | |            |       |   |||||     |         |
+worker-7 ( 7) [002] d.... 1.0: sched_switch: prev_comm=old prev_pid=7 prev_prio=120 prev_state=R+ ==> next_comm=new next_pid=8 next_prio=100
+worker-7 ( 7) [002] d.... 2.0: sched_wakeup: comm=a pid=8 prio=120 target_cpu=003
+worker-7 ( 7) [002] d.... 2.5: custom_event: value=1
+worker-7 ( 7) [002] d.... 3.0: sched_wakeup_new: comm=b pid=9 prio=100 target_cpu=001
+worker-7 ( 7) [002] d.... 4.0: tracing_mark_write: marker payload

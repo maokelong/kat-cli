@@ -2,7 +2,7 @@
 
 ## 问题与边界
 
-需要一个可直接调用的单用途程序，把未压缩 UTF-8 文本 ftrace 转成由 Proto 定义的多张 Parquet 表。它是独立二进制，不是 KAT CLI、Datasource、Dataset、PACK 或查询层。
+需要一个可直接调用的单用途程序，把未压缩 UTF-8 文本 ftrace 转成由 Proto 定义的多张 Parquet 表。它是独立二进制，不是 KAT CLI、Dataset 或查询层；PACK 可以把它作为自有 Provider 的解析后端，但转换器本身不依赖 PACK 或 Workflow。
 
 ```text
 ftrace2parquet --input <trace.ftrace> --output <directory> --clock-domain <name>
@@ -52,6 +52,12 @@ crate 自有 `TextFtraceEvent` 根消息。公共事件头位于根，具体事�
 
 所有 Parquet 文件先写入输出同级临时目录。只有输入读取、各关系 flush、Parquet close 全部成功后，才把临时目录重命名为目标。零条已支持事件失败。
 
+## PACK Provider 纵向切片
+
+`examples/packs/ftrace2parquet-provider` 提供普通 Python `Ftrace2ParquetProvider`。它从部署环境取得二进制路径，在 `ctx.datasource_root` 下当前 Workflow 的唯一临时 workspace 中调用转换器，要求固定 header、occurrence 和根关系存在，再用 `ds.open(root=...)` 与 `ds.DataFusionProvider` 暴露 `query() -> ds.Table`。
+
+Provider 不继承 KAT 类型、不注册或自动发现，不保存跨 Workflow Catalog。转换失败、必需关系缺失或 Catalog 打开失败时保持未准备并尽力清理独占目标；成功查询返回的 eager Table 与二进制进程和 Parquet reader 生命周期脱离。具体 payload 关系仍按来源实际出现，不由 Provider 补空表。
+
 ## 验证
 
 - Proto build 和 CLI 参数合同。
@@ -64,7 +70,7 @@ crate 自有 `TextFtraceEvent` 根消息。公共事件头位于根，具体事�
 
 ## 非目标
 
-- KAT 集成、Dataset marker、catalog、Operation log 或查询接口。
+- 转换器内部的 KAT 集成、Dataset marker、Catalog、Operation log 或查询接口；Catalog 和查询只由 PACK Provider 在转换完成后组合。
 - 上游 HiProfiler ftrace-plugin Proto。
 - 首批四类之外的 payload 类型。
 - 保存未知事件 raw payload。
