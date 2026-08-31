@@ -48,10 +48,9 @@ class RunWorkflowRequest:
 
 @dataclass(frozen=True)
 class QueryRunRequest:
-    run_path: Path
-    outputs: tuple[str, ...]
-    dataset: ResolvedDatasetRef | None
+    outputs: dict[str, Path]
     sql: str
+    result_path: Path
 
 
 @dataclass(frozen=True)
@@ -171,12 +170,26 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
 
 
 def _read_query_run_request(request: dict[str, object]) -> QueryRunRequest:
-    dataset = cast(dict[str, object] | None, request.get("dataset"))
+    expected = {"operation", "outputs", "sql", "result_path"}
+    if set(request) != expected:
+        raise RuntimeRequestError(
+            f"query_run Runtime Request fields must be exactly {sorted(expected)}"
+        )
+    outputs = request["outputs"]
+    sql = request["sql"]
+    if type(outputs) is not dict or type(sql) is not str:
+        raise RuntimeRequestError(
+            "query_run outputs must be an object and SQL must be a string"
+        )
+    resolved_outputs: dict[str, Path] = {}
+    for name, path in outputs.items():
+        if type(name) is not str or not valid_table_name(name) or type(path) is not str:
+            raise RuntimeRequestError("query_run output references are invalid")
+        resolved_outputs[name] = _canonical_file(path, "query_run output")
     return QueryRunRequest(
-        run_path=Path(cast(str, request["run_path"])),
-        outputs=tuple(cast(list[str], request["outputs"])),
-        dataset=_construct_query_dataset(dataset) if dataset is not None else None,
-        sql=cast(str, request["sql"]),
+        outputs=resolved_outputs,
+        sql=sql,
+        result_path=_read_creatable_file(request["result_path"], "query_run result"),
     )
 
 
@@ -271,6 +284,30 @@ def _read_creatable_directory(value: object, label: str) -> Path:
         raise RuntimeRequestError(f"{label} path must be canonical and must not be a link")
     if supplied.exists() and not supplied.is_dir():
         raise RuntimeRequestError(f"{label} path must identify a directory")
+    return supplied
+
+
+def _read_creatable_file(value: object, label: str) -> Path:
+    if type(value) is not str:
+        raise RuntimeRequestError(f"{label} path must be a string")
+    supplied = Path(value)
+    if not supplied.is_absolute():
+        raise RuntimeRequestError(f"{label} path must be absolute")
+    try:
+        parent = supplied.parent.resolve(strict=True)
+        resolved = supplied.resolve(strict=False)
+    except (OSError, RuntimeError):
+        _LOGGER.exception("failed to resolve private Runtime Request path for %s", label)
+        raise RuntimeRequestError(f"{label} path is invalid") from None
+    if (
+        parent != supplied.parent
+        or not parent.is_dir()
+        or resolved != supplied
+        or supplied.exists()
+    ):
+        raise RuntimeRequestError(
+            f"{label} path must be a new canonical file in an existing directory"
+        )
     return supplied
 
 

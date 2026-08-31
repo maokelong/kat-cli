@@ -188,12 +188,37 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
     query.args(["query", "--run", run_id, "--sql", sql]);
     test_home::configure(&mut query, temporary.path());
     let queried = response(query.output().unwrap());
+    assert_eq!(queried["result"]["format"], "ndjson");
+    let query_result = Path::new(queried["result"]["path"].as_str().unwrap());
+    let rows = fs::read_to_string(query_result)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
     assert_eq!(
-        queried["result"]["rows"],
+        rows,
         serde_json::json!([
-            [15381, "OS_FFRT_0_0", "61999000", 3, "61999000"],
-            [15040, ".tencent.wechat", "59973000", 10, "59973000"],
-            [2424, "SaInit0", "4878000", 4, "4878000"]
+            {
+                "thread_id": 15381,
+                "thread_name": "OS_FFRT_0_0",
+                "total_cpu_time_ns": 61999000,
+                "cpu": 3,
+                "observed_cpu_time_ns": 61999000
+            },
+            {
+                "thread_id": 15040,
+                "thread_name": ".tencent.wechat",
+                "total_cpu_time_ns": 59973000,
+                "cpu": 10,
+                "observed_cpu_time_ns": 59973000
+            },
+            {
+                "thread_id": 2424,
+                "thread_name": "SaInit0",
+                "total_cpu_time_ns": 4878000,
+                "cpu": 4,
+                "observed_cpu_time_ns": 4878000
+            }
         ])
     );
 }

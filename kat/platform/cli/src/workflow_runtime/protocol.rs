@@ -155,11 +155,9 @@ pub(super) struct RunWorkflowRequest<'a> {
 #[derive(Serialize)]
 pub(super) struct QueryRunRequest<'a> {
     pub(super) operation: &'static str,
-    pub(super) run_path: &'a str,
-    pub(super) outputs: &'a [String],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) dataset: Option<&'a ResolvedDatasetRequest>,
+    pub(super) outputs: &'a BTreeMap<String, String>,
     pub(super) sql: &'a str,
+    pub(super) result_path: &'a str,
 }
 
 #[derive(Serialize)]

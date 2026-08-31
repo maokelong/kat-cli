@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -33,17 +32,20 @@ class QueryProcessTest(unittest.TestCase):
         self,
         sql: str,
         *,
-        dataset: dict[str, object] | None = None,
+        outputs: dict[str, Path] | None = None,
+        result_name: str | None = None,
     ) -> dict[str, object]:
-        request: dict[str, object] = {
-            "operation": "query_run",
-            "run_path": str(self.run_path),
-            "outputs": ["main"],
-            "sql": sql,
+        selected_outputs = outputs or {
+            "main": self.run_path / "outputs" / "main.parquet"
         }
-        if dataset is not None:
-            request["dataset"] = dataset
-        return request
+        return {
+            "operation": "query_run",
+            "outputs": {name: str(path.resolve()) for name, path in selected_outputs.items()},
+            "sql": sql,
+            "result_path": str(
+                (self.root / (result_name or f"query-{uuid.uuid4()}.ndjson")).resolve()
+            ),
+        }
 
     def run_runtime(
         self, request: dict[str, object]
@@ -74,158 +76,183 @@ class QueryProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def test_registers_published_outputs_and_available_dataset(self) -> None:
-        self.parquet(pa.table({"value": pa.array([2, 1], type=pa.int64())}))
-        dataset_root = (self.root / "dataset").resolve()
-        dataset_root.mkdir()
-        events = dataset_root / "events.parquet"
-        pq.write_table(pa.table({"value": pa.array([3], type=pa.int64())}), events)
+    def test_writes_one_ndjson_file_from_registered_run_outputs(self) -> None:
+        main = self.parquet(
+            pa.table({"key": pa.array([2, 1], type=pa.int64())})
+        )
+        other = self.parquet(
+            pa.table({"key": pa.array([1], type=pa.int64()), "label": ["one"]}),
+            output_name="other",
+        )
+        request = self.request(
+            """
+            SELECT main.key, other.label
+            FROM output.main AS main
+            LEFT JOIN output.other AS other USING (key)
+            ORDER BY main.key
+            """,
+            outputs={"main": main, "other": other},
+        )
 
-        cases = [
-            (
-                self.request("SELECT value FROM output.main ORDER BY value"),
-                [["1"], ["2"]],
-            ),
-            (
-                self.request(
-                    """
-                    SELECT value FROM output.main
-                    UNION ALL
-                    SELECT value FROM dataset.events
-                    ORDER BY value
-                    """,
-                    dataset={
-                        "path": str(dataset_root),
-                        "tables": {"events": str(events.resolve())},
-                    },
-                ),
-                [["1"], ["2"], ["3"]],
-            ),
-        ]
-        for request, expected_rows in cases:
-            with self.subTest(dataset="dataset" in request):
-                completed, response = self.run_runtime(request)
-                self.assertEqual(
-                    completed.returncode,
-                    0,
-                    completed.stderr.decode(errors="replace"),
-                )
-                self.assertEqual(response["status"], "success", response)
-                self.assertEqual(set(response["result"]), {"columns", "rows"})
-                self.assertEqual(response["result"]["rows"], expected_rows)
+        completed, response = self.run_runtime(request)
 
-    def test_scalar_projection_is_lossless_and_positional(self) -> None:
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "columns": [
+                        {"name": "key", "type": "int64"},
+                        {"name": "label", "type": "string_view"},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(
+            Path(request["result_path"]).read_bytes(),
+            b'{"key":1,"label":"one"}\n{"key":2}\n',
+        )
+
+    def test_native_ndjson_semantics_and_zero_rows(self) -> None:
         schema = pa.schema(
             [
-                pa.field("signed", pa.int64()),
-                pa.field("unsigned", pa.uint64()),
-                pa.field("small", pa.int32()),
-                pa.field("amount", pa.decimal128(10, 3)),
-                pa.field("wide_amount", pa.decimal256(40, 4)),
-                pa.field("ratio", pa.float64()),
-                pa.field("text", pa.string()),
-                pa.field("at", pa.timestamp("ns", tz="UTC")),
-                pa.field("empty", pa.string()),
+                pa.field("binary", pa.binary()),
+                pa.field("finite", pa.float64()),
+                pa.field("nan", pa.float64()),
+                pa.field("missing", pa.string()),
+                pa.field(
+                    "nested",
+                    pa.struct(
+                        [
+                            pa.field("x", pa.int64()),
+                            pa.field("missing", pa.string()),
+                        ]
+                    ),
+                ),
             ]
         )
         self.parquet(
             pa.Table.from_arrays(
                 [
-                    pa.array([-(2**63)], type=pa.int64()),
-                    pa.array([2**64 - 1], type=pa.uint64()),
-                    pa.array([7], type=pa.int32()),
-                    pa.array([Decimal("123.450")], type=pa.decimal128(10, 3)),
-                    pa.array([Decimal("-1.2300")], type=pa.decimal256(40, 4)),
+                    pa.array([b"\xde\x00\xff"], type=pa.binary()),
                     pa.array([1.25], type=pa.float64()),
-                    pa.array(["查询"], type=pa.string()),
-                    pa.array([2**63 - 1], type=pa.timestamp("ns", tz="UTC")),
+                    pa.array([float("nan")], type=pa.float64()),
                     pa.array([None], type=pa.string()),
+                    pa.array(
+                        [{"x": 1, "missing": None}],
+                        type=schema.field("nested").type,
+                    ),
                 ],
                 schema=schema,
             )
         )
 
-        _, response = self.run_runtime(
-            self.request("SELECT *, signed AS signed_copy FROM output.main")
-        )
+        request = self.request("SELECT * FROM output.main", result_name="native.ndjson")
+        _, response = self.run_runtime(request)
 
         self.assertEqual(response["status"], "success", response)
         self.assertEqual(
-            response["result"]["rows"],
-            [
-                [
-                    "-9223372036854775808",
-                    "18446744073709551615",
-                    7,
-                    "123.450",
-                    "-1.2300",
-                    1.25,
-                    "查询",
-                    "2262-04-11T23:47:16.854775807Z",
-                    None,
-                    "-9223372036854775808",
-                ]
-            ],
-        )
-        self.assertEqual(
-            [column["name"] for column in response["result"]["columns"]],
-            [
-                "signed",
-                "unsigned",
-                "small",
-                "amount",
-                "wide_amount",
-                "ratio",
-                "text",
-                "at",
-                "empty",
-                "signed_copy",
-            ],
+            Path(request["result_path"]).read_bytes(),
+            b'{"binary":"de00ff","finite":1.25,"nan":null,"nested":{"x":1}}\n',
         )
 
-    def test_read_only_and_projection_errors_fail_whole_query(self) -> None:
+        empty_request = self.request(
+            "SELECT * FROM output.main WHERE FALSE",
+            result_name="empty.ndjson",
+        )
+        _, empty_response = self.run_runtime(empty_request)
+        self.assertEqual(empty_response["status"], "success", empty_response)
+        self.assertEqual(Path(empty_request["result_path"]).read_bytes(), b"")
+
+    def test_rejects_duplicate_struct_sibling_names_before_writing(self) -> None:
         self.parquet(pa.table({"value": [1]}))
-        for sql, expected in [
-            ("CREATE TABLE altered AS SELECT 1", "ddl not supported"),
-            ("SELECT CAST('NaN' AS DOUBLE) FROM output.main", "non-finite"),
+        for sql in [
+            "SELECT 1 AS duplicate, 2 AS duplicate",
+            "SELECT named_struct('duplicate', 1, 'duplicate', 2) AS nested",
+            "SELECT named_struct('outer', named_struct('duplicate', 1, 'duplicate', 2)) AS nested",
         ]:
             with self.subTest(sql=sql):
-                _, response = self.run_runtime(self.request(sql))
+                request = self.request(sql)
+                _, response = self.run_runtime(request)
                 self.assertEqual(response["status"], "failure", response)
                 self.assertNotIn("result", response)
-                self.assertIn(expected, json.dumps(response).lower())
+                self.assertIn("unique", json.dumps(response).lower())
+                self.assertFalse(Path(request["result_path"]).exists())
 
-        self.parquet(pa.table({"value": pa.array([b"x"], type=pa.binary())}))
-        _, response = self.run_runtime(self.request("SELECT * FROM output.main"))
-        self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
-        self.assertIn("not supported", json.dumps(response).lower())
+        self.parquet(
+            pa.table(
+                {
+                    "dynamic_keys": pa.array(
+                        [[("duplicate", 1), ("duplicate", 2)]],
+                        type=pa.map_(pa.string(), pa.int64()),
+                    )
+                }
+            )
+        )
+        map_request = self.request("SELECT dynamic_keys FROM output.main")
+        _, map_response = self.run_runtime(map_request)
+        self.assertEqual(map_response["status"], "success", map_response)
 
-    def test_default_datafusion_sources_are_not_artificially_blocked(self) -> None:
-        self.parquet(pa.table({"value": [0]}))
+    def test_fresh_session_allows_only_read_only_sql_and_registered_relations(self) -> None:
+        output = self.parquet(pa.table({"value": [1]}))
         source = self.root / "trusted-local-source.parquet"
         pq.write_table(pa.table({"value": [1, 2, 3]}), source)
-        _, response = self.run_runtime(
-            self.request(f"SELECT value FROM '{source.as_posix()}' ORDER BY value")
-        )
 
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(response["result"]["rows"], [["1"], ["2"], ["3"]])
+        allowed = [
+            "SELECT value FROM output.main",
+            "WITH selected AS (SELECT value FROM output.main) SELECT * FROM selected",
+            "VALUES (1)",
+            "DESCRIBE output.main",
+            "EXPLAIN SELECT * FROM output.main",
+            "SHOW datafusion.execution.batch_size",
+            "SELECT * FROM range(0, 2)",
+            "SELECT * FROM generate_series(0, 1)",
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'output'",
+        ]
+        for sql in allowed:
+            with self.subTest(allowed=sql):
+                request = self.request(sql, outputs={"main": output})
+                _, response = self.run_runtime(request)
+                self.assertEqual(response["status"], "success", response)
+                self.assertTrue(Path(request["result_path"]).is_file())
+
+        blocked = [
+            f"SELECT * FROM '{source.as_posix()}'",
+            "SELECT * FROM dataset.events",
+            "SELECT * FROM unregistered",
+            "CREATE TABLE altered AS SELECT 1",
+            "INSERT INTO output.main VALUES (2)",
+            "COPY output.main TO 'copy.parquet' STORED AS PARQUET",
+            "SET datafusion.execution.batch_size = 1",
+            "SELECT 1; SELECT 2",
+        ]
+        for sql in blocked:
+            with self.subTest(blocked=sql):
+                request = self.request(sql, outputs={"main": output})
+                _, response = self.run_runtime(request)
+                self.assertEqual(response["status"], "failure", response)
+                self.assertNotIn("result", response)
 
     def test_results_beyond_previous_row_and_byte_limits_succeed(self) -> None:
         values = [f"{index:04d}-{'x' * 300}" for index in range(1_001)]
         self.parquet(pa.table({"value": values}))
 
-        _, response = self.run_runtime(
-            self.request("SELECT value FROM output.main ORDER BY value")
+        request = self.request(
+            "SELECT value FROM output.main ORDER BY value",
+            result_name="large.ndjson",
         )
+        _, response = self.run_runtime(request)
 
         self.assertEqual(response["status"], "success", response)
-        self.assertEqual(len(response["result"]["rows"]), 1_001)
-        self.assertGreater(
-            len(json.dumps(response, ensure_ascii=False).encode("utf-8")),
-            256 * 1_024,
-        )
+        self.assertEqual(set(response["result"]), {"columns"})
+        result = Path(request["result_path"]).read_bytes()
+        self.assertEqual(len(result.splitlines()), 1_001)
+        self.assertGreater(len(result), 256 * 1_024)
 
 if __name__ == "__main__":
     unittest.main()

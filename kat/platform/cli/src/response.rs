@@ -1,7 +1,9 @@
 use std::{
     error::Error,
     fmt::{self, Display},
+    fs,
     io::Write,
+    path::PathBuf,
     process::ExitCode,
 };
 
@@ -16,6 +18,33 @@ pub(super) struct PreparedResponse<P> {
     response: KatResponse<P>,
     rendered_diagnostic: Option<RenderedDiagnostic>,
     exit_code: ExitCode,
+    pending_file: Option<PendingResponseFile>,
+}
+
+pub(super) struct PendingResponseFile {
+    path: PathBuf,
+    remove_on_drop: bool,
+}
+
+impl PendingResponseFile {
+    pub(super) fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            remove_on_drop: true,
+        }
+    }
+
+    fn retain(mut self) {
+        self.remove_on_drop = false;
+    }
+}
+
+impl Drop for PendingResponseFile {
+    fn drop(&mut self) {
+        if self.remove_on_drop && fs::remove_file(&self.path).is_err() {
+            let _ = fs::remove_dir(&self.path);
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -135,6 +164,16 @@ pub(super) fn prepare_success_with_log<P>(
     prepare_success_with_artifacts(result, log_path, None)
 }
 
+pub(super) fn prepare_success_with_log_and_file<P>(
+    result: P,
+    log_path: Option<String>,
+    pending_file: PendingResponseFile,
+) -> PreparedResponse<P> {
+    let mut prepared = prepare_success_with_artifacts(result, log_path, None);
+    prepared.pending_file = Some(pending_file);
+    prepared
+}
+
 fn prepare_success_with_artifacts<P>(
     result: P,
     log_path: Option<String>,
@@ -148,6 +187,7 @@ fn prepare_success_with_artifacts<P>(
         },
         rendered_diagnostic: None,
         exit_code: ExitCode::SUCCESS,
+        pending_file: None,
     }
 }
 
@@ -170,6 +210,7 @@ pub(super) fn prepare_cli_failure_with_log<P>(
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
+        pending_file: None,
     }
 }
 
@@ -195,6 +236,7 @@ fn prepare_runtime_failure_with_artifacts<P>(
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
+        pending_file: None,
     }
 }
 
@@ -229,6 +271,7 @@ pub(super) fn prepare_test_cli_failure<P>(
         },
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
+        pending_file: None,
     }
 }
 
@@ -442,7 +485,7 @@ pub(super) fn publish<P: Serialize>(prepared: PreparedResponse<P>) -> ExitCode {
 }
 
 fn publish_to<P: Serialize>(
-    prepared: PreparedResponse<P>,
+    mut prepared: PreparedResponse<P>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> ExitCode {
@@ -455,7 +498,7 @@ fn publish_to<P: Serialize>(
     };
     frame.push(b'\n');
 
-    if let Some(rendered) = prepared.rendered_diagnostic {
+    if let Some(rendered) = &prepared.rendered_diagnostic {
         let _ = stderr.write_all(rendered.0.as_bytes());
         let _ = stderr.write_all(b"\n");
         let _ = stderr.flush();
@@ -463,6 +506,9 @@ fn publish_to<P: Serialize>(
     if let Err(error) = stdout.write_all(&frame).and_then(|()| stdout.flush()) {
         report_publisher_failure(stderr, "write KAT Response", &error);
         return ExitCode::FAILURE;
+    }
+    if let Some(pending_file) = prepared.pending_file.take() {
+        pending_file.retain();
     }
     prepared.exit_code
 }
@@ -474,7 +520,7 @@ fn report_publisher_failure(stderr: &mut dyn Write, action: &str, error: &dyn st
 
 #[cfg(test)]
 mod tests {
-    use std::io;
+    use std::{fs, io, path::Path};
 
     use miette::{Diagnostic, NamedSource, SourceSpan, miette};
     use serde::Serializer;
@@ -483,6 +529,8 @@ mod tests {
     use super::*;
 
     struct FailingWriter;
+
+    struct FlushFailingWriter;
 
     struct SerializationFailure;
 
@@ -519,6 +567,62 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    impl Write for FlushFailingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed output"))
+        }
+    }
+
+    fn pending_success<P>(path: &Path, result: P) -> PreparedResponse<P> {
+        fs::write(path, b"query result").unwrap();
+        prepare_success_with_log_and_file(
+            result,
+            Some("query.log".to_owned()),
+            PendingResponseFile::new(path.to_path_buf()),
+        )
+    }
+
+    #[test]
+    fn pending_query_result_is_retained_only_after_response_flush() {
+        let temporary = tempfile::tempdir().unwrap();
+
+        let serialization = temporary.path().join("serialization.ndjson");
+        let prepared = pending_success(&serialization, SerializationFailure);
+        assert_eq!(
+            publish_to(prepared, &mut Vec::new(), &mut Vec::new()),
+            ExitCode::FAILURE
+        );
+        assert!(!serialization.exists());
+
+        let write = temporary.path().join("write.ndjson");
+        let prepared = pending_success(&write, vec!["value"]);
+        assert_eq!(
+            publish_to(prepared, &mut FailingWriter, &mut Vec::new()),
+            ExitCode::FAILURE
+        );
+        assert!(!write.exists());
+
+        let flush = temporary.path().join("flush.ndjson");
+        let prepared = pending_success(&flush, vec!["value"]);
+        assert_eq!(
+            publish_to(prepared, &mut FlushFailingWriter, &mut Vec::new()),
+            ExitCode::FAILURE
+        );
+        assert!(!flush.exists());
+
+        let success = temporary.path().join("success.ndjson");
+        let prepared = pending_success(&success, vec!["value"]);
+        assert_eq!(
+            publish_to(prepared, &mut Vec::new(), &mut Vec::new()),
+            ExitCode::SUCCESS
+        );
+        assert!(success.is_file());
     }
 
     #[test]
