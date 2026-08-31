@@ -29,8 +29,8 @@ Vendor 后只允许以下仓库内适配：
 
 1. 选择并记录新的 `developtools_profiler` commit；从上述 upstream 目录取得完整 39-file closure，同时取得同 revision 的生成器。
 2. 对除 `sched.proto` 外的文件只应用 package/import 两类机械改写。若出现其他语义 diff，先在独立 issue/ADR 说明原因。
-3. 对 `sched.proto` 做字段号、wire type、message name 的三方比较；需要改变 KAT compatibility overlay 时，必须验证 descriptor-derived relations。
+3. 对 `sched.proto` 做字段号、wire type、message name 的三方比较；需要改变 KAT compatibility overlay 时，必须验证 descriptor-derived `trace_plugin_result_ftrace_cpu_detail_event_sched_switch_format.parquet` 仍发布，并确认已退役的根级规范化 `sched_switch.parquet` 不会重新出现。
 4. 更新本文件中的 revision、root blob 与 generator blob；确认本目录仍恰好包含 39 个 `.proto` 文件。
-5. 运行 `proto_contract` 与 Native Hook activation contract；最后运行 datasource 定向测试、check、fmt 与 `git diff --check`。
+5. 运行 `proto_contract`、`ftrace_source_activation_contract` 与 `native_hook_source_activation_contract`；最后运行 datasource 定向测试、check、fmt 与 `git diff --check`。
 
 快照升级不得只替换 `ftrace_event.proto`：两个 roots、全部 imports、生成器来源和 compatibility overlay 必须作为一个可 review 的变更提交。
