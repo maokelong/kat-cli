@@ -6,8 +6,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from kat import dataprovider as dp
-from kat.pack.datasources import ftrace2parquet as provider_module
-from kat.pack.datasources.ftrace2parquet import Ftrace2ParquetProvider
+from kat.pack.datasources import ftrace as provider_module
+from kat.pack.datasources.ftrace import FtraceProvider
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
@@ -79,14 +79,14 @@ def _write_catalog(root: Path, *, include_root: bool = True) -> None:
     )
 
 
-def _arguments(tmp_path: Path) -> dict[str, object]:
+def _arguments(tmp_path: Path, monkeypatch) -> dict[str, object]:
     executable = tmp_path / "ftrace2parquet"
     executable.write_bytes(b"fixture executable")
+    monkeypatch.setenv("KAT_FTRACE2PARQUET_EXECUTABLE", str(executable))
     return {
         "source": _FIXTURE,
-        "executable": executable,
-        "catalog_root": tmp_path / "catalog",
         "clock_domain": "fixture_clock",
+        "workspace_root": tmp_path,
     }
 
 
@@ -98,8 +98,11 @@ def test_construction_invokes_the_converter_and_exposes_typed_relations(
         assert arguments[1:3] == ["--input", str(_FIXTURE.resolve())]
         assert arguments[3] == "--output"
         assert arguments[5:] == ["--clock-domain", "fixture_clock"]
+        catalog_root = Path(arguments[4])
+        assert catalog_root.name == "catalog"
+        assert catalog_root.parent.parent == tmp_path
         assert options == {
-            "cwd": tmp_path,
+            "cwd": catalog_root.parent,
             "shell": False,
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
@@ -110,7 +113,7 @@ def test_construction_invokes_the_converter_and_exposes_typed_relations(
         return subprocess.CompletedProcess(arguments, 0)
 
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
-    provider: dp.Provider = Ftrace2ParquetProvider(**_arguments(tmp_path))
+    provider: dp.Provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
     topology = provider.query(
         """
@@ -153,10 +156,10 @@ def test_failed_constructor_cleans_partial_output_and_a_new_provider_can_retry(
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
 
     with pytest.raises(RuntimeError, match="decode failed"):
-        Ftrace2ParquetProvider(**_arguments(tmp_path))
-    assert not (tmp_path / "catalog").exists()
+        FtraceProvider(**_arguments(tmp_path, monkeypatch))
+    assert not any(path.is_dir() for path in tmp_path.iterdir())
 
-    provider = Ftrace2ParquetProvider(**_arguments(tmp_path))
+    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
     assert provider.query(
         "SELECT COUNT(*) AS event_count FROM text_ftrace_event"
     ).to_rows() == [{"event_count": 4}]
@@ -170,9 +173,9 @@ def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(provider_module.subprocess, "run", convert)
 
     with pytest.raises(RuntimeError, match="text_ftrace_event"):
-        Ftrace2ParquetProvider(**_arguments(tmp_path))
+        FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
-    assert not (tmp_path / "catalog").exists()
+    assert not any(path.is_dir() for path in tmp_path.iterdir())
 
 
 def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_path):
@@ -188,38 +191,45 @@ def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_pa
     monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
 
     with pytest.raises(RuntimeError, match="query provider failed"):
-        Ftrace2ParquetProvider(**_arguments(tmp_path))
+        FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
-    assert not (tmp_path / "catalog").exists()
+    assert not any(path.is_dir() for path in tmp_path.iterdir())
 
 
-@pytest.mark.parametrize("field", ("source", "executable", "catalog_root"))
+@pytest.mark.parametrize("field", ("source", "workspace_root"))
 def test_paths_require_pathlib_path(field, tmp_path):
     arguments = {
         "source": _FIXTURE,
-        "executable": tmp_path / "ftrace2parquet",
-        "catalog_root": tmp_path / "catalog",
         "clock_domain": "fixture_clock",
+        "workspace_root": tmp_path,
     }
     arguments[field] = str(arguments[field])
 
     with pytest.raises(TypeError, match=rf"{field}.*Path"):
-        Ftrace2ParquetProvider(**arguments)
+        FtraceProvider(**arguments)
 
 
 def test_clock_domain_is_explicit_and_nonempty(tmp_path):
-    executable = tmp_path / "ftrace2parquet"
     with pytest.raises(TypeError, match="clock_domain.*string"):
-        Ftrace2ParquetProvider(
+        FtraceProvider(
             source=_FIXTURE,
-            executable=executable,
-            catalog_root=tmp_path / "wrong-type",
             clock_domain=None,
+            workspace_root=tmp_path,
         )
     with pytest.raises(ValueError, match="clock_domain.*non-empty"):
-        Ftrace2ParquetProvider(
+        FtraceProvider(
             source=_FIXTURE,
-            executable=executable,
-            catalog_root=tmp_path / "empty",
             clock_domain="   ",
+            workspace_root=tmp_path,
+        )
+
+
+def test_converter_location_is_an_internal_deployment_detail(monkeypatch, tmp_path):
+    monkeypatch.delenv("KAT_FTRACE2PARQUET_EXECUTABLE", raising=False)
+
+    with pytest.raises(RuntimeError, match="KAT_FTRACE2PARQUET_EXECUTABLE"):
+        FtraceProvider(
+            source=_FIXTURE,
+            clock_domain="fixture_clock",
+            workspace_root=tmp_path,
         )

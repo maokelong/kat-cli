@@ -1,10 +1,8 @@
-import os
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import kat
 
-from kat.pack.datasources.ftrace2parquet import Ftrace2ParquetProvider
+from kat.pack.datasources.ftrace import FtraceProvider
 
 
 SUMMARY_SQL = """
@@ -34,17 +32,9 @@ def summarize_ftrace(
     clock_domain: str,
 ):
     """转换文本 Ftrace，并发布来源事件与已支持事件数量。"""
-    executable = os.environ.get("KAT_FTRACE2PARQUET_EXECUTABLE")
-    if not executable:
-        raise RuntimeError(
-            "KAT_FTRACE2PARQUET_EXECUTABLE must identify the approved converter"
-        )
-
-    with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
-        provider = Ftrace2ParquetProvider(
-            source=Path(trace_path),
-            executable=Path(executable),
-            catalog_root=Path(workspace) / "catalog",
-            clock_domain=clock_domain,
-        )
-        return provider.query(SUMMARY_SQL)
+    provider = FtraceProvider(
+        source=Path(trace_path),
+        clock_domain=clock_domain,
+        workspace_root=ctx.datasource_root,
+    )
+    return provider.query(SUMMARY_SQL)

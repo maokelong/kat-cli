@@ -4,7 +4,7 @@ import subprocess
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from kat.pack.datasources import ftrace2parquet as provider_module
+from kat.pack.datasources import ftrace as provider_module
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
@@ -16,7 +16,6 @@ def _write_summary_catalog(root: Path) -> None:
         pa.table(
             {
                 "tracer": ["nop"],
-                "entries_in_buffer": pa.array([5], type=pa.uint64()),
                 "entries_in_buffer": pa.array([5], type=pa.uint64()),
                 "cpu_count": pa.array([4], type=pa.uint32()),
                 "has_tgid_column": [True],

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from pathlib import Path
-import shutil
 import subprocess
+from tempfile import TemporaryDirectory
 
 from kat import dataprovider as dp
 
@@ -16,63 +17,60 @@ REQUIRED_RELATIONS = frozenset(
     }
 )
 
-class Ftrace2ParquetProvider:
-    """调用 Rust 转换器并查询其类型化 Parquet 关系。"""
+
+class FtraceProvider:
+    """查询一份文本 Ftrace 所提供的类型化关系。"""
 
     def __init__(
         self,
         *,
         source: Path,
-        executable: Path,
-        catalog_root: Path,
         clock_domain: str,
+        workspace_root: Path,
     ) -> None:
         for field, value in (
             ("source", source),
-            ("executable", executable),
-            ("catalog_root", catalog_root),
+            ("workspace_root", workspace_root),
         ):
             if not isinstance(value, Path):
-                raise TypeError(f"Ftrace2Parquet {field} must be a Path")
+                raise TypeError(f"Ftrace Provider {field} must be a Path")
         if type(clock_domain) is not str:
-            raise TypeError("Ftrace2Parquet clock_domain must be a string")
+            raise TypeError("Ftrace Provider clock_domain must be a string")
         clock_domain = clock_domain.strip()
         if not clock_domain:
-            raise ValueError("Ftrace2Parquet clock_domain must be non-empty")
+            raise ValueError("Ftrace Provider clock_domain must be non-empty")
+        if not workspace_root.is_dir():
+            raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
         self._source = source
-        self._executable = executable
-        self._catalog_root = catalog_root
         self._clock_domain = clock_domain
+        self._workspace = None
         try:
+            self._executable = _resolve_executable()
+            self._workspace = TemporaryDirectory(
+                prefix="ftrace-",
+                dir=workspace_root,
+            )
+            self._catalog_root = Path(self._workspace.name) / "catalog"
             catalog = self._convert_and_open_catalog()
             self._fusion = dp.DataFusionProvider(catalog=catalog)
         except BaseException:
-            _cleanup_owned_catalog(self._catalog_root)
+            if self._workspace is not None:
+                self._workspace.cleanup()
             raise
 
     def _convert_and_open_catalog(self) -> dp.Catalog:
         """把当前来源完整转换为本 Provider 独占的 Parquet Catalog。"""
         try:
-            # catalog_root 是调用方明确交付的独占 leaf；保留词法路径，避免删除穿过
-            # resolve 后的 symlink 扩大到 workspace 之外。
-            _remove_owned_catalog(self._catalog_root)
             if not self._source.is_file():
-                raise RuntimeError("Ftrace2Parquet source must be an existing file")
-            if not self._executable.is_file():
-                raise RuntimeError(
-                    "Ftrace2Parquet executable must be an existing file"
-                )
+                raise RuntimeError("Ftrace Provider source must be an existing file")
 
             source = self._source.resolve(strict=True)
-            executable = self._executable.resolve(strict=True)
             catalog_root = self._catalog_root.resolve(strict=False)
-            if not catalog_root.parent.is_dir():
-                raise RuntimeError("Ftrace2Parquet catalog parent must exist")
 
             completed = subprocess.run(
                 [
-                    str(executable),
+                    str(self._executable),
                     "--input",
                     str(source),
                     "--output",
@@ -88,21 +86,21 @@ class Ftrace2ParquetProvider:
                 check=False,
             )
             if completed.returncode != 0:
-                raise RuntimeError("Ftrace2Parquet decode failed")
+                raise RuntimeError("Ftrace Provider decode failed")
             if not catalog_root.is_dir() or catalog_root.is_symlink():
                 raise RuntimeError(
-                    "Ftrace2Parquet did not produce a regular catalog directory"
+                    "Ftrace Provider did not produce a regular catalog directory"
                 )
 
             catalog = dp.open(root=catalog_root)
             missing = REQUIRED_RELATIONS.difference(catalog.tables)
             if missing:
                 raise RuntimeError(
-                    "Ftrace2Parquet output is missing required relations: "
+                    "Ftrace Provider output is missing required relations: "
                     + ", ".join(sorted(missing))
                 )
         except OSError:
-            raise RuntimeError("Ftrace2Parquet decode failed") from None
+            raise RuntimeError("Ftrace Provider decode failed") from None
 
         return catalog
 
@@ -115,15 +113,13 @@ class Ftrace2ParquetProvider:
         return self._fusion.query(sql, params=params)
 
 
-def _remove_owned_catalog(catalog_root: Path) -> None:
-    if catalog_root.is_symlink() or catalog_root.is_file():
-        catalog_root.unlink()
-    elif catalog_root.exists():
-        shutil.rmtree(catalog_root)
-
-
-def _cleanup_owned_catalog(catalog_root: Path) -> None:
-    try:
-        _remove_owned_catalog(catalog_root)
-    except OSError:
-        pass
+def _resolve_executable() -> Path:
+    value = os.environ.get("KAT_FTRACE2PARQUET_EXECUTABLE")
+    if not value:
+        raise RuntimeError(
+            "KAT_FTRACE2PARQUET_EXECUTABLE must identify the approved converter"
+        )
+    executable = Path(value)
+    if not executable.is_file():
+        raise RuntimeError("ftrace2parquet executable must be an existing file")
+    return executable.resolve(strict=True)

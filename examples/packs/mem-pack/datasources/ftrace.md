@@ -1,7 +1,8 @@
-# Ftrace2ParquetProvider 数据合同
+# FtraceProvider 数据合同
 
-`Ftrace2ParquetProvider` 把一份 tracefs 文本转换为一个可通过 SQL 查询的 Parquet
-Catalog。Provider 构造成功后即可调用 `query()`；返回值是 eager `dp.Table`。
+`FtraceProvider` 把一份 tracefs 文本提供为可通过 SQL 查询的类型化关系。Provider
+构造成功后即可调用 `query()`；返回值是 eager `dp.Table`。转换器、Catalog 路径和物理
+存储格式不属于使用者合同。
 
 ## 运行时发现
 
