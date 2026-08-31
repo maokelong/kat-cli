@@ -1,0 +1,292 @@
+build/payload_builder.py
+  s_68cb1a3d53c6a1::t_5476aac6d32165 899-900,935-942
+  s_68cb1a3d53c6a1::t_9af0663432f124 44-47,109-115,144-145,195-205,593-597,602-606,627-628,640-723
+  s_68cb1a3d53c6a1::t_740ca0d7f7e229 724-738,742,745,750-767
+  s_68cb1a3d53c6a1::t_eb160083327de4 768-781,783
+  s_68cb1a3d53c6a1::t_1f3378025c7930 943-949,952-953,1010-1014,1023-1024,1041-1044,1073-1074
+kat/skill/SKILL.md
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 3,8,14,16,19,21,25-26,47
+kat/platform/workflow/tests/test_testing_process.py
+  s_68cb1a3d53c6a1::t_51b78f1366c397 15-16,84,94-96,140-207
+  s_68cb1a3d53c6a1::t_a4517a6adbd721 544,549,557-558
+  s_68cb1a3d53c6a1::t_1ff541fd66e3c2 272,278-279,287,343,390,394,403-405
+kat/packs/kat-openharmony-thread-cpu-time/datasources/trace_streamer.py
+  s_68cb1a3d53c6a1::t_2cacc75c128e86 3-11
+  s_68cb1a3d53c6a1::t_9f2ca6d13a7025 12-103
+  s_68cb1a3d53c6a1::t_d5c2cd75f3841e 1-2
+kat/platform/datasource/src/relation_name.rs
+  s_68cb1a3d53c6a1::t_ec1cb6c31b3087 1
+kat/platform/datasource/src/formats/hitrace/mod.rs
+  s_68cb1a3d53c6a1::t_24b23a9aff741a 14,19,36,39,41,44,47,52,58-59,63-65,74-81,84-90,93
+kat/platform/workflow/tests/test_runtime_process.py
+  s_68cb1a3d53c6a1::t_4442af427e7ca9 720
+  s_68cb1a3d53c6a1::t_bb7572343891b0 93,255,316
+  s_68cb1a3d53c6a1::t_80ad740a53021f 370,376,386,393,408,415,426,433,470,499,626,633
+kat/platform/cli/src/run.rs
+  s_68cb1a3d53c6a1::t_99a2fd05426a7d 10,60,182,184
+  s_68cb1a3d53c6a1::t_68665bd069f8a3 572-601
+build/fixtures/payload-smoke-pack/workflows/summarize_hitrace_clock.py
+  s_68cb1a3d53c6a1::t_3bb49e67c404ab 4-5,7,9,11-30,32-33
+kat/platform/datasource/Cargo.toml
+  s_68cb1a3d53c6a1::t_e908f5ac6c382c 18,23
+  s_68cb1a3d53c6a1::t_b135a657908fc0 8
+  s_68cb1a3d53c6a1::t_1c8e3b3ecb2a79 24-28
+kat/platform/datasource/src/formats/hitrace/profiler/mod.rs
+  s_68cb1a3d53c6a1::t_24b23a9aff741a 8,10,14,17-18,20-24
+kat/platform/cli/tests/test.rs
+  s_68cb1a3d53c6a1::t_74a2e2d39954a9 126,137,196,266-267,274-275,504-506,508,510-512,515,523,538
+kat/platform/datasource/src/relation_writer.rs
+  s_68cb1a3d53c6a1::t_ec1cb6c31b3087 5-8,11,13-17,20-26,29-33,36-44,46-49,51-52,55-57,62-67,69-70,73-80,84-86,90,92-98,101-109
+kat/platform/datasource/pyproject.toml
+  s_68cb1a3d53c6a1::t_90dbbba8aaaf40 16
+  s_68cb1a3d53c6a1::t_15e6e75ef227bf 17-19
+  s_68cb1a3d53c6a1::t_55f5c109510f5f 7-15
+  s_68cb1a3d53c6a1::t_d77d12e517f1c6 1-6
+kat/platform/cli/tests/inspect.rs
+  s_68cb1a3d53c6a1::t_65e9ea202e5f9a 197
+  s_68cb1a3d53c6a1::t_23644ab8cdf697 244,459-461,715-723,725-726,728-731
+  s_68cb1a3d53c6a1::t_6b446c6e3c3ac9 126-131,146-153
+kat/platform/cli/tests/run.rs
+  s_68cb1a3d53c6a1::t_17c0e9134285ca 197,209-226,285,297-302,316,450-451,458-460,469,488
+.github/workflows/prepare-payload-ci.yml
+  s_68cb1a3d53c6a1::t_4dd813c7a7aabf 5-13,22-23,40-50
+kat/platform/workflow/runtime/outputs.py
+  s_68cb1a3d53c6a1::t_10a819004ab4b0 39-43,47-48,54-55,60,64,66
+kat/skill/agents/openai.yaml
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 4
+kat/skill/references/analysis-flow.md
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 5,7-8,14,17-18,22,26,28,32-34,36,40
+kat/packs/kat-openharmony-critical-path/tests/test_trace_streamer_provider.py
+  s_68cb1a3d53c6a1::t_8e92161b9a4fd4 4-53,56-73,75-102,104-172,174-180,182-308,310-331,333
+  s_68cb1a3d53c6a1::t_6c35d3e747c762 1-3
+kat/packs/kat-openharmony-critical-path/workflows/extract_critical_path.py
+  s_68cb1a3d53c6a1::t_d80ebcba08c3ed 11,19-27,29-31
+  s_68cb1a3d53c6a1::t_58f778a4fae161 3
+  s_68cb1a3d53c6a1::t_2ae7cc32721d79 4
+build/tests/test_workflow_wheel.py
+  s_68cb1a3d53c6a1::t_e2919c9e6b8274 51-81
+  s_68cb1a3d53c6a1::t_9af0663432f124 243-249
+  s_68cb1a3d53c6a1::t_07942f91dbd7e5 92,100-107,115-121
+  s_68cb1a3d53c6a1::t_2cd5d44a265e6e 154-159,186-189,198-204
+build/tests/test_payload_ci_workflows.py
+  s_68cb1a3d53c6a1::t_1edd9e5388d383 3,5-8,17,41-162
+  s_68cb1a3d53c6a1::t_8eb34b60e1d58e 163-184
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_68cb1a3d53c6a1::t_cd6ac526d7c5ea 14
+  s_68cb1a3d53c6a1::t_1336b461f7df23 32,34,111-113
+kat/platform/datasource/tests/hitrace_decode_contract.rs
+  s_68cb1a3d53c6a1::t_a6fb7034722064 1-2,10-27,31,33-37,39-40,43-44,46,50,52-54,57-58
+  s_68cb1a3d53c6a1::t_2a457874894aeb 60-61,63-64,66-67,72,74-76,78-79,82,85,87-93,97,99-106,120-132
+kat/packs/kat-openharmony-thread-cpu-time/workflows/thread_cpu_time.py
+  s_68cb1a3d53c6a1::t_d80ebcba08c3ed 49-51,53,55-61,63
+  s_68cb1a3d53c6a1::t_d386ecc881a5f4 2-43
+kat/platform/datasource/src/python.rs
+  s_68cb1a3d53c6a1::t_2c7bb8f02eba44 4-21,24-28
+  s_68cb1a3d53c6a1::t_d77d12e517f1c6 1-3
+.github/workflows/payload-ci.yml
+  s_68cb1a3d53c6a1::t_0f1115b9fca35a 132,161-166,169,171-172,202,214-215,217,221-222,228-240
+kat/platform/datasource/src/protobuf_source/profiler_occurrence.rs
+  s_68cb1a3d53c6a1::t_cd6ac526d7c5ea 12-13
+  s_68cb1a3d53c6a1::t_b676e0fd229ad3 17-18,24,31-32,34,39,47,59,68
+kat/platform/datasource/src/lib.rs
+  s_68cb1a3d53c6a1::t_f9c496f7dc8ab6 1,4,7-10,12
+Cargo.toml
+  s_68cb1a3d53c6a1::t_0b7a997df29c5b 33,42
+  s_68cb1a3d53c6a1::t_81d9273db7725a 32
+build/build_linux_payload.py
+  s_68cb1a3d53c6a1::t_a28e9c8efda27a 54-55,201-206,228-237
+.github/workflows/build-payloads-ci.yml
+  s_68cb1a3d53c6a1::t_4dd813c7a7aabf 53,120,126-127,137-138,148-149
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_68cb1a3d53c6a1::t_8dd0c7435eb8ca 1,20,24,28,31,106,119
+kat/platform/datasource/build/protobuf_source_codegen/names.rs
+  s_68cb1a3d53c6a1::t_8dd0c7435eb8ca 3-4,12
+kat/platform/workflow/api/_temporal.py
+  s_68cb1a3d53c6a1::t_8977a8d9175176 42
+kat/platform/cli/tests/config.rs
+  s_68cb1a3d53c6a1::t_8406875a1992c5 20-21,24,26,36-38,42-45,48-49,62,64,102,105,109,113,154-156,175-177,192-193,195,199,204
+  s_68cb1a3d53c6a1::t_9886ad36033f80 208-210,215,217,221,234,237,241,245,264-265,287,290,294,298,314-315,336-337,360-362,381-383
+build/requirements-builder.lock.txt
+  s_68cb1a3d53c6a1::t_73c9a6fb0eaf5f 1-2
+kat/platform/workflow/runtime/testing.py
+  s_68cb1a3d53c6a1::t_e102b2735ef60c 22,218
+kat/packs/kat-openharmony-critical-path/datasources/trace_streamer.py
+  s_68cb1a3d53c6a1::t_ccd210ebf75b44 1-103
+build/build_windows_payload.py
+  s_68cb1a3d53c6a1::t_a28e9c8efda27a 93-94,514-519,541-550
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_68cb1a3d53c6a1::t_58b7e97ad23428 6,10-11,16,24,29,53-55,59,63,67,72,87,124,128-132,164-165,169-173,175,177,257
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_68cb1a3d53c6a1::t_58d605cc9602eb 4,6,13
+kat/platform/workflow/runtime/execution.py
+  s_68cb1a3d53c6a1::t_cec73a6030c86f 77
+  s_68cb1a3d53c6a1::t_9720105a01adb4 12,16,18,30-31,37
+build/tests/test_wheel_artifacts.py
+  s_68cb1a3d53c6a1::t_9bed59a5f144c6 1-7
+  s_68cb1a3d53c6a1::t_86f8f28a82f6cb 14-75
+  s_68cb1a3d53c6a1::t_07504e8fbc834d 239-352
+  s_68cb1a3d53c6a1::t_8972afbdd6fc6e 76-238
+  s_68cb1a3d53c6a1::t_a1c14b0b9518eb 8-13
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_68cb1a3d53c6a1::t_2bd87aca1b765e 9,26,28-30,32,48-49,52-53,55-63,67-78,82-83
+kat/platform/cli/src/workflow_runtime.rs
+  s_68cb1a3d53c6a1::t_e801890ef60718 998
+  s_68cb1a3d53c6a1::t_61bd139054c73f 978
+  s_68cb1a3d53c6a1::t_9a2acf59b90f15 24
+  s_68cb1a3d53c6a1::t_2ebca2d362c4ff 977
+  s_68cb1a3d53c6a1::t_455e72842524c8 976
+  s_68cb1a3d53c6a1::t_c7f15df8bf5871 1012
+examples/packs/local-parquet-fusion/README.md
+  s_68cb1a3d53c6a1::t_1339f3fa6d1132 57-58
+  s_68cb1a3d53c6a1::t_3254a15ac4379d 59
+kat/platform/datasource/build.rs
+  s_68cb1a3d53c6a1::t_1c8e3b3ecb2a79 27-34,49-52,68,78
+  s_68cb1a3d53c6a1::t_27f4a8f25c839a 3-4,10-11,15-16,23-26
+build/tests/test_linux_payload.py
+  s_68cb1a3d53c6a1::t_cabb33d48a360d 113-122
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_68cb1a3d53c6a1::t_1bc39fffb88257 23
+  s_68cb1a3d53c6a1::t_b676e0fd229ad3 28-29,252-253
+.github/workflows/build-windows-payload-ci.yml
+  s_68cb1a3d53c6a1::t_5e821bb179338c 111-116,118-124
+  s_68cb1a3d53c6a1::t_2caecb12a3fd8e 11-18,93,95-97,99-110
+build/fixtures/verify_payload_smoke.py
+  s_68cb1a3d53c6a1::t_8eb34b60e1d58e 24-41
+  s_68cb1a3d53c6a1::t_de9324005b6c11 1-23
+kat/skill/references/result-contract.md
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 12,42
+kat/packs/kat-openharmony-critical-path/tests/test_critical_path.py
+  s_68cb1a3d53c6a1::t_9efd47e35d1a9d 381,389-390
+  s_68cb1a3d53c6a1::t_8c0600c90452c2 105-109,119-120,125-126,129,132,134,137,369,372-374
+  s_68cb1a3d53c6a1::t_07cc768a1b037a 3-4,7,65-104
+README.md
+  s_68cb1a3d53c6a1::t_11ea823609fafc 161-164
+  s_68cb1a3d53c6a1::t_4441aba08c0dc1 30-34
+  s_68cb1a3d53c6a1::t_6ebfdc390ce46a 61-63,109,115-118,124,134-136,138-144,154-160
+kat/platform/datasource/src/formats/hitrace/profiler/claim.rs
+  s_68cb1a3d53c6a1::t_24b23a9aff741a 3
+kat/platform/datasource/src/formats/hitrace/profiler/envelope.rs
+  s_68cb1a3d53c6a1::t_e9d1ec180dd975 30-34
+kat/packs/kat-openharmony-critical-path/workflows/locate_first_actual_frame.py
+  s_68cb1a3d53c6a1::t_c22101c6782c94 3
+  s_68cb1a3d53c6a1::t_2ae7cc32721d79 4
+  s_68cb1a3d53c6a1::t_d80ebcba08c3ed 10-13,15-19,21-23
+kat/platform/datasource/build/protobuf_source_codegen/plan.rs
+  s_68cb1a3d53c6a1::t_0831e5ffecbdca 9
+  s_68cb1a3d53c6a1::t_3dea072055590d 27,210,218,382,387,405,420,444,454,499,516,667,674
+kat/platform/datasource/tests/proto_contract.rs
+  s_68cb1a3d53c6a1::t_e184b86b7b8250 3-4,70,90,109-114,123-125
+.github/workflows/build-linux-payload-ci.yml
+  s_68cb1a3d53c6a1::t_5e821bb179338c 100-103,105-111
+  s_68cb1a3d53c6a1::t_2caecb12a3fd8e 11-18,71,73-85,90-99
+build/fixtures/payload-smoke-pack/pack.toml
+  s_68cb1a3d53c6a1::t_3bb49e67c404ab 1-4
+kat/platform/datasource/tests/native_hook_source_contract/fixture.rs
+  s_68cb1a3d53c6a1::t_2bd87aca1b765e 4
+CONTEXT.md
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 35,38-40,48,51,53-54,60,63,71,74,78,83-85,90,99-100,102-103,105-106,108-109
+  s_68cb1a3d53c6a1::t_51d075d3675fe7 114,117,120,128,131,135,138
+kat/platform/workflow/tests/test_authoring_api.py
+  s_68cb1a3d53c6a1::t_009463c9357db1 43,67,273-275,277-278,301
+kat/platform/datasource/python/kat_datasource/__init__.py
+  s_68cb1a3d53c6a1::t_3bc4a1af008a33 1-3
+kat/platform/datasource/src/hitrace_decode.rs
+  s_68cb1a3d53c6a1::t_4163a5ca7fb23e 211,214,216-223,225,228-230
+  s_68cb1a3d53c6a1::t_ad8bcc8c82c61b 232-240,245-247,250-255,258-319
+  s_68cb1a3d53c6a1::t_1c8e3b3ecb2a79 205-210
+  s_68cb1a3d53c6a1::t_1336b461f7df23 60-62,64-66,68-71,74-97,99,103-105,108-111,114-117,120-123,126-130,134-146,150-153,156-163,165-166,169-184,186-188,192-193,196-204
+  s_68cb1a3d53c6a1::t_9e98a6fad80d50 2,8-9,12,14,20,25,35-39,42-44,48-52,55-59
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_trace_streamer_provider.py
+  s_68cb1a3d53c6a1::t_31bb0bb7d6e463 4-35,37-56
+  s_68cb1a3d53c6a1::t_e21989f9fe817c 57-58
+  s_68cb1a3d53c6a1::t_8e92161b9a4fd4 59-83,85-103
+  s_68cb1a3d53c6a1::t_0bdc63607ff2eb 1-3
+build/fixtures/create_payload_smoke_hitrace.py
+  s_68cb1a3d53c6a1::t_3bb49e67c404ab 1-33
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_thread_cpu_time.py
+  s_68cb1a3d53c6a1::t_a796c18e4b5727 3-4,21-41,129,137-164
+  s_68cb1a3d53c6a1::t_cbe6338d71023d 1-2
+build/build_workflow_wheel.py
+  s_68cb1a3d53c6a1::t_2cd5d44a265e6e 26,103-106,130,141,144-147
+kat/platform/workflow/runtime/__main__.py
+  s_68cb1a3d53c6a1::t_dd93fc85c964fa 133
+kat/platform/cli/src/lib.rs
+  s_68cb1a3d53c6a1::t_3f453f5e700806 11-13,30,33,44-45,47,49-51,486,490
+kat/platform/datasource/tests/python/test_hitrace_api.py
+  s_68cb1a3d53c6a1::t_b58a686a883db9 1-3
+  s_68cb1a3d53c6a1::t_0f4fec9d1cafca 5-27,29-32,34-40,42-56,58-127
+  s_68cb1a3d53c6a1::t_1044d54ab802f1 4
+  s_68cb1a3d53c6a1::t_4c44bd2f01c70c 128-178,182-210,212-213
+kat/platform/workflow/runtime/request.py
+  s_68cb1a3d53c6a1::t_5d47efd5174139 109,182-183,185,187-202
+kat/skill/references/pack-authoring-flow.md
+  s_68cb1a3d53c6a1::t_276afd73b75b67 5,9,11,13,15-70,76
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_68cb1a3d53c6a1::t_6cce32f92c8d94 55,62,64,78,80,93-97,100-133,135-147,149-151,154-170
+examples/packs/dataprovider-examples/README.md
+  s_68cb1a3d53c6a1::t_1339f3fa6d1132 40-44
+kat/platform/datasource/src/protobuf_source/spec.rs
+  s_68cb1a3d53c6a1::t_58b7e97ad23428 6,93,96,99,117,119,123,125
+build/tests/test_datasource_wheel.py
+  s_68cb1a3d53c6a1::t_b202f7f7d77954 3-4,7-37,39-43,47
+  s_68cb1a3d53c6a1::t_50a5fa36716d52 48-50,52-76,78-119
+build/build_datasource_wheel.py
+  s_68cb1a3d53c6a1::t_4594ea171cb392 1-3,6-12,15,18,20-22,26-79,81-85,87-88,90,92-95,97-105,107-130,132-159
+kat/platform/datasource/proto/ftrace_data/README.md
+  s_68cb1a3d53c6a1::t_f7671433a8b709 3,24,26,32,34
+kat/packs/kat-openharmony-critical-path/helpers/critical_path.py
+  s_68cb1a3d53c6a1::t_2ae7cc32721d79 242,249,258,272,274-277
+  s_68cb1a3d53c6a1::t_c22101c6782c94 12-13,62-108,147-148,152,154,156,158,165-167,169-170,177,180-181,193-197,201,203,205-209,212-216,218-222,225,227-233
+kat/platform/cli/src/test.rs
+  s_68cb1a3d53c6a1::t_9a2acf59b90f15 99
+kat/platform/datasource/python/kat_datasource/hitrace.py
+  s_68cb1a3d53c6a1::t_3bc4a1af008a33 1-17
+  s_68cb1a3d53c6a1::t_55f5c109510f5f 18-35
+kat/skill/references/command-reference.md
+  s_68cb1a3d53c6a1::t_2430ccbc337d0e 3,16,23-25
+  s_68cb1a3d53c6a1::t_f4a79bfd07aa57 26,32,36-43,48,51-57,59,68
+kat/platform/cli/tests/import.rs
+  s_68cb1a3d53c6a1::t_08bba298e0c9ac 1
+  s_68cb1a3d53c6a1::t_c306b108278d34 8-11,13-16,19-20,23-25
+kat/platform/workflow/api/_workflow.py
+  s_68cb1a3d53c6a1::t_cec73a6030c86f 44-45,64-66,71-74,78-79,87-90,95-97
+  s_68cb1a3d53c6a1::t_e609d3898ae464 13-14
+kat/platform/datasource/src/protobuf_source/buffered_relation.rs
+  s_68cb1a3d53c6a1::t_2b04f4a91bb8b1 3,7,9,16,20,22-23,26,49,74,80,93
+kat/platform/cli/tests/query.rs
+  s_68cb1a3d53c6a1::t_14c218d93d50b9 19-28
+  s_68cb1a3d53c6a1::t_3fa4281234f20b 29-38
+build/fixtures/payload-smoke-pack/datasources/hitrace.py
+  s_68cb1a3d53c6a1::t_3bb49e67c404ab 1-26
+kat/platform/workflow/tests/test_execution_process.py
+  s_68cb1a3d53c6a1::t_4cbc96fc122713 21-23,54,74,86,99-101,105-109,123-128,134-136,138-139,151,153-154,156-162,164-169,173-174,181,189,191-192,194-201,203,205-210,243-245,247,252,260,264,267-271,281-286,291,320-321,326,332,334-336,341-342,345,350,352,355,363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3f3d36aba9c8d891792c2c066c136431a9ec7564",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4096,
+      "total_deletions": 22496,
+      "accepted_lines": 3971,
+      "overriden_lines": 125
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
