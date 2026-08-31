@@ -173,6 +173,37 @@ fn decode_publishes_native_hook_descriptor_and_clock_relations_flat() {
         );
     }
 
+    let alloc = Relation::open(&destination, "batch_native_hook_data_events_alloc_event");
+    assert_eq!(alloc.primitive_values::<Int32Type>("pid"), [Some(1000)]);
+    assert_eq!(alloc.primitive_values::<UInt64Type>("size"), [Some(64)]);
+    let mmap = Relation::open(&destination, "batch_native_hook_data_events_mmap_event");
+    assert_eq!(mmap.string_values("type"), [Some("file-backed".to_owned())]);
+    let file_path = Relation::open(&destination, "batch_native_hook_data_events_file_path");
+    assert_eq!(
+        file_path.string_values("name"),
+        [Some("/system/lib64/libfixture.so".to_owned())]
+    );
+    let maps = Relation::open(&destination, "batch_native_hook_data_events_maps_info");
+    assert_eq!(maps.primitive_values::<UInt64Type>("start"), [Some(0x1800)]);
+    assert_eq!(maps.primitive_values::<UInt64Type>("end"), [Some(0x18ff)]);
+    let frame_map_ids = Relation::open(
+        &destination,
+        "batch_native_hook_data_events_stack_map_frame_map_id",
+    );
+    assert_eq!(
+        frame_map_ids.primitive_values::<UInt64Type>("_kat_repeated_index"),
+        [Some(0), Some(1)]
+    );
+    assert_eq!(
+        frame_map_ids.primitive_values::<UInt64Type>("value"),
+        [Some(501), Some(502)]
+    );
+    let stack_ips = Relation::open(&destination, "batch_native_hook_data_events_stack_map_ip");
+    assert_eq!(
+        stack_ips.primitive_values::<UInt64Type>("value"),
+        [Some(0x2200), Some(0x2201), Some(0x2202)]
+    );
+
     let symbol_table = Relation::open(&destination, "batch_native_hook_data_events_symbol_tab");
     let sym_table_field = symbol_table
         .schema()
@@ -520,6 +551,7 @@ fn native_hook_event_values_survive_the_default_flush_boundary() {
     let parent_ids = events.primitive_values::<UInt64Type>("_kat_parent_row_id");
     let repeated = events.primitive_values::<UInt64Type>("_kat_repeated_index");
     let seconds = events.primitive_values::<UInt64Type>("tv_sec");
+    let nanoseconds = events.primitive_values::<UInt64Type>("tv_nsec");
     assert_eq!(
         row_ids,
         (0_u64..FIRST_BATCH_EVENTS as u64 + SECOND_BATCH_EVENTS as u64)
@@ -543,6 +575,12 @@ fn native_hook_event_values_survive_the_default_flush_boundary() {
     assert_eq!(
         seconds,
         (0_u64..FIRST_BATCH_EVENTS as u64 + SECOND_BATCH_EVENTS as u64)
+            .map(Some)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        nanoseconds,
+        (10_000_u64..10_000 + FIRST_BATCH_EVENTS as u64 + SECOND_BATCH_EVENTS as u64)
             .map(Some)
             .collect::<Vec<_>>()
     );
@@ -574,13 +612,26 @@ fn native_hook_event_values_survive_the_default_flush_boundary() {
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        tags.string_values("tag")[8_191..],
-        [
-            Some("tag-8191".to_owned()),
-            Some("tag-8192".to_owned()),
-            Some("tag-8193".to_owned()),
-            Some("tag-8194".to_owned()),
-        ]
+        tags.primitive_values::<UInt64Type>("addr"),
+        (0_u64..FIRST_BATCH_EVENTS as u64 + SECOND_BATCH_EVENTS as u64)
+            .map(Some)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        tags.primitive_values::<UInt64Type>("size")
+            .into_iter()
+            .all(|value| value == Some(64))
+    );
+    assert!(
+        tags.primitive_values::<Int32Type>("pid")
+            .into_iter()
+            .all(|value| value == Some(42))
+    );
+    assert_eq!(
+        tags.string_values("tag"),
+        (0..FIRST_BATCH_EVENTS + SECOND_BATCH_EVENTS)
+            .map(|index| Some(format!("tag-{index}")))
+            .collect::<Vec<_>>()
     );
 }
 

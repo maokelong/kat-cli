@@ -75,20 +75,40 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         occurrences.primitive_values::<UInt32Type>("status"),
         [Some(31), Some(32)]
     );
+    assert_eq!(
+        occurrences.primitive_values::<UInt64Type>("_kat_row_id"),
+        [Some(0), Some(1)]
+    );
 
     let result_root = Relation::open(&destination, "trace_plugin_result");
     let config_root = Relation::open(&destination, "trace_plugin_config");
     assert_eq!(
+        result_root.primitive_values::<UInt64Type>("_kat_row_id"),
+        [Some(0)]
+    );
+    assert_eq!(
         result_root.primitive_values::<UInt64Type>("_kat_parent_row_id"),
         [Some(0)]
+    );
+    assert_eq!(
+        result_root.string_values("version"),
+        [Some("ftrace-v1".to_owned())]
     );
     assert_eq!(
         config_root.primitive_values::<UInt64Type>("_kat_parent_row_id"),
         [Some(1)]
     );
     assert_eq!(
+        config_root.primitive_values::<UInt64Type>("_kat_row_id"),
+        [Some(0)]
+    );
+    assert_eq!(
         config_root.string_values("clock"),
         [Some("boot".to_owned())]
+    );
+    assert_eq!(
+        config_root.primitive_values::<UInt32Type>("buffer_size_kb"),
+        [Some(8_192)]
     );
     assert_eq!(
         config_root.primitive_values::<Int32Type>("parse_mode"),
@@ -98,6 +118,10 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
     let details = Relation::open(&destination, "trace_plugin_result_ftrace_cpu_detail");
     assert_eq!(
         details.primitive_values::<UInt64Type>("_kat_parent_row_id"),
+        [Some(0)]
+    );
+    assert_eq!(
+        details.primitive_values::<UInt64Type>("_kat_row_id"),
         [Some(0)]
     );
     assert_eq!(
@@ -124,6 +148,10 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         [Some(101), Some(102)]
     );
     assert_eq!(
+        events.primitive_values::<Int32Type>("tgid"),
+        [Some(201), Some(202)]
+    );
+    assert_eq!(
         events.string_values("comm"),
         [Some("first".to_owned()), Some("second".to_owned())]
     );
@@ -137,6 +165,18 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
     };
     assert!(children.iter().all(|child| child.is_nullable()));
     assert_eq!(events.struct_nulls("common_fields"), [true, false]);
+    assert_eq!(
+        events.struct_primitive_values::<UInt32Type>("common_fields", "type"),
+        [None, Some(41)]
+    );
+    assert_eq!(
+        events.struct_primitive_values::<UInt32Type>("common_fields", "flags"),
+        [None, Some(42)]
+    );
+    assert_eq!(
+        events.struct_primitive_values::<UInt32Type>("common_fields", "preempt_count"),
+        [None, Some(43)]
+    );
     assert_eq!(
         events.struct_primitive_values::<Int32Type>("common_fields", "pid"),
         [None, Some(44)]
@@ -155,8 +195,28 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         [Some("before".to_owned())]
     );
     assert_eq!(
+        switches.primitive_values::<Int32Type>("prev_pid"),
+        [Some(301)]
+    );
+    assert_eq!(
+        switches.primitive_values::<Int32Type>("prev_prio"),
+        [Some(11)]
+    );
+    assert_eq!(
         switches.primitive_values::<UInt64Type>("prev_state"),
         [Some(0x1_0000_0001)]
+    );
+    assert_eq!(
+        switches.string_values("next_comm"),
+        [Some("after".to_owned())]
+    );
+    assert_eq!(
+        switches.primitive_values::<Int32Type>("next_pid"),
+        [Some(302)]
+    );
+    assert_eq!(
+        switches.primitive_values::<Int32Type>("next_prio"),
+        [Some(12)]
     );
 
     let irq = Relation::open(
@@ -167,6 +227,7 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         irq.primitive_values::<UInt64Type>("_kat_parent_row_id"),
         [Some(1)]
     );
+    assert_eq!(irq.primitive_values::<Int32Type>("irq"), [Some(55)]);
     assert_eq!(irq.string_values("name"), [Some("irq-name".to_owned())]);
 
     let clocks = Relation::open(&destination, "trace_plugin_result_clocks_detail");
@@ -182,6 +243,22 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         ]
     );
     assert_eq!(clocks.struct_nulls("resolution"), [true, false]);
+    assert_eq!(
+        clocks.struct_primitive_values::<UInt32Type>("time", "tv_sec"),
+        [Some(601), Some(605)]
+    );
+    assert_eq!(
+        clocks.struct_primitive_values::<UInt32Type>("time", "tv_nsec"),
+        [Some(602), Some(606)]
+    );
+    assert_eq!(
+        clocks.struct_primitive_values::<UInt32Type>("resolution", "tv_sec"),
+        [None, Some(603)]
+    );
+    assert_eq!(
+        clocks.struct_primitive_values::<UInt32Type>("resolution", "tv_nsec"),
+        [None, Some(604)]
+    );
 
     let configured_events = Relation::open(&destination, "trace_plugin_config_ftrace_events");
     assert_eq!(
@@ -194,6 +271,15 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
             Some("sched/sched_switch".to_owned()),
             Some("irq/irq_handler_entry".to_owned()),
         ]
+    );
+    assert_eq!(
+        Relation::open(&destination, "trace_plugin_config_hitrace_categories")
+            .string_values("value"),
+        [Some("sched".to_owned()), Some("irq".to_owned())]
+    );
+    assert_eq!(
+        Relation::open(&destination, "trace_plugin_config_hitrace_apps").string_values("value"),
+        [Some("app-b".to_owned()), Some("app-a".to_owned())]
     );
 
     let symbols = Relation::open(&destination, "protobuf_enum_symbol");
