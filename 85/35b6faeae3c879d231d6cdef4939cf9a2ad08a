@@ -1,0 +1,51 @@
+kat/platform/cli/src/run_manifest.rs
+  s_0112a125c621b1::t_784ddfe9fc3ec9 1,4,8-30,61,65-66,82
+docs/adr/0074-pack-inspection-separately-discovers-provider-declarations.md
+  s_0112a125c621b1::t_c94f0cf1b6a922 12-13,41-44
+kat/skill/references/result-contract.md
+  s_0112a125c621b1::t_b66c4feb4ed3b7 12,35
+kat/platform/cli/src/lib.rs
+  s_0112a125c621b1::t_c94f0cf1b6a922 46,48-49,206-207
+kat/platform/cli/tests/inspect.rs
+  s_0112a125c621b1::t_102bac2a621a56 236-237
+  s_0112a125c621b1::t_80c80d9500f44c 233-235
+CONTEXT.md
+  s_0112a125c621b1::t_b66c4feb4ed3b7 164,168,171
+kat/skill/references/analysis-flow.md
+  s_0112a125c621b1::t_b66c4feb4ed3b7 8,10,36,38
+README.md
+  s_0112a125c621b1::t_b66c4feb4ed3b7 133-135
+kat/platform/cli/tests/trace_streamer_demo.rs
+  s_0112a125c621b1::t_733faf45a7dd33 186
+kat/skill/references/command-reference.md
+  s_0112a125c621b1::t_b66c4feb4ed3b7 98,100-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "8535b6faeae3c879d231d6cdef4939cf9a2ad08a",
+  "prompts": {
+    "s_0112a125c621b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05685-b037-7e10-b8a9-aba394fdd249",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 76,
+      "total_deletions": 72,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0112a125c621b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05685-b037-7e10-b8a9-aba394fdd249",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
