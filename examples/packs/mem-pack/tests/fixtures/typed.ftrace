@@ -10,8 +10,8 @@
 # |||| /     delay
 # TASK-PID       TGID    CPU#  |||||  TIMESTAMP  FUNCTION
 # | |            |       |   |||||     |         |
-worker-7 ( 7) [002] d.... 1.0: sched_switch: prev_comm=old prev_pid=7 prev_prio=120 prev_state=R+ ==> next_comm=new next_pid=8 next_prio=100
-worker-7 ( 7) [002] d.... 2.0: sched_wakeup: comm=a pid=8 prio=120 target_cpu=003
-worker-7 ( 7) [002] d.... 2.5: custom_event: value=1
-worker-7 ( 7) [002] d.... 3.0: sched_wakeup_new: comm=b pid=9 prio=100 target_cpu=001
-worker-7 ( 7) [002] d.... 4.0: tracing_mark_write: marker payload
+OS_IPC_1_872-872     (    590) [003] d.... 2424377.906317: sched_switch: prev_comm=OS_IPC_1_872 prev_pid=872 prev_prio=120 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+OS_IPC_1_872-872     (    590) [003] d.... 2424377.906318: sched_wakeup: comm=target_worker pid=8 prio=120 target_cpu=003
+OS_IPC_1_872-872     (    590) [003] d.... 2424377.906319: custom_event: value=1
+OS_IPC_1_872-872     (    590) [003] d.... 2424377.906320: sched_wakeup_new: comm=new_worker pid=9 prio=100 target_cpu=001
+OS_IPC_1_872-872     (    590) [003] d.... 2424377.906321: tracing_mark_write: marker payload
