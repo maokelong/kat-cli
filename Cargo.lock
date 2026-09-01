@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "kat-cli"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "base64",
  "clap",
@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "kat-datasource"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "anyhow",
  "arrow-array",

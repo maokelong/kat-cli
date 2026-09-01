@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kat-workflow"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "adbc-driver-manager==1.11.0",
