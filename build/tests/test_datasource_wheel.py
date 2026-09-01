@@ -29,6 +29,7 @@ def write_wheel(path: Path, *, tag: str, extension: str) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("kat_datasource/__init__.py", "")
         archive.writestr("kat_datasource/hitrace.py", "")
+        archive.writestr("kat_datasource/text_ftrace.py", "")
         archive.writestr(extension, b"native extension")
         archive.writestr(
             f"{dist_info}/METADATA",
