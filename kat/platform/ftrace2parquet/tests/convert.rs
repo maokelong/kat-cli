@@ -428,6 +428,7 @@ fn cli_requires_the_explicit_contract() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("to a Parquet catalog directory"));
     for option in ["--input", "--output", "--clock-domain"] {
         assert!(stdout.contains(option), "missing {option} in {stdout}");
     }
