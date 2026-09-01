@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # Workflow 只派生数据，不修改 Dataset
