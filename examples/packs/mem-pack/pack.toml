@@ -1,0 +1,4 @@
+name = "mem-pack"
+title = "Memory Analysis PACK"
+description = "External PACK example for querying typed Ftrace relations decoded by kat-datasource."
+owner = "KAT Contributors"
