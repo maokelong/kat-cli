@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/ftrace2parquet",
     "kat/platform/cli",
     "kat/platform/datasource",
+    "kat/platform/ftrace2parquet",
 ]
 resolver = "2"
 
