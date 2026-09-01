@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package fixture.protobuf_source.contract;
+
+enum Lifecycle {
+  LIFECYCLE_UNSPECIFIED = 0;
+  LIFECYCLE_STARTED = 1;
+}
+
+message Child {
+  uint32 id = 1;
+}
+
+message ValidRoot {
+  bytes payload = 1;
+  repeated uint64 samples = 2;
+  repeated Child children = 3;
+  Lifecycle lifecycle = 4;
+}
+
+message MapRoot {
+  map<string, int32> values = 1;
+}
+
+message RecursiveNode {
+  RecursiveNode next = 1;
+}
+
+message RecursiveRoot {
+  RecursiveNode node = 1;
+}
+
+enum AliasedStatus {
+  option allow_alias = true;
+
+  ALIASED_STATUS_UNSPECIFIED = 0;
+  ALIASED_STATUS_READY = 1;
+  ALIASED_STATUS_RUNNING = 1;
+}
+
+message AliasRoot {
+  AliasedStatus status = 1;
+}
+
+message CollisionLeaf {
+  int32 value = 1;
+}
+
+message CollisionBranch {
+  repeated CollisionLeaf bar = 1;
+}
+
+message NameCollisionRoot {
+  repeated CollisionLeaf foo_bar = 1;
+  CollisionBranch foo = 2;
+}
+
+message ReservedColumnRoot {
+  string _kat_parent_row_id = 1;
+}
+
+message ReservedChildRoot {
+  repeated int32 domain = 1;
+}

@@ -16,16 +16,22 @@ cargo build --release -p kat-cli
 ```
 
 该命令只生成 Rust 二进制，不装配相邻 Python Host。Cargo 输出可以用于编译检查和
-不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect --pack` 或 `kat run`。
+不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect workflow`、
+`kat inspect provider` 或 `kat run`。
 仅做 Rust 开发时使用 `cargo test -p kat-cli`；需要执行 Workflow 的调用必须满足
 下述运行前提。
 
 ## 运行前提
 
-`kat inspect --pack` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
+`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
+
+私有 Python Host 同时安装两个边界独立、版本一致的 wheel：纯 Python
+`kat-workflow` 提供顶层 `kat` Pack Authoring API 和 `_kat_runtime`，平台原生
+`kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
+可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
 
 完整的 Skill 装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
@@ -53,8 +59,9 @@ global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公�
 归档；生成流水线因此在 `post-announce` 阶段校验最终资产和 SHA-256，再从 Release 删除该
 计划中间产物。Linux glibc 2.28 job 从最终压缩包完成发布资格闭环；Windows job 只在
 GitHub 托管的 `windows-2025` builder image
-验证候选归档的装配、重定位、Bundled Python 选择及 Import → Inspect → `kat test` →
-Run → Query 机制链路。该 Windows smoke 不构成无系统级 VC Runtime 的干净客户端验收，
+验证候选归档的装配、重定位、Bundled Python 选择及 Hitrace decode →
+`dp.open`/`DataFusionProvider` → Inspect → `kat test` → Run → Query 机制链路。该 Windows
+smoke 不构成无系统级 VC Runtime 的干净客户端验收，
 Windows 10/11 正式支持仍由 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 跟踪。
 
 发布版本以 [`release/kat/dist.toml`](release/kat/dist.toml) 为入口；Cargo workspace 与
@@ -97,26 +104,30 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 以下命令只适用于满足上述拓扑的完整 KAT Skill deployment：
 
-- `kat import hitrace`：将 HiProfiler Hitrace 导入为受管理 Dataset。
-- `kat import trace-streamer`：预发布联调用的 deprecated Trace Streamer 导入。
-- `kat inspect`：列出或检查 PACK。
-- `kat inspect --dataset <directory>`：只读检查 Dataset 与 Parquet Schema。
+- `kat inspect`：只读取 manifest，发现 PACK。
+- `kat inspect workflow`：发现或读取 Workflow 分析知识。
+- `kat inspect provider`：发现或读取 Provider 开发知识。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：执行一个 Workflow 并原子发布 Run。
-- `kat query`：只读查询已发布 Run 的 `output.*`。
+- `kat query`：只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result。
 
 使用外部 PACK 的调用模板如下；`/path/to/example-pack/pack.toml` 的 `name`
 应为 `example`，并声明 `analyze` Workflow：
 
 ```bash
-kat import --dataset ./dataset hitrace --trace ./capture.htrace
-kat inspect --dataset ./dataset
+kat inspect \
+  --pack-dir /path/to/example-pack
+kat inspect workflow \
+  --pack example \
+  --workflow analyze \
+  --pack-dir /path/to/example-pack
+kat test --pack-dir /path/to/example-pack
 kat run \
   --pack example \
   --workflow analyze \
   --pack-dir /path/to/example-pack \
-  --dataset ./dataset \
   -- \
+  --source-path /absolute/path/to/source \
   --limit 20
 ```
 
@@ -126,29 +137,44 @@ kat run \
 ## Run 公开合同
 
 `manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和
-Response 都通过校验后，CLI 才发布 Manifest。`kat query` 只接受已发布 Run，并通过
-`output.<name>` 查询 Manifest 声明的输出；不存在、未发布或损坏的 Run 都明确失败。
+Response 都通过校验后，CLI 才发布 Manifest。新 Manifest 只记录 Run、PACK、Workflow、
+有效输入和 Output 元数据；Query 读取历史 Manifest 时会忽略任意 JSON 形状的旧
+`dataset` 字段，不把它注册为查询关系或恢复成当前能力。`kat query` 只接受已发布 Run，
+并通过 `output.<name>` 或 `information_schema` 查询 Manifest 声明的输出；不存在、未发布
+或损坏的 Run 都明确失败。查询成功 Response 只返回 `format`、`path` 与 `columns`，
+对象行由 Python/DataFusion 直接写入 `path` 指向的单文件 NDJSON，不内联回传 Rust。
 
-PACK Authoring API 通过显式的 `kat.Context` 暴露受管理能力：
+`kat query` 只接受已发布 Run，并且新建一个 fresh DataFusion Session；其中只注册该 Run
+的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。成功 Response 的
+`result` 精确返回 `format`、`path` 和 `columns`：`format` 为 `ndjson`，`path` 指向 Runtime
+直接写出的单个 NDJSON 文件，文件中每行是一个使用查询列名的 JSON object。不存在、
+未发布或损坏的 Run，以及非只读或多语句 SQL，都明确失败。
 
-- `ctx.sql(sql, **params)`：只查询 Workflow 获准的旧 Dataset 表，并返回惰性的
-  DataFusion `DataFrame`。
-- `ctx.from_arrow(table)`：将 PyArrow Table 放入当前 execution plane。
+PACK Authoring API 向每次显式 Workflow 调用提供一个 `kat.Context`。Context 只暴露：
+
 - `ctx.datasource_root`：当前 PACK 在 KAT Data Home 下的私有 Datasource 根；
   文件 Provider 通常在其下创建当前 Workflow 的临时 workspace。
-- `ctx.convert_clock(..., target_domain="...")`：通过 Runtime 私有的稳定
-  Python/PyArrow batch UDF 换算时钟。
 
 PACK 可在顶层 `datasources/` 中定义普通 Provider 类并由 Workflow 显式调用；
-KAT 不扫描、注册、构造或包装 Provider。可追加 Table、Schema、Parquet 写入/打开
+生产 Workflow Runtime 不扫描、注册、构造或包装 Provider，只有显式的 Provider
+inspection 会扫描其 metadata declaration。可追加 Table、Schema、Parquet 写入/打开
 与显式本地融合统一由 `kat.dataprovider` Toolkit 提供，推荐导入为
 `from kat import dataprovider as dp`；多个内存 Table、Parquet Catalog 或两者的混合
 通过普通 `dp.DataFusionProvider` 查询，不进入 Workflow Context 的隐式 catalog。
+Workflow 必须返回精确的 `dp.Table`，或返回一个非空普通 `dict`，其字符串键是 Output
+名称、值均为精确的 `dp.Table`；PyArrow Table、引擎惰性值、空或混合 Mapping 都失败。
+
+需要原生 Hitrace 解码时，PACK 显式导入独立 wheel 的
+`from kat_datasource import hitrace`，并在 `ctx.datasource_root` 下的当前 Workflow 临时目录
+调用 `hitrace.decode(source, destination)`。`destination` 必须尚不存在；成功结果是一个
+只含扁平 `*.parquet` relation 的目录和一份 unsupported-content report，不是平台持久
+状态。Workflow 随后用 `dp.open(root=destination)` 打开 Catalog。需要融合另一份磁盘
+Catalog 时，先用一个 `dp.DataFusionProvider(catalog=...)` 把其中所需 relation 查询成
+eager Table，再把该 Table、来源 Provider 返回的其他内存 Table 与另一个 Catalog 显式
+交给 `dp.DataFusionProvider(tables=..., catalog=...)`。
 
 完整的 PACK 级本地多表查询与融合写法见
 [`examples/packs/local-parquet-fusion`](examples/packs/local-parquet-fusion/README.md)。
-
-`kat_convert_clock(...)` 不注册为 SQL 函数；SQL 直接调用会按未知函数失败。
 
 ## 开发验证
 

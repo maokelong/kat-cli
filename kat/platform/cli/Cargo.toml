@@ -10,7 +10,6 @@ config.workspace = true
 directories.workspace = true
 dunce.workspace = true
 miette.workspace = true
-kat-datasource = { path = "../datasource" }
 serde.workspace = true
 serde_json.workspace = true
 strip-ansi.workspace = true
@@ -21,8 +20,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
-prost.workspace = true
-rusqlite.workspace = true
 
 [[bin]]
 name = "kat"

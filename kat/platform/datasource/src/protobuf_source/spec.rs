@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::{Result, bail};
 use arrow_schema::{DataType, SchemaRef};
 
-pub(crate) const PROTOBUF_ENUM_SYMBOL_TABLE: &str = "protobuf_enum_symbol";
+pub(crate) const PROTOBUF_ENUM_SYMBOL_RELATION: &str = "protobuf_enum_symbol";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct RelationSlot(usize);
@@ -90,13 +90,13 @@ impl BufferOptions {
 
     pub(super) fn validate(self) -> Result<()> {
         if self.max_buffered_rows == 0 {
-            bail!("protobuf Source-table buffer row limit must be greater than zero");
+            bail!("protobuf Source relation buffer row limit must be greater than zero");
         }
         if i64::try_from(self.max_buffered_rows).is_err() {
-            bail!("protobuf Source-table buffer row limit exceeds Parquet Int64 metadata");
+            bail!("protobuf Source relation buffer row limit exceeds Parquet Int64 metadata");
         }
         if self.max_buffered_bytes == 0 {
-            bail!("protobuf Source-table buffer byte limit must be greater than zero");
+            bail!("protobuf Source relation buffer byte limit must be greater than zero");
         }
         Ok(())
     }
@@ -114,15 +114,15 @@ pub(super) fn validate_specs(
 ) -> Result<()> {
     let mut relation_names = HashSet::new();
     for (slot, relation) in relations.iter().enumerate() {
-        if !crate::valid_table_name(relation.name) {
+        if !crate::relation_name::valid_relation_name(relation.name) {
             bail!(
-                "protobuf Source relation slot {slot} has invalid Dataset table name {:?}",
+                "protobuf Source relation slot {slot} has invalid relation name {:?}",
                 relation.name
             );
         }
-        if relation.name == PROTOBUF_ENUM_SYMBOL_TABLE {
+        if relation.name == PROTOBUF_ENUM_SYMBOL_RELATION {
             bail!(
-                "protobuf Source relation slot {slot} uses reserved table name {:?}",
+                "protobuf Source relation slot {slot} uses reserved relation name {:?}",
                 relation.name
             );
         }

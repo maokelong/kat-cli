@@ -4,12 +4,13 @@ use std::{
     process::{Command, Stdio},
 };
 
-use base64::Engine;
-
 mod support;
 use support::cargo_kat;
 
-const DATA_DICT_PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
+#[path = "support/test_home.rs"]
+mod test_home;
+
+const INSPECT_RUN_ID: &str = "019f6e00-0000-7000-8000-000000000235";
 
 fn stage_minimum_skill_layout(root: &Path) -> (PathBuf, PathBuf) {
     support::stage_skill(root, "movable-skill")
@@ -22,7 +23,7 @@ fn stage_fake_python_host(binary: &Path) {
     let source = payload.join("fake-python-host.rs");
     fs::write(
         &source,
-        r#"
+        r###"
 use std::{env, fs, io::{self, Write}, process};
 
 fn main() {
@@ -35,9 +36,18 @@ fn main() {
         process::exit(91);
     }
     let request = fs::read_to_string(&arguments[8]).unwrap();
-    if !request.contains("\"operation\":\"inspect_pack\"")
+    let operation = env::var("KAT_EXPECT_OPERATION").unwrap_or_else(|_| "inspect_workflow".to_owned());
+    let name_field = env::var("KAT_EXPECT_NAME_FIELD").unwrap_or_else(|_| "workflow_name".to_owned());
+    let expected_name = env::var("KAT_EXPECT_NAME").unwrap_or_default();
+    let expected_selector = if expected_name.is_empty() {
+        format!(r#""{}":null"#, name_field)
+    } else {
+        format!(r#""{}":"{}""#, name_field, expected_name)
+    };
+    if !request.contains(&format!(r#""operation":"{}""#, operation))
         || !request.contains("\"pack_name\":")
         || !request.contains("\"pack_path\":")
+        || !request.contains(&expected_selector)
     {
         process::exit(92);
     }
@@ -47,7 +57,7 @@ fn main() {
     process::exit(env::var("KAT_FAKE_RUNTIME_EXIT").unwrap_or_else(|_| "0".to_owned()).parse().unwrap());
 }
 
-"#,
+"###,
     )
     .expect("write fake Host source");
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
@@ -108,15 +118,313 @@ fn targeted_inspect_command(binary: &Path, root: &Path, pack: &Path) -> Command 
     let mut command = Command::new(binary);
     command
         .arg("inspect")
+        .arg("workflow")
         .args(["--pack", "alpha"])
         .arg("--pack-dir")
         .arg(pack)
+        .env("KAT_EXPECT_OPERATION", "inspect_workflow")
+        .env("KAT_EXPECT_NAME_FIELD", "workflow_name")
+        .env("KAT_EXPECT_NAME", "")
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
             r#"{"status":"success","result":{"workflows":[]}}"#,
         );
     prepare_platform_data_home(&mut command, root);
     command
+}
+
+fn knowledge_inspect_command(
+    binary: &Path,
+    root: &Path,
+    pack: &Path,
+    kind: &str,
+    selected: Option<&str>,
+) -> Command {
+    let mut command = Command::new(binary);
+    command.arg("inspect").arg(kind).args(["--pack", "alpha"]);
+    if let Some(selected) = selected {
+        command.arg(format!("--{kind}")).arg(selected);
+    }
+    command
+        .arg("--pack-dir")
+        .arg(pack)
+        .env("KAT_EXPECT_OPERATION", format!("inspect_{kind}"))
+        .env("KAT_EXPECT_NAME_FIELD", format!("{kind}_name"))
+        .env("KAT_EXPECT_NAME", selected.unwrap_or_default());
+    prepare_platform_data_home(&mut command, root);
+    command
+}
+
+#[test]
+fn workflow_inspection_forwards_the_exact_request_and_public_result() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_knowledge_inspection_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+
+    let mut list = knowledge_inspect_command(&binary, temporary.path(), &pack, "workflow", None);
+    list.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflows":[{"name":"cpu-time","description":"Analyze CPU time."}]}}"#,
+    );
+    let list = list.output().expect("inspect Workflow list");
+    assert_eq!(
+        list.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&list.stdout).unwrap()["result"],
+        serde_json::json!({
+            "workflows": [{"name": "cpu-time", "description": "Analyze CPU time."}]
+        })
+    );
+
+    let mut detail = knowledge_inspect_command(
+        &binary,
+        temporary.path(),
+        &pack,
+        "workflow",
+        Some("cpu-time"),
+    );
+    detail.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflow":{"name":"cpu-time","description":"Analyze CPU time.","parameters":[],"guide":null}}}"#,
+    );
+    let detail = detail.output().expect("inspect one Workflow");
+    assert_eq!(
+        detail.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&detail.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&detail.stdout).unwrap()["result"],
+        serde_json::json!({
+            "workflow": {
+                "name": "cpu-time",
+                "description": "Analyze CPU time.",
+                "parameters": [],
+                "guide": null
+            }
+        })
+    );
+}
+
+#[test]
+fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_knowledge_inspection_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let run = test_home::data_home(temporary.path())
+        .join("runs")
+        .join(INSPECT_RUN_ID);
+    fs::create_dir_all(&run).expect("create published Run directory");
+    fs::write(
+        run.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "run_id": INSPECT_RUN_ID,
+            "pack": "alpha",
+            "workflow": "analyze",
+            "dataset": {
+                "historical": ["shape", "is", "irrelevant", "to", "inspect"]
+            },
+            "inputs": ["historical", "shape"],
+            "outputs": "historical shape"
+        }))
+        .unwrap(),
+    )
+    .expect("write published Run manifest");
+    let mut command = Command::new(binary);
+    command
+        .arg("inspect")
+        .arg("workflow")
+        .args(["--run", INSPECT_RUN_ID])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_EXPECT_OPERATION", "inspect_workflow")
+        .env("KAT_EXPECT_NAME_FIELD", "workflow_name")
+        .env("KAT_EXPECT_NAME", "analyze")
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r##"{"status":"success","result":{"workflow":{"name":"analyze","description":"Analyze current Run facts.","parameters":[],"guide":"# Current guide\n"}}}"##,
+        );
+    test_home::configure(&mut command, temporary.path());
+
+    let output = command
+        .output()
+        .expect("inspect one Run's current Workflow");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["result"],
+        serde_json::json!({
+            "workflow": {
+                "name": "analyze",
+                "description": "Analyze current Run facts.",
+                "parameters": [],
+                "guide": "# Current guide\n"
+            }
+        })
+    );
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("operation: kat inspect workflow"));
+    assert!(log.contains(&format!("run: {INSPECT_RUN_ID}")));
+    assert!(log.contains("pack: alpha"));
+    assert!(log.contains("workflow: analyze"));
+}
+
+fn stage_knowledge_inspection_host(binary: &Path) {
+    let payload = binary.parent().expect("Platform Payload directory");
+    let host = support::host_path(binary);
+    fs::create_dir_all(host.parent().unwrap()).expect("create fake Host directory");
+    let source = payload.join("fake-knowledge-inspection-host.rs");
+    fs::write(
+        &source,
+        r###"
+use std::{env, fs, process};
+
+fn main() {
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
+    if arguments.len() != 11
+        || arguments[..8] != fixed
+        || arguments[9] != "--response"
+    {
+        process::exit(91);
+    }
+    let request = fs::read_to_string(&arguments[8]).unwrap();
+    let operation = env::var("KAT_EXPECT_OPERATION").unwrap();
+    let name_field = env::var("KAT_EXPECT_NAME_FIELD").unwrap();
+    let expected_name = env::var("KAT_EXPECT_NAME").unwrap();
+    let expected_selector = if expected_name.is_empty() {
+        format!(r#""{}":null"#, name_field)
+    } else {
+        format!(r#""{}":"{}""#, name_field, expected_name)
+    };
+    if !request.contains(&format!(r#""operation":"{}""#, operation))
+        || !request.contains("\"pack_name\":\"alpha\"")
+        || !request.contains("\"pack_path\":")
+        || !request.contains(&expected_selector)
+    {
+        process::exit(92);
+    }
+    fs::write(&arguments[10], env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap()).unwrap();
+}
+"###,
+    )
+    .expect("write fake knowledge inspection Host source");
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let output = Command::new(rustc)
+        .arg(&source)
+        .arg("-o")
+        .arg(&host)
+        .output()
+        .expect("compile fake knowledge inspection Host");
+    assert!(
+        output.status.success(),
+        "fake knowledge inspection Host compilation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn provider_inspection_forwards_the_exact_request_and_public_result() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_knowledge_inspection_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+
+    let mut list = knowledge_inspect_command(&binary, temporary.path(), &pack, "provider", None);
+    list.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"providers":[{"name":"postgresql","description":"Query PostgreSQL."}]}}"#,
+    );
+    let list = list.output().expect("inspect Provider list");
+    assert_eq!(
+        list.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&list.stdout).unwrap()["result"],
+        serde_json::json!({
+            "providers": [{"name": "postgresql", "description": "Query PostgreSQL."}]
+        })
+    );
+
+    let mut detail = knowledge_inspect_command(
+        &binary,
+        temporary.path(),
+        &pack,
+        "provider",
+        Some("postgresql"),
+    );
+    detail.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r##"{"status":"success","result":{"provider":{"name":"postgresql","description":"Query PostgreSQL.","module":"kat.pack.datasources.postgresql","qualname":"PostgreSQLProvider","guide":"# PostgreSQL\n"}}}"##,
+    );
+    let detail = detail.output().expect("inspect one Provider");
+    assert_eq!(
+        detail.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&detail.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&detail.stdout).unwrap()["result"],
+        serde_json::json!({
+            "provider": {
+                "name": "postgresql",
+                "description": "Query PostgreSQL.",
+                "module": "kat.pack.datasources.postgresql",
+                "qualname": "PostgreSQLProvider",
+                "guide": "# PostgreSQL\n"
+            }
+        })
+    );
+}
+
+#[test]
+fn workflow_detail_rejects_a_missing_guide_field_but_accepts_null() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_knowledge_inspection_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let mut command = knowledge_inspect_command(
+        &binary,
+        temporary.path(),
+        &pack,
+        "workflow",
+        Some("cpu-time"),
+    );
+    command.env(
+        "KAT_FAKE_RUNTIME_RESPONSE",
+        r#"{"status":"success","result":{"workflow":{"name":"cpu-time","description":"Analyze CPU time.","parameters":[]}}}"#,
+    );
+
+    let output = command.output().expect("reject missing guide field");
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        "PACK inspection Runtime failed"
+    );
+    assert!(response.get("result").is_none());
 }
 
 #[test]
@@ -140,12 +448,8 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
     assert!(output.stderr.is_empty());
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
-    assert_eq!(response["result"]["name"], "alpha");
-    assert_eq!(response["result"]["title"], "alpha");
-    assert_eq!(response["result"]["description"], "External PACK");
-    assert_eq!(response["result"]["owner"], "Test Team");
     assert_eq!(response["result"]["workflows"], serde_json::json!([]));
-    assert!(response["result"].get("pack").is_none());
+    assert_eq!(response["result"].as_object().unwrap().len(), 1);
     let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
     let log = fs::read_to_string(log_path).expect("read Operation log");
     assert!(!log.contains('\u{1b}'));
@@ -163,7 +467,7 @@ fn targeted_pack_inspection_uses_adjacent_host_and_delivers_clean_log() {
 
 #[test]
 #[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
-fn targeted_pack_inspection_runs_real_installed_workflow_host() {
+fn targeted_knowledge_inspection_runs_the_real_installed_host() {
     let python = PathBuf::from(
         std::env::var_os("KAT_TEST_PYTHON").expect("KAT_TEST_PYTHON identifies CPython"),
     );
@@ -182,17 +486,38 @@ fn targeted_pack_inspection_runs_real_installed_workflow_host() {
         workflows.join("cpu.py"),
         r#"from kat import Context, workflow
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", description="Analyze CPU time.", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = 10):
     """Analyze CPU time."""
 "#,
     )
     .expect("write Workflow entry");
+    let datasources = pack.join("datasources");
+    fs::create_dir_all(&datasources).expect("create Datasource directory");
+    fs::write(
+        datasources.join("postgresql.py"),
+        r#"from kat import provider
+
+@provider(name="postgresql", description="Query PostgreSQL.", guide="providers/postgresql.md")
+class PostgreSQLProvider:
+    pass
+"#,
+    )
+    .expect("write Provider module");
+    let knowledge = pack.join("knowledge").join("providers");
+    fs::create_dir_all(&knowledge).expect("create Provider knowledge directory");
+    fs::write(
+        knowledge.join("postgresql.md"),
+        "# PostgreSQL\n\nUse source SQL.\n",
+    )
+    .expect("write Provider guide");
 
     let mut command = Command::new(&binary);
     command
         .arg("inspect")
+        .arg("workflow")
         .args(["--pack", "alpha"])
+        .args(["--workflow", "cpu-time"])
         .arg("--pack-dir")
         .arg(&pack);
     prepare_platform_data_home(&mut command, temporary.path());
@@ -206,13 +531,45 @@ def analyze(ctx: Context, *, limit: int = 10):
     );
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
-    assert_eq!(response["result"]["name"], "alpha");
-    assert_eq!(response["result"]["workflows"][0]["name"], "cpu-time");
+    assert_eq!(response["result"]["workflow"]["name"], "cpu-time");
     assert_eq!(
-        response["result"]["workflows"][0]["parameters"][0]["default"],
+        response["result"]["workflow"]["parameters"][0]["default"],
         "10"
     );
     assert!(!pack.join("workflows").join("__pycache__").exists());
+
+    let mut provider_command = Command::new(&binary);
+    provider_command
+        .arg("inspect")
+        .arg("provider")
+        .args(["--pack", "alpha"])
+        .args(["--provider", "postgresql"])
+        .arg("--pack-dir")
+        .arg(&pack);
+    prepare_platform_data_home(&mut provider_command, temporary.path());
+    let provider_output = provider_command
+        .output()
+        .expect("inspect with real Provider Host");
+
+    assert_eq!(
+        provider_output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&provider_output.stderr)
+    );
+    let provider_response: serde_json::Value =
+        serde_json::from_slice(&provider_output.stdout).unwrap();
+    assert_eq!(
+        provider_response["result"]["provider"],
+        serde_json::json!({
+            "name": "postgresql",
+            "description": "Query PostgreSQL.",
+            "module": "kat.pack.datasources.postgresql",
+            "qualname": "PostgreSQLProvider",
+            "guide": "# PostgreSQL\n\nUse source SQL.\n"
+        })
+    );
+    assert!(!pack.join("datasources").join("__pycache__").exists());
 
     fs::write(
         workflows.join("cpu.py"),
@@ -229,7 +586,7 @@ proxy = MetadataProxy()
 def invalid_default():
     raise RuntimeError("author default failed")
 
-@workflow(name="cpu-time", title="CPU time", required_tables=["thread"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", description="Analyze CPU time.", parameters={"limit": "Maximum rows"})
 def analyze(ctx: Context, *, limit: int = invalid_default):
     """Analyze CPU time."""
 "#,
@@ -343,6 +700,7 @@ fn targeted_pack_preflight_failures_still_deliver_the_single_operation_log() {
     let mut command = Command::new(&binary);
     command
         .arg("inspect")
+        .arg("workflow")
         .args(["--pack", "missing"])
         .arg("--pack-dir")
         .arg(&pack);
@@ -358,7 +716,7 @@ fn targeted_pack_preflight_failures_still_deliver_the_single_operation_log() {
     );
     assert!(response.get("result").is_none());
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
-    assert!(log.contains("operation: kat inspect --pack"));
+    assert!(log.contains("operation: kat inspect workflow"));
     assert!(log.contains("pack: missing"));
     assert!(log.contains("status: failure"));
 
@@ -367,6 +725,7 @@ fn targeted_pack_preflight_failures_still_deliver_the_single_operation_log() {
     let mut duplicate_command = Command::new(&binary);
     duplicate_command
         .arg("inspect")
+        .arg("workflow")
         .args(["--pack", "alpha"])
         .arg("--pack-dir")
         .arg(&pack)
@@ -404,6 +763,7 @@ fn targeted_pack_log_header_escapes_untrusted_pack_name() {
     let mut command = Command::new(binary);
     command
         .arg("inspect")
+        .arg("workflow")
         .arg("--pack")
         .arg("bad\nforged:\x1b[31mred\r")
         .env(
@@ -444,8 +804,9 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
     assert!(operation_help.stderr.is_empty());
     assert!(!operation_help.stdout.starts_with(b"{"));
     let operation_help_text = String::from_utf8(operation_help.stdout).expect("UTF-8 help");
-    assert!(operation_help_text.contains("available PACKs, one exact PACK, or one KAT Dataset"));
-    assert!(operation_help_text.contains("managed KAT Dataset and its Parquet Schema"));
+    assert!(operation_help_text.contains("Workflow and Provider knowledge"));
+    assert!(operation_help_text.contains("workflow"));
+    assert!(operation_help_text.contains("provider"));
     assert!(operation_help_text.contains("validation order"));
     assert!(operation_help_text.contains("sorted by PACK name"));
 
@@ -462,6 +823,51 @@ fn help_and_parse_failures_do_not_require_a_skill_layout() {
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
     }
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
+)]
+fn manifest_only_inspection_never_imports_pack_python() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let datasources = pack.join("datasources");
+    fs::create_dir_all(&datasources).expect("create Datasource directory");
+    let marker = temporary.path().join("python-imported");
+    fs::write(
+        datasources.join("broken.py"),
+        format!(
+            "from pathlib import Path\nPath({:?}).write_text('imported')\nraise RuntimeError('must not import')\n",
+            marker
+        ),
+    )
+    .expect("write hostile Datasource module");
+    let mut command = Command::new(binary);
+    command.arg("inspect").arg("--pack-dir").arg(&pack);
+    prepare_platform_data_home(&mut command, temporary.path());
+
+    let output = command.output().expect("inspect manifests only");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response["result"]["packs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate["name"] == "alpha")
+    );
+    assert!(response.get("log_path").is_none());
+    assert!(!marker.exists());
 }
 
 #[test]
@@ -697,139 +1103,22 @@ fn closed_stdout_makes_the_real_process_fail() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("write KAT Response"));
 }
-
 #[test]
-fn empty_dataset_can_be_inspected_without_skill_deployment() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let dataset = temporary.path().join("empty-dataset");
-    fs::create_dir(&dataset).expect("create Dataset directory");
-    fs::write(dataset.join(".kat-dataset"), []).expect("write Dataset marker");
-    let mut command = Command::new(cargo_kat());
-    command.arg("inspect").arg("--dataset").arg(&dataset);
-    #[cfg(not(windows))]
-    command
-        .env("XDG_DATA_HOME", temporary.path().join("xdg-data"))
-        .env("HOME", temporary.path().join("home"));
-
-    let output = command.output().expect("inspect empty Dataset");
-
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    assert_eq!(
-        response["result"]["path"],
-        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
-    );
-    assert_eq!(response["result"]["tables"], serde_json::json!([]));
-    assert!(response.get("log_path").is_none());
-    #[cfg(not(windows))]
-    assert!(!data_home(temporary.path()).exists());
-}
-
-#[test]
-fn dataset_inspection_uses_cwd_and_does_not_touch_pack_or_data_home_state() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let cwd = temporary.path().join("cwd");
-    let dataset = cwd.join("relative-dataset");
-    fs::create_dir_all(&dataset).unwrap();
-    fs::write(dataset.join(".kat-dataset"), []).unwrap();
-    fs::write(dataset.join("notes.txt"), "ignored").unwrap();
-    fs::create_dir(dataset.join("tables")).unwrap();
-    fs::write(
-        dataset.join("tables/data_dict.parquet"),
-        base64::engine::general_purpose::STANDARD
-            .decode(DATA_DICT_PARQUET)
-            .unwrap(),
-    )
-    .unwrap();
-    let mut command = Command::new(binary);
-    command
-        .current_dir(&cwd)
-        .args(["inspect", "--dataset", "relative-dataset"]);
-    prepare_platform_data_home(&mut command, temporary.path());
-
-    let output = command.output().expect("inspect Dataset");
-
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    assert_eq!(
-        response["result"]["path"],
-        dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
-    );
-    assert_eq!(
-        response["result"]["tables"],
-        serde_json::json!([{
-            "name": "data_dict",
-            "columns": [
-                {"name": "id", "type": "Int64", "nullable": true},
-                {"name": "data", "type": "Utf8", "nullable": true}
-            ]
-        }])
-    );
-    assert!(response.get("log_path").is_none());
-    assert!(!skill.join("assets").join("packs").exists());
-    #[cfg(not(windows))]
-    assert!(!data_home(temporary.path()).exists());
-    assert_eq!(
-        fs::read_to_string(dataset.join("notes.txt")).unwrap(),
-        "ignored"
-    );
-}
-
-#[test]
-fn dataset_inspection_failure_and_argument_conflict_keep_process_contract() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
-    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let dataset = temporary.path().join("invalid-dataset");
-    fs::create_dir(&dataset).unwrap();
-    let mut command = Command::new(&binary);
-    command.arg("inspect").arg("--dataset").arg(&dataset);
-    prepare_platform_data_home(&mut command, temporary.path());
-
-    let output = command.output().expect("inspect invalid Dataset");
-
-    assert_eq!(output.status.code(), Some(1));
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["error"]["message"], "Dataset inspection failed");
-    assert!(response.get("result").is_none());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Dataset inspection failed"));
-
-    let corrupt = temporary.path().join("corrupt-dataset");
-    fs::create_dir_all(corrupt.join("tables")).unwrap();
-    fs::write(corrupt.join(".kat-dataset"), []).unwrap();
-    fs::write(corrupt.join("tables/events.parquet"), "broken").unwrap();
-    let mut corrupt_command = Command::new(&binary);
-    corrupt_command
-        .arg("inspect")
-        .arg("--dataset")
-        .arg(&corrupt);
-    prepare_platform_data_home(&mut corrupt_command, temporary.path());
-    let corrupt_output = corrupt_command.output().expect("inspect corrupt Dataset");
-    assert_eq!(corrupt_output.status.code(), Some(1));
-    let corrupt_response: serde_json::Value =
-        serde_json::from_slice(&corrupt_output.stdout).unwrap();
-    assert_eq!(
-        corrupt_response["error"]["message"],
-        "Dataset inspection failed"
-    );
-    assert!(
-        corrupt_response["error"]["causes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|cause| cause.as_str().unwrap().contains("events"))
-    );
-
-    let conflict = Command::new(binary)
-        .args(["inspect", "--dataset"])
-        .arg(&dataset)
-        .args(["--pack-dir", "pack"])
+fn inspect_dataset_option_is_not_a_cli_surface() {
+    let help = Command::new(cargo_kat())
+        .args(["inspect", "--help"])
         .output()
-        .expect("run conflicting arguments");
-    assert_eq!(conflict.status.code(), Some(2));
-    assert!(conflict.stdout.is_empty());
+        .unwrap();
+    assert_eq!(help.status.code(), Some(0));
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(!help.contains("Dataset"));
+    assert!(!help.contains("--dataset"));
+
+    let removed = Command::new(cargo_kat())
+        .args(["inspect", "--dataset", "legacy-dataset"])
+        .output()
+        .unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(removed.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&removed.stderr).contains("unexpected argument '--dataset'"));
 }

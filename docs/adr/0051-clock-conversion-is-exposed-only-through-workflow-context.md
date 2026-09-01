@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # 第一版时钟换算只通过 Workflow Context 暴露

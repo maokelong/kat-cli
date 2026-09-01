@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0074 and ADR-0075
 ---
 
 # Workflow 声明可强制的表依赖

@@ -33,6 +33,11 @@ class AssembleSkillTests(unittest.TestCase):
             (self.skill / "references" / name).write_text(
                 "# Reference\n", encoding="utf-8"
             )
+        reference_pack = self.skill / "references/examples/dataprovider-pack"
+        reference_pack.mkdir(parents=True)
+        (reference_pack / "pack.toml").write_text(
+            'name = "dataprovider-pack"\n', encoding="utf-8"
+        )
 
         self.packs = self.root / "packs"
         (self.packs / "kat-example").mkdir(parents=True)
@@ -93,6 +98,12 @@ class AssembleSkillTests(unittest.TestCase):
             | self.relative_files(
                 self.windows_payload, "scripts/targets/windows-x86_64/"
             ),
+        )
+        self.assertTrue(
+            (self.output / "references/examples/dataprovider-pack/pack.toml").is_file()
+        )
+        self.assertFalse(
+            (self.output / "assets/packs/dataprovider-pack").exists()
         )
         shutil.rmtree(self.output)
 

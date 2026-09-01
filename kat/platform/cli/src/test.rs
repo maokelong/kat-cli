@@ -71,10 +71,6 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
             },
         );
     }
-    let datasets = match resolve_test_datasets(pack.directory()) {
-        Ok(datasets) => datasets,
-        Err(error) => return finish_test_pack_failure(log, error),
-    };
     let report_directory = data_home.join("test-reports");
     if let Err(source) = fs::create_dir_all(&report_directory) {
         return finish_test_pack_failure(
@@ -100,9 +96,8 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
     let report_path = report_directory.join(format!("test-{token}.xml"));
     if let Err(error) = log.append(
         format!(
-            "path: {:?}\ntest_datasets: {:?}\ntest_report: {:?}\n",
+            "path: {:?}\ntest_report: {:?}\n",
             pack.directory(),
-            datasets.keys().collect::<Vec<_>>(),
             report_path
         )
         .as_bytes(),
@@ -115,7 +110,6 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
         workflow_runtime::TestPackInvocation {
             pack_name: pack.name(),
             pack_path: pack.directory(),
-            datasets: &datasets,
             tests: &arguments.tests,
             test_report_path: &report_path,
         },
@@ -185,80 +179,6 @@ fn valid_test_selector(selector: &str) -> bool {
                 | std::path::Component::ParentDir
         )
     })
-}
-
-fn resolve_test_datasets(
-    pack_path: &std::path::Path,
-) -> Result<BTreeMap<String, workflow_runtime::ResolvedDatasetRequest>, TestPackOperationError> {
-    let root = pack_path.join("tests").join("datasets");
-    if !ordinary_directory(&root) {
-        return Ok(BTreeMap::new());
-    }
-    let entries = fs::read_dir(&root).map_err(|source| TestPackOperationError::ReadDatasets {
-        path: root.clone(),
-        source,
-    })?;
-    let mut candidates = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| TestPackOperationError::ReadDatasets {
-            path: root.clone(),
-            source,
-        })?;
-        let path = entry.path();
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        if !metadata.is_dir() || entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
-            continue;
-        }
-        match fs::symlink_metadata(path.join(".kat-dataset")) {
-            Ok(_) => candidates.push(path),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => candidates.push(path),
-        }
-    }
-    candidates.sort();
-    let mut datasets = BTreeMap::new();
-    for candidate in candidates {
-        let name = candidate
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| TestPackOperationError::NonUnicodeDatasetName {
-                path: candidate.clone(),
-            })?
-            .to_owned();
-        let dataset = kat_datasource::resolve_dataset(&candidate).map_err(|source| {
-            TestPackOperationError::InvalidDataset {
-                name: name.clone(),
-                source,
-            }
-        })?;
-        let path = test_unicode_path("Test Dataset", dataset.path())?;
-        let mut tables = BTreeMap::new();
-        for table in dataset.tables() {
-            tables.insert(
-                table.name().to_owned(),
-                test_unicode_path("Test Dataset table", table.path())?,
-            );
-        }
-        datasets.insert(
-            name,
-            workflow_runtime::ResolvedDatasetRequest { path, tables },
-        );
-    }
-    Ok(datasets)
-}
-
-fn test_unicode_path(
-    label: &'static str,
-    path: &std::path::Path,
-) -> Result<String, TestPackOperationError> {
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| TestPackOperationError::NonUnicodeDatasetPath {
-            label,
-            path: path.to_path_buf(),
-        })
 }
 
 fn completed_test_report(path: &std::path::Path) -> Result<Option<String>, TestPackOperationError> {
@@ -331,7 +251,7 @@ enum TestPackOperationError {
     },
     #[error("the selected PACK does not contain a tests/ directory")]
     #[diagnostic(help(
-        "Add PACK tests, or use `kat inspect --pack` for a runtime-only deployment"
+        "Add PACK tests, or use `kat inspect workflow --pack <name>` for a runtime-only deployment"
     ))]
     MissingTests,
     #[error("invalid PACK test selector {selector:?}")]
@@ -339,23 +259,6 @@ enum TestPackOperationError {
         "Use a pytest node ID whose path begins with tests/ and has no parent-directory component"
     ))]
     InvalidSelector { selector: String },
-    #[error("failed to read Test Dataset directory {path:?}")]
-    ReadDatasets {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Test Dataset candidate name is not native Unicode: {path:?}")]
-    NonUnicodeDatasetName { path: PathBuf },
-    #[error("Test Dataset {name:?} is invalid")]
-    #[diagnostic(help("Recreate it with `kat import --dataset tests/datasets/<name>`"))]
-    InvalidDataset {
-        name: String,
-        #[source]
-        source: kat_datasource::DatasetInspectionError,
-    },
-    #[error("{label} path is not native Unicode: {path:?}")]
-    NonUnicodeDatasetPath { label: &'static str, path: PathBuf },
     #[error("failed to create PACK Test Report directory {path:?}")]
     CreateReportDirectory {
         path: PathBuf,

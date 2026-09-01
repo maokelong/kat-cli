@@ -38,10 +38,13 @@ FORBIDDEN_PAYLOAD_NAMES = {
     "pyproject.toml",
 }
 FORBIDDEN_PAYLOAD_SUFFIXES = {".whl", ".pyc", ".pyo"}
-WORKFLOW_WHEEL_PATTERN = "kat_workflow-*.whl"
 WORKFLOW_WHEEL_NAME = re.compile(
     r"kat_workflow-(?P<version>[^-]+)-py3-none-any\.whl"
 )
+DATASOURCE_WHEEL_PLATFORMS = {
+    "linux-x86_64": ("cp314-cp314-manylinux_2_28_x86_64", ".so"),
+    "windows-x86_64": ("cp314-cp314-win_amd64", ".pyd"),
+}
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,13 @@ class CommonInputs:
 
 
 @dataclass(frozen=True)
+class WheelArtifactInput:
+    path: Path
+    expected_version: str
+    sha256: str
+
+
+@dataclass(frozen=True)
 class PlatformSpec:
     key: str
     label: str
@@ -131,7 +141,8 @@ class CommonBuildOptions(Protocol):
     wheelhouse: Path | None
     cargo: str
     offline: bool
-    workflow_wheel: Path | None
+    workflow_wheel: WheelArtifactInput
+    datasource_wheel: WheelArtifactInput
 
 
 InputsT = TypeVar("InputsT", bound=CommonInputs)
@@ -179,6 +190,17 @@ def verify_sha256(path: Path, expected: str) -> None:
         raise ValueError(
             f"SHA-256 mismatch for {path}: expected {expected}, got {actual}"
         )
+
+
+def _metadata_requires(metadata: Any, distribution: str) -> bool:
+    expected = re.sub(r"[-_.]+", "-", distribution).lower()
+    for requirement in metadata.get_all("Requires-Dist", []):
+        match = re.match(r"\s*([A-Za-z0-9_.-]+)", requirement)
+        if match is not None:
+            actual = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+            if actual == expected:
+                return True
+    return False
 
 
 def assert_no_build_artifacts(payload: Path, spec: PlatformSpec) -> None:
@@ -568,11 +590,20 @@ def install_locked_requirements(
     )
 
 
-def validate_workflow_wheel_archive(path: Path) -> str:
+def validate_workflow_wheel_archive(
+    path: Path,
+    *,
+    expected_version: str | None = None,
+) -> str:
     match = WORKFLOW_WHEEL_NAME.fullmatch(path.name)
     if match is None or not path.is_file():
         raise ValueError(f"unexpected Workflow Host wheel: {path}")
     version = match.group("version")
+    if expected_version is not None and version != expected_version:
+        raise ValueError(
+            "Workflow Host wheel expected version "
+            f"{expected_version}, got {version}"
+        )
     dist_info = f"kat_workflow-{version}.dist-info"
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
@@ -593,6 +624,8 @@ def validate_workflow_wheel_archive(path: Path) -> str:
             raise ValueError("Workflow Host wheel has an unexpected distribution")
         if metadata.get("Version") != version:
             raise ValueError("Workflow Host wheel version does not match its filename")
+        if _metadata_requires(metadata, "kat-datasource"):
+            raise ValueError("Workflow Host wheel must not depend on kat-datasource")
 
         wheel_metadata = BytesParser(policy=policy.default).parsebytes(
             archive.read(f"{dist_info}/WHEEL")
@@ -604,53 +637,151 @@ def validate_workflow_wheel_archive(path: Path) -> str:
     return version
 
 
-def find_workflow_wheel(directory: Path) -> Path:
-    directory = directory.resolve(strict=True)
-    if not directory.is_dir():
-        raise ValueError(f"Workflow Host wheel directory is not a directory: {directory}")
-    wheels = sorted(directory.glob(WORKFLOW_WHEEL_PATTERN))
-    if len(wheels) != 1:
-        raise ValueError(f"expected one Workflow Host wheel, found {len(wheels)}")
-    return wheels[0]
-
-
-def validated_workflow_wheel(path: Path | None) -> Path:
-    if path is None:
-        raise ValueError("--workflow-wheel is required")
-    wheel = path.resolve(strict=True)
-    checksum = wheel.with_name(f"{wheel.name}.sha256")
-    if not checksum.is_file():
-        raise ValueError(f"Workflow Host wheel checksum is missing: {checksum}")
-    fields = checksum.read_text("ascii").split()
-    if len(fields) != 2 or fields[1] != wheel.name:
-        raise ValueError(f"invalid Workflow Host wheel checksum: {checksum}")
-    verify_sha256(wheel, fields[0])
-    validate_workflow_wheel_archive(wheel)
+def validated_workflow_wheel(artifact: WheelArtifactInput) -> Path:
+    if not isinstance(artifact, WheelArtifactInput):
+        raise TypeError("workflow wheel must be a WheelArtifactInput")
+    wheel = artifact.path.resolve(strict=True)
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
+        raise ValueError("Workflow Host wheel has an invalid expected SHA-256")
+    verify_sha256(wheel, artifact.sha256)
+    validate_workflow_wheel_archive(
+        wheel,
+        expected_version=artifact.expected_version,
+    )
     return wheel
 
 
-def install_workflow_wheel(
+def validate_datasource_wheel_archive(
+    path: Path,
+    *,
+    expected_version: str,
+    platform: str,
+) -> str:
+    try:
+        expected_tag, extension_suffix = DATASOURCE_WHEEL_PLATFORMS[platform]
+    except KeyError:
+        raise ValueError(f"unsupported Datasource wheel platform: {platform}") from None
+    expected_name = (
+        f"kat_datasource-{expected_version}-{expected_tag}.whl"
+    )
+    if path.name != expected_name or not path.is_file():
+        raise ValueError(
+            f"unexpected Datasource wheel: expected {expected_name}, got {path.name}"
+        )
+    dist_info = f"kat_datasource-{expected_version}.dist-info"
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        required = {
+            "kat_datasource/__init__.py",
+            "kat_datasource/hitrace.py",
+            f"{dist_info}/METADATA",
+            f"{dist_info}/WHEEL",
+        }
+        missing = sorted(required - names)
+        if missing:
+            raise ValueError(f"Datasource wheel is incomplete: {missing}")
+
+        metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/METADATA")
+        )
+        if metadata.get("Name") != "kat-datasource":
+            raise ValueError("Datasource wheel has an unexpected distribution")
+        if metadata.get("Version") != expected_version:
+            raise ValueError(
+                "Datasource wheel expected version "
+                f"{expected_version}, got {metadata.get('Version')}"
+            )
+        if _metadata_requires(metadata, "kat-workflow"):
+            raise ValueError("Datasource wheel must not depend on kat-workflow")
+
+        wheel_metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/WHEEL")
+        )
+        if wheel_metadata.get("Root-Is-Purelib", "").lower() != "false":
+            raise ValueError("Datasource wheel must be platform native")
+        if wheel_metadata.get_all("Tag", []) != [expected_tag]:
+            raise ValueError(
+                f"Datasource wheel must use the {expected_tag} tag"
+            )
+
+        native = sorted(
+            name
+            for name in names
+            if name.endswith((".so", ".pyd"))
+        )
+        if (
+            len(native) != 1
+            or not native[0].startswith("kat_datasource/_native.")
+            or not native[0].endswith(extension_suffix)
+        ):
+            raise ValueError(
+                "Datasource wheel must contain exactly one private _native extension"
+            )
+    return expected_version
+
+
+def validated_datasource_wheel(
+    artifact: WheelArtifactInput,
+    *,
+    platform: str,
+) -> Path:
+    if not isinstance(artifact, WheelArtifactInput):
+        raise TypeError("datasource wheel must be a WheelArtifactInput")
+    wheel = artifact.path.resolve(strict=True)
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
+        raise ValueError("Datasource wheel has an invalid expected SHA-256")
+    verify_sha256(wheel, artifact.sha256)
+    validate_datasource_wheel_archive(
+        wheel,
+        expected_version=artifact.expected_version,
+        platform=platform,
+    )
+    return wheel
+
+
+def install_kat_wheels(
     uv: Path,
     python: Path,
-    wheel: Path,
+    wheels: Iterable[Path],
     cache: Path,
     *,
     copy_links: bool,
 ) -> None:
+    for wheel in wheels:
+        subprocess.run(
+            [
+                str(uv),
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "--no-deps",
+                "--no-index",
+                "--break-system-packages",
+                str(wheel),
+            ],
+            check=True,
+            env=_uv_environment(cache, copy_links=copy_links),
+        )
+
+
+def check_isolated_workflow_install(
+    python: Path,
+    expected_version: str,
+) -> None:
+    script = (
+        "import importlib.metadata as metadata\n"
+        "import importlib.util as util\n"
+        "import sys\n"
+        "import kat\n"
+        "if metadata.version('kat-workflow') != sys.argv[1]:\n"
+        "    raise SystemExit('kat-workflow version mismatch')\n"
+        "if util.find_spec('kat_datasource') is not None:\n"
+        "    raise SystemExit('kat-workflow unexpectedly exposes kat_datasource')\n"
+    )
     subprocess.run(
-        [
-            str(uv),
-            "pip",
-            "install",
-            "--python",
-            str(python),
-            "--no-deps",
-            "--no-index",
-            "--break-system-packages",
-            str(wheel),
-        ],
+        [str(python), "-I", "-B", "-c", script, expected_version],
         check=True,
-        env=_uv_environment(cache, copy_links=copy_links),
     )
 
 
@@ -765,6 +896,8 @@ def _prepare_private_host(
     uv_archive: Path,
     inputs: CommonInputs,
     workflow_wheel: Path,
+    workflow_version: str,
+    datasource_wheel: Path,
     wheelhouse: Path | None,
     offline: bool,
 ) -> None:
@@ -799,11 +932,25 @@ def _prepare_private_host(
         offline,
         copy_links=copy_links,
     )
-    install_workflow_wheel(
+    kat_wheel_cache = temporary_root / "uv-kat-wheel-cache"
+    install_kat_wheels(
         uv,
         python,
-        workflow_wheel,
-        temporary_root / "uv-workflow-cache",
+        (workflow_wheel,),
+        kat_wheel_cache,
+        copy_links=copy_links,
+    )
+    # Datasource 尚未出现时验证 Workflow wheel 可独立 import，避免两个
+    # distribution 通过未声明的安装顺序形成隐式 wrapper 关系。
+    check_isolated_workflow_install(
+        python,
+        workflow_version,
+    )
+    install_kat_wheels(
+        uv,
+        python,
+        (datasource_wheel,),
+        kat_wheel_cache,
         copy_links=copy_links,
     )
     check_private_host(
@@ -860,6 +1007,11 @@ def build_payload(
     options: CommonBuildOptions,
     adapter: PlatformAdapter[InputsT, ExtraInputsT],
 ) -> Path:
+    if (
+        options.workflow_wheel.expected_version
+        != options.datasource_wheel.expected_version
+    ):
+        raise ValueError("KAT wheels must use the same expected version")
     adapter.require_builder()
     repository = options.repository.resolve()
     inputs = adapter.load_inputs(repository)
@@ -868,7 +1020,8 @@ def build_payload(
     common_inputs = [
         ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
-        ("Workflow Host wheel", options.workflow_wheel),
+        ("Workflow Host wheel", options.workflow_wheel.path),
+        ("Datasource wheel", options.datasource_wheel.path),
         ("wheelhouse", options.wheelhouse),
         ("Python archive", options.python_archive),
         ("uv archive", options.uv_archive),
@@ -885,6 +1038,10 @@ def build_payload(
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
     workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
+    datasource_wheel = validated_datasource_wheel(
+        options.datasource_wheel,
+        platform=adapter.spec.key,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     cache = options.download_cache.resolve()
     python_archive = resolve_locked_asset(
@@ -913,6 +1070,8 @@ def build_payload(
             uv_archive=uv_archive,
             inputs=inputs,
             workflow_wheel=workflow_wheel,
+            workflow_version=options.workflow_wheel.expected_version,
+            datasource_wheel=datasource_wheel,
             wheelhouse=options.wheelhouse,
             offline=options.offline,
         )

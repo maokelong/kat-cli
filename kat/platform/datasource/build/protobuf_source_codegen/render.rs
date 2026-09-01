@@ -10,19 +10,7 @@ use super::{
     prost_binding::ProstBindings,
 };
 
-#[derive(Clone, Copy)]
-pub(super) enum CaptureLayout {
-    #[cfg(feature = "protobuf-source-contract-fixture")]
-    Standalone,
-    #[cfg_attr(test, allow(dead_code))]
-    ProfilerPayload,
-}
-
-pub(super) fn render(
-    plan: &RelationalPlan,
-    bindings: &ProstBindings,
-    capture_layout: CaptureLayout,
-) -> String {
+pub(super) fn render(plan: &RelationalPlan, bindings: &ProstBindings) -> String {
     let mut output = String::new();
     writeln!(
         output,
@@ -32,13 +20,13 @@ pub(super) fn render(
 
     render_enum_symbol_constants(&mut output, plan);
     render_row_types(&mut output, plan);
-    render_capture_layout(&mut output, plan, capture_layout);
+    render_capture_layout(&mut output, plan);
     for root in &plan.roots {
         let root_type = bindings.root_type(root.spec_index);
         writeln!(
             output,
-            "pub(crate) fn append_{}_root(\n    capture: &mut crate::protobuf_source::SourceTableCapture,\n    parent_row_id: u64,\n    value: &{},\n) -> anyhow::Result<()> {{",
-            root.root_table_name, root_type
+            "pub(crate) fn append_{}_root(\n    capture: &mut crate::protobuf_source::SourceRelationCapture,\n    parent_row_id: u64,\n    value: &{},\n) -> anyhow::Result<()> {{",
+            root.root_relation_name, root_type
         )
         .expect("writing generated Rust to String cannot fail");
         let mut renderer = EmitterRenderer {
@@ -261,18 +249,8 @@ fn render_enum_symbol_constants(output: &mut String, plan: &RelationalPlan) {
     }
 }
 
-fn render_capture_layout(
-    output: &mut String,
-    plan: &RelationalPlan,
-    capture_layout: CaptureLayout,
-) {
-    let layout_type = match capture_layout {
-        #[cfg(feature = "protobuf-source-contract-fixture")]
-        CaptureLayout::Standalone => "crate::protobuf_source::SourceTableLayout",
-        CaptureLayout::ProfilerPayload => {
-            "crate::protobuf_source::profiler_occurrence::ProfilerPayloadLayout"
-        }
-    };
+fn render_capture_layout(output: &mut String, plan: &RelationalPlan) {
+    let layout_type = "crate::protobuf_source::profiler_occurrence::ProfilerPayloadLayout";
     writeln!(
         output,
         "pub(crate) fn protobuf_source_layout() -> {layout_type} {{"
@@ -313,20 +291,6 @@ fn render_capture_layout(
         "    {layout_type}::from_generated(relations, enum_origins)\n}}\n"
     )
     .expect("writing generated Rust to String cannot fail");
-    #[cfg(feature = "protobuf-source-contract-fixture")]
-    if matches!(capture_layout, CaptureLayout::Standalone) {
-        writeln!(
-            output,
-            "pub(crate) fn new_protobuf_source_capture(\n    options: crate::protobuf_source::BufferOptions,\n    tables: crate::dataset_writer::DatasetTableFactory,\n) -> anyhow::Result<crate::protobuf_source::SourceTableCapture> {{"
-        )
-        .expect("writing generated Rust to String cannot fail");
-        writeln!(
-            output,
-            "    protobuf_source_layout().into_capture(options, tables)"
-        )
-        .expect("writing generated Rust to String cannot fail");
-        writeln!(output, "}}\n").expect("writing generated Rust to String cannot fail");
-    }
 }
 
 pub(super) fn render_enum_symbol_accessor(

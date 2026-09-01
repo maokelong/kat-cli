@@ -1,0 +1,4 @@
+name = "payload-smoke"
+title = "Payload Smoke"
+description = "Internal end-to-end validation of the shipped Hitrace Datasource path."
+owner = "KAT Maintainers"

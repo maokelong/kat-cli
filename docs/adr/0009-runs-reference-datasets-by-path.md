@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # Run 通过路径引用 Dataset 当前内容

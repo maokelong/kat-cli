@@ -1,9 +1,10 @@
 """PACK 私有规则测试，统一通过 ``kat test --pack-dir`` 执行。"""
 
-import pyarrow as pa
-import pytest
-from datafusion import SessionContext
+import sqlite3
 
+import pytest
+
+from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
 from kat.pack.helpers import critical_path
 from kat.pack.helpers.critical_path import (
     CriticalPathError,
@@ -49,56 +50,6 @@ class FakeFacts:
         return value
 
 
-class FakeContext:
-    def from_arrow(self, table):
-        return table
-
-
-class InMemoryFrameContext:
-    def __init__(self, frames, root_thread_ipid=10):
-        self.session = SessionContext()
-        process = pa.table({
-            "ipid": pa.array([10, 20], type=pa.int64()),
-            "pid": pa.array([1000, 2000], type=pa.int64()),
-            "name": [".demo", ".other"],
-        })
-        frame_slice = pa.Table.from_pylist(frames, schema=pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("itid", pa.int64(), nullable=False),
-            pa.field("ts", pa.int64(), nullable=False),
-            pa.field("dur", pa.int64(), nullable=False),
-            pa.field("callstack_id", pa.int64()),
-            pa.field("ipid", pa.int64(), nullable=False),
-            pa.field("type", pa.int64(), nullable=False),
-        ]))
-        thread = pa.Table.from_pylist(
-            [
-                {
-                    "itid": itid,
-                    "ipid": root_thread_ipid,
-                    "tid": itid,
-                    "name": f"thread-{itid}",
-                }
-                for itid in sorted({item["itid"] for item in frames})
-            ],
-            schema=pa.schema([
-                pa.field("itid", pa.int64(), nullable=False),
-                pa.field("ipid", pa.int64(), nullable=False),
-                pa.field("tid", pa.int64(), nullable=False),
-                pa.field("name", pa.string(), nullable=False),
-            ]),
-        )
-        self.session.register_record_batches("process", [process.to_batches()])
-        self.session.register_record_batches("frame_slice", [frame_slice.to_batches()])
-        self.session.register_record_batches("thread", [thread.to_batches()])
-
-    def sql(self, query, **params):
-        return self.session.sql(query, param_values=params)
-
-    def from_arrow(self, table):
-        return table
-
-
 def frame(frame_id, start, duration):
     return {
         "id": frame_id,
@@ -111,6 +62,51 @@ def frame(frame_id, start, duration):
     }
 
 
+def trace_streamer_facts(tmp_path, frames, *, root_thread_ipid=10):
+    database = tmp_path / "trace-streamer.db"
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript("""
+            CREATE TABLE process(ipid INTEGER NOT NULL, pid INTEGER NOT NULL, name TEXT NOT NULL);
+            CREATE TABLE frame_slice(
+                id INTEGER NOT NULL,
+                itid INTEGER NOT NULL,
+                ts INTEGER NOT NULL,
+                dur INTEGER NOT NULL,
+                callstack_id INTEGER,
+                ipid INTEGER NOT NULL,
+                type INTEGER NOT NULL
+            );
+            CREATE TABLE thread(
+                itid INTEGER NOT NULL,
+                ipid INTEGER NOT NULL,
+                tid INTEGER NOT NULL,
+                name TEXT NOT NULL
+            );
+        """)
+        connection.executemany(
+            "INSERT INTO process VALUES (?, ?, ?)",
+            [(10, 1000, ".demo"), (20, 2000, ".other")],
+        )
+        connection.executemany(
+            "INSERT INTO frame_slice VALUES (:id, :itid, :ts, :dur, :callstack_id, :ipid, :type)",
+            frames,
+        )
+        connection.executemany(
+            "INSERT INTO thread VALUES (?, ?, ?, ?)",
+            [
+                (itid, root_thread_ipid, itid, f"thread-{itid}")
+                for itid in sorted({item["itid"] for item in frames})
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return TraceStreamerFacts(
+        TraceStreamerSQLiteProvider(sqlite_path=str(database.resolve()))
+    )
+
+
 def run(facts, **kwargs):
     return _Walker(facts, 1, 100, 110, kwargs.get("max_depth", 8), kwargs.get("minimum", 0)).run()
 
@@ -120,25 +116,25 @@ def run(facts, **kwargs):
     ([frame(1, 150, 50), frame(2, 100, 100)], 2),
     ([frame(2, 100, 100), frame(1, 100, 100)], 1),
 ])
-def test_first_frame_selects_earliest_completion_with_stable_ties(frames, expected_frame_id):
-    selected = TraceStreamerFacts(InMemoryFrameContext(frames)).first_frame(".demo")
+def test_first_frame_selects_earliest_completion_with_stable_ties(tmp_path, frames, expected_frame_id):
+    selected = trace_streamer_facts(tmp_path, frames).first_frame(".demo")
 
     assert selected["frame_id"] == expected_frame_id
 
 
-def test_frame_root_thread_must_belong_to_the_frame_process():
-    ctx = InMemoryFrameContext([frame(1, 100, 10)], root_thread_ipid=20)
+def test_frame_root_thread_must_belong_to_the_frame_process(tmp_path):
+    facts = trace_streamer_facts(tmp_path, [frame(1, 100, 10)], root_thread_ipid=20)
 
     with pytest.raises(CriticalPathError, match="frame process"):
-        locate_first_actual_frame(ctx, ".demo")
+        locate_first_actual_frame(facts, ".demo")
 
 
-def test_negative_clock_values_fail_closed():
+def test_negative_clock_values_fail_closed(tmp_path):
     with pytest.raises(CriticalPathError, match="non-negative"):
-        locate_first_actual_frame(InMemoryFrameContext([frame(1, -1, 10)]), ".demo")
+        locate_first_actual_frame(trace_streamer_facts(tmp_path, [frame(1, -1, 10)]), ".demo")
 
     with pytest.raises(ValueError, match="non-negative"):
-        critical_path.extract_critical_path(object(), 1, -1, 10)
+        critical_path.extract_critical_path(FakeFacts(states={}), 1, -1, 10)
 
 
 def test_wakeup_recurses_and_keeps_parent_before_child():
@@ -370,21 +366,23 @@ def test_partial_upstream_state_coverage_marks_the_dependency_uncertain():
     assert segments.to_pylist()[0]["uncertainty_reason"] == "incomplete_upstream_thread_state_coverage"
 
 
-def test_workflow_functions_forward_fakefacts_without_optional_evidence(monkeypatch):
+def test_helpers_return_provider_tables_and_workflows_publish_provider_parameters():
     facts = FakeFacts(states={1: [state(100, 110, "Running")]})
-    monkeypatch.setattr(critical_path, "TraceStreamerFacts", lambda _ctx: facts)
-    ctx = FakeContext()
 
-    frame_window = locate_first_actual_frame_workflow(ctx, ".demo")["frame_window"].to_pylist()[0]
-    outputs = extract_critical_path_workflow(
-        ctx,
+    frame_window = locate_first_actual_frame(facts, ".demo").to_rows()[0]
+    outputs = critical_path.extract_critical_path(
+        facts,
         frame_window["root_itid"],
         frame_window["start_ts"],
         frame_window["end_ts"],
     )
 
-    assert locate_first_actual_frame_workflow.__kat_workflow__.required_tables == ("frame_slice", "process", "thread")
+    assert (
+        locate_first_actual_frame_workflow.__kat_workflow__.description
+        == "定位指定进程最早完成且持续时间为正的实际帧。"
+    )
     assert dict(extract_critical_path_workflow.__kat_workflow__.parameters) == {
+        "sqlite_path": "Absolute path to a Trace Streamer SQLite database.",
         "root_itid": "Root thread internal ID from frame_window.root_itid.",
         "start_ts": "Window start from frame_window.start_ts in boottime nanoseconds.",
         "end_ts": "Window end from frame_window.end_ts in boottime nanoseconds.",
@@ -392,5 +390,5 @@ def test_workflow_functions_forward_fakefacts_without_optional_evidence(monkeypa
         "min_segment_ms": "Minimum duration before recursive tracing continues.",
     }
     assert set(outputs) == {"critical_path_segments", "critical_path_callstack_evidence"}
-    assert outputs["critical_path_segments"].to_pylist()[0]["uncertainty_reason"] == "missing_sched_coverage,missing_callstack_evidence"
-    assert outputs["critical_path_callstack_evidence"].to_pylist() == []
+    assert outputs["critical_path_segments"].to_rows()[0]["uncertainty_reason"] == "missing_sched_coverage,missing_callstack_evidence"
+    assert outputs["critical_path_callstack_evidence"].to_rows() == []

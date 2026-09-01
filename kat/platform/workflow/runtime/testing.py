@@ -19,7 +19,7 @@ from .diagnostic import _exception_chain
 from .execution import WorkflowExecutionFailure, run_loaded_workflow
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
-from .request import ResolvedDatasetRef, RunCandidateRef, TestPackRequest
+from .request import RunCandidateRef, TestPackRequest
 
 
 class PytestExitError(Exception):
@@ -46,11 +46,9 @@ class KatPytestPlugin:
         *,
         pack_name: str,
         workflows: dict[str, CompiledWorkflow],
-        datasets: dict[str, ResolvedDatasetRef],
     ) -> None:
         self._pack_name = pack_name
         self._workflows = workflows
-        self._datasets = datasets
         self._summary: Counter[str] = Counter()
         self._config: pytest.Config | None = None
         self._temporary_roots: dict[str, Path] = {}
@@ -66,23 +64,8 @@ class KatPytestPlugin:
         def run(
             *,
             workflow: str,
-            dataset: str | None = None,
             arguments: Sequence[str] = (),
         ) -> dict[str, pa.Table]:
-            selected_dataset = None
-            if dataset is not None:
-                if type(dataset) is not str or not dataset:
-                    raise TypeError("kat_run dataset must be a non-empty string or None")
-                try:
-                    selected_dataset = self._datasets[dataset]
-                except KeyError:
-                    available = ", ".join(sorted(self._datasets)) or "none"
-                    pytest.fail(
-                        f"KAT Workflow test execution failed\n"
-                        f"caused by: unknown Test Dataset {dataset!r}; available: {available}\n"
-                        "help: select a tests/datasets/ candidate carried by this PACK test",
-                        pytrace=False,
-                    )
             candidate_id = str(uuid.uuid4())
             run_path = tmp_path / candidate_id
             run_path.mkdir()
@@ -97,7 +80,6 @@ class KatPytestPlugin:
                     selected_workflow,
                     pack_name=self._pack_name,
                     workflow_name=workflow,
-                    dataset=selected_dataset,
                     arguments=list(arguments),
                     candidate=RunCandidateRef(
                         identifier=candidate_id,
@@ -163,7 +145,6 @@ def test_pack(request: TestPackRequest, test_report_path: Path) -> TestPackRunti
     plugin = KatPytestPlugin(
         pack_name=request.pack_name,
         workflows=workflows,
-        datasets=request.datasets,
     )
     with tempfile.TemporaryDirectory(prefix="kat-pytest-config-") as temporary:
         config_path = Path(temporary) / "pytest.ini"
@@ -234,5 +215,5 @@ def _test_workflow_diagnostic(error: BaseException) -> str:
     return (
         "KAT Workflow test execution failed\n"
         f"{details}"
-        "help: correct the Workflow, arguments, or Test Dataset and retry"
+        "help: correct the Workflow or arguments and retry"
     )
