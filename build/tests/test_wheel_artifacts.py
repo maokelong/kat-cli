@@ -52,6 +52,7 @@ def write_datasource_wheel(
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("kat_datasource/__init__.py", "")
         archive.writestr("kat_datasource/hitrace.py", "")
+        archive.writestr("kat_datasource/text_ftrace.py", "")
         archive.writestr(extension, b"native extension")
         metadata = (
             "Metadata-Version: 2.4\n"

@@ -21,7 +21,7 @@ class HitraceApiContractTests(unittest.TestCase):
         import kat_datasource
         from kat_datasource import hitrace
 
-        self.assertEqual(kat_datasource.__all__, ("hitrace",))
+        self.assertEqual(kat_datasource.__all__, ("hitrace", "text_ftrace"))
         self.assertEqual(
             hitrace.__all__,
             ("decode", "DecodeReport", "DecodeError"),

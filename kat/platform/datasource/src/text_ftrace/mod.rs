@@ -11,17 +11,13 @@ mod header;
 mod relations;
 mod writer;
 
-mod generated {
-    include!(concat!(env!("OUT_DIR"), "/ftrace2parquet.rs"));
-}
-
 use event::parse_event;
 use header::{HeaderParser, is_structured_header_line};
 use relations::OutputTables;
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 
-pub fn convert(input: &Path, output: &Path, clock_domain: &str) -> Result<()> {
+pub fn decode_text_ftrace(input: &Path, output: &Path, clock_domain: &str) -> Result<()> {
     if clock_domain.is_empty() {
         bail!("clock domain must not be empty");
     }

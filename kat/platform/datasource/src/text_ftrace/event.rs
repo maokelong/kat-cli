@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 
-use crate::generated::{
+use crate::proto::ftrace2parquet::{
     SchedSwitch, SchedWakeup, SchedWakeupNew, TextFtraceEvent, TracingMarkWrite,
     text_ftrace_event::Payload,
 };

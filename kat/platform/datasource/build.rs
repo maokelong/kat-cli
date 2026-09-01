@@ -8,6 +8,7 @@ use std::{env, fs, path::Path};
 use protobuf_source_codegen::{RootSpec, compile_for_profiler_capture};
 
 const PROTO_FILES: &[&str] = &[
+    "proto/text_ftrace_event.proto",
     "proto/profiler/profiler_plugin_data.proto",
     "proto/ftrace_data/ftrace_event.proto",
     "proto/ftrace_data/trace_plugin_config.proto",

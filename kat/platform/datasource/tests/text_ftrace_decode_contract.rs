@@ -1,4 +1,4 @@
-use std::{fs, fs::File, process::Command};
+use std::{fs, fs::File};
 
 use arrow_array::{Array, BooleanArray, Int32Array, StringArray, UInt32Array, UInt64Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -61,7 +61,7 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
     )
     .unwrap();
 
-    ftrace2parquet::convert(&input, &output, "monotonic").unwrap();
+    kat_datasource::decode_text_ftrace(&input, &output, "monotonic").unwrap();
 
     let root = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_event.parquet")).unwrap(),
@@ -200,7 +200,7 @@ fn creates_each_proto_oneof_table_only_when_observed() {
         ),
     )
     .unwrap();
-    ftrace2parquet::convert(&input, &output, "boottime").unwrap();
+    kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
     assert_eq!(row_count(&output.join("text_ftrace_event.parquet")), 4);
     for table in [
         "text_ftrace_event_sched_switch",
@@ -229,7 +229,7 @@ fn accepts_a_header_without_tgid_and_records_the_column_contract() {
     )
     .unwrap();
 
-    ftrace2parquet::convert(&input, &output, "boottime").unwrap();
+    kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
 
     let header = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_header.parquet")).unwrap(),
@@ -325,7 +325,7 @@ fn rejects_malformed_or_inconsistent_headers_without_publication() {
         let input = temp.path().join(format!("{name}.ftrace"));
         let output = temp.path().join(format!("{name}-parquet"));
         fs::write(&input, source).unwrap();
-        let error = ftrace2parquet::convert(&input, &output, "boottime")
+        let error = kat_datasource::decode_text_ftrace(&input, &output, "boottime")
             .expect_err("malformed header must fail");
         let message = format!("{error:#}");
         assert!(
@@ -348,7 +348,7 @@ fn crosses_the_bounded_batch_without_losing_rows() {
         ));
     }
     fs::write(&input, trace(&source, 8_193, 8_193, 4, true)).unwrap();
-    ftrace2parquet::convert(&input, &output, "boottime").unwrap();
+    kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
     let rows = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_event.parquet")).unwrap(),
     )
@@ -366,11 +366,11 @@ fn invalid_input_and_existing_output_are_never_replaced() {
     let input = temp.path().join("invalid.ftrace");
     let output = temp.path().join("parquet");
     fs::write(&input, trace("not an event\n", 1, 1, 4, true)).unwrap();
-    assert!(ftrace2parquet::convert(&input, &output, "boottime").is_err());
+    assert!(kat_datasource::decode_text_ftrace(&input, &output, "boottime").is_err());
     assert!(!output.exists());
 
     fs::write(&output, "sentinel").unwrap();
-    assert!(ftrace2parquet::convert(&input, &output, "boottime").is_err());
+    assert!(kat_datasource::decode_text_ftrace(&input, &output, "boottime").is_err());
     assert_eq!(fs::read_to_string(output).unwrap(), "sentinel");
 }
 
@@ -413,23 +413,9 @@ fn rejects_utf8_size_clock_and_empty_trace_boundaries_without_publication() {
         let output = temp.path().join(format!("{name}-parquet"));
         fs::write(&input, source).unwrap();
         assert!(
-            ftrace2parquet::convert(&input, &output, "monotonic").is_err(),
+            kat_datasource::decode_text_ftrace(&input, &output, "monotonic").is_err(),
             "accepted {name}"
         );
         assert!(!output.exists(), "published {name}");
-    }
-}
-
-#[test]
-fn cli_requires_the_explicit_contract() {
-    let output = Command::new(env!("CARGO_BIN_EXE_ftrace2parquet"))
-        .arg("--help")
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("to a Parquet catalog directory"));
-    for option in ["--input", "--output", "--clock-domain"] {
-        assert!(stdout.contains(option), "missing {option} in {stdout}");
     }
 }

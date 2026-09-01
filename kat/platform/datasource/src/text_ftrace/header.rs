@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 
-use crate::event::{parse_u32, parse_u64};
+use super::event::{parse_u32, parse_u64};
 
 #[derive(Clone, Debug)]
 pub(crate) struct FtraceHeader {

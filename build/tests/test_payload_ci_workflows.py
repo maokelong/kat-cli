@@ -199,6 +199,10 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                     "kat/platform/datasource/tests/python/test_hitrace_api.py",
                     workflow,
                 )
+                self.assertIn(
+                    "kat/platform/datasource/tests/python/test_text_ftrace_api.py",
+                    workflow,
+                )
 
     def test_payload_smoke_uses_hitrace_provider_and_validates_ndjson(self) -> None:
         assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")

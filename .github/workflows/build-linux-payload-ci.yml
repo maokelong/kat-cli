@@ -101,6 +101,7 @@ jobs:
           test_python=target/kat/datasource-wheel-test/bin/python
           "$test_python" -m pip install --disable-pip-version-check --no-deps --no-index "$datasource_wheel"
           "$test_python" -I -B kat/platform/datasource/tests/python/test_hitrace_api.py -v
+          "$test_python" -I -B kat/platform/datasource/tests/python/test_text_ftrace_api.py -v
           /opt/python/cp314-cp314/bin/python build/build_linux_payload.py \
             --output target/kat/payloads/linux-x86_64 \
             --workflow-wheel "$workflow_wheel" \

@@ -1,13 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    generated::{TextFtraceEvent, text_ftrace_event::Payload},
-    header::FtraceHeader,
-    writer::TableWriter,
-};
+use crate::proto::ftrace2parquet::{TextFtraceEvent, text_ftrace_event::Payload};
+use crate::relation_writer::RelationWriter;
+
+use super::{header::FtraceHeader, writer::TableWriter};
 
 #[derive(Serialize, Deserialize)]
 struct OccurrenceRow {
@@ -68,7 +67,7 @@ struct HeaderRow {
 }
 
 pub(crate) struct OutputTables {
-    directory: PathBuf,
+    relations: RelationWriter,
     occurrence: Option<TableWriter<OccurrenceRow>>,
     root: Option<TableWriter<RootRow>>,
     sched_switch: Option<TableWriter<SchedSwitchRow>>,
@@ -86,7 +85,7 @@ pub(crate) struct OutputTables {
 impl OutputTables {
     pub(crate) fn new(directory: &Path) -> Self {
         Self {
-            directory: directory.to_owned(),
+            relations: RelationWriter::new(directory),
             occurrence: None,
             root: None,
             sched_switch: None,
@@ -179,19 +178,19 @@ impl OutputTables {
 
     fn occurrence(&mut self) -> Result<&mut TableWriter<OccurrenceRow>> {
         initialize(
-            &self.directory,
+            &self.relations,
             &mut self.occurrence,
             "text_ftrace_event_occurrence",
         )
     }
 
     fn root(&mut self) -> Result<&mut TableWriter<RootRow>> {
-        initialize(&self.directory, &mut self.root, "text_ftrace_event")
+        initialize(&self.relations, &mut self.root, "text_ftrace_event")
     }
 
     fn sched_switch(&mut self) -> Result<&mut TableWriter<SchedSwitchRow>> {
         initialize(
-            &self.directory,
+            &self.relations,
             &mut self.sched_switch,
             "text_ftrace_event_sched_switch",
         )
@@ -199,7 +198,7 @@ impl OutputTables {
 
     fn sched_wakeup(&mut self) -> Result<&mut TableWriter<WakeupRow>> {
         initialize(
-            &self.directory,
+            &self.relations,
             &mut self.sched_wakeup,
             "text_ftrace_event_sched_wakeup",
         )
@@ -207,7 +206,7 @@ impl OutputTables {
 
     fn sched_wakeup_new(&mut self) -> Result<&mut TableWriter<WakeupRow>> {
         initialize(
-            &self.directory,
+            &self.relations,
             &mut self.sched_wakeup_new,
             "text_ftrace_event_sched_wakeup_new",
         )
@@ -215,7 +214,7 @@ impl OutputTables {
 
     fn tracing_mark_write(&mut self) -> Result<&mut TableWriter<TracingMarkWriteRow>> {
         initialize(
-            &self.directory,
+            &self.relations,
             &mut self.tracing_mark_write,
             "text_ftrace_event_tracing_mark_write",
         )
@@ -224,7 +223,7 @@ impl OutputTables {
     pub(crate) fn finish(self) -> Result<()> {
         let header = self.header.context("validated ftrace header is missing")?;
         let mut header_table =
-            TableWriter::<HeaderRow>::new(&self.directory, "text_ftrace_header")?;
+            TableWriter::<HeaderRow>::new(&self.relations, "text_ftrace_header")?;
         header_table.push(HeaderRow {
             tracer: header.tracer,
             entries_in_buffer: header.entries_in_buffer,
@@ -239,12 +238,13 @@ impl OutputTables {
         finish(self.sched_wakeup)?;
         finish(self.sched_wakeup_new)?;
         finish(self.tracing_mark_write)?;
+        self.relations.validate()?;
         Ok(())
     }
 }
 
 fn initialize<'a, T>(
-    directory: &Path,
+    relations: &RelationWriter,
     table: &'a mut Option<TableWriter<T>>,
     name: &'static str,
 ) -> Result<&'a mut TableWriter<T>>
@@ -253,7 +253,7 @@ where
     T: Serialize,
 {
     if table.is_none() {
-        *table = Some(TableWriter::new(directory, name)?);
+        *table = Some(TableWriter::new(relations, name)?);
     }
     Ok(table.as_mut().expect("table initialized"))
 }
