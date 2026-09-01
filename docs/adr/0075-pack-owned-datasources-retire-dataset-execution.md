@@ -90,16 +90,21 @@ builder 验证，而两个 artifact 仍随同一 KAT 版本原子装配和发布
 | 既有决定 | 本决定取代 | 继续有效 |
 | --- | --- | --- |
 | ADR-0001、ADR-0008 | Dataset 输入、Manifest reference、`dataset.*`、CLI 对 datasource crate 的依赖和查询数据经 Runtime Response 内联返回 | Runtime 执行、Run/Output 发布与后续只读查询的所有权边界 |
-| ADR-0002 | Payload 只安装一个 KAT wheel 的交付假设 | 同版本原子发布、原生平台矩阵、私有 Host 与 Skill Assembly 边界 |
+| ADR-0002 | Payload 只安装一个 KAT wheel，以及默认 Dataset/Data Import 目标 | 同版本原子发布、原生平台矩阵、私有 Host、Data Home 其他目录与 Skill Assembly 边界 |
+| ADR-0003 | PACK 内 Test Dataset 和已删除操作的 discovery 表述 | External PACK 部署单位、生产/测试源码共同版本化、统一 Authoring API 与无持久 registry |
 | ADR-0005、ADR-0032 | 三个旧 Context 数据方法与 DataFrame Output | 显式 Context、调用期 lease、命名 Output 和 all-or-fail 发布原则 |
+| ADR-0010 | Dataset IPC/Manifest、`dataset.*` 查询、Dataset Parquet 数据面与 Dataset inspection 日志边界 | 文件型封闭 typed IPC、进程/日志 owner、Run/Output publication 与失败边界 |
 | ADR-0012 | `kat-cli -> kat-datasource` 固定依赖、crate 统一拥有 Dataset/所有 Datasource type，以及两个 builder 安装同一个 KAT wheel | 源码/部署视图分离、package 内聚与 Payload 黑盒装配边界 |
 | ADR-0013 | Import、Dataset inspection/参数/查询，以及 Query Result 经 Runtime Response 内联进入 KAT Response | 单一 Skill、其余操作动词与具名目标句法 |
+| ADR-0014 | Data Import → Dataset inspection → `required_tables` 匹配的 Dataset-first analysis flow | 自动选择 PACK/Workflow，并只在实质歧义时询问用户 |
 | ADR-0016、ADR-0074 | Dataset inspection、Test Dataset 及过渡性 Dataset 参数 | PACK pytest、Workflow/Provider inspection 与 declaration |
+| ADR-0017 | `tests/datasets/` Test Dataset | 固定 `workflows/`、`datasources/`、`helpers/`、`tests/` 布局及 import/pytest 所有权 |
 | ADR-0019、ADR-0036、ADR-0056 | `query_run` 的 Dataset、内联 columns/positional rows、KAT 自定义标量投影、CLI 二次组装，以及“不产生 query artifact” | 封闭 typed IPC、可信同版本单元、KAT Response 与其余 operation 的 owner 边界 |
 | ADR-0024、ADR-0025 | Dataset mutation、根级规范化 `sched_switch` 及 Import result 形状 | Trace fact 的复用门槛，以及未知扩展与损坏数据的 fail-closed 区分 |
 | ADR-0034 | Query Result 复用 KAT 时间值投影的要求 | Duration、WallClockTimestamp 与不同时间语义不可混用的领域合同 |
-| ADR-0035 | Workflow 参数表示与旧 Query Result 64 位整数投影保持一致的陈述 | Workflow 参数解析、默认值表示与 Python Runtime owner 边界 |
+| ADR-0035 | `--dataset`、`required_tables`、Table Grant、DataFrame Output、旧 decorator/inspection 字段，以及 Workflow 参数与旧 Query Result 64 位整数投影保持一致的陈述 | Workflow argv/签名/默认值解析、Click 参数语义与 Python Runtime owner 边界 |
 | ADR-0042、ADR-0048 | UnifiedClock/换算执行面、旧 ftrace 准入和规范化 `sched_switch` 数据链 | 原始 clock relations 和线程 CPU 时间问题中的来源语义边界 |
+| ADR-0043 | Runtime 私有 Session/Table Grant 数据执行面与 `kat_convert_clock` UDF | 成熟向量化能力优先、证据驱动的性能下沉与不维护平行实现 |
 | ADR-0045 | Payload 只有一个 KAT wheel 的交付假设 | Pack Authoring API 与 Runtime 继续共用 `kat-workflow` wheel |
 | ADR-0058、ADR-0059 | Trace Streamer Import、Dataset 与旧 Context/DataFrame 调用 | 两个 OpenHarmony Workflow 的分析问题、SQL 含义和 Output 合同 |
 | ADR-0061 | Dataset Storage publication、marker 与根级规范化 relation | build-time plan、typed emitter、descriptor-derived relations 及 protobuf 语义 |
