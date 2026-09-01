@@ -1,0 +1,49 @@
+docs/adr/0015-workflows-declare-enforced-table-grants.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0075-pack-owned-datasources-retire-dataset-execution.md
+  s_4d41488b244c7f::t_1f596e0c892f23 1-9
+  s_4d41488b244c7f::t_03b93d0b64dd94 10-94
+docs/adr/0022-datasource-types-are-closed-and-bundled.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0026-pack-converts-arrow-through-kat-managed-execution.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0021-one-data-import-uses-one-datasource.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0033-workflows-derive-data-without-mutating-datasets.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0051-clock-conversion-is-exposed-only-through-workflow-context.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_4d41488b244c7f::t_1f596e0c892f23 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "598bf75ed7b94f1da00a397a02978a4c6ca50fa5",
+  "prompts": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 102,
+      "total_deletions": 63,
+      "accepted_lines": 102,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
