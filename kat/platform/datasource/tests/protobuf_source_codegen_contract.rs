@@ -167,8 +167,11 @@ fn canonical_fqns_and_relation_names_fail_closed() {
     .expect("canonical FQNs distinguish equal short names and accept proto2 optional fields")
     .into_source();
     for expected in [
-        "value: &crate::proto::fixture::protobuf_source::contract::ValidRoot",
-        "value: &crate::proto::fixture::protobuf_source::contract_proto2::ValidRoot",
+        "crate::proto::fixture::protobuf_source::contract::ValidRoot",
+        "crate::proto::fixture::protobuf_source::contract_proto2::ValidRoot",
+        "\"proto2_valid_root\"",
+        "\"count\"",
+        "\"label\"",
     ] {
         assert!(
             source.contains(expected),
