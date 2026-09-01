@@ -1,0 +1,29 @@
+syntax = "proto2";
+
+package fixture.protobuf_source.contract_proto2;
+
+message RequiredRoot {
+  required string value = 1;
+}
+
+message GroupRoot {
+  optional group LegacyPayload = 1 {
+    optional string value = 2;
+  }
+}
+
+message ExtensionSubject {
+  extensions 100 to 199;
+}
+
+extend ExtensionSubject {
+  optional string fixture_note = 100;
+}
+
+message ExtensionContainer {
+  optional ExtensionSubject subject = 1;
+}
+
+message ExtensionRoot {
+  optional ExtensionContainer container = 1;
+}

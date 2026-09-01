@@ -33,3 +33,10 @@ prost-build.workspace = true
 prost-reflect.workspace = true
 prost-types.workspace = true
 protoc-bin-vendored.workspace = true
+
+[dev-dependencies]
+heck.workspace = true
+prost-build.workspace = true
+prost-reflect.workspace = true
+prost-types.workspace = true
+protoc-bin-vendored.workspace = true
