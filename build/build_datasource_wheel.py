@@ -18,8 +18,8 @@ import payload_builder
 file_sha256 = payload_builder.file_sha256
 
 PLATFORMS = {
-    "linux-x86_64": ("x86_64-unknown-linux-gnu", "manylinux_2_28"),
-    "windows-x86_64": ("x86_64-pc-windows-msvc", None),
+    "linux-x86_64": "manylinux_2_28",
+    "windows-x86_64": None,
 }
 
 
@@ -33,7 +33,7 @@ def build_datasource_wheel(
     cargo_target_dir: Path,
 ) -> tuple[Path, Path]:
     try:
-        rust_target, compatibility = PLATFORMS[platform]
+        compatibility = PLATFORMS[platform]
     except KeyError:
         raise ValueError(f"unsupported Datasource wheel platform: {platform}") from None
     repository = repository.resolve()
@@ -49,6 +49,8 @@ def build_datasource_wheel(
     try:
         built = temporary_root / "built"
         built.mkdir()
+        # Builder 已运行在目标原生平台；显式 --target 会让 maturin 把 Windows
+        # python.exe 当作 cross-build interpreter，并因文件名不含版本而拒绝它。
         command = [
             str(python),
             "-m",
@@ -62,8 +64,6 @@ def build_datasource_wheel(
             str(python),
             "--out",
             str(built),
-            "--target",
-            rust_target,
             "--target-dir",
             str(cargo_target_dir),
         ]

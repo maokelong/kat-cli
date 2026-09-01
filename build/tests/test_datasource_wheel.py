@@ -57,19 +57,19 @@ class DatasourceWheelTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
             self.assertNotIn("maturin", runtime_lock.lower())
 
-    def test_native_build_uses_maturin_and_validates_each_platform_tag(self) -> None:
+    def test_native_build_uses_host_interpreter_and_validates_each_platform_tag(
+        self,
+    ) -> None:
         builder = load_builder()
         cases = (
             (
                 "windows-x86_64",
-                "x86_64-pc-windows-msvc",
                 "cp314-cp314-win_amd64",
                 "kat_datasource/_native.cp314-win_amd64.pyd",
                 False,
             ),
             (
                 "linux-x86_64",
-                "x86_64-unknown-linux-gnu",
                 "cp314-cp314-manylinux_2_28_x86_64",
                 "kat_datasource/_native.cpython-314-x86_64-linux-gnu.so",
                 True,
@@ -79,7 +79,7 @@ class DatasourceWheelTests(unittest.TestCase):
             root = Path(directory)
             python = root / "python"
             python.write_bytes(b"python")
-            for platform, rust_target, tag, extension, manylinux in cases:
+            for platform, tag, extension, manylinux in cases:
                 with self.subTest(platform=platform):
                     output = root / platform
 
@@ -106,9 +106,7 @@ class DatasourceWheelTests(unittest.TestCase):
                     command = run.call_args.args[0]
                     self.assertEqual(command[:3], [str(python), "-m", "maturin"])
                     self.assertIn("--locked", command)
-                    self.assertEqual(
-                        command[command.index("--target") + 1], rust_target
-                    )
+                    self.assertNotIn("--target", command)
                     self.assertEqual(
                         "manylinux_2_28" in command,
                         manylinux,
