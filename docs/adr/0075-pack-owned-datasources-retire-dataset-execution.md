@@ -93,10 +93,12 @@ builder 验证，而两个 artifact 仍随同一 KAT 版本原子装配和发布
 | ADR-0002 | Payload 只安装一个 KAT wheel 的交付假设 | 同版本原子发布、原生平台矩阵、私有 Host 与 Skill Assembly 边界 |
 | ADR-0005、ADR-0032 | 三个旧 Context 数据方法与 DataFrame Output | 显式 Context、调用期 lease、命名 Output 和 all-or-fail 发布原则 |
 | ADR-0012 | `kat-cli -> kat-datasource` 固定依赖、crate 统一拥有 Dataset/所有 Datasource type，以及两个 builder 安装同一个 KAT wheel | 源码/部署视图分离、package 内聚与 Payload 黑盒装配边界 |
-| ADR-0013、ADR-0016、ADR-0074 | Import、Dataset inspection、Test Dataset 及过渡性 Dataset 参数 | 单一 Skill、PACK pytest、Workflow/Provider inspection 与 declaration |
-| ADR-0019、ADR-0036、ADR-0056 | `query_run` 的 Dataset、内联 columns/positional rows、KAT 自定义标量投影和 CLI 二次组装 | 封闭 typed IPC、可信同版本单元、KAT Response 与其余 operation 的 owner 边界 |
+| ADR-0013 | Import、Dataset inspection/参数/查询，以及 Query Result 经 Runtime Response 内联进入 KAT Response | 单一 Skill、其余操作动词与具名目标句法 |
+| ADR-0016、ADR-0074 | Dataset inspection、Test Dataset 及过渡性 Dataset 参数 | PACK pytest、Workflow/Provider inspection 与 declaration |
+| ADR-0019、ADR-0036、ADR-0056 | `query_run` 的 Dataset、内联 columns/positional rows、KAT 自定义标量投影、CLI 二次组装，以及“不产生 query artifact” | 封闭 typed IPC、可信同版本单元、KAT Response 与其余 operation 的 owner 边界 |
 | ADR-0024、ADR-0025 | Dataset mutation、根级规范化 `sched_switch` 及 Import result 形状 | Trace fact 的复用门槛，以及未知扩展与损坏数据的 fail-closed 区分 |
 | ADR-0034 | Query Result 复用 KAT 时间值投影的要求 | Duration、WallClockTimestamp 与不同时间语义不可混用的领域合同 |
+| ADR-0035 | Workflow 参数表示与旧 Query Result 64 位整数投影保持一致的陈述 | Workflow 参数解析、默认值表示与 Python Runtime owner 边界 |
 | ADR-0042、ADR-0048 | UnifiedClock/换算执行面、旧 ftrace 准入和规范化 `sched_switch` 数据链 | 原始 clock relations 和线程 CPU 时间问题中的来源语义边界 |
 | ADR-0045 | Payload 只有一个 KAT wheel 的交付假设 | Pack Authoring API 与 Runtime 继续共用 `kat-workflow` wheel |
 | ADR-0058、ADR-0059 | Trace Streamer Import、Dataset 与旧 Context/DataFrame 调用 | 两个 OpenHarmony Workflow 的分析问题、SQL 含义和 Output 合同 |
