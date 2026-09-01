@@ -1,9 +1,8 @@
 from pathlib import Path
 
-import kat
-
 from kat.pack.datasources.ftrace import FtraceProvider
 
+import kat
 
 SUMMARY_SQL = """
 SELECT

@@ -1,6 +1,6 @@
 # Memory Analysis PACK
 
-这个 External PACK 展示如何把独立 Rust 转换器接入 PACK 自有 Provider：
+这个 External PACK 展示如何把 Rust 来源解码能力接入 PACK 自有 Provider：
 
 ```text
 UTF-8 text Ftrace
@@ -11,9 +11,9 @@ UTF-8 text Ftrace
 ```
 
 Provider 构造成功后即可查询；调用方不需要知道转换器、Catalog 路径或物理存储格式。
-实现内部由 Rust `ftrace2parquet` 拥有文本语法、Proto 类型合同、有限批次写入和原子发布，
-Python Provider 负责进程调用、内部物化复用、必需关系校验和本地查询。部署环境
-通过 `KAT_FTRACE2PARQUET_EXECUTABLE` 配置批准的转换器，Workflow 不感知其位置。
+实现内部由 `kat-datasource` 原生扩展拥有文本语法、Proto 类型合同、有限批次写入和原子
+发布，Python Provider 直接调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
+必需关系校验和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
 
 固定关系为 `text_ftrace_header`、`text_ftrace_event_occurrence` 和
 `text_ftrace_event`。四种首批类型化载荷关系只在来源实际出现时生成：
@@ -28,16 +28,12 @@ Python Provider 负责进程调用、内部物化复用、必需关系校验和�
 不从文件名或数值猜测时间语义。
 
 完整的表、字段、关联关系和查询示例见 Provider 的同名文档
-[datasources/ftrace.md](./datasources/ftrace.md)。运行时也可以使用
+[knowledge/providers/ftrace.md](./knowledge/providers/ftrace.md)。运行时也可以使用
 `SHOW TABLES` 和 `DESCRIBE <table>` 查看当前 Trace 实际产生的关系及其物理字段。
 
-## 构建和运行
+## 运行
 
 ```bash
-cargo build --locked -p ftrace2parquet
-
-export KAT_FTRACE2PARQUET_EXECUTABLE="$PWD/target/debug/ftrace2parquet"
-
 kat run \
   --pack mem-pack \
   --workflow summarize-ftrace \
@@ -60,15 +56,14 @@ Workflow 复用已经通过校验的 Parquet；调用方不感知目录位置。
 Rust 合同测试负责解析、类型化 oneof 关系、来源序号间隙、坏输入、有限批次和原子发布：
 
 ```bash
-cargo test --locked -p ftrace2parquet
+cargo test --locked -p kat-datasource
 ```
 
-PACK pytest 负责 Provider 进程边界、Catalog、查询拓扑、失败清理和 Workflow Output：
+PACK pytest 负责 Provider 原生调用边界、Catalog、查询拓扑、失败清理和 Workflow Output：
 
 ```bash
 kat test --pack-dir ./examples/packs/mem-pack
 ```
 
 真实 OpenHarmony 设备纵向用例还会执行 HDC 采集、拉取、转换、查询和第二次内容复用。
-它要求显式设置 `KAT_HDC_TARGET` 与 `KAT_FTRACE2PARQUET_EXECUTABLE`；普通 CI 没有设备时
-跳过，不会猜测或默认选择连接目标。
+它要求显式设置 `KAT_HDC_TARGET`；普通 CI 没有设备时跳过，不会猜测或默认选择连接目标。

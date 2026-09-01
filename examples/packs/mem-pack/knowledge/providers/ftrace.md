@@ -151,7 +151,7 @@ ORDER BY o.source_event_sequence
 ## 文档来源
 
 `text_ftrace_event` 的业务字段以及四类 payload 字段来源于
-`crates/ftrace2parquet/proto/text_ftrace_event.proto`。
+`kat/platform/datasource/proto/text_ftrace_event.proto`。
 
 以下内容当前不在 Proto 中，不能只根据该文件完整生成：
 

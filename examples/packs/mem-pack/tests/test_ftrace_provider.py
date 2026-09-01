@@ -1,15 +1,13 @@
 import gc
 from pathlib import Path
-import subprocess
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-
-from kat import dataprovider as dp
 from kat.pack.datasources import ftrace as provider_module
 from kat.pack.datasources.ftrace import FtraceProvider
 
+from kat import dataprovider as dp
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
 
@@ -86,9 +84,6 @@ def _write_catalog(
 
 
 def _arguments(tmp_path: Path, monkeypatch, **overrides) -> dict[str, object]:
-    executable = tmp_path / "ftrace2parquet"
-    executable.write_bytes(b"fixture executable")
-    monkeypatch.setenv("KAT_FTRACE2PARQUET_EXECUTABLE", str(executable))
     arguments = {
         "source": _FIXTURE,
         "clock_domain": "fixture_clock",
@@ -99,7 +94,7 @@ def _arguments(tmp_path: Path, monkeypatch, **overrides) -> dict[str, object]:
 
 
 def _catalog_directories(workspace_root: Path) -> list[Path]:
-    cache_root = workspace_root / ".ftrace2parquet-cache"
+    cache_root = workspace_root / ".ftrace-cache"
     if not cache_root.exists():
         return []
     return sorted(path for path in cache_root.iterdir() if path.is_dir())
@@ -109,26 +104,15 @@ def test_construction_invokes_the_converter_and_exposes_typed_relations(
     monkeypatch,
     tmp_path,
 ):
-    def convert(arguments, **options):
-        assert arguments[1:3] == ["--input", str(_FIXTURE.resolve())]
-        assert arguments[3] == "--output"
-        assert arguments[5:] == ["--clock-domain", "fixture_clock"]
-        catalog_root = Path(arguments[4])
-        assert catalog_root.parent == tmp_path / ".ftrace2parquet-cache"
+    def convert(source, catalog_root, clock_domain):
+        assert source == _FIXTURE.resolve()
+        assert clock_domain == "fixture_clock"
+        assert catalog_root.parent == tmp_path / ".ftrace-cache"
         assert len(catalog_root.name) == 64
         assert all(character in "0123456789abcdef" for character in catalog_root.name)
-        assert options == {
-            "cwd": catalog_root.parent,
-            "shell": False,
-            "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "check": False,
-        }
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
+        _write_catalog(catalog_root)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
     provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
     topology = provider.query(
@@ -158,18 +142,16 @@ def test_failed_constructor_cleans_partial_output_and_a_new_provider_can_retry(
 ):
     attempts = 0
 
-    def convert(arguments, **_options):
+    def convert(_source, catalog, _clock_domain):
         nonlocal attempts
         attempts += 1
-        catalog = Path(arguments[4])
         if attempts == 1:
             catalog.mkdir()
             (catalog / "partial").write_text("partial", encoding="utf-8")
-            return subprocess.CompletedProcess(arguments, 9)
+            raise provider_module.text_ftrace.DecodeError("fixture failure")
         _write_catalog(catalog)
-        return subprocess.CompletedProcess(arguments, 0)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     with pytest.raises(RuntimeError, match="decode failed"):
         FtraceProvider(**_arguments(tmp_path, monkeypatch))
@@ -182,11 +164,10 @@ def test_failed_constructor_cleans_partial_output_and_a_new_provider_can_retry(
 
 
 def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
-    def convert(arguments, **_options):
-        _write_catalog(Path(arguments[4]), include_root=False)
-        return subprocess.CompletedProcess(arguments, 0)
+    def convert(_source, catalog, _clock_domain):
+        _write_catalog(catalog, include_root=False)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     with pytest.raises(RuntimeError, match="text_ftrace_event"):
         FtraceProvider(**_arguments(tmp_path, monkeypatch))
@@ -195,15 +176,14 @@ def test_missing_required_relation_fails_closed(monkeypatch, tmp_path):
 
 
 def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_path):
-    def convert(arguments, **_options):
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
+    def convert(_source, catalog, _clock_domain):
+        _write_catalog(catalog)
 
     def reject_catalog(*, catalog):
         assert catalog.tables
         raise RuntimeError("query provider failed")
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
     monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
 
     with pytest.raises(RuntimeError, match="query provider failed"):
@@ -215,16 +195,14 @@ def test_query_provider_failure_cleans_the_converted_catalog(monkeypatch, tmp_pa
 def test_same_file_content_reuses_the_materialized_catalog(monkeypatch, tmp_path):
     conversions = 0
 
-    def convert(arguments, **_options):
+    def convert(_source, catalog, _clock_domain):
         nonlocal conversions
         conversions += 1
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
+        _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     first = FtraceProvider(**_arguments(tmp_path, monkeypatch))
-    monkeypatch.delenv("KAT_FTRACE2PARQUET_EXECUTABLE")
     second = FtraceProvider(
         source=_FIXTURE,
         clock_domain="fixture_clock",
@@ -248,13 +226,11 @@ def test_different_file_content_uses_a_different_catalog(monkeypatch, tmp_path):
     second_source.write_bytes(fixture + b"\n")
     catalogs = []
 
-    def convert(arguments, **_options):
-        catalog = Path(arguments[4])
+    def convert(_source, catalog, _clock_domain):
         catalogs.append(catalog)
         _write_catalog(catalog)
-        return subprocess.CompletedProcess(arguments, 0)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     FtraceProvider(
         **_arguments(tmp_path, monkeypatch, source=first_source)
@@ -270,13 +246,12 @@ def test_different_file_content_uses_a_different_catalog(monkeypatch, tmp_path):
 def test_corrupt_cached_catalog_is_rebuilt(monkeypatch, tmp_path):
     conversions = 0
 
-    def convert(arguments, **_options):
+    def convert(_source, catalog, _clock_domain):
         nonlocal conversions
         conversions += 1
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
+        _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     FtraceProvider(**_arguments(tmp_path, monkeypatch))
     [catalog_root] = _catalog_directories(tmp_path)
@@ -291,11 +266,11 @@ def test_corrupt_cached_catalog_is_rebuilt(monkeypatch, tmp_path):
 
 
 def test_concurrent_publisher_winner_is_reused(monkeypatch, tmp_path):
-    def convert(arguments, **_options):
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 9)
+    def convert(_source, catalog, _clock_domain):
+        _write_catalog(catalog)
+        raise provider_module.text_ftrace.DecodeError("destination already exists")
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
@@ -307,13 +282,12 @@ def test_concurrent_publisher_winner_is_reused(monkeypatch, tmp_path):
 def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
     conversions = 0
 
-    def convert(arguments, **_options):
+    def convert(_source, catalog, _clock_domain):
         nonlocal conversions
         conversions += 1
-        _write_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
+        _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
     FtraceProvider(**_arguments(tmp_path, monkeypatch))
 
     with pytest.raises(RuntimeError, match="clock_domain"):
@@ -328,13 +302,12 @@ def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
 def test_auto_cleanup_uses_and_releases_a_private_catalog(monkeypatch, tmp_path):
     converted_catalog = None
 
-    def convert(arguments, **_options):
+    def convert(_source, catalog, _clock_domain):
         nonlocal converted_catalog
-        converted_catalog = Path(arguments[4])
+        converted_catalog = catalog
         _write_catalog(converted_catalog)
-        return subprocess.CompletedProcess(arguments, 0)
 
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
     provider = FtraceProvider(
         **_arguments(tmp_path, monkeypatch, auto_cleanup=True)
     )
@@ -385,15 +358,4 @@ def test_auto_cleanup_must_be_a_bool(tmp_path):
             clock_domain="fixture_clock",
             workspace_root=tmp_path,
             auto_cleanup=1,
-        )
-
-
-def test_converter_location_is_an_internal_deployment_detail(monkeypatch, tmp_path):
-    monkeypatch.delenv("KAT_FTRACE2PARQUET_EXECUTABLE", raising=False)
-
-    with pytest.raises(RuntimeError, match="KAT_FTRACE2PARQUET_EXECUTABLE"):
-        FtraceProvider(
-            source=_FIXTURE,
-            clock_domain="fixture_clock",
-            workspace_root=tmp_path,
         )

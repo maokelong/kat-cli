@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import hashlib
-import os
-from pathlib import Path
 import shutil
-import subprocess
+from collections.abc import Mapping
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from kat import dataprovider as dp
+from kat_datasource import text_ftrace
 
+import kat
+from kat import dataprovider as dp
 
 REQUIRED_RELATIONS = frozenset(
     {
@@ -20,6 +20,11 @@ REQUIRED_RELATIONS = frozenset(
 )
 
 
+@kat.provider(
+    name="ftrace-text",
+    description="将 tracefs 文本解码为可重复查询的类型化关系。",
+    guide="providers/ftrace.md",
+)
 class FtraceProvider:
     """查询一份文本 Ftrace 所提供的类型化关系。"""
 
@@ -62,7 +67,7 @@ class FtraceProvider:
                 self._catalog_root = Path(self._workspace.name) / "catalog"
                 self._fusion = self._convert_and_open_catalog(source)
             else:
-                cache_root = workspace_root / ".ftrace2parquet-cache"
+                cache_root = workspace_root / ".ftrace-cache"
                 cache_root.mkdir(exist_ok=True)
                 if cache_root.is_symlink() or not cache_root.is_dir():
                     raise RuntimeError(
@@ -81,34 +86,17 @@ class FtraceProvider:
                 return self._open_catalog()
             except _ClockDomainMismatch:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001 - 任意准入失败都表示缓存不可用。
                 _remove_catalog(self._catalog_root)
         return self._convert_and_open_catalog(source)
 
     def _convert_and_open_catalog(self, source: Path) -> dp.DataFusionProvider:
         """把当前来源完整转换为 Provider 管理的 Parquet Catalog。"""
         try:
-            executable = _resolve_executable()
             catalog_root = self._catalog_root.resolve(strict=False)
-
-            completed = subprocess.run(
-                [
-                    str(executable),
-                    "--input",
-                    str(source),
-                    "--output",
-                    str(catalog_root),
-                    "--clock-domain",
-                    self._clock_domain,
-                ],
-                cwd=catalog_root.parent,
-                shell=False,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if completed.returncode != 0:
+            try:
+                text_ftrace.decode(source, catalog_root, self._clock_domain)
+            except text_ftrace.DecodeError:
                 if (
                     self._workspace is None
                     and catalog_root.is_dir()
@@ -118,7 +106,7 @@ class FtraceProvider:
                         return self._open_catalog()
                     except _ClockDomainMismatch:
                         raise
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 - 并发产物未通过准入。
                         pass
                 raise RuntimeError("Ftrace Provider decode failed")
             if not catalog_root.is_dir() or catalog_root.is_symlink():
@@ -163,18 +151,6 @@ class FtraceProvider:
         params: Mapping[str, object] | None = None,
     ) -> dp.Table:
         return self._fusion.query(sql, params=params)
-
-
-def _resolve_executable() -> Path:
-    value = os.environ.get("KAT_FTRACE2PARQUET_EXECUTABLE")
-    if not value:
-        raise RuntimeError(
-            "KAT_FTRACE2PARQUET_EXECUTABLE must identify the approved converter"
-        )
-    executable = Path(value)
-    if not executable.is_file():
-        raise RuntimeError("ftrace2parquet executable must be an existing file")
-    return executable.resolve(strict=True)
 
 
 def _content_hash(source: Path) -> str:

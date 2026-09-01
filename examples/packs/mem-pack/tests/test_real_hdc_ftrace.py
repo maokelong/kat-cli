@@ -1,25 +1,18 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 
 import pytest
-
 from kat.pack.datasources.ftrace import FtraceProvider
 
-
 _TARGET = os.environ.get("KAT_HDC_TARGET")
-_CONVERTER = os.environ.get("KAT_FTRACE2PARQUET_EXECUTABLE")
 _REMOTE_TRACE = "/data/local/tmp/kat-ftrace-provider-real.ftrace"
 
 
 pytestmark = pytest.mark.skipif(
-    not _TARGET or not _CONVERTER,
-    reason=(
-        "requires explicit KAT_HDC_TARGET and "
-        "KAT_FTRACE2PARQUET_EXECUTABLE"
-    ),
+    not _TARGET,
+    reason="requires an explicit KAT_HDC_TARGET",
 )
 
 
@@ -112,7 +105,7 @@ def test_real_hdc_capture_converts_queries_and_reuses_content_hash(tmp_path):
     assert summary["observed_cpu_count"] > 0
     assert summary["clock_domain"] == "boot"
 
-    cache_root = workspace_root / ".ftrace2parquet-cache"
+    cache_root = workspace_root / ".ftrace-cache"
     [catalog_root] = list(cache_root.iterdir())
     materialized_at = catalog_root.stat().st_mtime_ns
 

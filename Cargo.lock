@@ -519,23 +519,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
-name = "ftrace2parquet"
-version = "0.1.1-rc.1"
-dependencies = [
- "anyhow",
- "arrow-array",
- "arrow-schema",
- "clap",
- "parquet",
- "prost",
- "prost-build",
- "protoc-bin-vendored",
- "serde",
- "serde_arrow",
- "tempfile",
-]
-
-[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"

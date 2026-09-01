@@ -1,11 +1,8 @@
 from pathlib import Path
-import subprocess
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-
 from kat.pack.datasources import ftrace as provider_module
-
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
 
@@ -55,15 +52,10 @@ def _write_summary_catalog(root: Path) -> None:
 
 
 def test_workflow_publishes_an_eager_summary(kat_run, monkeypatch, tmp_path):
-    executable = tmp_path / "ftrace2parquet"
-    executable.write_bytes(b"fixture executable")
+    def convert(_source, catalog, _clock_domain):
+        _write_summary_catalog(catalog)
 
-    def convert(arguments, **_options):
-        _write_summary_catalog(Path(arguments[4]))
-        return subprocess.CompletedProcess(arguments, 0)
-
-    monkeypatch.setattr(provider_module.subprocess, "run", convert)
-    monkeypatch.setenv("KAT_FTRACE2PARQUET_EXECUTABLE", str(executable))
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
     result = kat_run(
         workflow="summarize-ftrace",
