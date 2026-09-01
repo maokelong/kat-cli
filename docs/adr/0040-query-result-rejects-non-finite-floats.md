@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # Query Result 拒绝非有限浮点值

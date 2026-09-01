@@ -26,6 +26,13 @@ KAT CLI 删除 `kat import`、`kat inspect --dataset`、`kat run --dataset`、Te
 文件、不恢复 relation，也不公开 Dataset 状态。用户磁盘上已有的 Dataset 目录不自动
 删除、不迁移，KAT 也不增加清理工具。
 
+Output Query 沿用前置重构后的单 Run Output 合同：Runtime 只注册该 Run 的
+`output.*`，由 DataFusion 原生 writer 把对象行直接写入候选 NDJSON；公共成功结果只
+返回 `format`、`path` 和有序 `columns`。查询数据不进入 Runtime Response 或 Rust，
+也不再有内联 `rows`、Dataset 状态、KAT 自定义 Arrow 标量投影或类型白名单。旧
+compact positional JSON 会同时保留已删除的 Dataset 状态，并让 Runtime 与 CLI 承担
+已经不需要的数据转码，因此在 Dataset 执行面退役后不再维持该合同。
+
 Hitrace 原生解析收窄为独立私有 distribution `kat-datasource` 的唯一公共模块
 `kat_datasource.hitrace`。`decode(source, destination)` 要求 destination 尚不存在，
 在同父目录的私有 staging 中流式生成平铺的具名 Parquet relations，全部 decode、
@@ -53,7 +60,9 @@ SQLite Datasource type，也不形成跨 PACK Provider framework。
 分别校验并以 `--no-deps` 安装；平台 Runtime lock 只锁第三方依赖。`kat-datasource`
 不发布可执行文件、不修改 PATH，`kat-cli` 也不链接 native datasource crate。Ftrace
 文本和 Trace Streamer SQLite 继续由具体 PACK Provider 负责，不增加通用 Decoder
-trait、插件注册、自动来源识别或 RPC。
+trait、插件注册、自动来源识别或 RPC。原生扩展具有平台相关构建与验证生命周期，且
+CLI 已没有其 Rust 调用者；拆成第二个私有 wheel 可以保持依赖边界并由各原生 Payload
+builder 验证，而两个 artifact 仍随同一 KAT 版本原子装配和发布。
 
 ## 与既有决定的关系
 
@@ -68,16 +77,26 @@ trait、插件注册、自动来源识别或 RPC。
 | ADR-0022 | 编译进 CLI 的封闭 Datasource type 集合 |
 | ADR-0026 | 通过 `ctx.from_arrow()` 进入受管理 DataFrame execution plane |
 | ADR-0033 | Dataset grant 下通过 `ctx.sql()` 派生且不修改 Dataset 的执行合同 |
+| ADR-0038 | Dataset 状态、内联 columns/positional rows 与 compact Query Result |
+| ADR-0039 | Query Result 的自定义 64 位整数投影 |
+| ADR-0040 | Query Result 的自定义非有限浮点拒绝规则 |
+| ADR-0041 | Query Result 的自定义 Decimal 投影 |
+| ADR-0044 | Query Result 的自定义 UTC 纳秒 Timestamp 投影 |
+| ADR-0046 | Query Result 的自定义 Arrow 字符串投影 |
 | ADR-0051 | 通过 Workflow Context、Dataset clock evidence 与 UDF 执行时钟换算 |
 
 下列决定只被局部取代；未列入“取代”栏的其余内容继续有效：
 
 | 既有决定 | 本决定取代 | 继续有效 |
 | --- | --- | --- |
-| ADR-0001、ADR-0008 | Dataset 输入、Manifest reference、`dataset.*` 和 CLI 对 datasource crate 的依赖 | Runtime 执行、Run/Output 发布与后续只读查询的所有权边界 |
+| ADR-0001、ADR-0008 | Dataset 输入、Manifest reference、`dataset.*`、CLI 对 datasource crate 的依赖和查询数据经 Runtime Response 内联返回 | Runtime 执行、Run/Output 发布与后续只读查询的所有权边界 |
+| ADR-0002 | Payload 只安装一个 KAT wheel 的交付假设 | 同版本原子发布、原生平台矩阵、私有 Host 与 Skill Assembly 边界 |
 | ADR-0005、ADR-0032 | 三个旧 Context 数据方法与 DataFrame Output | 显式 Context、调用期 lease、命名 Output 和 all-or-fail 发布原则 |
+| ADR-0012 | `kat-cli -> kat-datasource` 固定依赖、crate 统一拥有 Dataset/所有 Datasource type，以及两个 builder 安装同一个 KAT wheel | 源码/部署视图分离、package 内聚与 Payload 黑盒装配边界 |
 | ADR-0013、ADR-0016、ADR-0074 | Import、Dataset inspection、Test Dataset 及过渡性 Dataset 参数 | 单一 Skill、PACK pytest、Workflow/Provider inspection 与 declaration |
+| ADR-0019、ADR-0036、ADR-0056 | `query_run` 的 Dataset、内联 columns/positional rows、KAT 自定义标量投影和 CLI 二次组装 | 封闭 typed IPC、可信同版本单元、KAT Response 与其余 operation 的 owner 边界 |
 | ADR-0024、ADR-0025 | Dataset mutation、根级规范化 `sched_switch` 及 Import result 形状 | Trace fact 的复用门槛，以及未知扩展与损坏数据的 fail-closed 区分 |
+| ADR-0034 | Query Result 复用 KAT 时间值投影的要求 | Duration、WallClockTimestamp 与不同时间语义不可混用的领域合同 |
 | ADR-0042、ADR-0048 | UnifiedClock/换算执行面、旧 ftrace 准入和规范化 `sched_switch` 数据链 | 原始 clock relations 和线程 CPU 时间问题中的来源语义边界 |
 | ADR-0045 | Payload 只有一个 KAT wheel 的交付假设 | Pack Authoring API 与 Runtime 继续共用 `kat-workflow` wheel |
 | ADR-0058、ADR-0059 | Trace Streamer Import、Dataset 与旧 Context/DataFrame 调用 | 两个 OpenHarmony Workflow 的分析问题、SQL 含义和 Output 合同 |
