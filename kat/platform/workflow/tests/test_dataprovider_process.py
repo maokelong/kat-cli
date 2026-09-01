@@ -53,7 +53,7 @@ class DataProviderRuntimeProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def pack(self, body: str, *, required_tables: str = "[]") -> Path:
+    def pack(self, body: str) -> Path:
         pack = self.root / f"pack-{uuid.uuid4().hex}"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
@@ -62,8 +62,7 @@ from kat import dataprovider as dp
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
-    required_tables={required_tables},
+    description="Exercise the Data Provider Runtime boundary.",
 )
 def analyze(ctx: kat.Context):
     """Exercise the Data Provider Runtime boundary."""
@@ -130,7 +129,7 @@ def analyze(ctx: kat.Context):
             {"value": [1]},
         )
 
-    def test_ctx_sql_registers_only_granted_dataset_tables_for_every_call(
+    def test_ctx_sql_registers_all_dataset_tables_for_every_call(
         self,
     ) -> None:
         pack = self.pack(
@@ -143,7 +142,6 @@ def analyze(ctx: kat.Context):
     assert isinstance(first, DataFrame)
     assert isinstance(second, DataFrame)
     return second''',
-            required_tables="['events']",
         )
         dataset = self.root / "dataset"
         dataset.mkdir()
@@ -184,7 +182,6 @@ def analyze(ctx: kat.Context):
     table = dp.Table({{"value": int}})
     table.append(value=1)
     return table''',
-            required_tables="['events']",
         )
         dataset = self.root / "damaged-dataset"
         dataset.mkdir()

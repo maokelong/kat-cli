@@ -5,8 +5,7 @@ from kat.pack.helpers.critical_path import extract_critical_path
 
 @kat.workflow(
     name="extract-critical-path",
-    title="Extract Critical Path",
-    required_tables=["process", "thread", "thread_state", "sched_slice", "instant", "callstack", "args", "data_dict"],
+    description="为一个线程窗口提取有界调度关键路径及调用栈证据。",
     parameters={
         "root_itid": "Root thread internal ID from frame_window.root_itid.",
         "start_ts": "Window start from frame_window.start_ts in boottime nanoseconds.",

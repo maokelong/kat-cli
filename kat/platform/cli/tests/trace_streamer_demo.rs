@@ -92,31 +92,18 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         dunce::canonicalize(&dataset).unwrap().to_str().unwrap()
     );
 
-    let mut inspect_dataset = Command::new(&binary);
-    inspect_dataset.args(["inspect", "--dataset"]).arg(&dataset);
-    test_home::configure(&mut inspect_dataset, temporary.path());
-    let inspection = response(inspect_dataset.output().unwrap());
-    assert_eq!(
-        inspection["result"]["tables"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|table| table["name"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["sched_slice", "thread"]
-    );
-
-    let mut inspect_pack = Command::new(&binary);
-    inspect_pack
+    let mut inspect_workflows = Command::new(&binary);
+    inspect_workflows
         .args([
             "inspect",
+            "workflow",
             "--pack",
             "kat-openharmony-thread-cpu-time",
             "--pack-dir",
         ])
         .arg(&pack);
-    test_home::configure(&mut inspect_pack, temporary.path());
-    let pack_inspection = response(inspect_pack.output().unwrap());
+    test_home::configure(&mut inspect_workflows, temporary.path());
+    let pack_inspection = response(inspect_workflows.output().unwrap());
     assert_eq!(
         pack_inspection["result"]["workflows"][0]["name"],
         "thread-cpu-time"
@@ -196,7 +183,7 @@ fn trace_streamer_demo_runs_the_full_user_loop() {
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(
-        rows,
+        serde_json::Value::Array(rows),
         serde_json::json!([
             {
                 "thread_id": 15381,

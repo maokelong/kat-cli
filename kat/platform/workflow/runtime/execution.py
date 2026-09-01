@@ -122,17 +122,7 @@ def run_loaded_workflow(
     candidate_id = candidate.identifier
     candidate_path = candidate.path
 
-    required_tables = workflow.interface["required_tables"]
     table_paths = {} if dataset is None else dataset.tables
-    if required_tables and dataset is None:
-        raise WorkflowExecutionFailure() from ValueError(
-            "the selected Workflow requires a Dataset"
-        )
-    missing = sorted(set(required_tables) - set(table_paths))
-    if missing:
-        raise WorkflowExecutionFailure() from ValueError(
-            f"Dataset is missing required tables: {', '.join(missing)}"
-        )
 
     try:
         effective = workflow.parse_arguments(arguments)
@@ -140,7 +130,7 @@ def run_loaded_workflow(
         raise WorkflowExecutionFailure() from error
     session = SessionContext()
     try:
-        for table_name in required_tables:
+        for table_name in sorted(table_paths):
             session.register_parquet(table_name, str(table_paths[table_name]))
     except (Exception, SystemExit) as error:
         raise WorkflowExecutionFailure() from error

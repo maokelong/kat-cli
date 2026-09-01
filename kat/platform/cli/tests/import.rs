@@ -163,7 +163,7 @@ fn database(path: &Path) {
 }
 
 #[test]
-fn trace_streamer_import_then_inspect_is_a_real_json_process_loop() {
+fn trace_streamer_import_publishes_an_inspectable_dataset() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());
     let cwd = temp.path().join("cwd");
@@ -200,24 +200,12 @@ fn trace_streamer_import_then_inspect_is_a_real_json_process_loop() {
     );
     assert!(response.get("log_path").is_none());
 
-    let inspected = command(&binary, temp.path())
-        .current_dir(&cwd)
-        .args(["inspect", "--dataset", "数据集"])
-        .output()
-        .unwrap();
+    let inspection = kat_datasource::inspect_dataset(&dataset).unwrap();
     assert_eq!(
-        inspected.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&inspected.stderr)
-    );
-    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
-    assert_eq!(
-        inspection["result"]["tables"]
-            .as_array()
-            .unwrap()
+        inspection
+            .tables()
             .iter()
-            .map(|table| table["name"].as_str().unwrap())
+            .map(|table| table.name())
             .collect::<Vec<_>>(),
         vec!["a_table", "z_table"]
     );
@@ -264,19 +252,12 @@ fn hitrace_import_publishes_long_term_tables_result_and_operation_log() {
     assert!(log.is_file());
     assert!(fs::read_to_string(log).unwrap().contains("status: success"));
 
-    let inspected = command(&binary, temp.path())
-        .arg("inspect")
-        .arg("--dataset")
-        .arg(&dataset)
-        .output()
-        .unwrap();
-    let inspection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    let inspection = kat_datasource::inspect_dataset(&dataset).unwrap();
     assert_eq!(
-        inspection["result"]["tables"]
-            .as_array()
-            .unwrap()
+        inspection
+            .tables()
             .iter()
-            .map(|table| table["name"].as_str().unwrap())
+            .map(|table| table.name())
             .collect::<Vec<_>>(),
         [
             "clock_domain",
@@ -448,7 +429,7 @@ fn failed_hitrace_import_logs_unknown_content_observed_before_the_error() {
     windows,
     ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
 )]
-fn default_target_is_uuid_v7_under_data_home_and_is_inspectable() {
+fn default_target_is_uuid_v7_under_data_home_and_has_a_dataset_marker() {
     let temp = tempfile::tempdir().unwrap();
     let binary = stage_skill(temp.path());
     let source = temp.path().join("source.db");

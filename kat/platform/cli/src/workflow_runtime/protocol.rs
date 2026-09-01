@@ -4,17 +4,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::response::KatDiagnostic;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Workflow {
+pub(crate) struct InspectionSummary {
     pub(crate) name: String,
-    pub(crate) title: String,
     pub(crate) description: String,
-    pub(crate) required_tables: Vec<String>,
-    pub(crate) parameters: Vec<Parameter>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkflowInspection {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: Vec<Parameter>,
+    #[serde(deserialize_with = "deserialize_nullable_string")]
+    pub(crate) guide: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProviderInspection {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) module: String,
+    pub(crate) qualname: String,
+    pub(crate) guide: String,
+}
+
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Parameter {
     pub(crate) name: String,
@@ -23,11 +40,23 @@ pub(crate) struct Parameter {
     pub(crate) parameter_type: ParameterType,
     pub(crate) required: bool,
     pub(crate) description: String,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) negative_option: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_optional_strings")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_strings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) choices: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "deserialize_default")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_default",
+        skip_serializing_if = "ParameterDefault::is_missing"
+    )]
     pub(crate) default: ParameterDefault,
 }
 
@@ -97,6 +126,13 @@ where
     Vec::<String>::deserialize(deserializer).map(Some)
 }
 
+fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum RuntimeResponse<R> {
@@ -104,10 +140,28 @@ pub(super) enum RuntimeResponse<R> {
     Failure { error: KatDiagnostic },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct InspectPackRuntimeResult {
-    pub(super) workflows: Vec<Workflow>,
+pub(crate) struct InspectWorkflowsResult {
+    pub(crate) workflows: Vec<InspectionSummary>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InspectWorkflowResult {
+    pub(crate) workflow: WorkflowInspection,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InspectProvidersResult {
+    pub(crate) providers: Vec<InspectionSummary>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InspectProviderResult {
+    pub(crate) provider: ProviderInspection,
 }
 
 #[derive(Serialize)]
@@ -161,10 +215,19 @@ pub(super) struct QueryRunRequest<'a> {
 }
 
 #[derive(Serialize)]
-pub(super) struct InspectPackRequest<'a> {
+pub(super) struct InspectWorkflowRequest<'a> {
     pub(super) operation: &'static str,
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
+    pub(super) workflow_name: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+pub(super) struct InspectProviderRequest<'a> {
+    pub(super) operation: &'static str,
+    pub(super) pack_name: &'a str,
+    pub(super) pack_path: &'a str,
+    pub(super) provider_name: Option<&'a str>,
 }
 
 #[derive(Serialize)]

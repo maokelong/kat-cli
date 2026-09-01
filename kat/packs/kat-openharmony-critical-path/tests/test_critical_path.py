@@ -383,7 +383,10 @@ def test_workflow_functions_forward_fakefacts_without_optional_evidence(monkeypa
         frame_window["end_ts"],
     )
 
-    assert locate_first_actual_frame_workflow.__kat_workflow__.required_tables == ("frame_slice", "process", "thread")
+    assert (
+        locate_first_actual_frame_workflow.__kat_workflow__.description
+        == "定位指定进程最早完成且持续时间为正的实际帧。"
+    )
     assert dict(extract_critical_path_workflow.__kat_workflow__.parameters) == {
         "root_itid": "Root thread internal ID from frame_window.root_itid.",
         "start_ts": "Window start from frame_window.start_ts in boottime nanoseconds.",

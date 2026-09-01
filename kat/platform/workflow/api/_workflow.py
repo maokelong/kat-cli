@@ -8,7 +8,6 @@ from typing import Any, TypeVar
 from datafusion import DataFrame, Expr
 from pyarrow import Table
 
-from ._identifiers import valid_table_name
 from ._temporal import Duration, WallClockTimestamp
 
 
@@ -17,9 +16,9 @@ _REGISTRATIONS: list[Callable[..., Any]] = []
 class Context:
     """The KAT-owned capability boundary supplied for one Workflow execution.
 
-    ``required_tables`` controls the Dataset tables visible to Workflow SQL.
-    KAT-owned capabilities may read private platform evidence without registering
-    those evidence tables in the Workflow session.
+    When a legacy Dataset is supplied, all its tables are visible to Workflow
+    SQL. KAT-owned capabilities may read private platform evidence without
+    registering those evidence tables in the Workflow session.
     """
 
     def sql(
@@ -97,35 +96,33 @@ class Context:
 @dataclass(frozen=True)
 class _WorkflowDeclaration:
     name: str
-    title: str
-    required_tables: tuple[str, ...]
+    description: str
     parameters: tuple[tuple[str, str], ...] | None
+    guide: str | None
 
 
 def workflow(
     *,
     name: str,
-    title: str,
-    required_tables: list[str],
+    description: str,
     parameters: dict[str, str] | None = None,
+    guide: str | None = None,
 ) -> Callable[[F], F]:
     """Declare a module-top-level synchronous KAT Workflow.
 
-    ``name`` must match ``[a-z0-9]+(?:-[a-z0-9]+)*``. Each
-    ``required_tables`` item must match
-    ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not be a reserved Windows
-    device name. ``title`` and every parameter description must remain
-    non-empty after trimming outer whitespace.
+    ``name`` must match ``[a-z0-9]+(?:-[a-z0-9]+)*``. ``description`` and
+    every parameter description must remain non-empty after trimming outer
+    whitespace. ``guide`` optionally names a Markdown file relative to the
+    PACK's ``knowledge`` directory; PACK inspection validates that reference.
 
-    The decorated function must have a non-empty docstring, start with
-    ``ctx: kat.Context``, and give every remaining parameter exactly one
-    description through ``parameters``. Supported parameter annotations are
-    ``str``, ``int``, ``float``, ``bool``, ``kat.Duration``,
-    ``kat.WallClockTimestamp``, string ``Literal`` values, and resolved
-    optional non-boolean values equivalent to ``T | None``. Non-boolean
-    parameters without defaults are required. Boolean parameters require a
-    default, while optional parameters must default to None. Inspection
-    validates and converts defaults using their CLI types.
+    The decorated function must start with ``ctx: kat.Context`` and give every
+    remaining parameter exactly one description through ``parameters``.
+    Supported parameter annotations are ``str``, ``int``, ``float``, ``bool``,
+    ``kat.Duration``, ``kat.WallClockTimestamp``, string ``Literal`` values,
+    and resolved optional non-boolean values equivalent to ``T | None``.
+    Non-boolean parameters without defaults are required. Boolean parameters
+    require a default, while optional parameters must default to None.
+    Inspection validates and converts defaults using their CLI types.
 
     Duration inputs use a non-negative decimal followed by one of ``ns``,
     ``us``, ``ms``, ``s``, ``min``, or ``h``. Wall-clock inputs use RFC 3339
@@ -134,12 +131,12 @@ def workflow(
     absolute UTC instant, not a local civil-time value; its input offset is
     consumed during normalization to ``Z``.
 
-    Applying the decorator validates its argument shapes, title, parameter
-    descriptions, and Required table names. PACK inspection then validates
-    the Workflow name, callable, docstring, complete signature, annotations,
-    description mapping, and converted defaults. Successful decoration alone
-    does not mean the production input Interface is valid. Inspection does
-    not evaluate or publish the return annotation.
+    Applying the decorator validates its argument shapes, description, guide,
+    and parameter descriptions. PACK inspection then validates the Workflow
+    name, callable, complete signature, annotations, description mapping, and
+    converted defaults. Successful decoration alone does not mean the
+    production input Interface is valid. Inspection does not evaluate or
+    publish the return annotation.
 
     At execution, the function must return one ``kat.dataprovider.Table``, or an
     exact, non-empty ``dict`` mapping Output names to Tables. During migration,
@@ -154,10 +151,16 @@ def workflow(
     """
     if type(name) is not str:
         raise TypeError("Workflow name must be a string")
-    if type(title) is not str or not title.strip():
-        raise ValueError("Workflow title must be a non-empty string")
-    if type(required_tables) is not list or any(type(item) is not str for item in required_tables):
-        raise TypeError("required_tables must be a list of strings")
+    if not name.strip():
+        raise ValueError("Workflow name must not be empty")
+    if type(description) is not str:
+        raise TypeError("Workflow description must be a string")
+    if not description.strip():
+        raise ValueError("Workflow description must not be empty")
+    if guide is not None and type(guide) is not str:
+        raise TypeError("Workflow guide must be a string or None")
+    if guide is not None and not guide.strip():
+        raise ValueError("Workflow guide must not be empty")
     if parameters is not None and (
         type(parameters) is not dict
         or any(type(key) is not str or type(value) is not str for key, value in parameters.items())
@@ -170,9 +173,9 @@ def workflow(
             raise ValueError("Workflow parameter descriptions must not be empty")
     declaration = _WorkflowDeclaration(
         name=name,
-        title=title.strip(),
-        required_tables=_normalize_required_tables(required_tables),
+        description=description.strip(),
         parameters=normalized_parameters,
+        guide=None if guide is None else guide.strip(),
     )
 
     def decorate(function: F) -> F:
@@ -191,11 +194,3 @@ def _registration_count() -> int:
 
 def _registrations_since(index: int) -> tuple[Callable[..., Any], ...]:
     return tuple(_REGISTRATIONS[index:])
-
-
-def _normalize_required_tables(required_tables: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    normalized = tuple(sorted(set(required_tables)))
-    for table in normalized:
-        if not valid_table_name(table):
-            raise ValueError(f"invalid Required table name: {table!r}")
-    return normalized

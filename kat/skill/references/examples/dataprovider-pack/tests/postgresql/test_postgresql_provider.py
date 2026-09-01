@@ -181,6 +181,48 @@ def test_public_query_returns_a_table_after_closing_query_resources(monkeypatch)
     _assert_all_acquired_resources_are_closed(backend)
 
 
+def test_query_workflow_publishes_a_fake_adbc_result(monkeypatch, kat_run):
+    backend = _install_backend(
+        monkeypatch,
+        result=pa.table(
+            {
+                "thread_id": pa.array([101], type=pa.int64()),
+                "clock_domain": pa.array(
+                    ["fixture.observation_clock"], type=pa.string()
+                ),
+                "clock_value": pa.array([100], type=pa.int64()),
+                "cpu_usage": pa.array([0.75], type=pa.float64()),
+            }
+        ),
+    )
+
+    output = kat_run(
+        workflow="query-observations",
+        arguments=[
+            "--service",
+            "fixture-service",
+            "--database",
+            "telemetry",
+            "--clock-domain",
+            "fixture.observation_clock",
+            "--start-clock-value",
+            "100",
+            "--end-clock-value",
+            "200",
+        ],
+    )["main"]
+
+    assert output.to_pylist() == [
+        {
+            "thread_id": 101,
+            "clock_domain": "fixture.observation_clock",
+            "clock_value": 100,
+            "cpu_usage": 0.75,
+        }
+    ]
+    _assert_all_acquired_resources_are_closed(backend)
+
+
 def test_public_query_normalizes_adbc_numeric_and_absolute_timestamp(monkeypatch):
     numeric_type = pa.opaque(pa.string(), "numeric", "PostgreSQL")
     numeric = pa.ExtensionArray.from_storage(

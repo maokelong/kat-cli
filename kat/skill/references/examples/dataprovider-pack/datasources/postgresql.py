@@ -6,6 +6,7 @@ from urllib.parse import quote
 import warnings
 
 from adbc_driver_postgresql import StatementOptions, dbapi
+import kat
 from kat import dataprovider as dp
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -16,6 +17,11 @@ _NUMERIC_TYPE = pa.decimal128(38, 18)
 _POSTGRESQL_TYPE_NAME = b"ADBC:postgresql:typname"
 
 
+@kat.provider(
+    name="postgresql",
+    description="按 libpq service 连接 PostgreSQL，并对每次查询显式选择 Database。",
+    guide="providers/postgresql.md",
+)
 class PostgreSQLProvider:
     """PACK 自有、按 query 选择 Database 的只读 PostgreSQL Provider。"""
 

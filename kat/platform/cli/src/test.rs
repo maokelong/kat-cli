@@ -331,7 +331,7 @@ enum TestPackOperationError {
     },
     #[error("the selected PACK does not contain a tests/ directory")]
     #[diagnostic(help(
-        "Add PACK tests, or use `kat inspect --pack` for a runtime-only deployment"
+        "Add PACK tests, or use `kat inspect workflow --pack <name>` for a runtime-only deployment"
     ))]
     MissingTests,
     #[error("invalid PACK test selector {selector:?}")]
