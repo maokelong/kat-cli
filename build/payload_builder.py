@@ -674,6 +674,7 @@ def validate_datasource_wheel_archive(
         required = {
             "kat_datasource/__init__.py",
             "kat_datasource/hitrace.py",
+            "kat_datasource/text_ftrace.py",
             f"{dist_info}/METADATA",
             f"{dist_info}/WHEEL",
         }

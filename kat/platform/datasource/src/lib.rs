@@ -1,4 +1,4 @@
-//! Hitrace decoder backing the private Python native extension.
+//! Source decoders backing the private Datasource Python native extension.
 
 mod formats;
 mod hitrace_decode;
@@ -8,11 +8,17 @@ mod protobuf_source;
 mod python;
 mod relation_name;
 mod relation_writer;
+mod text_ftrace;
 
 pub use hitrace_decode::{HitraceDecodeError, HitraceDecodeReport, decode_hitrace};
+pub use text_ftrace::decode_text_ftrace;
 
 #[allow(dead_code)]
 pub(crate) mod proto {
+    pub(crate) mod ftrace2parquet {
+        include!(concat!(env!("OUT_DIR"), "/ftrace2parquet.rs"));
+    }
+
     pub(crate) mod kat {
         pub(crate) mod hitrace {
             include!(concat!(env!("OUT_DIR"), "/kat.hitrace.rs"));
