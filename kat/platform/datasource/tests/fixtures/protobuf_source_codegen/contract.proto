@@ -58,3 +58,7 @@ message NameCollisionRoot {
 message ReservedColumnRoot {
   string _kat_parent_row_id = 1;
 }
+
+message ReservedChildRoot {
+  repeated int32 domain = 1;
+}

@@ -11,14 +11,15 @@ mod relation_name;
 use protobuf_source_codegen::{RootSpec, compile_for_profiler_capture};
 
 const PACKAGE: &str = "fixture.protobuf_source.contract";
-const PROTO2_PACKAGE: &str = "fixture.protobuf_source.contract_proto2";
 const VALID_ROOT: &str = "fixture.protobuf_source.contract.ValidRoot";
+const PROTO2_VALID_ROOT: &str = "fixture.protobuf_source.contract_proto2.ValidRoot";
 const MAP_ROOT: &str = "fixture.protobuf_source.contract.MapRoot";
 const RECURSIVE_ROOT: &str = "fixture.protobuf_source.contract.RecursiveRoot";
 const ALIAS_ROOT: &str = "fixture.protobuf_source.contract.AliasRoot";
 const REQUIRED_ROOT: &str = "fixture.protobuf_source.contract_proto2.RequiredRoot";
 const GROUP_ROOT: &str = "fixture.protobuf_source.contract_proto2.GroupRoot";
 const EXTENSION_ROOT: &str = "fixture.protobuf_source.contract_proto2.ExtensionRoot";
+const RESERVED_CHILD_ROOT: &str = "fixture.protobuf_source.contract.ReservedChildRoot";
 
 #[test]
 fn valid_registered_closure_compiles_without_validating_unreachable_invalid_shapes() {
@@ -28,11 +29,10 @@ fn valid_registered_closure_compiles_without_validating_unreachable_invalid_shap
             .into_source();
 
     for expected in [
-        "append_valid_root_root",
-        "valid_root",
-        "valid_root_samples",
-        "valid_root_children",
-        "fixture.protobuf_source.contract.Lifecycle",
+        "\"valid_root\"",
+        "\"valid_root_samples\"",
+        "\"valid_root_children\"",
+        "\"fixture.protobuf_source.contract.Lifecycle\"",
     ] {
         assert!(
             source.contains(expected),
@@ -43,43 +43,92 @@ fn valid_registered_closure_compiles_without_validating_unreachable_invalid_shap
 
 #[test]
 fn unsupported_reachable_shapes_report_root_message_field_and_all_failures() {
-    let roots = [
-        RootSpec::new(MAP_ROOT, "map_root"),
-        RootSpec::new(RECURSIVE_ROOT, "recursive_root"),
-        RootSpec::new(ALIAS_ROOT, "alias_root"),
-        RootSpec::new(REQUIRED_ROOT, "required_root"),
-        RootSpec::new(GROUP_ROOT, "group_root"),
-        RootSpec::new(EXTENSION_ROOT, "extension_root"),
+    let cases = [
+        (
+            MAP_ROOT,
+            "map_root",
+            "fixture.protobuf_source.contract.MapRoot",
+            "values",
+            "protobuf map fields are unsupported",
+            None,
+        ),
+        (
+            RECURSIVE_ROOT,
+            "recursive_root",
+            "fixture.protobuf_source.contract.RecursiveNode",
+            "node.next",
+            "recursive message edge is unsupported",
+            None,
+        ),
+        (
+            ALIAS_ROOT,
+            "alias_root",
+            "fixture.protobuf_source.contract.AliasRoot",
+            "status",
+            "uses aliases, which are unsupported",
+            None,
+        ),
+        (
+            REQUIRED_ROOT,
+            "required_root",
+            "fixture.protobuf_source.contract_proto2.RequiredRoot",
+            "value",
+            "proto2 required fields are unsupported",
+            None,
+        ),
+        (
+            GROUP_ROOT,
+            "group_root",
+            "fixture.protobuf_source.contract_proto2.GroupRoot",
+            "legacypayload",
+            "protobuf group fields are unsupported",
+            None,
+        ),
+        (
+            EXTENSION_ROOT,
+            "extension_root",
+            "fixture.protobuf_source.contract_proto2.ExtensionContainer",
+            "container.subject",
+            "reachable protobuf extensions are unsupported",
+            Some("fixture.protobuf_source.contract_proto2.ExtensionSubject"),
+        ),
     ];
+    let roots = cases
+        .iter()
+        .map(|(root, relation, ..)| RootSpec::new(root, relation))
+        .collect::<Vec<_>>();
+    let individual = cases
+        .iter()
+        .map(
+            |(root, relation, containing_message, field_path, reason, target_message)| {
+                let diagnostic = compile_error(&[RootSpec::new(root, relation)]);
+                assert_eq!(diagnostic.lines().count(), 1, "{diagnostic}");
+                for expected in [
+                    format!("protobuf root {root:?}"),
+                    format!("message {containing_message:?}"),
+                    format!("field {field_path:?}"),
+                    (*reason).to_owned(),
+                ] {
+                    assert!(
+                        diagnostic.contains(&expected),
+                        "missing diagnostic fact {expected:?}: {diagnostic}"
+                    );
+                }
+                if let Some(target_message) = target_message {
+                    assert!(
+                        diagnostic.contains(&format!("target message {target_message:?}")),
+                        "missing extension target message: {diagnostic}"
+                    );
+                }
+                diagnostic
+            },
+        )
+        .collect::<Vec<_>>();
     let error = compile_error(&roots);
-
-    assert_eq!(error.lines().count(), roots.len());
-    for expected in [
-        "protobuf map fields are unsupported",
-        "recursive message edge is unsupported",
-        "uses aliases, which are unsupported",
-        "proto2 required fields are unsupported",
-        "protobuf group fields are unsupported",
-        "reachable protobuf extensions are unsupported",
-    ] {
-        assert!(error.contains(expected), "missing diagnostic {expected:?}");
-    }
-    for expected in [
-        format!("protobuf root {MAP_ROOT:?}"),
-        format!("message \"{PACKAGE}.MapRoot\""),
-        "field \"values\"".to_owned(),
-        format!("protobuf root {RECURSIVE_ROOT:?}"),
-        format!("message \"{PACKAGE}.RecursiveNode\""),
-        "field \"node.next\"".to_owned(),
-        format!("protobuf root {REQUIRED_ROOT:?}"),
-        format!("message \"{PROTO2_PACKAGE}.RequiredRoot\""),
-        "field \"value\"".to_owned(),
-    ] {
-        assert!(
-            error.contains(&expected),
-            "missing diagnostic location {expected:?}"
-        );
-    }
+    assert_eq!(
+        error.lines().collect::<Vec<_>>(),
+        individual.iter().map(String::as_str).collect::<Vec<_>>()
+    );
 
     let map_entry_error = compile_error(&[RootSpec::new(
         &format!("{PACKAGE}.MapRoot.ValuesEntry"),
@@ -108,6 +157,25 @@ fn canonical_fqns_and_relation_names_fail_closed() {
         );
     }
 
+    let source = compile_for_profiler_capture(
+        descriptors(),
+        &[
+            RootSpec::new(VALID_ROOT, "proto3_valid_root"),
+            RootSpec::new(PROTO2_VALID_ROOT, "proto2_valid_root"),
+        ],
+    )
+    .expect("canonical FQNs distinguish equal short names and accept proto2 optional fields")
+    .into_source();
+    for expected in [
+        "value: &crate::proto::fixture::protobuf_source::contract::ValidRoot",
+        "value: &crate::proto::fixture::protobuf_source::contract_proto2::ValidRoot",
+    ] {
+        assert!(
+            source.contains(expected),
+            "generated binding must contain {expected:?}"
+        );
+    }
+
     let valid_root = format!("{PACKAGE}.ValidRoot");
     for relation_name in ["", "Uppercase", "two__segments", "nul"] {
         let error = compile_error(&[RootSpec::new(&valid_root, relation_name)]);
@@ -124,6 +192,20 @@ fn canonical_fqns_and_relation_names_fail_closed() {
         assert!(error.contains(&format!(
             "generated relation name {relation_name:?} is reserved"
         )));
+    }
+    compile_for_profiler_capture(descriptors(), &[RootSpec::new(&valid_root, "sched_switch")])
+        .expect("retired root-level sched_switch relation is no longer reserved");
+
+    let reserved_child_error = compile_error(&[RootSpec::new(RESERVED_CHILD_ROOT, "clock")]);
+    for expected in [
+        format!("protobuf root {RESERVED_CHILD_ROOT:?}"),
+        format!("message {RESERVED_CHILD_ROOT:?}"),
+        "generated relation name \"clock_domain\" is reserved".to_owned(),
+    ] {
+        assert!(
+            reserved_child_error.contains(&expected),
+            "missing derived reserved-relation fact {expected:?}: {reserved_child_error}"
+        );
     }
 
     let collision_error = compile_error(&[RootSpec::new(

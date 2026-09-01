@@ -2,6 +2,11 @@ syntax = "proto2";
 
 package fixture.protobuf_source.contract_proto2;
 
+message ValidRoot {
+  optional int32 count = 1;
+  optional string label = 2;
+}
+
 message RequiredRoot {
   required string value = 1;
 }
