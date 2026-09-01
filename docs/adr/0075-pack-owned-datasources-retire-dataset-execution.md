@@ -92,23 +92,33 @@ builder 验证，而两个 artifact 仍随同一 KAT 版本原子装配和发布
 | ADR-0001、ADR-0008 | Dataset 输入、Manifest reference、`dataset.*`、CLI 对 datasource crate 的依赖和查询数据经 Runtime Response 内联返回 | Runtime 执行、Run/Output 发布与后续只读查询的所有权边界 |
 | ADR-0002 | Payload 只安装一个 KAT wheel，以及默认 Dataset/Data Import 目标 | 同版本原子发布、原生平台矩阵、私有 Host、Data Home 其他目录与 Skill Assembly 边界 |
 | ADR-0003 | PACK 内 Test Dataset 和已删除操作的 discovery 表述 | External PACK 部署单位、生产/测试源码共同版本化、统一 Authoring API 与无持久 registry |
-| ADR-0005、ADR-0032 | 三个旧 Context 数据方法与 DataFrame Output | 显式 Context、调用期 lease、命名 Output 和 all-or-fail 发布原则 |
+| ADR-0004 | `kat inspect --dataset` 启动边界与 Import → Run → Query 验收链 | 强制 Bundled Python Host、isolated 启动参数、CPython/平台矩阵及无系统 Python fallback |
+| ADR-0005、ADR-0032 | 三个旧 Context 数据方法、DataFrame Output 与 Run/Manifest Dataset path | 显式 Context、调用期 lease、命名 Output 和 all-or-fail 发布原则 |
+| ADR-0007 | Discovery 操作集合中的 `kat import` 与 `kat inspect --dataset` | 静态 manifest、短命 PACK discovery、路径/name 校验与无持久 registry |
 | ADR-0010 | Dataset IPC/Manifest、`dataset.*` 查询、Dataset Parquet 数据面与 Dataset inspection 日志边界 | 文件型封闭 typed IPC、进程/日志 owner、Run/Output publication 与失败边界 |
+| ADR-0011 | `kat inspect --dataset` 的最小 Skill 资源与无日志边界 | Skill 直接选择平台 Payload、可移动根定位与按需资源校验 |
 | ADR-0012 | `kat-cli -> kat-datasource` 固定依赖、crate 统一拥有 Dataset/所有 Datasource type，以及两个 builder 安装同一个 KAT wheel | 源码/部署视图分离、package 内聚与 Payload 黑盒装配边界 |
 | ADR-0013 | Import、Dataset inspection/参数/查询，以及 Query Result 经 Runtime Response 内联进入 KAT Response | 单一 Skill、其余操作动词与具名目标句法 |
 | ADR-0014 | Data Import → Dataset inspection → `required_tables` 匹配的 Dataset-first analysis flow | 自动选择 PACK/Workflow，并只在实质歧义时询问用户 |
-| ADR-0016、ADR-0074 | Dataset inspection、Test Dataset 及过渡性 Dataset 参数 | PACK pytest、Workflow/Provider inspection 与 declaration |
+| ADR-0016、ADR-0074 | Dataset inspection、Test Dataset、execution plane、Table Grant/TableGrantResolver 及过渡性 Dataset 参数 | PACK pytest、Workflow/Provider inspection 与 declaration |
 | ADR-0017 | `tests/datasets/` Test Dataset | 固定 `workflows/`、`datasources/`、`helpers/`、`tests/` 布局及 import/pytest 所有权 |
-| ADR-0019、ADR-0036、ADR-0056 | `query_run` 的 Dataset、内联 columns/positional rows、KAT 自定义标量投影、CLI 二次组装，以及“不产生 query artifact” | 封闭 typed IPC、可信同版本单元、KAT Response 与其余 operation 的 owner 边界 |
-| ADR-0024、ADR-0025 | Dataset mutation、根级规范化 `sched_switch` 及 Import result 形状 | Trace fact 的复用门槛，以及未知扩展与损坏数据的 fail-closed 区分 |
-| ADR-0034 | Query Result 复用 KAT 时间值投影的要求 | Duration、WallClockTimestamp 与不同时间语义不可混用的领域合同 |
+| ADR-0019 | `run_workflow`/`test_pack`/inspection 的 Dataset request、Manifest Dataset，以及 `query_run` 的 Dataset/内联 rows | 封闭 operation-specific typed IPC、严格分支与 Runtime Response owner 边界 |
+| ADR-0023 | CLI 直接管理本地 Dataset | 无 REST daemon、短命 CLI/Runtime 与文件式 IPC |
+| ADR-0024、ADR-0025 | Dataset mutation、`required_tables` 可运行性、根级规范化 `sched_switch` 及 Import result 形状 | Trace fact 的复用门槛，以及未知扩展与损坏数据的 fail-closed 区分 |
+| ADR-0027 | 以 Dataset 承担跨 PACK source fact 复用 | PACK 自包含、无 PACK dependency/Exported Capability、PACK 私有 helper 与公共 Authoring API 边界 |
+| ADR-0034 | Dataset/Data Import 时钟身份、旧换算执行面、`ctx.sql()` 时间参数及 Query Result 的 KAT 时间投影 | Duration、WallClockTimestamp 与不同时间语义不可混用的领域合同 |
 | ADR-0035 | `--dataset`、`required_tables`、Table Grant、DataFrame Output、旧 decorator/inspection 字段，以及 Workflow 参数与旧 Query Result 64 位整数投影保持一致的陈述 | Workflow argv/签名/默认值解析、Click 参数语义与 Python Runtime owner 边界 |
-| ADR-0042、ADR-0048 | UnifiedClock/换算执行面、旧 ftrace 准入和规范化 `sched_switch` 数据链 | 原始 clock relations 和线程 CPU 时间问题中的来源语义边界 |
+| ADR-0036 | Data Import/Dataset publication、Dataset inspection Response、Run/Query Dataset 状态与内联 rows | Skill-first KAT Response、JSON failure/diagnostic 及其余 operation 的公开投影 |
+| ADR-0037 | Dataset inspection 的 typed error 与无日志表述 | 单一 Diagnostic 到 JSON/terminal 的投影、日志故障与可靠 span 语义 |
+| ADR-0042 | UnifiedClock/换算执行面、Test Dataset、Dataset inspection/overwrite、Resolved Dataset/`query_run.dataset` 以及 Required tables/Table Grant | 原始 clock relations、`clock_domain + clock_value` 与来源时钟语义边界 |
 | ADR-0043 | Runtime 私有 Session/Table Grant 数据执行面与 `kat_convert_clock` UDF | 成熟向量化能力优先、证据驱动的性能下沉与不维护平行实现 |
 | ADR-0045 | Payload 只有一个 KAT wheel 的交付假设 | Pack Authoring API 与 Runtime 继续共用 `kat-workflow` wheel |
+| ADR-0047 | `kat inspect --dataset` Runtime 边界，以及测试调用依赖 execution plane、Table Grant 与旧 Workflow Context 的隔离方式 | 单一 `kat.pack` module identity、pytest 测试树所有权与生产源码复用边界 |
+| ADR-0048 | 旧 ftrace/规范化 `sched_switch` 数据链、`required_tables`、`--dataset` 与 DataFrame mapping Output | 线程 CPU 时间用户问题、可观测区间/聚合语义与 Output relation |
+| ADR-0056 | Dataset owner/校验、内联 columns/positional rows、自定义标量投影、CLI 二次组装与“不产生 query artifact” | 可信同版本 IPC 单元、`test_pack`/`run_workflow` owner 与传输失败边界 |
 | ADR-0058、ADR-0059 | Trace Streamer Import、Dataset 与旧 Context/DataFrame 调用 | 两个 OpenHarmony Workflow 的分析问题、SQL 含义和 Output 合同 |
 | ADR-0061 | Dataset Storage publication、marker 与根级规范化 relation | build-time plan、typed emitter、descriptor-derived relations 及 protobuf 语义 |
-| ADR-0066 | 迁移期保留的 `ctx.sql() -> DataFrame` 兼容入口 | 显式 `dp.DataFusionProvider`、短命 Session 和 eager `dp.Table` |
+| ADR-0066、ADR-0067 | 迁移期保留的 `ctx.sql() -> DataFrame` 兼容入口及 Catalog 不接管它的表述 | 显式 `dp.DataFusionProvider`、纯 Parquet Catalog、短命 Session 和 eager `dp.Table` |
 
 ## 验证
 
