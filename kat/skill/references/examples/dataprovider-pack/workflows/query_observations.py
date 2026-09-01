@@ -5,7 +5,7 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 @kat.workflow(
     name="query-observations",
-    title="Query PostgreSQL observations",
+    description="直接返回一次 PostgreSQL 查询形成的 eager Table。",
     parameters={
         "service": "libpq service name.",
         "database": "Database containing observations.",
@@ -13,6 +13,7 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
         "start_clock_value": "Inclusive observation window start.",
         "end_clock_value": "Exclusive observation window end.",
     },
+    guide="workflows/query-observations.md",
 )
 def query_observations(
     ctx: kat.Context,

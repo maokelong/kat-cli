@@ -8,7 +8,7 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
 
 @kat.workflow(
     name="fuse-observations",
-    title="Fuse PostgreSQL observations with local thread placement",
+    description="融合 PostgreSQL 观测数据与本地线程部署信息。",
     parameters={
         "service": "libpq service name.",
         "telemetry_database": "Database containing observations.",
@@ -18,6 +18,7 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
         "start_clock_value": "Inclusive observation window start.",
         "end_clock_value": "Exclusive observation window end.",
     },
+    guide="workflows/fuse-observations.md",
 )
 def fuse_observations(
     ctx: kat.Context,

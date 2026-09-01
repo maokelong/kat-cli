@@ -9,10 +9,11 @@ from kat.pack.datasources import trace_streamer
 
 @kat.workflow(
     name="summarize-native-hook",
-    title="Summarize native hook events",
+    description="物化 Trace Streamer SQLite，并直接返回来源内聚合结果。",
     parameters={
         "source_path": "HiTrace file to decode.",
     },
+    guide="workflows/summarize-native-hook.md",
 )
 def summarize_native_hook(
     ctx: kat.Context,

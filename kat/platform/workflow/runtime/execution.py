@@ -72,7 +72,6 @@ def run_loaded_workflow(
         effective = workflow.parse_arguments(arguments)
     except ValueError as error:
         raise WorkflowExecutionFailure() from error
-
     operation = WorkflowOperation(datasource_root)
     context = WorkflowContext(operation)
     try:

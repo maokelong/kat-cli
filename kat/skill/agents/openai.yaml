@@ -1,4 +1,4 @@
 interface:
   display_name: "KAT"
   short_description: "分析本地平台数据，或理解、维护和验证 KAT PACK"
-  default_prompt: "使用 $kat 分析我提供的本地来源输入或已有 Run，或处理我指定的 KAT PACK。"
+  default_prompt: "使用 $kat 分析我提供的数据来源或 Run，或理解、创建、维护和验证我指定的 KAT PACK、Provider 与 Workflow。"

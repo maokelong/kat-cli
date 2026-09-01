@@ -162,7 +162,7 @@ jobs:
               fixture=/work/payload-smoke.htrace
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" /repo/build/fixtures/create_payload_smoke_hitrace.py "$fixture"
-              "$cli" inspect --pack payload-smoke --pack-dir "$pack" >/work/inspect.json
+              "$cli" inspect workflow --pack payload-smoke --pack-dir "$pack" >/work/inspect.json
               "$cli" test --pack-dir "$pack" >/work/test.json
               "$cli" run --pack payload-smoke --workflow summarize-hitrace-clock --pack-dir "$pack" -- --trace-path "$fixture" >/work/run.json
               run_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
@@ -226,7 +226,7 @@ jobs:
           $env:PYTHONPATH = Join-Path $work "poison-path"
           $env:PYTHONUSERBASE = Join-Path $work "poison-user"
           Remove-Item Env:KAT_DATA_HOME -ErrorAction SilentlyContinue
-          $inspectText = & $cli inspect --pack payload-smoke --pack-dir $pack
+          $inspectText = & $cli inspect workflow --pack payload-smoke --pack-dir $pack
           $inspectText | Set-Content -Path (Join-Path $work "inspect.json") -Encoding utf8
           $testText = & $cli test --pack-dir $pack
           $testText | Set-Content -Path (Join-Path $work "test.json") -Encoding utf8

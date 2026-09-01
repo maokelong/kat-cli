@@ -59,7 +59,10 @@ class DataProviderRuntimeProcessTest(unittest.TestCase):
             f'''import kat
 from kat import dataprovider as dp
 
-@kat.workflow(name="analyze", title="Analyze")
+@kat.workflow(
+    name="analyze",
+    description="Exercise the Data Provider Runtime boundary.",
+)
 def analyze(ctx: kat.Context):
     """Exercise the standard Output boundary."""
 {body}

@@ -59,7 +59,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
 
 @kat.workflow(
     name="analyze",
-    title="Analyze",
+    description="Analyze the provided facts.",
     parameters={{"minimum": "Minimum", "window": "Window"}},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms"):
@@ -339,7 +339,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         workflows.mkdir(parents=True)
         (workflows / "a.py").write_text(
             """from kat import Context, dataprovider, workflow
-@workflow(name='a', title='A')
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
     return dataprovider.Table({'value': int})
@@ -349,7 +349,7 @@ def analyze(ctx: Context):
         (workflows / "b.py").write_text(
             """from kat import Context, dataprovider, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B')
+@workflow(name='b', description='B.')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
     return dataprovider.Table({'value': int})

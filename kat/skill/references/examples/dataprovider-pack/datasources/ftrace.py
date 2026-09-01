@@ -6,6 +6,7 @@ import re
 import shutil
 from typing import Self
 
+import kat
 from kat import dataprovider as dp
 
 
@@ -47,6 +48,11 @@ _EVENT = re.compile(
 )
 
 
+@kat.provider(
+    name="ftrace-text",
+    description="解析 tracefs Ftrace 文本并物化可重复查询的 Parquet 多表目录。",
+    guide="providers/ftrace-text.md",
+)
 class FtraceTextProvider:
     """把一份 tracefs 文本解析到当前 Provider 独占的 Parquet Catalog。"""
 

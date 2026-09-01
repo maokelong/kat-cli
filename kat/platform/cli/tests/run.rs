@@ -452,7 +452,7 @@ from kat import Context, dataprovider as dp, workflow
 
 @workflow(
     name="analyze",
-    title="Analyze",
+    description="Return one ordinary Table.",
 )
 def analyze(ctx: Context):
     """Return one ordinary Table."""

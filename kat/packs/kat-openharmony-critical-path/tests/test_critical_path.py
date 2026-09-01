@@ -377,6 +377,10 @@ def test_helpers_return_provider_tables_and_workflows_publish_provider_parameter
         frame_window["end_ts"],
     )
 
+    assert (
+        locate_first_actual_frame_workflow.__kat_workflow__.description
+        == "定位指定进程最早完成且持续时间为正的实际帧。"
+    )
     assert dict(extract_critical_path_workflow.__kat_workflow__.parameters) == {
         "sqlite_path": "Absolute path to a Trace Streamer SQLite database.",
         "root_itid": "Root thread internal ID from frame_window.root_itid.",

@@ -19,6 +19,16 @@ def _database(path: Path) -> Path:
     return path.resolve(strict=True)
 
 
+def test_provider_declares_inspection_metadata():
+    declaration = TraceStreamerSQLiteProvider.__kat_provider__
+
+    assert declaration.name == "trace-streamer-sqlite"
+    assert declaration.description
+    guide = Path(__file__).parents[1] / "knowledge" / declaration.guide
+    assert guide.is_file()
+    assert guide.read_text(encoding="utf-8").startswith("# Trace Streamer SQLite Provider")
+
+
 def test_provider_requires_an_exact_absolute_regular_file(tmp_path: Path):
     database = _database(tmp_path / "trace.db")
 

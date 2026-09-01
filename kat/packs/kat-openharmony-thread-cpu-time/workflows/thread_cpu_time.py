@@ -45,7 +45,7 @@ ORDER BY
 
 @kat.workflow(
     name="thread-cpu-time",
-    title="Thread CPU Time by CPU",
+    description="仅统计可观测完整区间，避免把 Trace 首尾的未知 CPU 时间补入结果。",
     parameters={
         "sqlite_path": "Absolute path to a Trace Streamer SQLite database.",
     },

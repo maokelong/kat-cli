@@ -6,6 +6,7 @@ import sqlite3
 
 import pyarrow as pa
 
+import kat
 from kat import dataprovider as dp
 
 
@@ -19,6 +20,11 @@ _READ_ONLY_SQLITE_ACTIONS = frozenset(
 )
 
 
+@kat.provider(
+    name="trace-streamer-sqlite",
+    description="以只读 SQL 查询 Critical Path 使用的 Trace Streamer SQLite 数据库。",
+    guide="providers/trace-streamer-sqlite.md",
+)
 class TraceStreamerSQLiteProvider:
     """PACK-owned read-only access to one exact Trace Streamer database."""
 

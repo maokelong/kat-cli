@@ -11,7 +11,7 @@ from kat.pack.datasources.hitrace import HitraceProvider
 
 @kat.workflow(
     name="summarize-hitrace-clock",
-    title="Summarize Hitrace Clock",
+    description="Summarize Hitrace clock relations.",
     parameters={"trace_path": "Path to the Hitrace input."},
 )
 def summarize_hitrace_clock(ctx: kat.Context, trace_path: str):

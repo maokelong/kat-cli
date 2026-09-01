@@ -25,7 +25,7 @@ Schema。单个路径既可以是一份 Parquet 文件，也可以是只包含�
 在完整 KAT Skill deployment 中，从仓库根目录运行：
 
 ```bash
-kat inspect --pack local-parquet-fusion \
+kat inspect workflow --pack local-parquet-fusion \
   --pack-dir ./examples/packs/local-parquet-fusion
 
 kat test --pack-dir ./examples/packs/local-parquet-fusion

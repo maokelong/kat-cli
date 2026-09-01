@@ -6,7 +6,7 @@ from kat.pack.helpers.critical_path import TraceStreamerFacts, extract_critical_
 
 @kat.workflow(
     name="extract-critical-path",
-    title="Extract Critical Path",
+    description="为一个线程窗口提取有界调度关键路径及调用栈证据。",
     parameters={
         "sqlite_path": "Absolute path to a Trace Streamer SQLite database.",
         "root_itid": "Root thread internal ID from frame_window.root_itid.",

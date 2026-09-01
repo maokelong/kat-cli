@@ -1,40 +1,44 @@
-# 分析数据流程
+# 分析问题流程
 
-## 1. 确认起点和问题
+## 1. 确认问题与起点
 
-每次任务从本地来源输入，或一个已有 Run 与 Run Output 元数据开始。没有分析问题时，询问用户要回答什么；没有可定位的起点时，只询问来源输入或 Run 中缺少的一项。不要隐式组合多个来源或推断跨来源比较语义；只有选定 Workflow 的 Interface 明确接收多个输入时，才按用户目标传入它们。
+每次先确认一个要回答的问题，以及以下一种起点：
 
-- 来源输入：保留用户提供的准确来源格式和路径，进入第 2 步。来源路径只是候选 Workflow 的普通显式参数；KAT 没有独立的来源导入或 inspection 操作。没有已发现 Workflow 接纳该格式时，以受阻状态说明边界，不改写格式，也不把文件读取成功表述为完成分析。
-- Run：需要 Run ID、Output 名称和 columns。刚完成的 Run 可以沿用成功 Response 的 `result.outputs`；用户也可以提供同等元数据。只有 Run ID 时，一次只询问缺少的 Output 名称和 columns，并停止在查询前；不得猜名称、读取 Run 内部文件或重新执行 Workflow。元数据齐全后进入第 4 步。
+- 新分析：用户提供要分析的 Source、路径或其他业务输入；它如何进入系统由选中的 Workflow 与 Provider 决定，Agent 不预设统一中间数据模型。
+- 已有 Run：用户提供 Run ID。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；只有 Run ID 时，后续通过 Output Query 的 `information_schema` 发现实际 relation 与 columns。
 
-任一操作的 Response 不是 `status=success` 时停止该分支，保留 Diagnostic、可用 `log_path` 和可执行帮助，按结果契约交付。
+缺少问题时只询问要回答什么。不要猜表名、读取 Run 内部文件，或为追问重新执行 Workflow。
 
-## 2. 发现并选择分析能力
+## 2. 渐进发现 Workflow
 
-对来源输入：
+对新分析按以下顺序发现能力：
 
-1. 无目标调用 `kat inspect`，只从成功 Response 的 PACK 概要筛选少量候选。
-2. 对候选调用 `kat inspect --pack`，读取 Workflow 的用途和 `parameters`。
-3. 只选择参数能够显式表达当前来源位置、所需 selector 和分析控制值的 Workflow。Inspection 不证明来源内容有效；来源准入由 Workflow 显式调用的 PACK-owned Provider 负责。
+1. 调用裸 `kat inspect`，只从 manifest 概要筛选少量候选 PACK。此步不加载 PACK Python。
+2. 对候选调用 `kat inspect workflow --pack <名称>`，只比较按名称排序的 `name`、`description` 摘要。不要在筛选阶段读取所有 guide，也不要调用 Provider inspection。
+3. 选定一个 Workflow 后，调用带 `--workflow <名称>` 的 Workflow inspection，读取唯一 detail 中的 `parameters` 和 `guide`。
 
-唯一明确匹配时继续。候选会导向实质不同分析结论时，只提出一个最小必要澄清问题，说明每个选择的差异。其他差异采用可说明的默认选择。
+`name` 与 `description` 用于索引和选择能力；`parameters` 决定运行时如何传入用户事实；`guide` 是选中 Workflow 的分析策略，指导如何解释可能结果、向哪些方向发散以及下一步查询什么。没有声明 guide 时值为 `null`，按 Workflow 的 description、parameters 和实际输出继续，不自行猜测 guide 文件路径。
 
-没有匹配时，以受阻状态交付已检查的能力边界；可以建议新建或扩展 PACK，但不得修改源码或切换作者流，除非用户明确要求。
+唯一明确匹配时继续。候选会导向实质不同结论时，只提出一个最小必要澄清问题并说明差异。没有匹配时以受阻状态交付已发现的能力边界；可以建议新建或扩展 PACK，但未经用户明确授权不得修改源码或切换到作者流程。
 
-## 3. 执行 Workflow
+已有 Run 已经选定 Workflow，不重新做全局能力筛选。调用 `kat inspect workflow --run <Run ID>` 取得当前 PACK 中该 Workflow 的 detail 和分析 guide。guide 不是 Run 快照；如果 PACK 已更新，应把它表述为当前分析策略，不声称它就是历史执行时的版本。
 
-按 inspection 返回的 Workflow Interface 构造 `kat run`：选择 PACK、Workflow 和必要的 `--pack-dir`，再在 `--` 后传入 inspection 明示的参数。来源路径、多个来源 selector 和其他输入都由 Workflow 参数显式表达，不存在平台来源 selector。
+任一 inspection 失败时停止该分支，按 KAT Response 的 Diagnostic 交付，不通过扫描 PACK 源码、导入 Provider 或静态能力清单绕过失败。
 
-只有 `status=success` 时，才从 Response 保留 `run_id`、Output 名称、columns 与 `row_count`；这些是下一步查询的唯一执行事实。不要把私有 Run 文件或未发布候选带入对话。Workflow 失败时不发布 Run，不能把候选目录、日志或部分 Output 当作可查询结果。
+## 3. 执行选中的 Workflow
 
-## 4. 用主动约束范围的查询取得证据
+新分析按 detail 的 `parameters` 构造 `kat run` 请求。Workflow 自己显式选择和调用 Provider；分析 Agent 不 inspect Provider，也不依赖 Provider guide。
 
-对已发布 Run，先根据已保留或用户提供的 Run Output 名称与 columns 构造完整 SQL，再只使用只读的 `kat query --run ... --sql ...`。SQL 只能引用当前 Run 的 `output.<name>`；先选择投影、过滤、聚合和排序，明细查询必须显式使用 `LIMIT`。不要尝试访问 PACK、Datasource、其他 Run 或历史 Manifest 字段。
+只有 Run Response 的 `status="success"` 时，才保留 `run_id`、输出名称、columns 与 `row_count`。它们是查询阶段的执行事实。失败时没有可发布 Run；不要把候选目录、日志或部分输出当作结果。
 
-KAT 不会自动添加固定行数、字节数或超时限制；调用方和用户负责查询规模、等待时间与本机资源消耗。Query 成功后必须验证 `result.format == "ndjson"`，使用 `result.columns` 解释 `result.path` 指向的单文件 NDJSON：每个非空行是一个使用查询列名的 JSON object，零行是空文件。只保留回答当前问题所需的列和行作为证据；行数据不在 Response 中。
+## 4. 查询最少证据
 
-实际执行失败时根据 KAT Response 的 Diagnostic 缩小 SQL 范围；不要在返回后静默截断、读取 Run 内部 Output 文件或把失败包装成部分成功。
+只使用 `kat query --run ... --sql ...` 查询 Workflow 输出。已有 `kat run` 的 `result.outputs` 时直接使用其中名称与 columns；只有 Run ID 时，先查询 `information_schema.tables` 与 `information_schema.columns`，取得实际 `output.*` relation 与列，再形成证据 SQL。不要把 Workflow guide 当作 Output Schema。
 
-## 5. 形成交付
+先选择投影、过滤、聚合和排序；明细查询显式使用 `LIMIT`。KAT 不自动添加固定行数、字节数或超时限制，Agent 和用户负责查询规模、等待时间与本机资源消耗。Query 成功 Response 恰以 `result.format="ndjson"`、`result.path` 和 `result.columns` 描述结果；只读取该 Response 给出的 NDJSON 文件，并从其中保留回答当前问题所需的对象行作为证据。执行失败时根据 Diagnostic 修正或缩小 SQL，不读取 Run 文件、猜测结果路径或把失败包装成部分成功。
 
-从 Run 中由调用方主动约束范围的 Query 证据形成 Analysis Result，并在交付前读取 [result-contract.md](result-contract.md)。结论必须区分已观察事实、推断和不确定性；不要把 KAT Response、完整 NDJSON 或日志原样转发给用户。
+## 5. 使用策略形成结论
+
+结合选中 Workflow 的 analysis guide 与主动约束范围的 Query 证据形成结果。guide 用于组织分析和下一步方向，不替代实际数据证据，也不扩大用户授权。
+
+交付前读取 [result-contract.md](result-contract.md)。结论区分已观察事实、推断与不确定性；不要把完整 Response、完整表、原始 guide 或日志原样转发给用户。
