@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # PACK 通过 KAT 管理的执行面转换 Arrow

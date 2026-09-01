@@ -9,6 +9,8 @@ from typing import Any, Protocol
 
 import pyarrow as pa
 
+from kat import dataprovider as dp
+
 
 CLOCK_DOMAIN = "boottime"
 IO_WORKERS = {"fsverity", "cdecrypt", "erofs_unzipd", "fsignature", "hmfs", "wk:0/0/0", "wk:2/1/0", "wk:0/-20/0"}
@@ -57,6 +59,53 @@ CALLSTACK_SCHEMA = pa.schema([
     pa.field("function_name", pa.string(), nullable=False), pa.field("business_category", pa.string(), nullable=False),
 ])
 
+FIRST_FRAME_SOURCE_SCHEMA = pa.schema([
+    pa.field("frame_id", pa.int64(), nullable=False),
+    pa.field("itid", pa.int64(), nullable=False),
+    pa.field("ts", pa.int64(), nullable=False),
+    pa.field("dur", pa.int64(), nullable=False),
+    pa.field("callstack_id", pa.int64()),
+    pa.field("ipid", pa.int64(), nullable=False),
+    pa.field("pid", pa.int64(), nullable=False),
+    pa.field("process_name", pa.string(), nullable=False),
+])
+THREAD_METADATA_SOURCE_SCHEMA = pa.schema([
+    pa.field("itid", pa.int64(), nullable=False),
+    pa.field("ipid", pa.int64(), nullable=False),
+    pa.field("tid", pa.int64(), nullable=False),
+    pa.field("thread_name", pa.string(), nullable=False),
+    pa.field("pid", pa.int64(), nullable=False),
+    pa.field("process_name", pa.string(), nullable=False),
+])
+SCHED_SOURCE_SCHEMA = pa.schema([
+    pa.field("ts", pa.int64(), nullable=False),
+    pa.field("dur", pa.int64(), nullable=False),
+    pa.field("cpu", pa.int64()),
+    pa.field("priority", pa.int64()),
+])
+CALLSTACK_SOURCE_SCHEMA = pa.schema([
+    pa.field("id", pa.int64(), nullable=False),
+    pa.field("parent_id", pa.int64()),
+    pa.field("depth", pa.int64(), nullable=False),
+    pa.field("ts", pa.int64(), nullable=False),
+    pa.field("dur", pa.int64(), nullable=False),
+    pa.field("function_name", pa.string(), nullable=False),
+])
+WAKER_SOURCE_SCHEMA = pa.schema([
+    pa.field("wakeup_from", pa.int64(), nullable=False),
+])
+STATE_SOURCE_SCHEMA = pa.schema([
+    pa.field("itid", pa.int64(), nullable=False),
+    pa.field("ts", pa.int64(), nullable=False),
+    pa.field("dur", pa.int64(), nullable=False),
+    pa.field("state", pa.string(), nullable=False),
+    pa.field("cpu", pa.int64()),
+    pa.field("io_wait_min", pa.int64()),
+    pa.field("io_wait_max", pa.int64()),
+    pa.field("blocked_function_min", pa.string()),
+    pa.field("blocked_function_max", pa.string()),
+])
+
 
 class CriticalPathError(RuntimeError):
     """来源事实无法安全解码时终止整个 Workflow。"""
@@ -95,40 +144,41 @@ class OpenHarmonySourceAdapter:
 
 
 class TraceStreamerFacts:
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
+    def __init__(self, provider: Any) -> None:
+        self.provider = provider
         self.cache: dict[int, dict[str, Any]] = {}
 
     def first_frame(self, process_name: str) -> dict[str, Any]:
-        rows = _rows(self.ctx.sql("""
+        rows = self.provider.query("""
             SELECT f.id AS frame_id, f.itid, f.ts, f.dur, f.callstack_id,
-                   p.ipid, p.pid, arrow_cast(p.name, 'Utf8') AS process_name
+                   p.ipid, p.pid, p.name AS process_name
             FROM process p JOIN frame_slice f ON f.ipid = p.ipid
-            WHERE p.name = $process_name AND f.type = 0 AND f.dur > 0
+            WHERE p.name = :process_name AND f.type = 0 AND f.dur > 0
             ORDER BY f.ts + f.dur, f.ts, f.id LIMIT 1
-        """, process_name=process_name), "first actual frame")
+        """, schema=FIRST_FRAME_SOURCE_SCHEMA, params={"process_name": process_name}).to_rows()
         if not rows:
             raise ValueError(f"process_name {process_name!r} has no completed positive-duration actual frame")
         return rows[0]
 
     def metadata(self, itid: int) -> dict[str, Any]:
         if itid not in self.cache:
-            rows = _rows(self.ctx.sql("""
-                SELECT t.itid, t.ipid, t.tid, arrow_cast(t.name, 'Utf8') AS thread_name,
-                       p.pid, arrow_cast(p.name, 'Utf8') AS process_name
+            rows = self.provider.query("""
+                SELECT t.itid, t.ipid, t.tid, t.name AS thread_name,
+                       p.pid, p.name AS process_name
                 FROM thread t JOIN process p ON p.ipid = t.ipid
-                WHERE t.itid = $itid LIMIT 2
-            """, itid=itid), f"thread metadata for {itid}")
+                WHERE t.itid = :itid LIMIT 2
+            """, schema=THREAD_METADATA_SOURCE_SCHEMA, params={"itid": itid}).to_rows()
             if len(rows) != 1:
                 raise CriticalPathError(f"thread metadata for itid {itid} must contain exactly one row")
             self.cache[itid] = rows[0]
         return self.cache[itid]
 
     def states(self, itid: int, start: int, end: int) -> list[dict[str, Any]]:
-        rows = _rows(self.ctx.sql("""
+        rows = self.provider.query("""
             WITH states AS (
                 SELECT itid, ts, dur, state, cpu, arg_setid FROM thread_state
-                WHERE itid = $itid AND dur > 0 AND ts < $end_ts AND ts + dur > $start_ts
+                WHERE itid = :itid AND dur > 0
+                  AND ts < :end_ts AND ts + dur > :start_ts
             ), decoded AS (
                 SELECT a.argset,
                   MIN(CASE WHEN kd.data = 'iowait' THEN a.value END) AS io_wait_min,
@@ -140,29 +190,47 @@ class TraceStreamerFacts:
             ) SELECT s.itid, s.ts, s.dur, s.state, s.cpu, d.io_wait_min, d.io_wait_max,
                 d.blocked_function_min, d.blocked_function_max
               FROM states s LEFT JOIN decoded d ON d.argset = s.arg_setid ORDER BY s.ts, s.dur, s.state
-        """, itid=itid, start_ts=start, end_ts=end), f"thread states for {itid}")
+        """, schema=STATE_SOURCE_SCHEMA, params={
+            "itid": itid,
+            "start_ts": start,
+            "end_ts": end,
+        }).to_rows()
         return _state_cover(rows, itid, start, end)
 
     def sched(self, itid: int, start: int, end: int) -> list[dict[str, Any]]:
-        return _rows(self.ctx.sql("""
+        return self.provider.query("""
             SELECT ts, dur, cpu, priority FROM sched_slice
-            WHERE itid = $itid AND dur > 0 AND ts < $end_ts AND ts + dur > $start_ts
+            WHERE itid = :itid AND dur > 0 AND ts < :end_ts AND ts + dur > :start_ts
             ORDER BY ts, dur, cpu
-        """, itid=itid, start_ts=start, end_ts=end), f"sched slices for {itid}")
+        """, schema=SCHED_SOURCE_SCHEMA, params={
+            "itid": itid,
+            "start_ts": start,
+            "end_ts": end,
+        }).to_rows()
 
     def callstacks(self, itid: int, start: int, end: int) -> list[dict[str, Any]]:
-        return _rows(self.ctx.sql("""
-            SELECT id, parent_id, depth, ts, dur, arrow_cast(name, 'Utf8') AS function_name
-            FROM callstack WHERE callid = $itid AND dur > 0 AND ts < $end_ts AND ts + dur > $start_ts
+        return self.provider.query("""
+            SELECT id, parent_id, depth, ts, dur, name AS function_name
+            FROM callstack
+            WHERE callid = :itid AND dur > 0
+              AND ts < :end_ts AND ts + dur > :start_ts
             ORDER BY ts, dur, depth, id
-        """, itid=itid, start_ts=start, end_ts=end), f"callstacks for {itid}")
+        """, schema=CALLSTACK_SOURCE_SCHEMA, params={
+            "itid": itid,
+            "start_ts": start,
+            "end_ts": end,
+        }).to_rows()
 
     def waker(self, itid: int, end: int) -> int | None:
-        rows = _rows(self.ctx.sql("""
+        rows = self.provider.query("""
             SELECT DISTINCT wakeup_from FROM instant
-            WHERE ref_type = 'itid' AND ref = $itid AND name LIKE 'sched_wakeup%'
-              AND wakeup_from IS NOT NULL AND ts = $end_ts ORDER BY wakeup_from LIMIT 2
-        """, itid=itid, end_ts=end), f"wakeup facts for {itid}")
+            WHERE ref_type = 'itid' AND ref = :itid AND name LIKE 'sched_wakeup%'
+              AND wakeup_from IS NOT NULL AND ts = :end_ts
+            ORDER BY wakeup_from LIMIT 2
+        """, schema=WAKER_SOURCE_SCHEMA, params={
+            "itid": itid,
+            "end_ts": end,
+        }).to_rows()
         if not rows:
             return None
         values = {_int(row, "wakeup_from", "wakeup fact") for row in rows}
@@ -171,15 +239,14 @@ class TraceStreamerFacts:
         return values.pop()
 
 
-def locate_first_actual_frame(ctx: Any, process_name: str) -> Any:
-    facts = TraceStreamerFacts(ctx)
+def locate_first_actual_frame(facts: Facts, process_name: str) -> dp.Table:
     frame = facts.first_frame(process_name)
     metadata = facts.metadata(_int(frame, "itid", "frame"))
     if _int(metadata, "ipid", "thread") != _int(frame, "ipid", "frame"):
         raise CriticalPathError("frame root thread does not belong to the frame process")
     start = _int(frame, "ts", "frame", non_negative=True)
     duration = _int(frame, "dur", "frame", positive=True)
-    return ctx.from_arrow(pa.Table.from_pylist([{
+    return dp.Table.from_arrow(pa.Table.from_pylist([{
         "frame_id": _int(frame, "frame_id", "frame"), "root_itid": _int(frame, "itid", "frame"),
         "start_ts": start, "end_ts": _end(start, duration, "frame"), "duration_ns": duration,
         "process_id": _int(frame, "pid", "frame"), "process_name": _text(frame, "process_name", "frame"),
@@ -188,7 +255,7 @@ def locate_first_actual_frame(ctx: Any, process_name: str) -> Any:
     }], schema=FRAME_WINDOW_SCHEMA))
 
 
-def extract_critical_path(ctx: Any, root_itid: int, start_ts: int, end_ts: int, max_depth: int = 8, min_segment_ms: float = 0.1) -> dict[str, Any]:
+def extract_critical_path(facts: Facts, root_itid: int, start_ts: int, end_ts: int, max_depth: int = 8, min_segment_ms: float = 0.1) -> dict[str, dp.Table]:
     if (
         type(root_itid) is not int
         or root_itid < 0
@@ -202,9 +269,12 @@ def extract_critical_path(ctx: Any, root_itid: int, start_ts: int, end_ts: int, 
         raise ValueError("max_depth must be a non-negative integer")
     if type(min_segment_ms) not in {int, float} or not isfinite(min_segment_ms) or min_segment_ms < 0:
         raise ValueError("min_segment_ms must be a non-negative finite number")
-    walker = _Walker(TraceStreamerFacts(ctx), root_itid, start_ts, end_ts, max_depth, int(min_segment_ms * 1_000_000))
+    walker = _Walker(facts, root_itid, start_ts, end_ts, max_depth, int(min_segment_ms * 1_000_000))
     segments, evidence = walker.run()
-    return {"critical_path_segments": ctx.from_arrow(segments), "critical_path_callstack_evidence": ctx.from_arrow(evidence)}
+    return {
+        "critical_path_segments": dp.Table.from_arrow(segments),
+        "critical_path_callstack_evidence": dp.Table.from_arrow(evidence),
+    }
 
 
 @dataclass
@@ -418,14 +488,6 @@ def _covers_intervals(intervals: Iterable[tuple[int, int]], start: int, end: int
 def _join_reasons(*reasons: str | None) -> str | None:
     values = [reason for reason in reasons if reason]
     return ",".join(values) or None
-
-
-def _rows(frame: Any, label: str) -> list[dict[str, Any]]:
-    try:
-        batches = frame.collect()
-        return pa.Table.from_batches(batches).to_pylist() if batches else []
-    except Exception as error:
-        raise CriticalPathError(f"failed to read {label}") from error
 
 
 def _int(row: dict[str, Any], name: str, label: str, *, positive: bool = False, non_negative: bool = False) -> int:

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0075
 ---
 
 # Query Result 以规范 RFC 3339 表达 UTC 纳秒时间

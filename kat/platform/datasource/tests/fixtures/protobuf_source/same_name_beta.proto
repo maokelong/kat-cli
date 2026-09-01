@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package fixture.protobuf_source.beta;
-
-message SharedRoot {
-  string beta_value = 1;
-}

@@ -1,0 +1,4 @@
+name = "dataprovider-pack"
+title = "Data Provider Reference"
+description = "Three sibling PACK-owned Providers for PostgreSQL, Ftrace, and Trace Streamer."
+owner = "KAT Contributors"

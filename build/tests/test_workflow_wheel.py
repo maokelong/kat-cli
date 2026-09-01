@@ -48,6 +48,37 @@ def write_wheel(
 
 
 class WorkflowWheelTests(unittest.TestCase):
+    def test_build_requires_the_expected_normalized_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            uv = root / "uv"
+            uv.write_bytes(b"locked uv")
+            output = root / "wheel"
+
+            def fake_run(command: list[str], **_: object) -> mock.Mock:
+                if command[1] == "--version":
+                    return mock.Mock(stdout="uv 0.11.28\n")
+                out_dir = Path(command[command.index("--out-dir") + 1])
+                write_wheel(out_dir / WHEEL_NAME)
+                return mock.Mock()
+
+            with (
+                mock.patch.object(
+                    workflow_wheel.subprocess,
+                    "run",
+                    side_effect=fake_run,
+                ),
+                self.assertRaisesRegex(ValueError, "expected version"),
+            ):
+                workflow_wheel.build_workflow_wheel(
+                    REPOSITORY,
+                    uv,
+                    output,
+                    expected_version="9.8.0",
+                )
+
+            self.assertFalse(output.exists())
+
     def test_main_reports_the_normalized_wheel_identity(self) -> None:
         wheel = Path("kat_workflow-0.1.1rc1-py3-none-any.whl")
         checksum = wheel.with_name(f"{wheel.name}.sha256")
@@ -58,7 +89,7 @@ class WorkflowWheelTests(unittest.TestCase):
                 workflow_wheel,
                 "build_workflow_wheel",
                 return_value=(wheel, checksum),
-            ),
+            ) as build,
             mock.patch.object(
                 workflow_wheel.payload_builder,
                 "validate_workflow_wheel_archive",
@@ -66,13 +97,27 @@ class WorkflowWheelTests(unittest.TestCase):
             ),
             contextlib.redirect_stdout(stdout),
         ):
-            result = workflow_wheel.main(["--output", "unused"])
+            result = workflow_wheel.main(
+                [
+                    "--output",
+                    "unused",
+                    "--expected-version",
+                    "0.1.1rc1",
+                ]
+            )
 
         self.assertEqual(result, 0)
         self.assertEqual(
             stdout.getvalue(),
             "Workflow Host wheel: kat_workflow-0.1.1rc1-py3-none-any.whl; "
             "METADATA Version: 0.1.1rc1\n",
+        )
+        build.assert_called_once_with(
+            REPOSITORY,
+            None,
+            Path("unused"),
+            expected_version="0.1.1rc1",
+            download_cache=None,
         )
 
     def test_downloaded_uv_uses_its_locked_layout(self) -> None:
@@ -106,7 +151,12 @@ class WorkflowWheelTests(unittest.TestCase):
                     workflow_wheel.subprocess, "run", side_effect=fake_run
                 ),
             ):
-                workflow_wheel.build_workflow_wheel(REPOSITORY, None, root / "wheel")
+                workflow_wheel.build_workflow_wheel(
+                    REPOSITORY,
+                    None,
+                    root / "wheel",
+                    expected_version="9.7.0",
+                )
 
             self.assertEqual(
                 find_uv.call_args.args[1],
@@ -133,7 +183,10 @@ class WorkflowWheelTests(unittest.TestCase):
 
             with mock.patch.object(workflow_wheel.subprocess, "run", side_effect=fake_run):
                 wheel, checksum = workflow_wheel.build_workflow_wheel(
-                    REPOSITORY, uv, output
+                    REPOSITORY,
+                    uv,
+                    output,
+                    expected_version="9.7.0",
                 )
 
             self.assertEqual(
@@ -142,26 +195,15 @@ class WorkflowWheelTests(unittest.TestCase):
             )
             self.assertIn(workflow_wheel.file_sha256(wheel), checksum.read_text("ascii"))
             self.assertEqual(
-                workflow_wheel.payload_builder.validated_workflow_wheel(wheel),
+                workflow_wheel.payload_builder.validated_workflow_wheel(
+                    workflow_wheel.payload_builder.WheelArtifactInput(
+                        wheel,
+                        "9.7.0",
+                        workflow_wheel.file_sha256(wheel),
+                    )
+                ),
                 wheel.resolve(),
             )
-            self.assertEqual(
-                workflow_wheel.payload_builder.find_workflow_wheel(output), wheel
-            )
-
-            with self.subTest(case="missing wheel"):
-                empty = root / "empty"
-                empty.mkdir()
-                with self.assertRaisesRegex(ValueError, "found 0"):
-                    workflow_wheel.payload_builder.find_workflow_wheel(empty)
-
-            with self.subTest(case="multiple wheels"):
-                second = output / "kat_workflow-9.8.0-py3-none-any.whl"
-                write_wheel(second, version="9.8.0")
-                with self.assertRaisesRegex(ValueError, "found 2"):
-                    workflow_wheel.payload_builder.find_workflow_wheel(output)
-                second.unlink()
-
             with self.subTest(case="unexpected distribution"):
                 invalid = root / WHEEL_NAME
                 write_wheel(invalid, distribution="other")
@@ -198,7 +240,13 @@ class WorkflowWheelTests(unittest.TestCase):
 
             wheel.write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
-                workflow_wheel.payload_builder.validated_workflow_wheel(wheel)
+                workflow_wheel.payload_builder.validated_workflow_wheel(
+                    workflow_wheel.payload_builder.WheelArtifactInput(
+                        wheel,
+                        "9.7.0",
+                        checksum.read_text("ascii").split()[0],
+                    )
+                )
 
 
 if __name__ == "__main__":

@@ -9,31 +9,34 @@ use anyhow::Result;
 use arrow_schema::{DataType, Field, Schema};
 
 use crate::{
-    dataset_writer::DatasetTableFactory, formats::hitrace::profiler::PluginEnvelope,
-    generated_profiler_source_emitter::profiler_clock_id_symbols,
+    formats::hitrace::profiler::PluginEnvelope,
+    generated_profiler_source_emitter::profiler_clock_id_symbols, relation_writer::RelationWriter,
 };
 
 use super::{
-    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSpec, SourceTableCapture,
-    SourceTableLayout,
+    BufferOptions, EnumOriginSpec, EstimatedRow, RelationSpec, SourceRelationCapture,
+    SourceRelationLayout,
 };
 
 const PROFILER_PAYLOAD_OCCURRENCE: &str = "profiler_payload_occurrence";
 
 /// Descriptor compiler 交给 profiler adapter 的 opaque payload layout。
-pub(crate) struct ProfilerPayloadLayout(SourceTableLayout);
+pub(crate) struct ProfilerPayloadLayout(SourceRelationLayout);
 
 impl ProfilerPayloadLayout {
     pub(crate) fn from_generated(
         relations: Vec<RelationSpec>,
         enum_origins: Vec<EnumOriginSpec>,
     ) -> Self {
-        Self(SourceTableLayout::from_generated(relations, enum_origins))
+        Self(SourceRelationLayout::from_generated(
+            relations,
+            enum_origins,
+        ))
     }
 }
 
 pub(crate) struct ProfilerPayloadCapture {
-    capture: SourceTableCapture,
+    capture: SourceRelationCapture,
     occurrence: super::RelationSlot,
 }
 
@@ -41,7 +44,7 @@ impl ProfilerPayloadCapture {
     pub(crate) fn new(
         layout: ProfilerPayloadLayout,
         options: BufferOptions,
-        tables: DatasetTableFactory,
+        relations: RelationWriter,
     ) -> Result<Self> {
         let mut layout = layout.0;
         let occurrence = layout.append_relation(profiler_payload_occurrence_spec());
@@ -53,7 +56,7 @@ impl ProfilerPayloadCapture {
             clock_symbols,
         ));
         Ok(Self {
-            capture: layout.into_capture(options, tables)?,
+            capture: layout.into_capture(options, relations)?,
             occurrence,
         })
     }
@@ -62,7 +65,7 @@ impl ProfilerPayloadCapture {
         &mut self,
         envelope: &PluginEnvelope<'_>,
         value: &T,
-        emit_root: fn(&mut SourceTableCapture, u64, &T) -> Result<()>,
+        emit_root: fn(&mut SourceRelationCapture, u64, &T) -> Result<()>,
     ) -> Result<()> {
         let row_id = self.capture.allocate_row_id(self.occurrence)?;
         self.capture.append_row(

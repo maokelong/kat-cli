@@ -7,7 +7,7 @@ use std::{
 
 use clap::Args;
 use miette::Diagnostic;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
@@ -27,9 +27,6 @@ pub(super) struct RunArgs {
     /// Select one exact Workflow name from the PACK production Interface.
     #[arg(long, value_name = "NAME")]
     workflow: String,
-    /// Provide one KAT Dataset directory for this execution.
-    #[arg(long, value_name = "DIRECTORY")]
-    dataset: Option<PathBuf>,
     #[arg(
         long = "pack-dir",
         value_name = "DIRECTORY",
@@ -60,27 +57,13 @@ struct PublicOutput {
     row_count: u64,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Serialize)]
 pub(super) struct RunManifest {
     pub(super) run_id: String,
     pub(super) pack: String,
     pub(super) workflow: String,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_non_null_string",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(super) dataset: Option<String>,
     pub(super) inputs: BTreeMap<String, serde_json::Value>,
     pub(super) outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
-}
-
-fn deserialize_optional_non_null_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    String::deserialize(deserializer).map(Some)
 }
 
 impl RunManifest {
@@ -88,14 +71,12 @@ impl RunManifest {
         candidate_id: String,
         pack: String,
         workflow: String,
-        dataset: Option<String>,
         runtime: workflow_runtime::RunWorkflowReport,
     ) -> Self {
         Self {
             run_id: candidate_id,
             pack,
             workflow,
-            dataset,
             inputs: runtime.effective_inputs,
             outputs: runtime.outputs,
         }
@@ -169,32 +150,6 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
             },
         );
     };
-    let dataset = match arguments.dataset {
-        Some(path) => match kat_datasource::resolve_dataset(&path) {
-            Ok(dataset) => Some(dataset),
-            Err(source) => {
-                return finish_failure(log, RunOperationError::Dataset { source });
-            }
-        },
-        None => None,
-    };
-    let runtime_dataset = match dataset
-        .as_ref()
-        .map(workflow_runtime::project_dataset)
-        .transpose()
-    {
-        Ok(dataset) => dataset,
-        Err(error) => {
-            return finish_failure(
-                log,
-                RunOperationError::NonUnicodePath {
-                    label: error.label,
-                    path: error.path,
-                },
-            );
-        }
-    };
-    let dataset_path = runtime_dataset.as_ref().map(|dataset| dataset.path.clone());
     let Some(pack_path) = pack.directory().to_str().map(str::to_owned) else {
         return finish_failure(
             log,
@@ -223,12 +178,10 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         return finish_failure(log, RunOperationError::PrivateDatasourceRootPath);
     };
     let pack_path_log = project_inline_text(&format!("{:?}", pack.directory()));
-    let dataset_log = project_inline_text(dataset_path.as_deref().unwrap_or("not provided"));
     let arguments_log = project_inline_text(&format!("{:?}", arguments.workflow_arguments));
-    if let Err(error) = log.append(
-        format!("pack_path: {pack_path_log}\ndataset: {dataset_log}\narguments: {arguments_log}\n")
-            .as_bytes(),
-    ) {
+    if let Err(error) =
+        log.append(format!("pack_path: {pack_path_log}\narguments: {arguments_log}\n").as_bytes())
+    {
         return log_failure(error);
     }
 
@@ -238,7 +191,6 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
             pack_name: pack.name().to_owned(),
             pack_path,
             workflow_name: arguments.workflow.clone(),
-            dataset: runtime_dataset,
             arguments: arguments.workflow_arguments,
             candidate_id: candidate_id.clone(),
             candidate_path,
@@ -261,7 +213,6 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         candidate_id,
         pack.name().to_owned(),
         arguments.workflow,
-        dataset_path,
         runtime,
     );
     let result = manifest.public_result();
@@ -439,12 +390,6 @@ enum RunOperationError {
         "Use the exact manifest name from `kat inspect`, or add its directory with --pack-dir"
     ))]
     UnknownPack { name: String },
-    #[error("Dataset resolution failed")]
-    #[diagnostic(help("Provide a complete KAT Dataset directory or omit --dataset"))]
-    Dataset {
-        #[source]
-        source: kat_datasource::DatasetInspectionError,
-    },
     #[error("{label} path cannot be represented as native Unicode: {path:?}")]
     NonUnicodePath { label: &'static str, path: PathBuf },
     #[error("failed to create a temporary Run Manifest")]
@@ -576,8 +521,6 @@ mod tests {
             "alpha",
             "--workflow",
             "analyze",
-            "--dataset",
-            "dataset",
             "--",
             "--limit",
             "5",
@@ -610,7 +553,6 @@ mod tests {
             run_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             pack: "alpha".to_owned(),
             workflow: "analyze".to_owned(),
-            dataset: None,
             inputs: BTreeMap::new(),
             outputs: BTreeMap::from([(
                 "main".to_owned(),
@@ -626,5 +568,35 @@ mod tests {
             Err(RunOperationError::PrematureManifest)
         ));
         assert!(!temporary.path().join("manifest.json").exists());
+    }
+
+    #[test]
+    fn published_run_manifest_has_no_dataset_field() {
+        let temporary = tempfile::tempdir().unwrap();
+        let manifest = RunManifest::new(
+            "019f6e00-0000-7000-8000-000000000011".to_owned(),
+            "alpha".to_owned(),
+            "analyze".to_owned(),
+            workflow_runtime::RunWorkflowReport {
+                effective_inputs: BTreeMap::new(),
+                outputs: BTreeMap::new(),
+            },
+        );
+
+        publish_run_manifest(temporary.path(), &manifest).unwrap();
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(temporary.path().join("manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            document,
+            serde_json::json!({
+                "run_id": "019f6e00-0000-7000-8000-000000000011",
+                "pack": "alpha",
+                "workflow": "analyze",
+                "inputs": {},
+                "outputs": {}
+            })
+        );
     }
 }

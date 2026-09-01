@@ -10,6 +10,9 @@ Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看
 **KAT Skill**:
 KAT 面向用户的唯一公共入口和原子发布单元，承接数据分析与 PACK 开发任务。用户表达目标，Skill 组织所需操作并依据结构化事实形成下一步或最终结论；底层命令与运行机制不是独立产品面。
 
+**KAT Agent Knowledge**:
+由 KAT Skill 公共 reference、PACK 自有 declaration 与 guide、Runtime 结构化事实共同组成的渐进知识面。各内容随其所有者版本化；KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
+
 **KAT Response**:
 一次已经形成的操作交付给 KAT Skill 的结构化成功或失败事实。它是短命产品视图，不是 Run 的持久事实源，也不是 Analysis Result。
 
@@ -32,8 +35,11 @@ _Avoid_: Built-in PACK、System PACK
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **Pack Authoring API**:
-KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 并使用 KAT 管理的执行能力和领域类型。它随 KAT Skill 原子交付，不是可独立安装或兼容的通用 SDK。
+KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skill 原子交付，不是可独立安装或兼容的通用 SDK。
 _Avoid_: Python SDK、Pack API
+
+**Datasource wheel**:
+平台原生私有 distribution `kat-datasource`，提供窄的 `kat_datasource` 来源 API。它与 `kat-workflow` 使用同一 KAT 版本，但二者互不依赖；Payload 同时安装它们，PACK 必须按所需边界显式 import。它不是 CLI 插件、公共 SDK 或可独立升级的产品。
 
 **KAT Trace Library**:
 KAT 向所有 PACK 平等提供的公共 Trace 分析语义，只接纳经过多个真实消费者和真实 Trace 验证的复用能力。来源解码、具体用户问题和单个 PACK 内尚未验证的候选算法不属于它。
@@ -42,55 +48,55 @@ _Avoid_: `kat.stdlib`
 ## Workflow 与测试
 
 **Workflow**:
-PACK 中回答一个具体分析问题的可运行入口，定义用户输入并产生一个或多个 Run Output。Workflow 承载分析任务，PACK 才是所有权与发布边界。
+PACK 中回答一个具体分析问题的显式可调用入口，定义用户输入并产生一个或多个 Run Output。Runtime 选择一个已检查的 Workflow，以一个当前执行 Context 和解析后的具名输入调用它；没有隐式当前 Workflow。Workflow 承载分析任务，PACK 才是所有权与发布边界。
+
+**Workflow guide**:
+Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，指导如何解释 Run Output、向哪些方向继续取证。它不是 Output Schema、可执行计划或 Run 快照；inspection 每次读取当前 PACK 版本。
 
 **Workflow Context**:
-KAT 在一次 Workflow 执行内显式提供的运行能力入口，通过 `datasource_root` 暴露当前 PACK 在 KAT Data Home 下的存储范围，并在迁移期以 `ctx.sql(sql, **params) -> DataFrame` 保留旧 Dataset grant 查询。首版 Workflow 在该范围内创建临时 workspace，并把其中派生的普通路径传给文件 Provider；新 Datasource Provider 与 DataFusion Provider 都不接收 Context，Context 也不创建、发现、包装或自动关闭它们。它只在当前执行期间有效，不是用户输入，也不存在隐式的全局当前 Context。
+KAT 在一次 Workflow 调用内提供的窄能力对象，只通过 `datasource_root` 暴露当前 PACK 在 KAT Data Home 下的私有存储范围。Context 不查询来源、不持有查询 Session、不转换引擎值，也不创建、发现、包装或自动关闭 Provider。它只在当前调用期间有效，不是用户输入，也不存在隐式全局当前 Context。
 
-**Required tables**:
-迁移期 Workflow 对旧 Dataset Source table 的完整、精确声明。KAT 在调用 Workflow 前继续强制这组 Table Grant；它不声明 Datasource Provider、Source query 或 DataFusion Provider 的显式 relation 输入。空声明表示不需要旧 Dataset relation，不表示 Workflow 不使用 Datasource Provider。
+**Datasource root**:
+`ctx.datasource_root` 返回的当前 PACK 私有目录能力。文件 Provider 在其下为当前 Workflow 创建临时 workspace，再把普通路径显式传给来源 API；它不是跨 Workflow cache 或需要在输出中暴露的用户路径。
 
 **Workflow arguments**:
 调用 Workflow 时提供的原始具名文本输入。它们尚未表达类型、默认值或业务语义，只有选定的 Workflow 才能把它们解释为 Workflow input values。
 
 **Workflow input values**:
-Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类型且包含默认值的实际控制值。迁移期旧来源事实仍由 Dataset 提供；新 Datasource 可以让输入选择 Workflow 已准入 Provider 的非敏感数据位置或来源生态 selector。凭据和任意 Provider 代码不是 Workflow input values。
+Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类型且包含默认值的实际控制值。输入可以选择 Workflow 已准入的非敏感来源位置或来源生态 selector；凭据和任意 Provider 代码不是 Workflow input values。
 
 **PACK test**:
-针对 PACK 生产 Interface 的 KAT 集成测试，可以按所测边界使用 Test Dataset 或 Provider fixture 执行真实 Workflow 行为。它产生测试证据而不发布生产 Run。
-
-**Test Dataset**:
-随 PACK 一起版本化、供测试按需使用的普通 Dataset。迁移期它继续验证旧 Dataset/Table Grant 边界；Provider fixture 不替代或转换它。
+针对 PACK 生产 Interface 的 KAT 集成测试。测试用普通 fixture 构造来源文件、配置、Datasource Provider 和临时路径，再通过 `kat_run` 执行真实 Workflow；它产生测试证据而不发布生产 Run。
 
 **Provider fixture**:
 随 PACK 一起版本化、供测试用普通配置与临时路径创建 Datasource Provider 的受控输入与非敏感配置。它不是平台持久状态，也不规定 Provider 的存储格式。
 
 ## 数据与事实
 
-**Data Import**:
-迁移期由一个显式选定的旧 Datasource type 把外部来源完整转换为新 Dataset，或整体替换已有 Dataset 的用户操作。新 PACK Datasource/Provider 不注册成这种封闭类型，也不通过 `kat import` 创建 Table。
-
 **Datasource**:
-由 Workflow 明确选择的 PACK Python 来源边界，拥有外部事实的定位、配置解释、来源内查询和来源特定物化。它没有独立平台身份、注册或发现机制；跨 Datasource 组合由 Workflow 显式使用 DataFusion Provider 完成。迁移期旧 Data Import Datasource type 仍是另一个概念，不是这里的插件机制。
+由 Workflow 明确选择的 PACK Python 来源边界，拥有外部事实的定位、配置解释、来源内查询和来源特定物化。它通常由 PACK 顶层 `datasources/` 中的普通模块和类表达，没有独立平台身份、注册或发现机制；跨 Datasource 组合由 Workflow 显式使用 DataFusion Provider 完成。
 
 **Datasource Provider**:
-PACK 拥有并直接暴露给 Workflow 的来源能力对象，以来源自己的词汇提供定位、解码、查询、物化等显式操作，并按普通 Python 规则拥有所使用的来源资源。它不是 KAT 创建或包装的统一 facade，也不是可由平台发现的持久状态。
+PACK 拥有并直接暴露给 Workflow 的来源能力对象，以来源自己的词汇提供定位、解码、查询、物化等显式操作，并按普通 Python 规则拥有所使用的来源资源。它不是 KAT 创建或包装的统一 facade，也不是平台托管的持久状态；独立 Provider inspection 只发现其 metadata declaration，不改变生产 Workflow 显式 import、构造和调用它的方式。
 _Avoid_: Source executor、KAT Provider facade
 
-**Data Provider Toolkit**:
-KAT 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它包含 Schema、Table、Parquet 写入与打开、Catalog 和具体 DataFusion Provider，但不定义 Datasource Provider 基类，不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
+**Provider guide**:
+Provider declaration 必须引用的 PACK 自有 Markdown 来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。它服务 PACK 开发，不是 Workflow 分析策略，也不规定 Provider 固定方法。
 
-**DataFusion Provider**:
-KAT Data Provider Toolkit 提供的具体本地查询 Provider，由 Workflow 或 PACK 像普通 Python 对象一样显式构造和重复调用。它在构造时复制 `tables` Mapping 并保留其中 Table 与一个可选 Catalog 的强引用，不提供 relation 注册或替换；每次 `query()` 取得各 Table 的调用时快照，把内存与 Parquet relation 交给新的短命 DataFusion Session，在 planning 后、扫描前校验结果 Schema，执行并收集后再校验数据级 Table 约束，最后 eager 返回 Table。它不是 Datasource Provider 的基类、Runtime facade、全局 registry，也不发现或调用来源 Provider。
+**Data Provider Toolkit**:
+`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它包含 Schema、Table、Parquet 写入与打开、Catalog 和具体 DataFusion Provider，但不定义 Datasource Provider 基类，不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
 
 **Datasource Schema**:
 PACK 通过 `dp.Schema` 保存的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的事实结构，并能创建与每张声明对应的 Table。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Table 构造与追加合同，不是打开既有 Parquet 时必须提供的持久化 Schema。
+
+**Table**:
+一个具有明确列结构、可追加并可重复读取的 eager 单表值。Datasource Schema 创建、`dp.Table.from_arrow()`、Source query 与 Fusion query 都产生这种值；Table 不携带固有名称，Schema 表名、Fusion relation name、Parquet 表名和 Run Output name 都由各自边界的 Mapping 表达。Workflow 的标准 Output 只能是精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 且每个值都是精确 Table。
 
 **Source catalog**:
 Datasource Provider 私有的来源 relation 集合及名称映射，只供该 Provider 的 Source query 使用。KAT 不规定其发现或布局，也不把其中关系自动传给 DataFusion Provider。
 
 **Parquet catalog**:
-以 Parquet 文件承载多张具名 relation 的只读集合，可以由 `dp.write()` 产生，也可以接入已有 Parser 产物。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合，不证明预期表完整；`dp.open(tables=...)` 显式绑定调用方列出的全部 relation 路径并可发现缺失。两者都不接收 Datasource Schema，而是从 Parquet footer 取得并校验锁定 DataFusion 可扫描的物理结构。Catalog 来源列可以比标准 Table 更宽；只有 Fusion query 最终结果需要满足 Table 准入。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，不公开另一套列 Schema API；列结构由 DataFusion Provider 的 `DESCRIBE` 查询形成标准 Table。Catalog 自身不创建 Session、执行 SQL 或持有查询结果，只能显式交给 DataFusion Provider 扫描。它不是 Dataset、内存 Table 集合或 Run Output。
+以 Parquet 文件承载多张具名 relation 的只读集合，可以由 `dp.write()` 产生，也可以接入已有 Parser 产物。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合；`dp.open(tables=...)` 显式绑定调用方列出的 relation 路径。两者从 Parquet footer 取得物理结构。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，本身不创建 Session、执行 SQL 或持有查询结果；它只能显式交给 DataFusion Provider 扫描。
 
 **Source query**:
 Workflow 显式交给 Datasource Provider、由该 Provider 在一个来源内解释的查询。其方言、参数和来源内关系组合属于 Datasource；KAT 不把它解析或拆分成跨来源计划。它不同于 DataFusion Provider 执行的 Fusion query。
@@ -99,52 +105,28 @@ Workflow 显式交给 Datasource Provider、由该 Provider 在一个来源内�
 DataFusion Provider 查询使用的本地关系名：内存 Table 的名称来自构造参数 `tables` 的 key；Parquet relation 的名称来自 `dp.open(tables=...)` 的 Mapping key，或 `dp.open(root=...)` 发现的文件 stem。它只供该 Provider 的 SQL 引用，不是 Table 身份、Datasource Provider 私有 Source catalog 名、远端关系身份或全局注册名。
 _Avoid_: Query result name
 
+**DataFusion Provider**:
+Data Provider Toolkit 提供的具体本地查询 Provider，由 Workflow 或 PACK 显式构造和重复调用。它接受具名内存 Table、至多一个 Parquet Catalog 或二者组合；每次 `query()` 使用新的短命 DataFusion Session，完成规划、执行和结果校验后 eager 返回 Table。它可以融合多个来源已经显式取得的 Table 与一个 Catalog，但不会发现 Datasource Provider、触发 Source query 或访问未传入的 relation。
+
 **Fusion query**:
-DataFusion Provider 对 Workflow 显式提供的内存 Table、Parquet Catalog 或两者组合执行并形成新 Table 的本地查询。它不能透明引用 Datasource Provider 私有的 Source catalog、发现来源 Provider、隐式触发 Source query，或替 Workflow 拆分和下推远端 SQL。迁移期 `ctx.sql(sql, **params) -> DataFrame` 只为旧 Dataset grant 保留兼容查询职责，不是新 Datasource 的 Fusion query 入口。
+DataFusion Provider 对 Workflow 显式提供的内存 Table、Parquet Catalog 或两者组合执行并形成新 Table 的本地查询。它不能透明引用 Datasource Provider 私有的 Source catalog、发现来源 Provider、隐式触发 Source query，或替 Workflow 拆分和下推远端 SQL；来源特定下推由各 Datasource Provider 自己负责。
+
+**Hitrace decode**:
+PACK 通过独立 `kat-datasource` wheel 的 `kat_datasource.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 通常把 destination 放进 `ctx.datasource_root` 下的临时 workspace，再用 `dp.open(root=destination)` 打开；解码结果不是平台持久状态，也不会自动成为 Run Output。
 
 **Datasource materialization**:
-Datasource Provider 为来源查询准备的本地 backend，其格式与生命周期属于当前 PACK。首版文件 Provider 只在当前 Workflow 内、`ctx.datasource_root` 的临时子目录中使用这类产物，eager Table 脱离来源后立即清理；它不是跨 Workflow cache、KAT 平台状态、Provider query result 或 Run Output。需要来源身份、版本、并发锁和回收的可复用物化以后另行设计。
-
-**Dataset**:
-迁移期由旧 Data Import 完整生成或整体替换的本地事实集合，是现有 `required_tables` Workflow 的事实输入。其具体位置就是身份，不另设 Dataset ID；Datasource Table、Run Output 和 Datasource materialization 都不属于 Dataset。
-
-**Source table**:
-旧 Dataset 在迁移期通过 Table Grant 向 Workflow 提供的不可变事实关系。Runtime 只在兼容 `ctx.sql(sql, **params) -> DataFrame` 的受管理执行面中注册已授权的 Source table；新 Datasource 的 DataFusion Provider 不能取得这些 grant 或其裸路径。
-
-**Table**:
-一个具有明确列结构、可追加并可重复读取的单表数据值；Datasource Schema 创建、`Table.from_arrow()`、Source query 与 Fusion query 都产生同一种可追加 Table，不因来源切换为只读状态，也不另设 Builder、ReadOnlyTable 或 QueryTable。追加合同由构造路径决定：`Schema.create()` 与 `Table(single_table_schema)` 使用 Python 逻辑合同，`Table.from_arrow()` 与 DataFusion Provider query 使用已经准入的 Arrow 物理 Schema；Source query 可以选择前述任一路径。append 只接受与合同对应的精确 Python 类型，不借用 PyArrow 做跨类型隐式转换；整行成功后才增加新 Arrow chunk，历史 buffer 与既有快照不变。Table 不携带固有名称；Schema 表名、Fusion relation name、Parquet 表名和 Run Output name 都由各自边界的 Mapping 表达。
-
-**Workflow DataFrame**:
-迁移期 Pack Authoring API 通过 `ctx.sql(sql, **params)`、`ctx.from_arrow()` 等旧入口暴露的惰性 DataFusion 关系值。新的 Datasource Source query 与 Fusion query 都形成已经执行完成、可重复读取的 Table，不再把这种引擎值作为标准查询结果。
+Datasource Provider 为来源查询准备的本地 backend，其格式与生命周期属于当前 PACK。文件 Provider 只在当前 Workflow 内、`ctx.datasource_root` 的临时子目录中使用这类产物，eager Table 脱离来源后即可清理；它不是跨 Workflow cache、KAT 平台状态、Provider query result 或 Run Output。
 
 **Trace fact**:
 Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多个 PACK 复用的来源事实。它仍是来源数据，不是预先计算的分析结果。
 
-## 时间语义
-
-**UnifiedClock**:
-由 `ClockDomain` 与 `ClockValue` 组成的不可变值，表示某个底层时钟坐标上的一次具体读数。统一的是值结构和受支持的时间操作，不是计量单位、时间原点或公共时间线。
-_Avoid_: ClockReading、SourceTimestamp
-
-**Clock value**:
-某个 Clock domain 上的非负原生读数，单独不具有完整时间语义。它不必然以纳秒计量，也不能脱离 Clock domain 被解释为 UTC 时间。
-_Avoid_: Timestamp、timestamp_ns
-
-**Clock domain**:
-Dataset 内一个具体时钟坐标的身份，并提供解释 Clock value 所需的时钟语义。相同名称出现在不同 Dataset 中不表示同一时钟实例，时钟类型也不能代替具体 domain。
-_Avoid_: Source clock、Event clock
-
-**Clock snapshot**:
-同一采集附近对多个 Clock domain 取得的一组关联读数，是跨 domain 换算的证据。它不把这些 domain 变成同一个时钟，也不自动担保映射在整个采集期间保持准确。
-
-**Clock conversion**:
-依据当前 Dataset 的明确证据，把来源 Clock value 显式换算到目标 Clock domain。结果仍是目标 domain 上的 Clock value，不会自动成为 Duration 或 Wall-clock timestamp；不同 domain 的比较、连接和相减必须先完成这种对齐。
+## Workflow 时间输入
 
 **Duration**:
-两个兼容时间点之间的纳秒精度非负经过时长，不携带时区或时钟原点。它描述时间差，而不是某个 Clock domain 上的读数或公历时间点。
+纳秒精度的非负经过时长，不携带时区或时钟原点。它描述时间差，不代表某个来源时钟上的读数或公历时间点。
 
 **Wall-clock timestamp**:
-带有明确 UTC 偏移、能够定位到公历时间线的绝对时间。一个 Clock value 即使以纳秒计量，也不会因此自动获得墙上时间语义。
+带有明确 UTC 偏移、能够定位到公历时间线的绝对时间。来源数据中的整数时钟读数即使以纳秒计量，也不会因此自动获得墙上时间语义。
 
 ## Run、查询与结论
 
@@ -152,17 +134,17 @@ _Avoid_: Source clock、Event clock
 一次成功发布的 Workflow 执行，包含唯一 Run Manifest 和至少一个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立。
 
 **Run Manifest**:
-一个 Run 的唯一持久清单，记录 Run 身份及其 PACK、Workflow、迁移期可选 Dataset 关联、实际输入和 Run Output 引用。它不记录失败状态，也不承载 Analysis Result。
+一个 Run 的唯一持久清单，记录 Run 身份及其 PACK、Workflow、有效输入和 Run Output 元数据。新 Manifest 不记录来源选择；Query 为读取历史 Run 而忽略任意 JSON 形状的旧 `dataset` 字段，但不会据此注册关系或恢复旧能力。Manifest 不记录失败状态，也不承载 Analysis Result。
 
 **Run Output**:
-随 Run 持久发布的具名结构化程序产物，可来源于 Workflow 返回的 Table 或迁移期 Workflow DataFrame，并可供后续 Output Query 使用。单值使用 `main`，多个值由非空普通 dict 显式命名；Table 自身不携带 Output name。Run Output 可以保存比 Output Query JSON 结果更宽的扁平 Table 类型，因此“可以发布”不表示每种列都能未经投影直接返回为 JSON。它不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
+随 Run 持久发布的具名结构化程序产物，只来源于 Workflow 返回的标准 Table Output，并可供后续 Output Query 使用。单值使用 `main`，多个值由非空普通 dict 显式命名；Table 自身不携带 Output name。Run Output 的 Parquet 数据合同独立于某次查询采用的 Arrow JSON 映射。它不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
 _Avoid_: Artifact、Result
 
 **Output Query**:
-针对已发布 Run Output 发起的本地只读后续查询，不创建新 Run，也不重新执行当时的 Provider query。它的 JSON Query Result 只接受现有无损标量集合；Binary 等较宽 Output 列必须由 SQL 显式投影或 cast，非有限 float 失败。查询若使用 Run 关联的旧 Dataset，看到的是该位置当前可用的事实，而不是 Run 输入的历史快照；用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
+针对一个已发布 Run 的 `output.*` 发起的本地只读后续查询，不创建新 Run，也不重新执行 Provider query。每次查询使用独立 DataFusion Session，只注册该 Run 的 Output 与 `information_schema`；PACK、Datasource、其他 Run 和历史 Manifest 字段均不可见。Python/DataFusion 把单条只读 SQL 的结果以原生 Arrow JSON 映射直接写成单文件 NDJSON；KAT 不建立自定义标量转换层，也不自动增加分页、截断、固定 `LIMIT` 或超时。用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
 
 **Query Result**:
-一次 Output Query 返回的短命结构化数据。它不会成为新的 Run Output，也不是模型面向用户形成的 Analysis Result。
+一次成功 Output Query 发布的单文件 NDJSON。KAT Response 只返回 `format="ndjson"`、文件 `path` 和有序 `columns`；文件每行是一个使用查询列名的 JSON object，零行结果是空文件。它不会成为新的 Run Output，也不是模型面向用户形成的 Analysis Result。
 
 **Analysis Result**:
 模型基于 Run Output 和必要的 Query Result 形成的面向用户判断、报告或结论。它不由 Workflow 生成，也不写入 Run Manifest。

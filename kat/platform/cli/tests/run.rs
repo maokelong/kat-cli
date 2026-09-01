@@ -7,12 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::Engine;
-
 mod support;
 use support::cargo_kat;
-
-const PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
 fn stage_skill(root: &Path) -> (PathBuf, PathBuf) {
     support::stage_skill(root, "skill")
@@ -197,22 +193,8 @@ fn pack(root: &Path) -> PathBuf {
     pack
 }
 
-fn dataset(root: &Path) -> PathBuf {
-    let dataset = root.join("dataset");
-    fs::create_dir_all(dataset.join("tables")).unwrap();
-    fs::write(dataset.join(".kat-dataset"), []).unwrap();
-    fs::write(
-        dataset.join("tables/data_dict.parquet"),
-        base64::engine::general_purpose::STANDARD
-            .decode(PARQUET)
-            .unwrap(),
-    )
-    .unwrap();
-    dunce::canonicalize(dataset).unwrap()
-}
-
 #[test]
-fn run_help_discloses_operation_log_inputs() {
+fn run_help_and_parser_do_not_expose_dataset() {
     let output = Command::new(cargo_kat())
         .args(["run", "--help"])
         .output()
@@ -222,9 +204,26 @@ fn run_help_discloses_operation_log_inputs() {
     assert!(output.stderr.is_empty());
     let help = String::from_utf8(output.stdout).expect("UTF-8 help");
     assert!(help.contains("Operation log may retain the resolved PACK"));
-    assert!(help.contains("optional Dataset path"));
     assert!(help.contains("all arguments after"));
     assert!(help.contains("Do not pass secrets"));
+    assert!(!help.contains("Dataset"));
+    assert!(!help.contains("--dataset"));
+
+    let removed = Command::new(cargo_kat())
+        .args([
+            "run",
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+            "--dataset",
+            "legacy-dataset",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(removed.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&removed.stderr).contains("unexpected argument '--dataset'"));
 }
 
 #[test]
@@ -238,7 +237,6 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
     let pack = pack(temporary.path());
-    let dataset = dataset(temporary.path());
     let captured = temporary.path().join("request.json");
     let mut command = Command::new(&binary);
     command
@@ -246,8 +244,6 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
         .args(["--pack", "alpha", "--workflow", "analyze"])
         .arg("--pack-dir")
         .arg(&pack)
-        .arg("--dataset")
-        .arg(&dataset)
         .arg("--")
         .args(["--limit", "5"])
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -286,7 +282,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(manifest["run_id"], run_id);
     assert_eq!(manifest["pack"], "alpha");
     assert_eq!(manifest["workflow"], "analyze");
-    assert_eq!(manifest["dataset"], dataset.to_str().unwrap());
+    assert!(manifest.get("dataset").is_none());
     assert_eq!(manifest["inputs"], serde_json::json!({"limit":"5"}));
     assert!(manifest["outputs"]["main"].get("output_id").is_none());
     assert_eq!(
@@ -298,12 +294,13 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(request["candidate_id"], run_id);
     assert_eq!(request["workflow_name"], "analyze");
     assert_eq!(request["arguments"], serde_json::json!(["--limit", "5"]));
-    assert_eq!(request["dataset"]["path"], dataset.to_str().unwrap());
-    assert!(
-        request["dataset"]["tables"]["data_dict"]
-            .as_str()
+    assert!(request.get("dataset").is_none());
+    assert_eq!(
+        request["datasource_root"],
+        data_home(temporary.path())
+            .join("datasources/alpha")
+            .to_str()
             .unwrap()
-            .ends_with("data_dict.parquet")
     );
     let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
     assert_eq!(
@@ -316,6 +313,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert!(log.contains("publication: manifest.json is the only published Run fact"));
     assert!(log.contains("runtime_status: success"));
     assert!(log.contains("publication_gate: ready"));
+    assert!(!log.contains("dataset"));
 }
 
 #[test]
@@ -449,28 +447,26 @@ fn run_uses_real_installed_workflow_host_end_to_end() {
     fs::create_dir(&workflows).unwrap();
     fs::write(
         workflows.join("analyze.py"),
-        r#"from kat import Context, workflow
+        r#"import pyarrow as pa
+from kat import Context, dataprovider as dp, workflow
 
 @workflow(
     name="analyze",
-    title="Analyze",
-    required_tables=["data_dict"],
+    description="Return one ordinary Table.",
 )
 def analyze(ctx: Context):
-    """Analyze the Dataset."""
-    return ctx.sql("select id, data from data_dict order by id")
+    """Return one ordinary Table."""
+    del ctx
+    return dp.Table.from_arrow(pa.table({"id": [1, 2], "data": ["first", "second"]}))
 "#,
     )
     .unwrap();
-    let dataset = dataset(temporary.path());
     let mut command = Command::new(&binary);
     command
         .arg("run")
         .args(["--pack", "alpha", "--workflow", "analyze"])
         .arg("--pack-dir")
-        .arg(pack)
-        .arg("--dataset")
-        .arg(&dataset);
+        .arg(pack);
     configure(&mut command, temporary.path());
 
     let output = command.output().unwrap();
@@ -489,7 +485,7 @@ def analyze(ctx: Context):
         response["result"]["outputs"]["main"]["columns"],
         serde_json::json!([
             {"name":"id","type":"int64"},
-            {"name":"data","type":"string_view"}
+            {"name":"data","type":"string"}
         ])
     );
     let run_id = response["result"]["run_id"].as_str().unwrap();

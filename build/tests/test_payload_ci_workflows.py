@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
+import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +14,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_ORCHESTRATOR = REPOSITORY / ".github/workflows/build-payloads-ci.yml"
 FULL_CI_WORKFLOW = REPOSITORY / ".github/workflows/full-ci.yml"
 ASSEMBLY_WORKFLOW = REPOSITORY / ".github/workflows/payload-ci.yml"
+PREPARE_WORKFLOW = REPOSITORY / ".github/workflows/prepare-payload-ci.yml"
 PR_VALIDATION_CONCURRENCY = (
     "concurrency:\n"
     "  group: >-\n"
@@ -32,6 +38,211 @@ SCCACHE_ACTION = (
 
 
 class PayloadCiWorkflowTests(unittest.TestCase):
+    def test_payload_smoke_hitrace_fixture_is_small_and_deterministic(self) -> None:
+        generator = REPOSITORY / "build/fixtures/create_payload_smoke_hitrace.py"
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "smoke.htrace"
+            subprocess.run(
+                [sys.executable, "-I", "-B", str(generator), str(fixture)],
+                check=True,
+            )
+            content = fixture.read_bytes()
+
+        self.assertEqual(len(content), 1024)
+        self.assertEqual(struct.unpack_from("<Q", content, 0)[0], 0x464F5250534F484F)
+        self.assertEqual(struct.unpack_from("<Q", content, 8)[0], len(content))
+        self.assertEqual(struct.unpack_from("<I", content, 56)[0], 0)
+        self.assertEqual(struct.unpack_from("<Q", content, 60)[0], 123456)
+
+    def test_payload_smoke_verifier_fails_closed_under_optimized_python(self) -> None:
+        verifier = REPOSITORY / "build/fixtures/verify_payload_smoke.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ndjson = root / "result.ndjson"
+            ndjson.write_bytes(b'{"clock_domain":"wrong","clock_value":0}\n')
+            responses = {
+                "inspect": {"status": "success"},
+                "test": {
+                    "status": "success",
+                    "result": {"summary": {"passed": 1}},
+                },
+                "run": {
+                    "status": "success",
+                    "result": {"outputs": {"main": {"row_count": 1}}},
+                },
+                "query": {
+                    "status": "success",
+                    "result": {"format": "ndjson", "path": str(ndjson)},
+                },
+            }
+            paths = []
+            for name, response in responses.items():
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(response), encoding="utf-8")
+                paths.append(path)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-O",
+                    "-I",
+                    "-B",
+                    str(verifier),
+                    *(str(path) for path in paths),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_payload_smoke_verifier_accepts_the_complete_mechanism_chain(
+        self,
+    ) -> None:
+        verifier = REPOSITORY / "build/fixtures/verify_payload_smoke.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ndjson = root / "result.ndjson"
+            ndjson.write_bytes(
+                b'{"clock_domain":"boottime","clock_value":123456}\n'
+            )
+            responses = {
+                "inspect": {"status": "success"},
+                "test": {
+                    "status": "success",
+                    "result": {"summary": {"passed": 1}},
+                },
+                "run": {
+                    "status": "success",
+                    "result": {"outputs": {"main": {"row_count": 1}}},
+                },
+                "query": {
+                    "status": "success",
+                    "result": {"format": "ndjson", "path": str(ndjson)},
+                },
+            }
+            paths = []
+            for name, response in responses.items():
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(response), encoding="utf-8")
+                paths.append(path)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-O",
+                    "-I",
+                    "-B",
+                    str(verifier),
+                    *(str(path) for path in paths),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_dual_wheel_identity_flows_through_each_native_payload_job(self) -> None:
+        orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
+        self.assertIn(
+            "      normalized-version: ${{ steps.verify.outputs.normalized-version }}\n",
+            orchestrator,
+        )
+        self.assertIn(
+            'echo "normalized-version=${version/-rc./rc}" >> "$GITHUB_OUTPUT"',
+            orchestrator,
+        )
+        self.assertIn(
+            "      expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}\n",
+            orchestrator,
+        )
+        self.assertEqual(
+            orchestrator.count(
+                "      workflow-wheel-sha256: ${{ "
+                "needs.prepare.outputs['workflow-wheel-sha256'] }}\n"
+            ),
+            2,
+        )
+
+        prepare = PREPARE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("      expected-version:\n", prepare)
+        self.assertIn("      workflow-wheel-sha256:\n", prepare)
+        self.assertIn(
+            "        value: ${{ jobs.workflow-wheel.outputs.sha256 }}\n",
+            prepare,
+        )
+        self.assertIn(
+            "          --expected-version ${{ inputs['expected-version'] }}\n",
+            prepare,
+        )
+        self.assertIn('echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"', prepare)
+
+        for platform in ("linux", "windows"):
+            with self.subTest(platform=platform):
+                workflow = (
+                    REPOSITORY
+                    / f".github/workflows/build-{platform}-payload-ci.yml"
+                ).read_text(encoding="utf-8")
+                self.assertIn("      expected-version:\n", workflow)
+                self.assertIn("      workflow-wheel-sha256:\n", workflow)
+                self.assertIn("build/build_datasource_wheel.py", workflow)
+                self.assertIn(f"--platform {platform}-x86_64", workflow)
+                self.assertIn("--workflow-wheel-version", workflow)
+                self.assertIn("--workflow-wheel-sha256", workflow)
+                self.assertIn("--datasource-wheel-version", workflow)
+                self.assertIn("--datasource-wheel-sha256", workflow)
+                self.assertIn("-m venv", workflow)
+                self.assertIn("--no-deps --no-index", workflow)
+                self.assertIn(
+                    "kat/platform/datasource/tests/python/test_hitrace_api.py",
+                    workflow,
+                )
+                self.assertIn(
+                    "kat/platform/datasource/tests/python/test_text_ftrace_api.py",
+                    workflow,
+                )
+
+    def test_payload_smoke_uses_hitrace_provider_and_validates_ndjson(self) -> None:
+        assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn(" import trace-streamer ", assembly)
+        self.assertNotIn("--dataset", assembly)
+        self.assertIn("build/fixtures/create_payload_smoke_hitrace.py", assembly)
+        self.assertIn("build/fixtures/payload-smoke-pack", assembly)
+        self.assertEqual(assembly.count(" test --pack-dir "), 2)
+        self.assertIn("--workflow summarize-hitrace-clock", assembly)
+        self.assertIn("SELECT clock_domain, clock_value FROM output.main", assembly)
+        verifier = (
+            REPOSITORY / "build/fixtures/verify_payload_smoke.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('result["format"] != "ndjson"', verifier)
+        self.assertIn(
+            '{"clock_domain":"boottime","clock_value":123456}',
+            verifier,
+        )
+
+        provider = (
+            REPOSITORY
+            / "build/fixtures/payload-smoke-pack/datasources/hitrace.py"
+        ).read_text(encoding="utf-8")
+        workflow = (
+            REPOSITORY
+            / "build/fixtures/payload-smoke-pack/workflows/summarize_hitrace_clock.py"
+        ).read_text(encoding="utf-8")
+        pack_test = (
+            REPOSITORY
+            / "build/fixtures/payload-smoke-pack/tests/test_payload_smoke.py"
+        )
+        self.assertTrue(pack_test.is_file())
+        self.assertIn("from kat import dataprovider as dp", provider)
+        self.assertIn("from kat_datasource import hitrace", provider)
+        self.assertIn("hitrace.decode", provider)
+        self.assertIn("dp.open(root=", provider)
+        self.assertIn("dp.DataFusionProvider", provider)
+        self.assertIn("HitraceProvider", workflow)
+        self.assertIn("return provider.query", workflow)
+
     def test_platform_payload_builds_use_an_optional_observable_sccache(self) -> None:
         for platform in ("linux", "windows"):
             with self.subTest(platform=platform):

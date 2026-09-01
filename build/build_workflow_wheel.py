@@ -23,6 +23,7 @@ def build_workflow_wheel(
     uv: Path | None,
     output: Path,
     *,
+    expected_version: str,
     download_cache: Path | None = None,
 ) -> tuple[Path, Path]:
     repository = repository.resolve()
@@ -99,7 +100,10 @@ def build_workflow_wheel(
         wheels = list(built.glob("*.whl"))
         if len(wheels) != 1:
             raise ValueError(f"expected one Workflow Host wheel, found {len(wheels)}")
-        payload_builder.validate_workflow_wheel_archive(wheels[0])
+        payload_builder.validate_workflow_wheel_archive(
+            wheels[0],
+            expected_version=expected_version,
+        )
         artifact = temporary_root / "artifact"
         artifact.mkdir()
         wheel_name = wheels[0].name
@@ -123,6 +127,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--download-cache", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--expected-version", required=True)
     return parser.parse_args(argv)
 
 
@@ -133,9 +138,13 @@ def main(argv: list[str] | None = None) -> int:
             options.repository,
             None,
             options.output,
+            expected_version=options.expected_version,
             download_cache=options.download_cache,
         )
-        metadata_version = payload_builder.validate_workflow_wheel_archive(wheel)
+        metadata_version = payload_builder.validate_workflow_wheel_archive(
+            wheel,
+            expected_version=options.expected_version,
+        )
         print(
             f"Workflow Host wheel: {wheel.name}; "
             f"METADATA Version: {metadata_version}"

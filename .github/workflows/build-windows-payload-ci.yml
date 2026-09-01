@@ -8,6 +8,14 @@ on:
         required: false
         type: boolean
         default: false
+      expected-version:
+        description: Expected normalized version of both private wheels.
+        required: true
+        type: string
+      workflow-wheel-sha256:
+        description: SHA-256 of the downloaded Workflow Host wheel.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -82,11 +90,40 @@ jobs:
           name: kat-workflow-wheel
           path: target/kat/workflow-wheel
 
-      - name: Build locked Payload
+      - name: Build native Datasource wheel and locked Payload
         shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ inputs['expected-version'] }}
+          WORKFLOW_WHEEL_SHA256: ${{ inputs['workflow-wheel-sha256'] }}
         run: |
+          $ErrorActionPreference = "Stop"
+          $workflowWheels = @(Get-ChildItem "target/kat/workflow-wheel" -Filter "*.whl" -File)
+          if ($workflowWheels.Count -ne 1) { throw "expected exactly one Workflow Host wheel" }
+          python build/build_datasource_wheel.py `
+            --python (Get-Command python).Source `
+            --platform windows-x86_64 `
+            --expected-version $env:EXPECTED_VERSION `
+            --output "target/kat/datasource-wheel"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $datasourceWheels = @(Get-ChildItem "target/kat/datasource-wheel" -Filter "*.whl" -File)
+          if ($datasourceWheels.Count -ne 1) { throw "expected exactly one Datasource wheel" }
+          $datasourceSha256 = (Get-FileHash -Algorithm SHA256 $datasourceWheels[0].FullName).Hash.ToLowerInvariant()
+          python -m venv "target/kat/datasource-wheel-test"
+          $testPython = (Resolve-Path "target/kat/datasource-wheel-test/Scripts/python.exe").Path
+          & $testPython -m pip install --disable-pip-version-check --no-deps --no-index $datasourceWheels[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $testPython -I -B "kat/platform/datasource/tests/python/test_hitrace_api.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $testPython -I -B "kat/platform/datasource/tests/python/test_text_ftrace_api.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python build/build_windows_payload.py `
-            --output "target/kat/payloads/windows-x86_64"
+            --output "target/kat/payloads/windows-x86_64" `
+            --workflow-wheel $workflowWheels[0].FullName `
+            --workflow-wheel-version $env:EXPECTED_VERSION `
+            --workflow-wheel-sha256 $env:WORKFLOW_WHEEL_SHA256 `
+            --datasource-wheel $datasourceWheels[0].FullName `
+            --datasource-wheel-version $env:EXPECTED_VERSION `
+            --datasource-wheel-sha256 $datasourceSha256
           New-Item -ItemType Directory -Force "target/distrib/.payload-inputs" | Out-Null
           tar -czf "target/distrib/.payload-inputs/windows-x86_64.tar.gz" `
             -C "target/kat/payloads" windows-x86_64

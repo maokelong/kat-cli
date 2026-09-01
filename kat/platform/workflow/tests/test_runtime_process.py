@@ -13,7 +13,7 @@ from unittest import mock
 import uuid
 
 from _kat_runtime import __main__ as runtime_main
-from _kat_runtime.pack import _workflow_entries, inspect_pack
+from _kat_runtime.pack import _workflow_entries, inspect_workflow
 
 
 class RuntimeProcessTest(unittest.TestCase):
@@ -72,6 +72,7 @@ class RuntimeProcessTest(unittest.TestCase):
         (pack / "workflows" / "nested").mkdir(parents=True)
         (pack / "helpers").mkdir()
         (pack / "datasources").mkdir()
+        (pack / "knowledge" / "workflows").mkdir(parents=True)
         (pack / "tests").mkdir()
         (pack / "helpers" / "rules.py").write_text(
             "def title():\n    return 'Helper title'\n", encoding="utf-8"
@@ -90,56 +91,507 @@ from kat import Context, workflow
 from kat.pack.datasources.titles import decorate
 from kat.pack.helpers.rules import title
 
-@workflow(name="cpu-time", title=decorate(title()), required_tables=["thread", "sched_slice"], parameters={"limit": "Maximum rows"})
+@workflow(name="cpu-time", description=decorate(title()), parameters={"limit": "Maximum rows"}, guide="workflows/cpu-time.md")
 def analyze(ctx: Context, *, limit: int = 10):
     \"\"\"Analyze CPU time.\"\"\"
 """,
             encoding="utf-8",
+        )
+        (pack / "knowledge" / "workflows" / "cpu-time.md").write_text(
+            "# CPU time\r\n\r\nInspect the largest rows first.\r\n",
+            encoding="utf-8",
+            newline="",
         )
         (pack / "tests" / "must_not_import.py").write_text(
             "raise RuntimeError('tests are not production')\n", encoding="utf-8"
         )
         return pack.resolve()
 
-    def test_inspect_pack_returns_complete_workflows_without_writing_source(self) -> None:
+    def test_inspect_workflow_lists_then_returns_one_detail_without_writing_source(self) -> None:
         pack = self.write_pack()
         before = sorted(path.relative_to(pack).as_posix() for path in pack.rglob("*"))
 
-        completed, response = self.run_runtime(
-            {"operation": "inspect_pack", "pack_name": "stable-name", "pack_path": str(pack)}
+        listed, list_response = self.run_runtime(
+            {
+                "operation": "inspect_workflow",
+                "pack_name": "stable-name",
+                "pack_path": str(pack),
+                "workflow_name": None,
+            }
+        )
+        selected, detail_response = self.run_runtime(
+            {
+                "operation": "inspect_workflow",
+                "pack_name": "stable-name",
+                "pack_path": str(pack),
+                "workflow_name": "cpu-time",
+            }
         )
 
-        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
-        self.assertEqual(completed.stdout, b"")
+        self.assertEqual(listed.returncode, 0, listed.stderr.decode(errors="replace"))
+        self.assertEqual(selected.returncode, 0, selected.stderr.decode(errors="replace"))
+        self.assertEqual(listed.stdout, b"")
+        self.assertEqual(selected.stdout, b"")
         self.assertEqual(
-            response,
+            list_response,
             {
                 "status": "success",
                 "result": {
                     "workflows": [
                         {
                             "name": "cpu-time",
-                            "title": "Datasource Helper title",
-                            "description": "Analyze CPU time.",
-                            "required_tables": ["sched_slice", "thread"],
-                            "parameters": [
-                                {
-                                    "name": "limit",
-                                    "option": "--limit",
-                                    "type": "int64",
-                                    "required": False,
-                                    "description": "Maximum rows",
-                                    "default": "10",
-                                }
-                            ],
+                            "description": "Datasource Helper title",
                         }
                     ]
+                },
+            },
+        )
+        self.assertEqual(
+            detail_response,
+            {
+                "status": "success",
+                "result": {
+                    "workflow": {
+                        "name": "cpu-time",
+                        "description": "Datasource Helper title",
+                        "parameters": [
+                            {
+                                "name": "limit",
+                                "option": "--limit",
+                                "type": "int64",
+                                "required": False,
+                                "description": "Maximum rows",
+                                "default": "10",
+                            }
+                        ],
+                        "guide": "# CPU time\r\n\r\nInspect the largest rows first.\r\n",
+                    }
                 },
             },
         )
         after = sorted(path.relative_to(pack).as_posix() for path in pack.rglob("*"))
         self.assertEqual(after, before)
         self.assertFalse(any(path.name == "__pycache__" for path in pack.rglob("*")))
+
+    def test_workflow_guide_is_nullable_and_the_complete_tree_is_atomic(self) -> None:
+        pack = self.root / "workflow-guides"
+        (pack / "workflows").mkdir(parents=True)
+        (pack / "workflows" / "plain.py").write_text(
+            "from kat import Context, workflow\n"
+            "@workflow(name='plain', description='No guide is required.')\n"
+            "def analyze(ctx: Context):\n    pass\n",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_workflow",
+                "pack_name": "workflow-guides",
+                "pack_path": str(pack.resolve()),
+                "workflow_name": "plain",
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success")
+        self.assertIsNone(response["result"]["workflow"]["guide"])
+
+        (pack / "workflows" / "broken.py").write_text(
+            "from kat import Context, workflow\n"
+            "@workflow(name='broken', description='Broken guide.', guide='workflows/missing.md')\n"
+            "def analyze(ctx: Context):\n    pass\n",
+            encoding="utf-8",
+        )
+        for workflow_name in (None, "plain"):
+            with self.subTest(workflow_name=workflow_name):
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_workflow",
+                        "pack_name": "workflow-guides",
+                        "pack_path": str(pack.resolve()),
+                        "workflow_name": workflow_name,
+                    }
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stderr.decode(errors="replace"),
+                )
+                self.assertEqual(response["status"], "failure")
+                self.assertNotIn("result", response)
+
+    def test_inspect_provider_lists_and_selects_recursive_declarations(self) -> None:
+        pack = self.root / "provider-pack"
+        (pack / "datasources" / "nested").mkdir(parents=True)
+        (pack / "knowledge" / "providers").mkdir(parents=True)
+        (pack / "datasources" / "__init__.py").write_text(
+            "# Standard package initializer.\n", encoding="utf-8"
+        )
+        (pack / "datasources" / "nested" / "__init__.py").write_text(
+            "# Nested package initializer.\n", encoding="utf-8"
+        )
+        (pack / "datasources" / "helpers.py").write_text(
+            "DESCRIPTION = 'Parse ftrace text.'\n", encoding="utf-8"
+        )
+        (pack / "datasources" / "postgresql.py").write_text(
+            "from kat import provider\n"
+            "@provider(name='postgresql', description='Query PostgreSQL.', guide='providers/postgresql.md')\n"
+            "class PostgreSQLProvider:\n"
+            "    def __init__(self):\n"
+            "        raise AssertionError('inspection must not instantiate Providers')\n",
+            encoding="utf-8",
+        )
+        (pack / "datasources" / "nested" / "ftrace.py").write_text(
+            "from kat import provider\n"
+            "from kat.pack.datasources.helpers import DESCRIPTION\n"
+            "from kat.pack.datasources.postgresql import PostgreSQLProvider\n"
+            "@provider(name='ftrace', description=DESCRIPTION, guide='providers/ftrace.md')\n"
+            "class FtraceProvider:\n"
+            "    pass\n"
+            "@provider(name='ftrace-memory', description='Read memory data.', guide='providers/ftrace.md')\n"
+            "class FtraceMemoryProvider:\n"
+            "    pass\n"
+            "class UndecoratedSubclass(PostgreSQLProvider):\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+        postgresql_guide = "# PostgreSQL\r\n\r\nUse remote SQL.\r\n"
+        (pack / "knowledge" / "providers" / "postgresql.md").write_text(
+            postgresql_guide, encoding="utf-8", newline=""
+        )
+        ftrace_guide = "# Ftrace\n\nDecode a local text file.\n"
+        (pack / "knowledge" / "providers" / "ftrace.md").write_text(
+            ftrace_guide, encoding="utf-8", newline=""
+        )
+        before = sorted(path.relative_to(pack).as_posix() for path in pack.rglob("*"))
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "provider-pack",
+                "pack_path": str(pack.resolve()),
+                "provider_name": None,
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "providers": [
+                        {"name": "ftrace", "description": "Parse ftrace text."},
+                        {
+                            "name": "ftrace-memory",
+                            "description": "Read memory data.",
+                        },
+                        {"name": "postgresql", "description": "Query PostgreSQL."},
+                    ]
+                },
+            },
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "provider-pack",
+                "pack_path": str(pack.resolve()),
+                "provider_name": "postgresql",
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "provider": {
+                        "name": "postgresql",
+                        "description": "Query PostgreSQL.",
+                        "module": "kat.pack.datasources.postgresql",
+                        "qualname": "PostgreSQLProvider",
+                        "guide": postgresql_guide,
+                    }
+                },
+            },
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "provider-pack",
+                "pack_path": str(pack.resolve()),
+                "provider_name": "missing",
+            }
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure")
+        self.assertNotIn("result", response)
+        after = sorted(path.relative_to(pack).as_posix() for path in pack.rglob("*"))
+        self.assertEqual(after, before)
+        self.assertFalse(any(path.name == "__pycache__" for path in pack.rglob("*")))
+
+    def test_inspect_provider_validates_the_complete_tree_atomically(self) -> None:
+        cases = {
+            "import-error": (
+                "raise RuntimeError('provider import failed')\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "duplicate-name": (
+                "from kat import provider\n"
+                "@provider(name='valid', description='Duplicate', guide='providers/valid.md')\n"
+                "class Duplicate:\n    pass\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "invalid-declaration": (
+                "class InvalidProvider:\n"
+                "    __kat_provider__ = object()\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "invalid-name": (
+                "from kat import provider\n"
+                "@provider(name=' invalid ', description='Invalid', guide='providers/valid.md')\n"
+                "class InvalidName:\n    pass\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "local-class": (
+                "from kat import provider\n"
+                "def make_provider():\n"
+                "    @provider(name='local', description='Local', guide='providers/valid.md')\n"
+                "    class LocalProvider:\n"
+                "        pass\n"
+                "    return LocalProvider\n"
+                "LocalProvider = make_provider()\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "deleted-class-name": (
+                "from kat import provider\n"
+                "@provider(name='aliased', description='Aliased', guide='providers/valid.md')\n"
+                "class OriginalProvider:\n"
+                "    pass\n"
+                "ProviderAlias = OriginalProvider\n"
+                "del OriginalProvider\n",
+                "providers/valid.md",
+                b"# Valid\n",
+            ),
+            "absolute-guide": ("# helper\n", str((self.root / "outside.md").resolve()), b"# Outside\n"),
+            "traversal-guide": ("# helper\n", "../outside.md", b"# Outside\n"),
+            "wrong-suffix": ("# helper\n", "providers/valid.txt", b"# Valid\n"),
+            "missing-guide": ("# helper\n", "providers/missing.md", None),
+            "directory-guide": ("# helper\n", "providers/valid.md", b"# Valid\n"),
+            "wrong-category": ("# helper\n", "workflows/valid.md", b"# Valid\n"),
+            "empty-guide": ("# helper\n", "providers/valid.md", b""),
+            "invalid-utf8": ("# helper\n", "providers/valid.md", b"\xff"),
+        }
+        for name, (second_source, guide_ref, guide_contents) in cases.items():
+            with self.subTest(name=name):
+                pack = self.root / name
+                (pack / "datasources").mkdir(parents=True)
+                (pack / "knowledge" / "providers").mkdir(parents=True)
+                (pack / "datasources" / "valid.py").write_text(
+                    "from kat import provider\n"
+                    f"@provider(name='valid', description='Valid', guide={guide_ref!r})\n"
+                    "class ValidProvider:\n    pass\n",
+                    encoding="utf-8",
+                )
+                (pack / "datasources" / "second.py").write_text(
+                    second_source, encoding="utf-8"
+                )
+                if guide_contents is not None:
+                    guide_target = pack / "knowledge" / "providers" / "valid.md"
+                    if name == "wrong-suffix":
+                        guide_target = guide_target.with_suffix(".txt")
+                    elif name == "wrong-category":
+                        guide_target = pack / "knowledge" / "workflows" / "valid.md"
+                        guide_target.parent.mkdir(parents=True)
+                    if name == "directory-guide":
+                        guide_target.mkdir()
+                    else:
+                        guide_target.write_bytes(guide_contents)
+                if name in {"absolute-guide", "traversal-guide"}:
+                    (self.root / "outside.md").write_text("# Outside\n", encoding="utf-8")
+
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_provider",
+                        "pack_name": name,
+                        "pack_path": str(pack.resolve()),
+                        "provider_name": None,
+                    }
+                )
+
+                self.assertEqual(
+                    completed.returncode, 0, completed.stderr.decode(errors="replace")
+                )
+                self.assertEqual(response["status"], "failure")
+                self.assertNotIn("result", response)
+                self.assertEqual(response["error"]["message"], "Provider inspection failed")
+
+        outside = self.root / "outside-knowledge"
+        (outside / "providers").mkdir(parents=True)
+        (outside / "providers" / "valid.md").write_text(
+            "# Outside\n", encoding="utf-8"
+        )
+        for name, link_root in (
+            ("linked-guide-outside", False),
+            ("linked-knowledge-outside", True),
+        ):
+            with self.subTest(name=name):
+                pack = self.root / name
+                (pack / "datasources").mkdir(parents=True)
+                (pack / "datasources" / "provider.py").write_text(
+                    "from kat import provider\n"
+                    "@provider(name='valid', description='Valid', guide='providers/valid.md')\n"
+                    "class ValidProvider:\n    pass\n",
+                    encoding="utf-8",
+                )
+                try:
+                    if link_root:
+                        (pack / "knowledge").symlink_to(outside, target_is_directory=True)
+                    else:
+                        (pack / "knowledge" / "providers").mkdir(parents=True)
+                        (pack / "knowledge" / "providers" / "valid.md").symlink_to(
+                            outside / "providers" / "valid.md"
+                        )
+                except OSError:
+                    continue
+
+                completed, response = self.run_runtime(
+                    {
+                        "operation": "inspect_provider",
+                        "pack_name": name,
+                        "pack_path": str(pack.resolve()),
+                        "provider_name": None,
+                    }
+                )
+
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stderr.decode(errors="replace"),
+                )
+                self.assertEqual(response["status"], "failure")
+                self.assertNotIn("result", response)
+
+        pack = self.root / "unselected-invalid-guide"
+        (pack / "datasources").mkdir(parents=True)
+        (pack / "knowledge" / "providers").mkdir(parents=True)
+        (pack / "knowledge" / "providers" / "valid.md").write_text(
+            "# Valid\n", encoding="utf-8"
+        )
+        (pack / "datasources" / "providers.py").write_text(
+            "from kat import provider\n"
+            "@provider(name='valid', description='Valid', guide='providers/valid.md')\n"
+            "class ValidProvider:\n    pass\n"
+            "@provider(name='broken', description='Broken', guide='providers/missing.md')\n"
+            "class BrokenProvider:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "unselected-invalid-guide",
+                "pack_path": str(pack.resolve()),
+                "provider_name": "valid",
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure")
+        self.assertNotIn("result", response)
+
+    def test_inspect_provider_does_not_resolve_qualname_through_user_code(self) -> None:
+        pack = self.root / "dynamic-qualname"
+        marker = self.root / "dynamic-lookup-ran"
+        (pack / "datasources").mkdir(parents=True)
+        (pack / "knowledge" / "providers").mkdir(parents=True)
+        (pack / "knowledge" / "providers" / "dynamic.md").write_text(
+            "# Dynamic\n", encoding="utf-8"
+        )
+        (pack / "datasources" / "dynamic.py").write_text(
+            "from pathlib import Path\n"
+            "from kat import provider\n"
+            "class DynamicMeta(type):\n"
+            "    def __getattribute__(cls, name):\n"
+            "        if name == 'DynamicProvider':\n"
+            f"            Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+            "            return Provider\n"
+            "        return super().__getattribute__(name)\n"
+            "class Container(metaclass=DynamicMeta):\n"
+            "    pass\n"
+            "@provider(name='dynamic', description='Dynamic', guide='providers/dynamic.md')\n"
+            "class Provider:\n"
+            "    pass\n"
+            "Provider.__qualname__ = 'Container.DynamicProvider'\n",
+            encoding="utf-8",
+        )
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "dynamic-qualname",
+                "pack_path": str(pack.resolve()),
+                "provider_name": None,
+            }
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "failure")
+        self.assertFalse(marker.exists())
+
+    def test_inspect_provider_request_is_strict(self) -> None:
+        for request in (
+            {
+                "operation": "inspect_provider",
+                "pack_name": "alpha",
+                "pack_path": str(self.root.resolve()),
+                "extra": True,
+            },
+            {
+                "operation": "inspect_provider",
+                "pack_name": "alpha",
+                "pack_path": str(self.root.resolve()),
+            },
+            {
+                "operation": "inspect_provider",
+                "pack_name": "alpha",
+                "pack_path": str(self.root.resolve()),
+                "provider_name": "",
+            },
+            {
+                "operation": "inspect_provider",
+                "pack_name": "alpha",
+                "pack_path": str(self.root.resolve()),
+                "provider_name": 1,
+            },
+        ):
+            with self.subTest(request=request):
+                completed, response = self.run_runtime(request)
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(response["status"], "failure")
+                self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+        completed, response = self.run_runtime(
+            {
+                "operation": "inspect_provider",
+                "pack_name": "empty",
+                "pack_path": str(self.root.resolve()),
+                "provider_name": None,
+            }
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(
+            response,
+            {"status": "success", "result": {"providers": []}},
+        )
 
     def test_workflow_directory_state_errors_are_not_treated_as_absence(self) -> None:
         missing = self.root / "missing-workflows"
@@ -211,7 +663,8 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "hostile-syntax-metadata",
                 "pack_path": str(pack.resolve()),
             }
@@ -234,7 +687,8 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "root-syntax-location",
                 "pack_path": str(pack.resolve()),
             }
@@ -253,7 +707,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         entry.write_text(
             "from typing import Optional\n"
             "from kat import Context, workflow\n"
-            "@workflow(name='annotation', title='Annotation', required_tables=[], parameters={'value': 'Value'})\n"
+            "@workflow(name='annotation', description='Inspect annotations.', parameters={'value': 'Value'})\n"
             "def annotation(ctx: Context, value: Optional['str'] = None) -> MissingReturn:\n"
             "    \"\"\"Inspect annotations.\"\"\"\n",
             encoding="utf-8",
@@ -261,7 +715,8 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": "annotation",
                 "pack_name": "python-314-annotations",
                 "pack_path": str(pack.resolve()),
             }
@@ -269,7 +724,7 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "success")
-        parameter = response["result"]["workflows"][0]["parameters"][0]
+        parameter = response["result"]["workflow"]["parameters"][0]
         self.assertEqual(parameter["default"], None)
 
         entry.write_text(
@@ -278,7 +733,8 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": "annotation",
                 "pack_name": "python-314-annotations",
                 "pack_path": str(pack.resolve()),
             }
@@ -289,11 +745,12 @@ def analyze(ctx: Context, *, limit: int = 10):
 
     def test_invalid_request_and_invalid_entry_return_strict_private_failure(self) -> None:
         for request in [
-            {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative", "extra": True},
-            {"operation": "inspect_pack", "pack_name": "", "pack_path": str(self.root.resolve())},
-            {"operation": "inspect_pack", "pack_name": "alpha", "pack_path": "relative"},
+            {"operation": "inspect_workflow", "pack_name": "alpha", "pack_path": "relative", "workflow_name": None, "extra": True},
+            {"operation": "inspect_workflow", "pack_name": "", "pack_path": str(self.root.resolve()), "workflow_name": None},
+            {"operation": "inspect_workflow", "pack_name": "alpha", "pack_path": "relative", "workflow_name": None},
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "alpha",
                 "pack_path": str((self.root / "private-missing-pack").resolve()),
             },
@@ -314,12 +771,12 @@ def analyze(ctx: Context, *, limit: int = 10):
         pack = self.write_pack()
         (pack / "workflows" / "broken.py").write_text(
             "from kat import Context, workflow\n"
-            "@workflow(name='broken', title='Broken', required_tables=[])\n"
-            "def broken(ctx: Context):\n    pass\n",
+            "@workflow(name='broken', description='Broken Workflow.')\n"
+            "def broken(ctx):\n    pass\n",
             encoding="utf-8",
         )
         completed, response = self.run_runtime(
-            {"operation": "inspect_pack", "pack_name": "stable-name", "pack_path": str(pack)}
+            {"operation": "inspect_workflow", "pack_name": "stable-name", "pack_path": str(pack), "workflow_name": None}
         )
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure")
@@ -333,7 +790,8 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "syntax-error",
                 "pack_path": str(syntax_pack.resolve()),
             }
@@ -368,13 +826,13 @@ def analyze(ctx: Context, *, limit: int = 10):
                 "entry-import",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.workflows.a import analyze
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', description='B.')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -384,14 +842,14 @@ def other(ctx: Context):
                 "entry-import-dynamic-discarded",
                 {
                     "workflows/a.py": """from kat import Context, workflow
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import importlib
 from kat import Context, workflow
 importlib.import_module('kat.pack.workflows.a')
-@workflow(name='b', title='B', required_tables=[])
+@workflow(name='b', description='B.')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -406,14 +864,14 @@ import_entry = importlib.import_module
                     "workflows/a.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """from kat import Context, workflow
 from kat.pack.helpers import cached
-title = cached.import_entry('kat.pack.workflows.a').SHARED
-@workflow(name='b', title=title, required_tables=[])
+description = cached.import_entry('kat.pack.workflows.a').SHARED
+@workflow(name='b', description=description)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -424,14 +882,14 @@ def other(ctx: Context):
                 {
                     "workflows/a.py": """from kat import Context, workflow
 SHARED = "not a helper"
-@workflow(name='a', title='A', required_tables=[])
+@workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
 """,
                     "workflows/b.py": """import kat
 from kat import Context, workflow
-title = kat.pack.workflows.a.SHARED
-@workflow(name='b', title=title, required_tables=[])
+description = kat.pack.workflows.a.SHARED
+@workflow(name='b', description=description)
 def other(ctx: Context):
     \"\"\"B.\"\"\"
 """,
@@ -446,7 +904,7 @@ def other(ctx: Context):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(contents, encoding="utf-8")
                 completed, response = self.run_runtime(
-                    {"operation": "inspect_pack", "pack_name": case, "pack_path": str(pack.resolve())}
+                    {"operation": "inspect_workflow", "pack_name": case, "pack_path": str(pack.resolve()), "workflow_name": None}
                 )
                 self.assertEqual(completed.returncode, 0)
                 self.assertEqual(response["status"], "failure")
@@ -468,7 +926,7 @@ second = importlib.import_module("kat.pack.helpers.identity")
 if first is not second or first.value is not second.value:
     raise RuntimeError("standard module cache was not preserved")
 
-@workflow(name="cached", title="Cached", required_tables=[])
+@workflow(name="cached", description="Inspect the standard module cache.")
 def analyze(ctx: Context):
     \"\"\"Inspect the standard module cache.\"\"\"
 """,
@@ -477,7 +935,8 @@ def analyze(ctx: Context):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "standard-module-cache",
                 "pack_path": str(pack.resolve()),
             }
@@ -497,7 +956,7 @@ from kat import Context, workflow
 
 Path({str(worker_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
 
-@workflow(name="worker", title="Worker", required_tables=[])
+@workflow(name="worker", description="Record the real inspection worker.")
 def analyze(ctx: Context):
     \"\"\"Record the real inspection worker.\"\"\"
 """,
@@ -505,7 +964,7 @@ def analyze(ctx: Context):
         )
         before = {child.pid for child in multiprocessing.active_children()}
 
-        result = inspect_pack("reaped-worker", pack.resolve())
+        result = inspect_workflow("reaped-worker", pack.resolve())
 
         pid = int(worker_pid.read_text(encoding="utf-8"))
         after = {child.pid for child in multiprocessing.active_children()}
@@ -522,7 +981,8 @@ def analyze(ctx: Context):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "ordered-errors",
                 "pack_path": str(pack.resolve()),
             }
@@ -541,7 +1001,8 @@ def analyze(ctx: Context):
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "empty-exception",
                 "pack_path": str(pack.resolve()),
             }
@@ -587,7 +1048,8 @@ except ValueError:
 
                 completed, response = self.run_runtime(
                     {
-                        "operation": "inspect_pack",
+                        "operation": "inspect_workflow",
+                        "workflow_name": None,
                         "pack_name": name,
                         "pack_path": str(pack.resolve()),
                     }
@@ -609,7 +1071,8 @@ except ValueError:
 
         completed, response = self.run_runtime(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "system-exit",
                 "pack_path": str(pack.resolve()),
             }
@@ -624,14 +1087,14 @@ except ValueError:
         cases = {
             "annotation-system-exit": """from __future__ import annotations
 from kat import Context, workflow
-@workflow(name='annotation-exit', title='Annotation exit', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='annotation-exit', description='Inspect an annotation.', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: __import__('sys').exit('annotation requested exit')):
     \"\"\"Inspect an annotation.\"\"\"
 """,
             "callable-default-runtime-error": """from kat import Context, workflow
 def invalid_default():
     raise RuntimeError('callable default failed')
-@workflow(name='default-error', title='Default error', required_tables=[], parameters={'value': 'Value'})
+@workflow(name='default-error', description='Inspect a callable default.', parameters={'value': 'Value'})
 def analyze(ctx: Context, value: str = invalid_default):
     \"\"\"Inspect a callable default.\"\"\"
 """,
@@ -644,7 +1107,8 @@ def analyze(ctx: Context, value: str = invalid_default):
 
                 completed, response = self.run_runtime(
                     {
-                        "operation": "inspect_pack",
+                        "operation": "inspect_workflow",
+                        "workflow_name": None,
                         "pack_name": name,
                         "pack_path": str(pack.resolve()),
                     }
@@ -662,7 +1126,8 @@ def analyze(ctx: Context, value: str = invalid_default):
         request_path.write_text(
             json.dumps(
                 {
-                    "operation": "inspect_pack",
+                    "operation": "inspect_workflow",
+                    "workflow_name": None,
                     "pack_name": "stable-name",
                     "pack_path": str(self.root.resolve()),
                 }
@@ -681,7 +1146,7 @@ def analyze(ctx: Context, value: str = invalid_default):
             mock.patch.object(sys, "argv", arguments),
             mock.patch.object(
                 runtime_main,
-                "inspect_pack",
+                "inspect_workflow",
                 side_effect=AttributeError("injected Runtime implementation failure"),
             ),
             self.assertRaisesRegex(AttributeError, "Runtime implementation failure"),
@@ -699,7 +1164,8 @@ def analyze(ctx: Context, value: str = invalid_default):
 
         completed, response_path = self.run_runtime_process(
             {
-                "operation": "inspect_pack",
+                "operation": "inspect_workflow",
+                "workflow_name": None,
                 "pack_name": "worker-crash",
                 "pack_path": str(pack.resolve()),
             }
@@ -718,7 +1184,7 @@ def analyze(ctx: Context, value: str = invalid_default):
         (pack / "workflows" / "crash.py").write_text(
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
-        candidate_id = str(uuid.uuid7())
+        candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate = self.root / "runs" / candidate_id
         candidate.mkdir(parents=True)
 
