@@ -10,10 +10,10 @@ import unittest
 import uuid
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from _kat_runtime.request import TestPackRequest as _TestPackRequest
-from _kat_runtime.request import read_request
+from _kat_runtime.request import RunWorkflowRequest as _RunWorkflowRequest
+from _kat_runtime.request import RuntimeRequestError, read_request
 
 
 class PackTestingProcessTest(unittest.TestCase):
@@ -81,7 +81,7 @@ class PackTestingProcessTest(unittest.TestCase):
         )
         (pack / "workflows" / "analyze.py").write_text(
             '''import kat
-import pyarrow as pa
+from kat import dataprovider as dp
 from kat.pack.helpers import rules
 
 @kat.workflow(
@@ -91,7 +91,9 @@ from kat.pack.helpers import rules
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
     """Analyze generated values."""
-    return ctx.from_arrow(pa.table({"value": [minimum + rules.OFFSET]}))
+    table = dp.Table({"value": int})
+    table.append(value=minimum + rules.OFFSET)
+    return table
 ''',
             encoding="utf-8",
         )
@@ -101,14 +103,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
     def request(
         pack: Path,
         *,
-        datasets: dict[str, object] | None = None,
         tests: list[str] | None = None,
     ) -> dict[str, object]:
         return {
             "operation": "test_pack",
             "pack_name": "example",
             "pack_path": str(pack),
-            "datasets": datasets or {},
             "tests": tests or [],
         }
 
@@ -136,6 +136,74 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
         self.assertNotIn("result", response)
         self.assertTrue(report.is_file())
         return completed.stderr.decode(errors="replace")
+
+    def test_test_pack_request_has_an_exact_dataset_free_shape(self) -> None:
+        request_path = self.root / "test-pack-request.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "operation": "test_pack",
+                    "pack_name": "example",
+                    "pack_path": "PACK/../PACK",
+                    "tests": ["tests/test_workflow.py"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        request = read_request(request_path)
+
+        self.assertIsInstance(request, _TestPackRequest)
+        self.assertEqual(request.pack_name, "example")
+        self.assertEqual(request.pack_path, Path("PACK/../PACK"))
+        self.assertEqual(request.tests, ["tests/test_workflow.py"])
+        self.assertFalse(hasattr(request, "datasets"))
+
+        legacy_request = json.loads(request_path.read_text(encoding="utf-8"))
+        legacy_request["datasets"] = {}
+        request_path.write_text(json.dumps(legacy_request), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeRequestError, "fields must be exactly"):
+            read_request(request_path)
+
+    def test_run_workflow_request_has_an_exact_dataset_free_shape(self) -> None:
+        pack = self.root / "request-pack"
+        pack.mkdir()
+        data_home = self.root / "data-home"
+        runs = data_home / "runs"
+        runs.mkdir(parents=True)
+        candidate_id = f"019f0000-0000-7000-8000-{uuid.uuid4().hex[:12]}"
+        candidate_path = runs / candidate_id
+        candidate_path.mkdir()
+        request_path = self.root / "run-workflow-request.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "operation": "run_workflow",
+                    "pack_name": "example",
+                    "pack_path": str(pack.resolve()),
+                    "workflow_name": "analyze",
+                    "arguments": [],
+                    "candidate_id": candidate_id,
+                    "candidate_path": str(candidate_path.resolve()),
+                    "datasource_root": str(
+                        (data_home / "datasources" / "example").resolve()
+                    ),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        request = read_request(request_path)
+
+        self.assertIsInstance(request, _RunWorkflowRequest)
+        self.assertEqual(request.workflow_name, "analyze")
+        self.assertFalse(hasattr(request, "dataset"))
+
+        legacy_request = json.loads(request_path.read_text(encoding="utf-8"))
+        legacy_request["dataset"] = {}
+        request_path.write_text(json.dumps(legacy_request), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeRequestError, "invalid field set"):
+            read_request(request_path)
 
     def test_native_pytest_owns_plugins_fixtures_and_pack_imports(self) -> None:
         pack = self.pack()
@@ -201,32 +269,14 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
         self.assertIn("2 passed", completed.stderr.decode(errors="replace"))
         self.assertFalse((pack / ".pytest_cache").exists())
 
-    def test_selector_and_resolved_dataset_reach_kat_run(self) -> None:
+    def test_raw_pytest_selector_reaches_kat_run(self) -> None:
         pack = self.pack()
-        dataset = pack / "tests" / "datasets" / "sample"
-        dataset.mkdir(parents=True)
-        events = dataset / "events.parquet"
-        pq.write_table(pa.table({"value": [3, 7]}), events)
-        self.replace_workflow(
-            pack,
-            '''import kat
-
-@kat.workflow(
-    name="analyze",
-    description="Analyze event values.",
-    parameters={"minimum": "Minimum"},
-)
-def analyze(ctx: kat.Context, *, minimum: int = 0):
-    """Analyze event values."""
-    return ctx.sql("SELECT value FROM events WHERE value >= $minimum", minimum=minimum)
-''',
-        )
         self.write_test(
             pack,
             "test_workflow.py",
             '''def test_selected(kat_run):
-    result = kat_run(workflow="analyze", dataset="sample", arguments=["--minimum", "5"])
-    assert result["main"].to_pydict() == {"value": [7]}
+    result = kat_run(workflow="analyze", arguments=["--minimum", "5"])
+    assert result["main"].to_pydict() == {"value": [6]}
 
 def test_not_selected():
     raise AssertionError("the raw node id was not preserved")
@@ -234,16 +284,7 @@ def test_not_selected():
         )
         selector = "tests/nested/test_workflow.py::test_selected"
         completed, response, report = self.run_runtime(
-            self.request(
-                pack,
-                datasets={
-                    "sample": {
-                        "path": str(dataset.resolve()),
-                        "tables": {"events": str(events.resolve())},
-                    }
-                },
-                tests=[selector],
-            ),
+            self.request(pack, tests=[selector]),
             pack,
         )
 
@@ -346,7 +387,7 @@ def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
         self.replace_workflow(
             pack,
             '''import kat
-import pyarrow as pa
+from kat import dataprovider as dp
 from kat.pack.helpers import datasource_state
 
 
@@ -359,7 +400,9 @@ def analyze(ctx: kat.Context):
     counter.write_text(str(value), encoding="utf-8")
     datasource_state.roots.append(root)
     datasource_state.contexts.append(ctx)
-    return ctx.from_arrow(pa.table({"value": [value]}))
+    table = dp.Table({"value": int})
+    table.append(value=value)
+    return table
 ''',
         )
         self.write_test(
@@ -396,41 +439,6 @@ def test_isolated_from_the_previous_test(kat_run):
             completed.stderr.decode(errors="replace"),
         )
         self.assertTrue(report.is_file())
-
-    def test_private_test_request_constructs_cli_owned_facts_without_revalidation(
-        self,
-    ) -> None:
-        request_path = self.root / "trusted-test-pack-request.json"
-        request_path.write_text(
-            json.dumps(
-                {
-                    "operation": "test_pack",
-                    "pack_name": "example",
-                    "pack_path": "PACK/../PACK",
-                    "datasets": {
-                        "sample": {
-                            "path": "datasets/../sample",
-                            "tables": {"not-a-table-name": "tables/../events.parquet"},
-                        }
-                    },
-                    "tests": ["../outside/test_workflow.py"],
-                    "ignored_by_runtime": {"not": "a protocol error"},
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        request = read_request(request_path)
-
-        self.assertIsInstance(request, _TestPackRequest)
-        self.assertEqual(request.pack_name, "example")
-        self.assertEqual(request.pack_path, Path("PACK/../PACK"))
-        self.assertEqual(request.tests, ["../outside/test_workflow.py"])
-        self.assertEqual(request.datasets["sample"].path, Path("datasets/../sample"))
-        self.assertEqual(
-            request.datasets["sample"].tables,
-            {"not-a-table-name": Path("tables/../events.parquet")},
-        )
 
     def test_summary_counts_setup_skips_without_counting_lifecycle_passes(self) -> None:
         pack = self.pack()
@@ -533,12 +541,12 @@ pytest.skip("module is not available", allow_module_level=True)
         self.assertFalse(sentinel.exists())
         self.assertFalse(report.exists())
 
-    def test_unknown_dataset_fails_even_when_the_workflow_needs_no_tables(self) -> None:
+    def test_kat_run_rejects_the_removed_dataset_selector(self) -> None:
         pack = self.pack()
         self.write_test(
             pack,
             "test_dataset.py",
-            '''def test_unknown_dataset(kat_run):
+            '''def test_removed_dataset_selector(kat_run):
     kat_run(workflow="analyze", dataset="missing")
 ''',
         )
@@ -546,8 +554,8 @@ pytest.skip("module is not available", allow_module_level=True)
         completed, response, report = self.run_runtime(self.request(pack), pack)
 
         terminal = self.assert_pack_tests_failed(completed, response, report)
-        self.assertIn("unknown Test Dataset 'missing'; available: none", terminal)
-        self.assertNotIn("Traceback", terminal)
+        self.assertIn("TypeError:", terminal)
+        self.assertIn("unexpected keyword argument 'dataset'", terminal)
 
     def test_unknown_workflow_keeps_the_execution_cause_in_pytest_output(self) -> None:
         pack = self.pack()
@@ -686,29 +694,6 @@ def test_unexpected_harness_error(kat_run, monkeypatch):
         self.assertIn("RuntimeError: unexpected logging setup", terminal)
         self.assertIn("test_harness_error.py", terminal)
         self.assertNotIn("KAT Workflow test execution failed", terminal)
-
-    def test_output_task_error_keeps_the_execution_cause_in_pytest_output(self) -> None:
-        pack = self.pack()
-        self.write_test(
-            pack,
-            "test_output_task_error.py",
-            '''import _kat_runtime.outputs as outputs
-
-async def fail_output(*args, **kwargs):
-    raise RuntimeError("sentinel output task error")
-
-def test_output_task_error(kat_run, monkeypatch):
-    monkeypatch.setattr(outputs, "_write_output", fail_output)
-    kat_run(workflow="analyze")
-''',
-        )
-
-        completed, response, report = self.run_runtime(self.request(pack), pack)
-
-        terminal = self.assert_pack_tests_failed(completed, response, report)
-        self.assertIn("KAT Workflow test execution failed", terminal)
-        self.assertIn("sentinel output task error", terminal)
-        self.assertNotIn("Traceback", terminal)
 
     def test_unexpected_eager_output_error_keeps_its_traceback(self) -> None:
         pack = self.pack()

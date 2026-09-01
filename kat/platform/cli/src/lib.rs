@@ -11,13 +11,12 @@ mod text_projection;
 mod workflow_runtime;
 
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use miette::Diagnostic;
 use operation_log::{OperationLog, OperationLogError};
 use pack_discovery::{DiscoveredPack, PackDiscoveryPaths};
@@ -34,53 +33,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
-    /// Import one source into a complete KAT Dataset.
-    Import(ImportArgs),
     /// Inspect available PACKs or one PACK's Workflow and Provider knowledge.
     Inspect(inspect::InspectArgs),
     /// Execute one Workflow and atomically publish one Run.
     ///
-    /// The Operation log may retain the resolved PACK path, optional Dataset
-    /// path, and all arguments after `--`. Do not pass secrets in these values.
+    /// The Operation log may retain the resolved PACK path and all arguments
+    /// after `--`. Do not pass secrets in these values.
     Run(run::RunArgs),
     /// Query one published Run's output.* tables and information_schema.
     ///
-    /// Python/DataFusion writes the native Arrow JSON mapping as NDJSON. A
-    /// successful Response returns its format, path, and column metadata.
+    /// Python/DataFusion writes Arrow's native object-row JSON mapping directly
+    /// to one NDJSON result file. A successful Response returns its format,
+    /// path, and column metadata; the CLI does not read or re-encode query rows.
     ///
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
     Query(query::QueryArgs),
     /// Run one PACK's pytest suite in the production execution plane.
     Test(test::TestArgs),
-}
-
-#[derive(Args)]
-struct ImportArgs {
-    /// Write the Dataset at this exact directory.
-    #[arg(long, value_name = "DIRECTORY", global = true)]
-    dataset: Option<PathBuf>,
-    /// Replace the Dataset at the resolved target path. Permanently deletes all existing contents, including unrecognized files. Linked or mounted paths may affect data outside the path you typed. No backup, rollback, or failure recovery is provided.
-    #[arg(long, global = true, requires = "dataset")]
-    overwrite_dataset: bool,
-    #[command(subcommand)]
-    datasource: Datasource,
-}
-
-#[derive(Subcommand)]
-enum Datasource {
-    /// Import a HiProfiler Hitrace capture as normalized long-term source facts.
-    Hitrace {
-        /// Read the Hitrace capture at this path.
-        #[arg(long, value_name = "PATH")]
-        trace: PathBuf,
-    },
-    /// Deprecated: pre-release validation only. Its table interface is unstable and it must be removed before the first formal release.
-    TraceStreamer {
-        /// Read the Trace Streamer SQLite database at this path.
-        #[arg(long, value_name = "PATH")]
-        database: PathBuf,
-    },
 }
 
 #[derive(Serialize)]
@@ -136,22 +106,6 @@ pub fn run() -> ExitCode {
     };
 
     match cli.operation {
-        Operation::Import(ImportArgs {
-            dataset,
-            overwrite_dataset,
-            datasource: Datasource::Hitrace { trace },
-        }) => response::publish(import_hitrace(trace, dataset, overwrite_dataset)),
-        Operation::Import(ImportArgs {
-            dataset,
-            overwrite_dataset,
-            datasource: Datasource::TraceStreamer { database },
-        }) => {
-            let prepared = match import_trace_streamer(database, dataset, overwrite_dataset) {
-                Ok(result) => response::prepare_success(result),
-                Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
-            };
-            response::publish(prepared)
-        }
         Operation::Inspect(arguments) => inspect::execute(arguments),
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
@@ -319,203 +273,6 @@ fn inspect_target_log_failure(
         InspectTargetPackError::OperationLog(error)
     };
     response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
-}
-
-#[derive(Serialize)]
-struct ImportHitraceResult {
-    path: String,
-    unsupported_plugins: Vec<String>,
-    unsupported_section_types: Vec<u32>,
-}
-
-fn import_hitrace(
-    trace: PathBuf,
-    dataset: Option<PathBuf>,
-    overwrite: bool,
-) -> response::PreparedResponse<ImportHitraceResult> {
-    let data_home = match locate_data_home() {
-        Ok(data_home) => data_home,
-        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
-    };
-    let target = dataset.unwrap_or_else(|| {
-        data_home
-            .join("datasets")
-            .join(uuid::Uuid::now_v7().to_string())
-    });
-    let mut log = match OperationLog::create(&data_home, "import", |file| {
-        writeln!(
-            file,
-            "operation: kat import hitrace\ntrace: {trace:?}\ndataset: {target:?}"
-        )
-    }) {
-        Ok(log) => log,
-        Err(error) => return operation_log_failure(error),
-    };
-    if let Err(source) = locate_skill_root() {
-        let error = ImportHitraceError::SkillRoot(source);
-        if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
-            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-        }
-        return finish_hitrace_failure(log, error);
-    }
-    let target = if overwrite {
-        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
-    } else {
-        kat_datasource::DatasetWriteTarget::write_to_empty(target)
-    }
-    .protect_path(log.path());
-    let imported = match kat_datasource::import_hitrace(&trace, target, |content| {
-        write_unsupported_hitrace_content(&mut log, content)
-    }) {
-        Ok(imported) => imported,
-        Err(kat_datasource::HitraceImportError::ObserveUnsupportedContent { source }) => {
-            return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-        }
-        Err(source) => {
-            let error = ImportHitraceError::Import { source };
-            if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
-                return finish_hitrace_failure(
-                    log,
-                    ImportHitraceError::WriteOperationLog { source },
-                );
-            }
-            return finish_hitrace_failure(log, error);
-        }
-    };
-    let path = match imported.path().to_str() {
-        Some(path) => path.to_owned(),
-        None => {
-            let error = ImportHitraceError::NonUnicodeDataset {
-                path: imported.path().to_path_buf(),
-            };
-            if let Err(source) = writeln!(log, "status: failure\nerror: {error}") {
-                return finish_hitrace_failure(
-                    log,
-                    ImportHitraceError::WriteOperationLog { source },
-                );
-            }
-            return finish_hitrace_failure(log, error);
-        }
-    };
-    if let Err(source) = writeln!(log, "status: success") {
-        return finish_hitrace_failure(log, ImportHitraceError::WriteOperationLog { source });
-    }
-    let result = ImportHitraceResult {
-        path,
-        unsupported_plugins: imported.unsupported_plugins().to_vec(),
-        unsupported_section_types: imported.unsupported_section_types().to_vec(),
-    };
-    match log.finish() {
-        Ok(log_path) => response::prepare_success_with_log(result, Some(log_path)),
-        Err(error) => operation_log_failure(error),
-    }
-}
-
-fn write_unsupported_hitrace_content(
-    log: &mut dyn Write,
-    unsupported: &kat_datasource::UnsupportedHitraceContent,
-) -> io::Result<()> {
-    writeln!(
-        log,
-        "unsupported {} {:?} at byte {}",
-        unsupported.kind(),
-        unsupported.value(),
-        unsupported.byte_offset()
-    )
-}
-
-fn finish_hitrace_failure(
-    log: OperationLog,
-    error: ImportHitraceError,
-) -> response::PreparedResponse<ImportHitraceResult> {
-    let report = miette::Report::new(error);
-    match log.finish() {
-        Ok(log_path) => response::prepare_cli_failure_with_log(report, Some(log_path)),
-        Err(log_error) => operation_log_failure(log_error),
-    }
-}
-
-fn operation_log_failure(
-    error: OperationLogError,
-) -> response::PreparedResponse<ImportHitraceResult> {
-    let log_path = error.readable_path();
-    let error = if log_path.is_some() {
-        ImportHitraceError::IncompleteOperationLog(error)
-    } else {
-        ImportHitraceError::OperationLog(error)
-    };
-    response::prepare_cli_failure_with_log(miette::Report::new(error), log_path)
-}
-
-#[derive(Debug, Error, Diagnostic)]
-enum ImportHitraceError {
-    #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
-    SkillRoot(#[source] SkillRootError),
-    #[error("Hitrace Import Operation log could not be delivered")]
-    #[diagnostic(help("Provide a writable KAT Data Home and retry the complete Import"))]
-    OperationLog(#[source] OperationLogError),
-    #[error("Hitrace Import Operation log is incomplete")]
-    #[diagnostic(help(
-        "Inspect the partial log if present, then provide writable storage and retry"
-    ))]
-    IncompleteOperationLog(#[source] OperationLogError),
-    #[error("Hitrace Import failed")]
-    #[diagnostic(help("Correct the capture or Dataset target and retry the complete Import"))]
-    Import {
-        #[source]
-        source: kat_datasource::HitraceImportError,
-    },
-    #[error("Hitrace Import Operation log is incomplete because a write failed")]
-    WriteOperationLog {
-        #[source]
-        source: io::Error,
-    },
-    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
-    NonUnicodeDataset { path: PathBuf },
-}
-
-#[derive(Serialize)]
-struct ImportTraceStreamerResult {
-    path: String,
-}
-
-fn import_trace_streamer(
-    database: PathBuf,
-    dataset: Option<PathBuf>,
-    overwrite: bool,
-) -> Result<ImportTraceStreamerResult, ImportTraceStreamerError> {
-    locate_skill_root().map_err(ImportTraceStreamerError::SkillRoot)?;
-    let database = dunce::canonicalize(&database).map_err(|source| {
-        ImportTraceStreamerError::CanonicalDatabase {
-            path: database,
-            source,
-        }
-    })?;
-    if database.to_str().is_none() {
-        return Err(ImportTraceStreamerError::NonUnicodeDatabase { path: database });
-    }
-    let target = match dataset {
-        Some(path) => path,
-        None => locate_data_home()?
-            .join("datasets")
-            .join(uuid::Uuid::now_v7().to_string()),
-    };
-    let target = if overwrite {
-        kat_datasource::DatasetWriteTarget::permanently_replace_all_contents(target)
-    } else {
-        kat_datasource::DatasetWriteTarget::write_to_empty(target)
-    };
-    let imported = kat_datasource::import_deprecated_trace_streamer(&database, target)
-        .map_err(|source| ImportTraceStreamerError::Import { source })?;
-    let path = imported
-        .path()
-        .to_str()
-        .ok_or_else(|| ImportTraceStreamerError::NonUnicodeDataset {
-            path: imported.path().to_path_buf(),
-        })?
-        .to_owned();
-    Ok(ImportTraceStreamerResult { path })
 }
 
 fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, InspectPacksError> {
@@ -703,35 +460,6 @@ enum InspectTargetPackError {
     UnknownPack { name: String },
 }
 
-#[derive(Debug, Error, Diagnostic)]
-enum ImportTraceStreamerError {
-    #[error("KAT Skill is unavailable")]
-    #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
-    SkillRoot(#[source] SkillRootError),
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    DataHome(#[from] configuration::ConfigurationError),
-    #[error("failed to resolve Trace Streamer database {path}")]
-    #[diagnostic(help("Provide an existing readable Trace Streamer SQLite database"))]
-    CanonicalDatabase {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Trace Streamer database path cannot be represented as native Unicode: {path:?}")]
-    NonUnicodeDatabase { path: PathBuf },
-    #[error("Trace Streamer Import failed")]
-    #[diagnostic(help(
-        "Correct the source database or Dataset target and retry the complete Import"
-    ))]
-    Import {
-        #[source]
-        source: kat_datasource::TraceStreamerImportError,
-    },
-    #[error("Dataset path cannot be represented as native Unicode: {path:?}")]
-    NonUnicodeDataset { path: PathBuf },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -820,60 +548,5 @@ mod tests {
         assert!(Cli::try_parse_from(["kat"]).is_err());
         assert!(Cli::try_parse_from(["kat", "list"]).is_err());
         assert!(Cli::try_parse_from(["kat", "inspect", "--version"]).is_err());
-    }
-
-    #[test]
-    fn parser_accepts_import_target_options_on_both_sides_of_datasource() {
-        for arguments in [
-            vec![
-                "kat",
-                "import",
-                "--dataset",
-                "target",
-                "--overwrite-dataset",
-                "trace-streamer",
-                "--database",
-                "source.db",
-            ],
-            vec![
-                "kat",
-                "import",
-                "trace-streamer",
-                "--database",
-                "source.db",
-                "--dataset",
-                "target",
-                "--overwrite-dataset",
-            ],
-        ] {
-            assert!(Cli::try_parse_from(arguments).is_ok());
-        }
-        assert!(
-            Cli::try_parse_from([
-                "kat",
-                "import",
-                "hitrace",
-                "--trace",
-                "capture.htrace",
-                "--dataset",
-                "target",
-            ])
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn parser_rejects_overwrite_without_explicit_dataset() {
-        assert!(
-            Cli::try_parse_from([
-                "kat",
-                "import",
-                "trace-streamer",
-                "--database",
-                "source.db",
-                "--overwrite-dataset",
-            ])
-            .is_err()
-        );
     }
 }

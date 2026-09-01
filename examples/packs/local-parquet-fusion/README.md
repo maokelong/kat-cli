@@ -54,3 +54,6 @@ Workflow 返回单个 `main` Output。它包含 `event_id`、`label`、`owner_na
 kat query --run <run-id> --sql \
   "SELECT event_id, label, owner_name, score FROM output.main ORDER BY event_id"
 ```
+
+成功 Response 的 `result` 返回 `format="ndjson"`、有序 `columns` 和指向单个 NDJSON
+文件的 `path`；每行是一个使用查询列名的 JSON object，行数据不在 Response 中内联。

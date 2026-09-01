@@ -21,7 +21,7 @@ mod output_spool;
 mod protocol;
 
 use output_spool::{RuntimeOutputMirror, RuntimeOutputSpool};
-pub(crate) use protocol::{Column, ResolvedDatasetRequest};
+pub(crate) use protocol::Column;
 use protocol::{
     InspectProviderRequest, InspectProviderResult, InspectProvidersResult, InspectWorkflowRequest,
     InspectWorkflowResult, InspectWorkflowsResult, QueryRunRequest, RawRunWorkflowResult,
@@ -119,7 +119,6 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) pack_name: String,
     pub(crate) pack_path: String,
     pub(crate) workflow_name: String,
-    pub(crate) dataset: Option<ResolvedDatasetRequest>,
     pub(crate) arguments: Vec<String>,
     pub(crate) candidate_id: String,
     pub(crate) candidate_path: String,
@@ -132,7 +131,6 @@ fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowReques
         pack_name: &invocation.pack_name,
         pack_path: &invocation.pack_path,
         workflow_name: &invocation.workflow_name,
-        dataset: invocation.dataset.as_ref(),
         arguments: &invocation.arguments,
         candidate_id: &invocation.candidate_id,
         candidate_path: &invocation.candidate_path,
@@ -149,7 +147,6 @@ pub(crate) struct QueryRunInvocation {
 pub(crate) struct TestPackInvocation<'a> {
     pub(crate) pack_name: &'a str,
     pub(crate) pack_path: &'a Path,
-    pub(crate) datasets: &'a BTreeMap<String, ResolvedDatasetRequest>,
     pub(crate) tests: &'a [String],
     pub(crate) test_report_path: &'a Path,
 }
@@ -165,36 +162,6 @@ pub(crate) enum TestPackOutcome {
         diagnostic: KatDiagnostic,
         log_path: String,
     },
-}
-
-pub(crate) fn project_dataset(
-    dataset: &kat_datasource::ResolvedDataset,
-) -> Result<ResolvedDatasetRequest, DatasetProjectionError> {
-    let path = unicode_path("Dataset", dataset.path())?;
-    let mut tables = BTreeMap::new();
-    for table in dataset.tables() {
-        tables.insert(
-            table.name().to_owned(),
-            unicode_path("Dataset table", table.path())?,
-        );
-    }
-    Ok(ResolvedDatasetRequest { path, tables })
-}
-
-fn unicode_path(label: &'static str, path: &Path) -> Result<String, DatasetProjectionError> {
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| DatasetProjectionError {
-            label,
-            path: path.to_path_buf(),
-        })
-}
-
-#[derive(Debug, Error)]
-#[error("{label} path cannot be represented as native Unicode: {path:?}")]
-pub(crate) struct DatasetProjectionError {
-    pub(crate) label: &'static str,
-    pub(crate) path: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -402,7 +369,6 @@ pub(crate) fn test_pack(
         operation: "test_pack",
         pack_name: invocation.pack_name,
         pack_path,
-        datasets: invocation.datasets,
         tests: invocation.tests,
     };
     let response: RuntimeResponse<TestPackResult> = match exchange_test_request(
@@ -1137,7 +1103,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001".to_owned(),
@@ -1167,7 +1132,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
@@ -1196,7 +1160,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
@@ -1237,7 +1200,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
@@ -1255,7 +1217,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
@@ -1282,7 +1243,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000003".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000003".to_owned(),
@@ -1318,7 +1278,6 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            dataset: None,
             arguments: Vec::new(),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),

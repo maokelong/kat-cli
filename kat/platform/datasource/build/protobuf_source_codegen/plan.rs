@@ -6,12 +6,11 @@ use prost_reflect::{
 
 use super::{RootSpec, diagnostic::Diagnostic, enum_uses_aliases, names};
 
-const RESERVED_TABLES: &[&str] = &[
+const RESERVED_RELATIONS: &[&str] = &[
     "protobuf_enum_symbol",
     "profiler_payload_occurrence",
     "clock_domain",
     "clock_snapshot",
-    "sched_switch",
 ];
 
 #[derive(Clone, Debug)]
@@ -25,7 +24,7 @@ pub(super) struct RelationalPlan {
 pub(super) struct RootPlan {
     pub(super) spec_index: usize,
     pub(super) protobuf_fqn: String,
-    pub(super) root_table_name: String,
+    pub(super) root_relation_name: String,
     pub(super) relation_slot: usize,
 }
 
@@ -208,7 +207,7 @@ impl Builder<'_> {
         )?;
         let relation_slot = self.plan_message_relation(
             spec.protobuf_fqn,
-            spec.root_table_name,
+            spec.root_relation_name,
             &message,
             Vec::new(),
             RelationSource::Root { root_index },
@@ -216,7 +215,7 @@ impl Builder<'_> {
         Ok(RootPlan {
             spec_index: root_index,
             protobuf_fqn: spec.protobuf_fqn.to_string(),
-            root_table_name: spec.root_table_name.to_string(),
+            root_relation_name: spec.root_relation_name.to_string(),
             relation_slot,
         })
     }
@@ -380,12 +379,12 @@ impl Builder<'_> {
     fn plan_message_relation(
         &mut self,
         root_fqn: &str,
-        root_table_name: &str,
+        root_relation_name: &str,
         message: &MessageDescriptor,
         relation_path: Vec<String>,
         source: RelationSource,
     ) -> Result<usize, Diagnostic> {
-        let relation_name = names::relation_name(root_table_name, &relation_path);
+        let relation_name = names::relation_name(root_relation_name, &relation_path);
         let origin = if relation_path.is_empty() {
             format!("root {root_fqn}")
         } else {
@@ -403,7 +402,7 @@ impl Builder<'_> {
         });
         let columns = self.plan_message_columns(
             root_fqn,
-            root_table_name,
+            root_relation_name,
             slot,
             message,
             &relation_path,
@@ -418,7 +417,7 @@ impl Builder<'_> {
     fn plan_message_columns(
         &mut self,
         root_fqn: &str,
-        root_table_name: &str,
+        root_relation_name: &str,
         relation_slot: usize,
         message: &MessageDescriptor,
         relation_path: &[String],
@@ -442,7 +441,7 @@ impl Builder<'_> {
                 if let Kind::Message(target) = &kind {
                     self.plan_message_relation(
                         root_fqn,
-                        root_table_name,
+                        root_relation_name,
                         target,
                         child_path,
                         RelationSource::RepeatedMessage {
@@ -452,7 +451,7 @@ impl Builder<'_> {
                     )?;
                 } else {
                     let scalar = scalar_type(&kind).expect("validated scalar type");
-                    let relation_name = names::relation_name(root_table_name, &child_path);
+                    let relation_name = names::relation_name(root_relation_name, &child_path);
                     let origin = format!("root {root_fqn} path {}", child_path.join("."));
                     self.register_relation_name(root_fqn, message, &relation_name, &origin)?;
                     let child_slot = self.relations.len();
@@ -497,7 +496,7 @@ impl Builder<'_> {
                     };
                     self.plan_message_relation(
                         root_fqn,
-                        root_table_name,
+                        root_relation_name,
                         target,
                         child_path,
                         source,
@@ -514,7 +513,7 @@ impl Builder<'_> {
                     nested_arrow_path.push(field.name.clone());
                     let nested = self.plan_message_columns(
                         root_fqn,
-                        root_table_name,
+                        root_relation_name,
                         relation_slot,
                         target,
                         relation_path,
@@ -665,14 +664,14 @@ impl Builder<'_> {
         relation_name: &str,
         origin: &str,
     ) -> Result<(), Diagnostic> {
-        if !names::valid_dataset_name(relation_name) {
+        if !names::valid_relation_name(relation_name) {
             return Err(Diagnostic::message(
                 root_fqn,
                 message.full_name(),
                 format!("generated relation name {relation_name:?} is illegal"),
             ));
         }
-        if RESERVED_TABLES.contains(&relation_name) {
+        if RESERVED_RELATIONS.contains(&relation_name) {
             return Err(Diagnostic::message(
                 root_fqn,
                 message.full_name(),

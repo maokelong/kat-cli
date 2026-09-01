@@ -43,7 +43,7 @@ Workflow guide 指导分析方法，但不是数据证据。不要把 Provider g
 3. Diagnostic、可用 `log_path`、测试报告或其他可追溯证据。
 4. 具体原因，以及可采取的最小下一步。
 
-没有匹配 PACK/Workflow、Workflow 或 Provider inspection 的原子失败、失败测试、失败 Run 和实际执行失败的 Query 都属于这一状态。不得发布部分 discovery 结果，也不得把候选 Run、日志中的乐观文本或未修复代码描述为已完成。
+没有匹配 PACK/Workflow、Workflow 或 Provider inspection 的原子失败、来源准入或解码失败、失败测试、失败 Run 和实际执行失败的 Query 都属于这一状态。不得发布部分 discovery 结果，也不得把候选 Run、日志中的乐观文本或未修复代码描述为已完成。
 
 Data Home 配置或选择失败时，说明停止在目标路径、等待用户手工修改，还是 KAT 选择阶段。不得代替用户读写 `config.json`、清空 `KAT_DATA_HOME` 或回退到其他目录重试。路径无效或用户尚未确认手工修改完成时，只需说明没有读取或修改配置、没有设置进程环境，也没有调用 KAT。
 

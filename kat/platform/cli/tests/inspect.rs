@@ -1103,3 +1103,22 @@ fn closed_stdout_makes_the_real_process_fail() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("write KAT Response"));
 }
+#[test]
+fn inspect_dataset_option_is_not_a_cli_surface() {
+    let help = Command::new(cargo_kat())
+        .args(["inspect", "--help"])
+        .output()
+        .unwrap();
+    assert_eq!(help.status.code(), Some(0));
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(!help.contains("Dataset"));
+    assert!(!help.contains("--dataset"));
+
+    let removed = Command::new(cargo_kat())
+        .args(["inspect", "--dataset", "legacy-dataset"])
+        .output()
+        .unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(removed.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&removed.stderr).contains("unexpected argument '--dataset'"));
+}

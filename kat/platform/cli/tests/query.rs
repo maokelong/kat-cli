@@ -16,6 +16,26 @@ fn cargo_kat() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_kat"))
 }
 
+#[test]
+fn query_help_describes_the_native_ndjson_contract() {
+    let output = Command::new(cargo_kat())
+        .args(["query", "--help"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        help.contains("Arrow's native object-row JSON mapping"),
+        "{help}"
+    );
+    assert!(help.contains("--run <RUN_ID>"), "{help}");
+    assert!(help.contains("--sql <SQL>"), "{help}");
+    assert!(!help.contains("--dataset"), "{help}");
+    assert!(!help.contains("positional JSON scalars"), "{help}");
+}
+
 fn stage_skill(root: &Path) -> PathBuf {
     let skill = root.join("skill");
     let target = if cfg!(windows) {

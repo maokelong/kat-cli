@@ -89,10 +89,17 @@ kat run --pack <PACK名称> --workflow <Workflow名称> \
 
 只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。成功后从 `result.run_id` 和 `result.outputs` 取得唯一可查询 Run 及其输出名称、columns 与行数。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
 
+例如，若 Workflow detail 明示 `--source-path` 和 `--limit`：
+
+```text
+kat run --pack example --workflow analyze --pack-dir <PACK目录> -- \
+  --source-path <本地来源路径> --limit 20
+```
+
 ## 查询 Workflow 输出
 
 ```text
-kat query --run <Run ID> --sql <一条 SQL>
+kat query --run <Run ID> --sql <一条只读 SQL>
 ```
 
 `kat query` 每次在独立 DataFusion Session 中只注册该 Run 的 `output.*` 与 `information_schema`。优先沿用刚完成的 `kat run` 成功 Response 中的 `result.outputs`；只有 Run ID 时，先依次查询实际 relation 与 columns：
@@ -122,4 +129,4 @@ kat test --pack-dir <PACK目录>
 kat test --pack-dir <PACK目录> --test <pytest node ID> [--test <pytest node ID> ...]
 ```
 
-在生产执行平面运行该 PACK 的 pytest。`--pack-dir` 是一个直接包含 `pack.toml` 的精确目录，不使用 PACK 名称。成功 `result.summary` 是测试结论；失败时引用 Response 的 Diagnostic，以及存在时的 `test_report_path` 和 `log_path`。测试或诊断失败不授权修改 PACK。
+在生产执行平面运行该 PACK 的 pytest。`--pack-dir` 是一个直接包含 `pack.toml` 的精确目录，不使用 PACK 名称。测试 fixture 用普通来源文件、配置和临时路径构造 Provider；`kat_run` 只接收 Workflow 和 arguments。成功 `result.summary` 是测试结论；失败时引用 Response 的 Diagnostic，以及存在时的 `test_report_path` 和 `log_path`。测试或诊断失败不授权修改 PACK。

@@ -331,73 +331,13 @@ class AuthoringApiTest(unittest.TestCase):
                 self.assertIn(boundary, datasource_root_documentation)
 
     def test_context_documents_and_types_the_authoring_contract(self) -> None:
-        sql_signature = inspect.signature(kat.Context.sql)
+        self.assertFalse(hasattr(kat.Context, "sql"))
+        self.assertFalse(hasattr(kat.Context, "from_arrow"))
+        self.assertFalse(hasattr(kat.Context, "convert_clock"))
         self.assertEqual(
-            tuple(sql_signature.parameters),
-            ("self", "sql", "params"),
+            tuple(inspect.signature(kat.workflow).parameters),
+            ("name", "description", "parameters", "guide"),
         )
-        self.assertEqual(sql_signature.parameters["sql"].annotation, "str")
-        self.assertEqual(
-            sql_signature.parameters["sql"].kind,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        )
-        self.assertEqual(
-            sql_signature.parameters["params"].kind,
-            inspect.Parameter.VAR_KEYWORD,
-        )
-        self.assertIn("Duration", str(sql_signature.parameters["params"].annotation))
-        self.assertEqual(sql_signature.return_annotation, "DataFrame")
-
-        from_arrow_signature = inspect.signature(kat.Context.from_arrow)
-        self.assertEqual(
-            from_arrow_signature.parameters["table"].annotation,
-            "Table",
-        )
-        self.assertEqual(from_arrow_signature.return_annotation, "DataFrame")
-
-        convert_signature = inspect.signature(kat.Context.convert_clock)
-        self.assertEqual(convert_signature.parameters["clock_domain"].annotation, "Expr")
-        self.assertEqual(convert_signature.parameters["clock_value"].annotation, "Expr")
-        self.assertEqual(convert_signature.return_annotation, "Expr")
-
-        sql_documentation = " ".join((inspect.getdoc(kat.Context.sql) or "").split())
-        for boundary in (
-            "one read-only SQL statement",
-            "SHOW",
-            "DESCRIBE",
-            "EXPLAIN",
-            "signed int64",
-            "finite",
-            "never substitute identifiers or SQL text",
-            "Context methods may be called only during the current Workflow execution",
-            "DataFrames are lazy",
-            "materialize them before that execution closes",
-        ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, sql_documentation)
-
-        arrow_documentation = " ".join(
-            (inspect.getdoc(kat.Context.from_arrow) or "").split()
-        )
-        self.assertIn("one PyArrow Table", arrow_documentation)
-        self.assertIn("Other Arrow containers", arrow_documentation)
-        self.assertIn("DataFrames are lazy", arrow_documentation)
-
-        convert_documentation = " ".join(
-            (inspect.getdoc(kat.Context.convert_clock) or "").split()
-        )
-        for boundary in (
-            "exact type ``str``",
-            "``str`` subclasses are rejected before the Expr is constructed",
-            "accepted by DataFusion's strict casts",
-            "Arrow ``Utf8`` and ``UInt64``",
-            "KAT guarantees canonical ``Utf8``/``UInt64``",
-            "invalid text values fail the Workflow",
-            "Other source types are not part of the Pack Authoring Interface",
-            "not registered as a SQL function",
-        ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, convert_documentation)
 
     def test_public_decorator_documents_the_authoring_contract(self) -> None:
         documentation = inspect.getdoc(kat.workflow)
@@ -421,8 +361,7 @@ class AuthoringApiTest(unittest.TestCase):
             "dataprovider.Table",
             "single value",
             "``main`` Output",
-            "DataFrame",
-            "validates the complete returned shape before executing any lazy Output plan",
+            "exact Tables",
             "all-or-fail Run publication",
         ):
             with self.subTest(boundary=boundary):

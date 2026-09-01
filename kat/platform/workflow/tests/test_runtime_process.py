@@ -1184,7 +1184,7 @@ def analyze(ctx: Context, value: str = invalid_default):
         (pack / "workflows" / "crash.py").write_text(
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
-        candidate_id = str(uuid.uuid7())
+        candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate = self.root / "runs" / candidate_id
         candidate.mkdir(parents=True)
 

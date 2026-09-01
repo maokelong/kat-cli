@@ -1,2 +1,3 @@
-# Payload Builder 的纯 Python 构建期依赖；不进入最终 Payload。
+# Payload Builder 的构建期依赖；不进入最终 Payload。
+maturin==1.15.0 --hash=sha256:653020a63525bb224e5ab0adf02e17a2e08bc86dbea7fc1399c9a56d7529b99e --hash=sha256:552c2be4afd43fe8d5c9f3ec8d4c4756d973b8dcbe94c14084390301f50243e1
 pefile==2024.8.26 --hash=sha256:76f8b485dcd3b1bb8166f1128d395fa3d87af26360c2358fb75b80019b957c6f

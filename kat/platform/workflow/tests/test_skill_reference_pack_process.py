@@ -33,7 +33,6 @@ class SkillReferencePackProcessTest(unittest.TestCase):
                         "operation": "test_pack",
                         "pack_name": "dataprovider-pack",
                         "pack_path": str(pack),
-                        "datasets": {},
                         "tests": [],
                     }
                 ),

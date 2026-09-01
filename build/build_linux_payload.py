@@ -51,7 +51,8 @@ class BuildOptions:
     cargo: str
     readelf: str
     offline: bool
-    workflow_wheel: Path | None = None
+    workflow_wheel: payload_builder.WheelArtifactInput
+    datasource_wheel: payload_builder.WheelArtifactInput
 
 
 def load_inputs(repository: Path) -> LinuxInputs:
@@ -197,7 +198,12 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
     parser.add_argument("--python-archive", type=Path)
     parser.add_argument("--uv-archive", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
-    parser.add_argument("--workflow-wheel", type=Path)
+    parser.add_argument("--workflow-wheel", type=Path, required=True)
+    parser.add_argument("--workflow-wheel-version", required=True)
+    parser.add_argument("--workflow-wheel-sha256", required=True)
+    parser.add_argument("--datasource-wheel", type=Path, required=True)
+    parser.add_argument("--datasource-wheel-version", required=True)
+    parser.add_argument("--datasource-wheel-sha256", required=True)
     parser.add_argument(
         "--cargo",
         default="cargo",
@@ -209,9 +215,6 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
     repository = args.repository.resolve()
     output = args.output or repository / "target/kat/payloads/linux-x86_64"
     download_cache = args.download_cache or repository / "target/kat/downloads"
-    workflow_wheel = args.workflow_wheel or payload_builder.find_workflow_wheel(
-        repository / "target/kat/workflow-wheel"
-    )
     return BuildOptions(
         repository=repository,
         output=output,
@@ -222,7 +225,16 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
         cargo=args.cargo,
         readelf=args.readelf,
         offline=args.offline,
-        workflow_wheel=workflow_wheel,
+        workflow_wheel=payload_builder.WheelArtifactInput(
+            args.workflow_wheel,
+            args.workflow_wheel_version,
+            args.workflow_wheel_sha256,
+        ),
+        datasource_wheel=payload_builder.WheelArtifactInput(
+            args.datasource_wheel,
+            args.datasource_wheel_version,
+            args.datasource_wheel_sha256,
+        ),
     )
 
 

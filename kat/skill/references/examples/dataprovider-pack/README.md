@@ -42,6 +42,11 @@ dataprovider-pack/
 也不需要再包装一层 Provider；融合 Workflow 直接通过 `dp.open(tables=...)` 打开明确的
 relation。
 
+这个 PACK 的 Provider 与 `kat-workflow` 一起作为普通 PACK 代码运行。平台原生 Hitrace
+解码则位于独立 `kat-datasource` wheel：需要它的 PACK 显式调用
+`kat_datasource.hitrace.decode(source, destination)`，再用 `dp.open(root=destination)`
+打开其 flat Parquet relation；KAT 不把该目录注册成隐式输入。
+
 ## PostgreSQL：直接查询与本地融合
 
 `PostgreSQLProvider.query()` 每次按 libpq service 和显式 Database 创建独立连接，
