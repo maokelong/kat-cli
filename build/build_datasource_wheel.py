@@ -70,6 +70,7 @@ def build_datasource_wheel(
         if compatibility is not None:
             command.extend(("--compatibility", compatibility))
         environment = os.environ.copy()
+        environment.pop("CARGO_BUILD_TARGET", None)
         environment.pop("CARGO_TARGET_DIR", None)
         environment.pop("CARGO_BUILD_TARGET_DIR", None)
         environment.update(

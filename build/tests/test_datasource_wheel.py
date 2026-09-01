@@ -89,28 +89,48 @@ class DatasourceWheelTests(unittest.TestCase):
                         write_wheel(built / filename, tag=tag, extension=extension)
                         return mock.Mock()
 
-                    with mock.patch.object(
-                        builder.subprocess,
-                        "run",
-                        side_effect=fake_run,
-                    ) as run:
+                    cargo_target_dir = root / "cargo" / platform
+                    with (
+                        mock.patch.dict(
+                            builder.os.environ,
+                            {"CARGO_BUILD_TARGET": "caller-selected-target"},
+                        ),
+                        mock.patch.object(
+                            builder.subprocess,
+                            "run",
+                            side_effect=fake_run,
+                        ) as run,
+                    ):
                         wheel, checksum = builder.build_datasource_wheel(
                             REPOSITORY,
                             python,
                             output,
                             platform=platform,
                             expected_version="0.1.1rc1",
-                            cargo_target_dir=root / "cargo" / platform,
+                            cargo_target_dir=cargo_target_dir,
                         )
 
                     command = run.call_args.args[0]
+                    environment = run.call_args.kwargs["env"]
                     self.assertEqual(command[:3], [str(python), "-m", "maturin"])
                     self.assertIn("--locked", command)
                     self.assertNotIn("--target", command)
                     self.assertEqual(
-                        "manylinux_2_28" in command,
-                        manylinux,
+                        command[command.index("--interpreter") + 1],
+                        str(python),
                     )
+                    self.assertEqual(
+                        command[command.index("--target-dir") + 1],
+                        str(cargo_target_dir.resolve()),
+                    )
+                    if manylinux:
+                        self.assertEqual(
+                            command[command.index("--compatibility") + 1],
+                            "manylinux_2_28",
+                        )
+                    else:
+                        self.assertNotIn("--compatibility", command)
+                    self.assertIsNone(environment.get("CARGO_BUILD_TARGET"))
                     self.assertEqual(
                         checksum.read_text(encoding="ascii"),
                         f"{builder.file_sha256(wheel)}  {wheel.name}\n",
