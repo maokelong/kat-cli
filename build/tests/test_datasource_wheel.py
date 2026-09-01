@@ -79,6 +79,7 @@ class DatasourceWheelTests(unittest.TestCase):
             root = Path(directory)
             python = root / "python"
             python.write_bytes(b"python")
+            resolved_python = python.resolve(strict=True)
             for platform, tag, extension, manylinux in cases:
                 with self.subTest(platform=platform):
                     output = root / platform
@@ -112,12 +113,14 @@ class DatasourceWheelTests(unittest.TestCase):
 
                     command = run.call_args.args[0]
                     environment = run.call_args.kwargs["env"]
-                    self.assertEqual(command[:3], [str(python), "-m", "maturin"])
+                    self.assertEqual(
+                        command[:3], [str(resolved_python), "-m", "maturin"]
+                    )
                     self.assertIn("--locked", command)
                     self.assertNotIn("--target", command)
                     self.assertEqual(
                         command[command.index("--interpreter") + 1],
-                        str(python),
+                        str(resolved_python),
                     )
                     self.assertEqual(
                         command[command.index("--target-dir") + 1],
