@@ -20,11 +20,13 @@ Python 标准库的目录 rename 接口会在部分平台覆盖已有目标，Wo
 
 后台编码、写盘或关闭一旦失败，整个 write transaction 进入不可恢复的失败状态：阻塞中的生产者必须被唤醒，后续追加或上下文退出传播原始失败，当前 sink 不重试、不续写也不能复用。调用方只能在候选目录清理后重新开始一次新的物化。
 
+有界队列直接复用 Python 3.14 `queue.Queue.shutdown()` 的关闭协议：正常结束采用 graceful shutdown 排空已经接纳的批次，正文取消或后台首次失败采用 immediate shutdown 丢弃尚未消费的批次并唤醒阻塞生产者。owner 侧入队、writer ready 与取消 join 仍使用有限等待，以便等待期间的调用线程中断能够保持正文异常优先；后台消费不再用轮询或私有 sentinel 实现终止。
+
 当 `with` 正文与后台线程同时失败时，正文中的解析异常保持为主异常，后台与清理失败作为附注；正文正常结束时，后台失败是主异常。候选目录清理失败始终只作附注，不覆盖导致物化失败的原始原因。
 
 取消采用线程模型能够安全提供的协作式语义：正文异常或中断后不再接纳新批次，但会等待正在执行的 Parquet 写调用返回，再关闭资源、清理候选目录并传播异常。首版不承诺强制终止或限定底层文件 I/O 的退出时间；需要这种隔离时应另行设计进程边界。
 
-这项能力取代自定义 Parser 通过 `Schema.create()`、大量 `Table.append()` 再 eager `dp.write()` 的来源物化路径。`dp.Table` 收窄为已经完成、不可变且 Arrow-backed 的 eager 单表值，只供 Source query、Fusion query、Arrow interop 和受支持的表格 Run Output 使用，不参与 Datasource 构建或落盘。Fusion query 的 eager 结果合同与查询结果过大时的内存问题属于独立决定。
+这项能力取代自定义 Parser 通过 `Schema.create()`、大量 `Table.append()` 再 eager `dp.write()` 的来源物化路径。`dp.Table` 收窄为已经完成、不可变且 Arrow-backed 的 eager 单表值，只供 Source query、Fusion query、Arrow interop 和受支持的表格 Run Output 使用，不参与 Datasource 构建或落盘。已经形成的 `pyarrow.Table` 通过 `Table.from_arrow()` 零拷贝接纳；只持有完整 Python 行结果的 Source query 可通过 `Table.from_rows(rows, schema=pyarrow_schema)` 一次性完成严格物理类型转换，避免每个 PACK 重复实现 nullability、范围、时间戳与 Decimal 规则。`from_rows()` 仍是 eager 完成态构造，不可追加，也不形成另一条 Datasource 物化路径。Fusion query 的 eager 结果合同与查询结果过大时的内存问题属于独立决定。
 
 Datasource write transaction 是形成 Parquet catalog 的一次性只写过程，不是另一种 Table builder，也不提供 `len()`、列读取、`to_rows()`、`to_arrow()`、查询中间结果或完成后的继续追加。Workflow Runtime 只把已经完成的不可变 Table 作为 Run Output，并在自己的 Run candidate 内将其保存为 Parquet；实现可以复用私有 Parquet writer，但不能把 Datasource write transaction 当作 Workflow 发布接口或把任意裸文件路径当作 Output。
 
