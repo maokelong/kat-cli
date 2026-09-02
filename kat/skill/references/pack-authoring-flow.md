@@ -123,6 +123,22 @@ result = dp.Table.from_rows(rows, schema=schema)
 适合已经完成的 eager 查询结果，不是追加构建器或落盘入口。已有 `pyarrow.Table` 则继续用
 `Table.from_arrow()` 保留其 Arrow backing。
 
+Datasource `Schema` 只接受下列逻辑类型。用 `T | None` 声明 nullable 列；裸 `T` 拒绝
+`None`。每个非空值必须是表中所列的精确 Python 类型，不接受子类或隐式转换。
+
+| Schema 类型 | Parquet 前的 Arrow 类型 | 关键拒绝规则 |
+| --- | --- | --- |
+| `bool` | `bool` | 只接受精确 `bool` |
+| `int` | `int64` | 拒绝 `bool` 及有符号 64 位范围外的值 |
+| `float` | `float64` | 只接受精确 `float` |
+| `str` | `string` | 拒绝无法编码为 UTF-8 的文本 |
+| `bytes` | `binary` | 只接受精确 `bytes` |
+| `datetime` | `timestamp[ns, tz=UTC]` | 必须带有效 UTC offset；规范化到 UTC 后须在有符号 64 位纳秒范围内 |
+| `Decimal` | `decimal128(38, 18)` | 必须有限，且能在不舍入的前提下缩放到 18 位小数并满足 38 位精度 |
+
+除此之外的类型、空的 `Schema`、空列定义以及与声明不完全一致的行字段都会被拒绝。
+`Schema` 构造后不可变且不可继承；一次 `dp.write()` 使用其完整多 relation 声明作为固定事务合同。
+
 自定义 Python Parser 需要处理大输入时，不要先把全部行累积进 eager Table。用
 `dp.write()` 显式选择 relation，让调用线程继续解析、后台线程同时写 Parquet：
 

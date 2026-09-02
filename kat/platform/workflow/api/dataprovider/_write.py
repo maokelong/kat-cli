@@ -66,22 +66,23 @@ class _RelationSink:
 
 class _WriteTransaction:
     def __init__(self, schema: Schema, destination: Path) -> None:
-        self._schema = schema
         self._destination = destination
         self._owner_thread: int | None = None
         self._state = _State.NEW
+        self._relation_names = schema.tables
         self._logical_schemas = {
-            table_name: schema[table_name] for table_name in schema.tables
+            table_name: schema[table_name] for table_name in self._relation_names
         }
         self._arrow_schemas = {
             table_name: _logical_arrow_schema(columns)
             for table_name, columns in self._logical_schemas.items()
         }
         self._buffers = {
-            table_name: _Buffer([]) for table_name in schema.tables
+            table_name: _Buffer([]) for table_name in self._relation_names
         }
         self._relations = {
-            table_name: _RelationSink(self, table_name) for table_name in schema.tables
+            table_name: _RelationSink(self, table_name)
+            for table_name in self._relation_names
         }
         self._queue: queue.Queue[_Batch] = queue.Queue(maxsize=_QUEUE_CAPACITY)
         self._worker_ready = threading.Event()
@@ -181,7 +182,7 @@ class _WriteTransaction:
     def _finish(self) -> None:
         self._state = _State.DRAINING
         self._raise_worker_failure()
-        for relation_name in self._schema.tables:
+        for relation_name in self._relation_names:
             self._enqueue_buffer(relation_name)
         self._queue.shutdown()
         self._join_worker()
@@ -190,7 +191,7 @@ class _WriteTransaction:
         staging = self._require_staging()
         actual_files = tuple(sorted(path.name for path in staging.iterdir()))
         expected_files = tuple(
-            sorted(f"{relation_name}.parquet" for relation_name in self._schema.tables)
+            sorted(f"{relation_name}.parquet" for relation_name in self._relation_names)
         )
         if actual_files != expected_files:
             raise RuntimeError("Datasource write produced an incomplete relation set")
@@ -221,7 +222,7 @@ class _WriteTransaction:
         writers: dict[str, _ParquetRelationWriter] = {}
         try:
             staging = self._require_staging()
-            for relation_name in self._schema.tables:
+            for relation_name in self._relation_names:
                 writers[relation_name] = _ParquetRelationWriter(
                     staging / f"{relation_name}.parquet",
                     self._arrow_schemas[relation_name],
@@ -350,7 +351,7 @@ class _WriteTransaction:
 
 def write(schema: Schema, *, destination: Path) -> _WriteTransaction:
     """Create a one-shot streaming Datasource write context."""
-    if not isinstance(schema, Schema):
+    if type(schema) is not Schema:
         raise TypeError("dp.write schema must be a dp.Schema")
     _require_path(destination, "destination")
     destination = destination.parent.resolve(strict=False) / destination.name

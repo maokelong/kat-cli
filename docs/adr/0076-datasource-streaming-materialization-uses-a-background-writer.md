@@ -8,7 +8,7 @@ Data Provider Toolkit 只提供一条 Datasource 物化路径：PACK 作者通�
 
 一个物化只允许进入 `with` 上下文的调用线程使用各 relation 写入端，写入端不承诺线程安全；`dp.write()` 返回的未进入事务可以移交给另一线程，但进入后不得再跨线程使用。所有有界批次由一个后台写线程按接收顺序消费。首版不支持多个解析生产者，也不为每张 relation 创建独立工作线程。
 
-Relation 写入端直接依据传给 `dp.write()` 的 Datasource Schema 执行严格逻辑 Schema 校验和 Python 值规范化：字段必须精确匹配，整行验证成功后才被接纳，验证失败不改变物化状态且调用方可以继续追加。单次 `append()` 返回只表示该行已同步通过校验并被当前候选物化接纳，不表示已经写入磁盘或独立提交；只有整个 `with` 正常退出才表示物化成功。后台写入失败会使整个写事务失败，并在后续调用或退出上下文时传播给调用线程。
+Relation 写入端直接依据传给 `dp.write()` 的 Datasource Schema 执行严格逻辑 Schema 校验和 Python 值规范化：字段必须精确匹配，整行验证成功后才被接纳，验证失败不改变物化状态且调用方可以继续追加。`Schema` 是不可继承的不可变值，write transaction 在构造时取得一次完整 relation 快照；公开的逻辑类型、nullable 写法、Arrow 物理映射与关键拒绝规则记录在 `kat/skill/references/pack-authoring-flow.md`。单次 `append()` 返回只表示该行已同步通过校验并被当前候选物化接纳，不表示已经写入磁盘或独立提交；只有整个 `with` 正常退出才表示物化成功。后台写入失败会使整个写事务失败，并在后续调用或退出上下文时传播给调用线程。
 
 有界批次按每张 relation 的行数或估算未压缩字节数触发，任一达到即交给后台线程；具体阈值和队列容量属于 Toolkit 内部策略，不进入 Pack Authoring API，也不承诺构成进程 RSS 的硬上限。
 

@@ -25,6 +25,9 @@ class Schema:
 
     __slots__ = ("__declarations", "__tables")
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError("Schema cannot be subclassed")
+
     def __init__(self, tables: Mapping[str, Mapping[str, object]]) -> None:
         if not isinstance(tables, Mapping):
             raise TypeError("Datasource Schema requires a mapping of tables")

@@ -70,6 +70,12 @@ class SchemaTest(unittest.TestCase):
 
         self.assertFalse(hasattr(schema, "create"))
 
+    def test_schema_cannot_be_subclassed(self) -> None:
+        with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+
+            class DerivedSchema(dp.Schema):
+                pass
+
 
 class ImmutableTableTest(unittest.TestCase):
     def test_table_can_only_be_created_from_completion_factories(self) -> None:
