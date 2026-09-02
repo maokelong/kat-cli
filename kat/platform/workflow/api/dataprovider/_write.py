@@ -354,6 +354,7 @@ def write(schema: Schema, *, destination: Path) -> _WriteTransaction:
     if type(schema) is not Schema:
         raise TypeError("dp.write schema must be a dp.Schema")
     _require_path(destination, "destination")
+    _reject_nul_path(destination)
     destination = destination.parent.resolve(strict=False) / destination.name
     _validate_destination(destination)
     return _WriteTransaction(schema, destination)
@@ -378,6 +379,7 @@ def _estimate_row_bytes(row: tuple[object | None, ...]) -> int:
 
 
 def _validate_destination(destination: Path) -> None:
+    _reject_nul_path(destination)
     if os.path.lexists(destination):
         raise FileExistsError(errno.EEXIST, "destination already exists", destination)
     parent = destination.parent
@@ -385,6 +387,11 @@ def _validate_destination(destination: Path) -> None:
         raise ValueError(
             "dp.write destination parent must be an existing directory"
         )
+
+
+def _reject_nul_path(path: Path) -> None:
+    if "\0" in os.fspath(path):
+        raise ValueError("dp.write destination must not contain NUL")
 
 
 def _add_note(primary: BaseException, message: str, secondary: BaseException) -> None:

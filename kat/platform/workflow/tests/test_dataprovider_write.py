@@ -534,6 +534,13 @@ class DataProviderWriteTest(unittest.TestCase):
                     schema,
                     destination=parent_path / "missing" / "facts",
                 )
+            truncated_destination = parent_path / "nul-prefix"
+            with self.assertRaisesRegex(ValueError, "NUL"):
+                dp.write(
+                    schema,
+                    destination=parent_path / "nul-prefix\0ignored",
+                )
+            self.assertFalse(truncated_destination.exists())
 
             destination = parent_path / "facts"
             destination.mkdir()
