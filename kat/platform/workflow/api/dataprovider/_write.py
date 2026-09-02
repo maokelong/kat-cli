@@ -23,7 +23,6 @@ _MAX_BATCH_ROWS = 8_192
 _MAX_BATCH_BYTES = 64 * 1024 * 1024
 _QUEUE_CAPACITY = 1
 _QUEUE_WAIT_SECONDS = 0.05
-_STOP = object()
 
 
 class _State(Enum):
@@ -84,10 +83,7 @@ class _WriteTransaction:
         self._relations = {
             table_name: _RelationSink(self, table_name) for table_name in schema.tables
         }
-        self._queue: queue.Queue[_Batch | object] = queue.Queue(
-            maxsize=_QUEUE_CAPACITY
-        )
-        self._cancelled = threading.Event()
+        self._queue: queue.Queue[_Batch] = queue.Queue(maxsize=_QUEUE_CAPACITY)
         self._worker_ready = threading.Event()
         self._failure_lock = threading.Lock()
         self._worker_failure: BaseException | None = None
@@ -187,7 +183,7 @@ class _WriteTransaction:
         self._raise_worker_failure()
         for relation_name in self._schema.tables:
             self._enqueue_buffer(relation_name)
-        self._enqueue(_STOP)
+        self._queue.shutdown()
         self._join_worker()
         self._raise_worker_failure()
 
@@ -209,7 +205,7 @@ class _WriteTransaction:
         buffer.estimated_bytes = 0
         self._enqueue(_Batch(relation_name, rows))
 
-    def _enqueue(self, item: _Batch | object) -> None:
+    def _enqueue(self, item: _Batch) -> None:
         while True:
             self._raise_worker_failure()
             try:
@@ -217,6 +213,9 @@ class _WriteTransaction:
                 return
             except queue.Full:
                 continue
+            except queue.ShutDown:
+                self._raise_worker_failure()
+                raise RuntimeError("Datasource writer queue stopped unexpectedly")
 
     def _run_worker(self) -> None:
         writers: dict[str, _ParquetRelationWriter] = {}
@@ -229,16 +228,11 @@ class _WriteTransaction:
                 )
             self._worker_ready.set()
 
-            while not self._cancelled.is_set():
+            while True:
                 try:
-                    item = self._queue.get(timeout=_QUEUE_WAIT_SECONDS)
-                except queue.Empty:
-                    continue
-                if item is _STOP:
+                    item = self._queue.get()
+                except queue.ShutDown:
                     break
-                if self._cancelled.is_set():
-                    break
-                assert isinstance(item, _Batch)
                 writers[item.relation_name].write_rows(item.rows)
         except BaseException as error:
             self._record_worker_failure(error)
@@ -259,15 +253,19 @@ class _WriteTransaction:
         *,
         context: str | None = None,
     ) -> None:
+        first_failure = False
         with self._failure_lock:
             if self._worker_failure is None:
                 self._worker_failure = error
+                first_failure = True
             elif error is not self._worker_failure:
                 _add_note(
                     self._worker_failure,
                     context or "Datasource write also failed",
                     error,
                 )
+        if first_failure:
+            self._queue.shutdown(immediate=True)
 
     def _raise_worker_failure(self) -> None:
         with self._failure_lock:
@@ -276,7 +274,7 @@ class _WriteTransaction:
             raise error
 
     def _cancel_and_join(self, primary: BaseException) -> None:
-        self._cancelled.set()
+        self._queue.shutdown(immediate=True)
         worker = self._worker
         if worker is not None and worker.is_alive():
             while worker.is_alive():

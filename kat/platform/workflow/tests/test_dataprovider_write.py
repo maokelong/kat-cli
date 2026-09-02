@@ -344,6 +344,8 @@ class DataProviderWriteTest(unittest.TestCase):
         write_started = threading.Event()
         fail_write = threading.Event()
         second_batch_accepted = threading.Event()
+        third_batch_started = threading.Event()
+        producer_finished = threading.Event()
         producer_errors: list[BaseException] = []
 
         def fail_first_write(
@@ -359,6 +361,8 @@ class DataProviderWriteTest(unittest.TestCase):
             write_module, "_MAX_BATCH_ROWS", 1
         ), mock.patch.object(
             write_module, "_MAX_BATCH_BYTES", 1024
+        ), mock.patch.object(
+            write_module, "_QUEUE_WAIT_SECONDS", 2.0
         ), mock.patch.object(
             parquet_writer_module._ParquetRelationWriter,
             "write_rows",
@@ -376,15 +380,24 @@ class DataProviderWriteTest(unittest.TestCase):
                             raise TimeoutError("writer did not start")
                         sink["events"].append(sequence=2)
                         second_batch_accepted.set()
-                        fail_write.set()
+                        third_batch_started.set()
                         sink["events"].append(sequence=3)
                 except BaseException as error:
                     producer_errors.append(error)
+                finally:
+                    producer_finished.set()
 
             producer = threading.Thread(target=produce)
             producer.start()
             try:
                 self.assertTrue(second_batch_accepted.wait(5))
+                self.assertTrue(third_batch_started.wait(5))
+                self.assertFalse(producer_finished.wait(0.1))
+                fail_write.set()
+                self.assertTrue(
+                    producer_finished.wait(0.75),
+                    "writer failure did not wake the blocked producer",
+                )
             finally:
                 fail_write.set()
                 producer.join(5)
