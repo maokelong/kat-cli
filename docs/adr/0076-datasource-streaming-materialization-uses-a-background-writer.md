@@ -6,7 +6,7 @@ status: accepted
 
 Data Provider Toolkit 只提供一条 Datasource 物化路径：PACK 作者通过 `with dp.write(schema, destination=...) as sink` 取得按 Datasource Schema relation 名索引的追加写入端，并以 `sink[relation_name].append(...)` 逐行提供解析结果。`dp.write()` 始终表示绑定一个多 relation Datasource Schema 的一次性流式写事务，不再接受已经形成的 Table Mapping；Toolkit 不再提供独立 `dp.materialize()`、`Schema.create()`、`Table(schema)` 或可追加的 `Table.append()`。调用线程负责解析、校验和形成有界批次，后台线程独占 Parquet writer 并与下一批解析并发；批次行数、估算字节数和队列容量由 Toolkit 私下管理，不成为 Pack Authoring API 或硬 RSS 承诺。
 
-一个物化只允许创建它的调用线程使用各 relation 写入端，写入端不承诺线程安全；所有有界批次由一个后台写线程按接收顺序消费。首版不支持多个解析生产者，也不为每张 relation 创建独立工作线程。
+一个物化只允许进入 `with` 上下文的调用线程使用各 relation 写入端，写入端不承诺线程安全；`dp.write()` 返回的未进入事务可以移交给另一线程，但进入后不得再跨线程使用。所有有界批次由一个后台写线程按接收顺序消费。首版不支持多个解析生产者，也不为每张 relation 创建独立工作线程。
 
 Relation 写入端直接依据传给 `dp.write()` 的 Datasource Schema 执行严格逻辑 Schema 校验和 Python 值规范化：字段必须精确匹配，整行验证成功后才被接纳，验证失败不改变物化状态且调用方可以继续追加。单次 `append()` 返回只表示该行已同步通过校验并被当前候选物化接纳，不表示已经写入磁盘或独立提交；只有整个 `with` 正常退出才表示物化成功。后台写入失败会使整个写事务失败，并在后续调用或退出上下文时传播给调用线程。
 

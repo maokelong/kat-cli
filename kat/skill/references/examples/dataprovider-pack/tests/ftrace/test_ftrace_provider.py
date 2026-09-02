@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import pytest
@@ -221,6 +222,29 @@ def test_event_value_outside_table_range_reports_its_source_line(tmp_path):
     assert not (tmp_path / "catalog").exists()
 
 
+def test_event_sink_failure_propagates_without_becoming_a_source_value_error():
+    match = ftrace_module._EVENT.fullmatch(
+        "worker-7 [001] ..... 9.000000001: cpu_idle: state=0"
+    )
+    assert match is not None
+    failure = ValueError("simulated Arrow encoding failure")
+
+    class FailingSink:
+        def append(self, **_row_values):
+            raise failure
+
+    with pytest.raises(ValueError) as raised:
+        ftrace_module._append_event(
+            FailingSink(),
+            match,
+            event_index=0,
+            clock_domain="fixture_clock",
+            line_number=7,
+        )
+
+    assert raised.value is failure
+
+
 def test_catalog_open_failure_removes_written_files_and_keeps_provider_unready(
     monkeypatch,
     tmp_path,
@@ -278,7 +302,7 @@ def test_old_target_removal_failure_retries_cleanup_and_keeps_provider_unready(
         provider.query("SELECT * FROM events")
 
 
-def test_write_failure_removes_partial_catalog_and_keeps_provider_unready(
+def test_write_publish_race_preserves_the_competing_catalog_and_keeps_provider_unready(
     monkeypatch,
     tmp_path,
 ):
@@ -289,18 +313,21 @@ def test_write_failure_removes_partial_catalog_and_keeps_provider_unready(
         clock_domain="fixture_clock",
     )
 
-    def fail_write(schema, *, destination):
-        assert schema is ftrace_module.FTRACE_SCHEMA
-        destination.mkdir()
-        (destination / "partial.parquet").write_text("partial", encoding="utf-8")
-        raise RuntimeError("write failed")
+    write_module = importlib.import_module("kat.dataprovider._write")
 
-    monkeypatch.setattr("kat.pack.datasources.ftrace.dp.write", fail_write)
+    def lose_publish_race(source, destination):
+        assert source.is_dir()
+        assert destination == catalog_root
+        catalog_root.mkdir()
+        (catalog_root / "competitor.txt").write_text("keep", encoding="utf-8")
+        raise FileExistsError("a competing writer published first")
 
-    with pytest.raises(RuntimeError, match="write failed"):
+    monkeypatch.setattr(write_module, "_rename_no_replace", lose_publish_race)
+
+    with pytest.raises(FileExistsError, match="competing writer"):
         provider.decode()
 
-    assert not catalog_root.exists()
+    assert (catalog_root / "competitor.txt").read_text(encoding="utf-8") == "keep"
     with pytest.raises(RuntimeError, match="decode.*before query"):
         provider.query("SELECT * FROM events")
 
