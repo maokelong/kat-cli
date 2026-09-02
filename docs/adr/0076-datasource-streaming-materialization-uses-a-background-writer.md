@@ -16,7 +16,7 @@ Relation 写入端直接依据传给 `dp.write()` 的 Datasource Schema 执行�
 
 Destination 沿用现有本地物化边界，必须是父目录已存在且自身尚不存在的 `Path`；write transaction 不覆盖、合并、续写或恢复旧目录。物化中的文件只存在于 destination 同父目录的实例私有候选位置，不形成可查询 Catalog；正常退出 `with` 自动排空队列、关闭 writer、校验 footer 并以不覆盖已有目标的方式发布完整 destination，随后调用方通过 `dp.open(root=destination)` 显式建立 Catalog，不另设公共 `finish()`、`flush()`、`close()` 或 `sink.catalog`。解析、编码、写盘、关闭或发布任一环节失败都不发布部分结果，并只清理本实例的候选产物。
 
-Python 标准库的目录 rename 接口会在部分平台覆盖已有目标，Workflow Host 的既有依赖也没有提供跨 Windows/Linux 的原子 no-replace 目录发布；实现因此直接调用 Windows `MoveFileExW` 和 Linux `renameat2(RENAME_NOREPLACE)`，其他平台明确报不支持，而不新增只包装这两个系统调用的运行时依赖。
+Python 标准库的 `os.rename()` 在 Windows 已提供目标存在即失败的目录 no-replace 语义，Windows 分支直接复用它；Linux 的同名接口会替换已有空目录，因此只在 Linux 直接调用 `renameat2(RENAME_NOREPLACE)`。Workflow Host 的既有依赖没有提供跨平台的等价抽象，其他平台明确报不支持，而不新增只包装单个 Linux 系统调用的运行时依赖。
 
 后台编码、写盘或关闭一旦失败，整个 write transaction 进入不可恢复的失败状态：阻塞中的生产者必须被唤醒，后续追加或上下文退出传播原始失败，当前 sink 不重试、不续写也不能复用。调用方只能在候选目录清理后重新开始一次新的物化。
 

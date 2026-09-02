@@ -397,13 +397,7 @@ def _add_note(primary: BaseException, message: str, secondary: BaseException) ->
 
 def _rename_no_replace(source: Path, destination: Path) -> None:
     if os.name == "nt":
-        move_file = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
-        move_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
-        move_file.restype = ctypes.c_int
-        source_path = str(source.resolve())
-        destination_path = str(destination.parent.resolve() / destination.name)
-        if move_file(source_path, destination_path, 0) == 0:
-            raise ctypes.WinError(ctypes.get_last_error())
+        os.rename(source, destination)
         return
 
     if os.name == "posix" and hasattr(os, "uname") and os.uname().sysname == "Linux":

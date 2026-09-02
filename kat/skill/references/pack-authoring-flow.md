@@ -50,7 +50,7 @@ class PostgreSQLProvider:
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 只提供 `ctx.datasource_root`；PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
-PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。文件 Provider 应在 `ctx.datasource_root` 下建立当前 Workflow 的临时 workspace，向 Provider 传普通路径，并在 eager Table 脱离来源后清理临时物化。
+PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。没有稳定来源身份的文件 Provider 应在 `ctx.datasource_root` 下建立当前 Workflow 的临时 workspace，向 Provider 传普通路径，并在 eager Table 脱离来源后清理临时物化。能够依据来源内容建立稳定身份、并能确定性重建结果的 Provider，可以跨 Workflow 复用自己的私有内部目录；命中旧目录时必须重新执行最小准入检查，打开失败、必需 relation 缺失或内容损坏时丢弃并重建。旧内容始终只是可丢弃 cache，不是 KAT 状态或用户资产。
 
 `kat-workflow` 与 `kat-datasource` 是 Payload 中两个独立的私有 wheel：
 

@@ -19,8 +19,11 @@ class Context:
         Production executions receive
         ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
         isolated to the current pytest test. The path capability is valid only
-        for this Workflow execution. File Providers should create a temporary
-        per-Workflow workspace below it instead of treating old files as cache.
+        for this Workflow execution. File Providers without a stable source
+        identity should create a temporary per-Workflow workspace below it. A
+        Provider with a stable source identity and deterministically rebuildable
+        results may reuse a private internal directory after validating existing
+        contents; those contents remain discardable cache, not KAT state.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 

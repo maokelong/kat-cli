@@ -340,8 +340,12 @@ class AuthoringApiTest(unittest.TestCase):
             "KAT_DATA_HOME/datasources/<pack-name>/",
             "isolated to the current pytest test",
             "valid only for this Workflow execution",
+            "without a stable source identity",
             "temporary per-Workflow workspace",
-            "instead of treating old files as cache",
+            "stable source identity",
+            "deterministically rebuildable",
+            "validating existing contents",
+            "discardable cache",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, datasource_root_documentation)
