@@ -13,7 +13,8 @@
 Provider 都是 PACK 自有的普通 Python 类。`@kat.provider` 只附加 inspection 元数据；
 KAT 可以发现声明，但不会构造或包装 Provider。Workflow 显式调用 `decode()`、`query()`
 和 Data Provider Toolkit。只有 Workflow 返回的 `dp.Table` 会发布为 Run Output，
-中间 Table 和临时物化数据不会自动成为 Output。
+中间 Table 和临时物化数据不会自动成为 Output。`dp.Table` 是已经完成且不可变的
+Arrow-backed 单表值；Datasource 的多 relation 构建只使用 `dp.write()` 写事务。
 
 ## 目录
 
@@ -85,9 +86,9 @@ result = dp.DataFusionProvider(
 
 ```text
 tracefs text
-  -> FTRACE_SCHEMA.create() 创建 capture、events 两张可追加 Table
-  -> append() Python 标量
-  -> dp.write(tables) 一次写入两张 Parquet 表
+  -> dp.write(FTRACE_SCHEMA) 打开唯一的 Datasource 写事务
+  -> sink[relation].append() 逐行校验并交给后台 Parquet writer
+  -> 正常退出后一次发布 capture、events 两张 Parquet 表
   -> dp.open(tables=...) 打开完整 Catalog
   -> dp.DataFusionProvider(catalog=...) 查询
 ```
@@ -105,7 +106,7 @@ query，返回的 eager Table 不再依赖临时 Parquet。
 
 `query()` 用 `mode=ro`、`PRAGMA query_only` 和 authorizer 限制为只读 SQLite 查询。
 调用方用基础 Python 类型声明结果列，列名和顺序必须与 SQL 结果完全一致；Provider
-关闭 cursor 与 connection 后再返回 eager `dp.Table`。生产 Workflow 从
+关闭 cursor 与 connection 后，用完整 `pyarrow.Table` 构造不可变 `dp.Table`。生产 Workflow 从
 `KAT_TRACE_STREAMER_EXECUTABLE` 读取批准的可执行文件路径，不把可执行代码路径暴露为
 Workflow argument。
 

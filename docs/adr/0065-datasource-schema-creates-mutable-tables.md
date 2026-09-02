@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0076
 ---
 
 # Datasource Schema 创建可追加 Table

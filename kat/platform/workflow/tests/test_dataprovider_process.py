@@ -57,6 +57,7 @@ class DataProviderRuntimeProcessTest(unittest.TestCase):
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
             f'''import kat
+import pyarrow as pa
 from kat import dataprovider as dp
 
 @kat.workflow(
@@ -97,16 +98,14 @@ def analyze(ctx: kat.Context):
         for name, body, expected in [
             (
                 "single",
-                '''    table = dp.Table({"value": int})
-    table.append(value=1)
+                '''    table = dp.Table.from_arrow(pa.table({"value": [1]}))
     return table''',
                 {"main": {"value": [1]}},
             ),
             (
                 "mapping",
-                '''    first = dp.Table({"value": int})
-    first.append(value=1)
-    empty = dp.Table({"value": int})
+                '''    first = dp.Table.from_arrow(pa.table({"value": [1]}))
+    empty = dp.Table.from_arrow(pa.table({"value": pa.array([], type=pa.int64())}))
     return {"first": first, "empty": empty}''',
                 {"first": {"value": [1]}, "empty": {"value": []}},
             ),
@@ -145,19 +144,33 @@ def analyze(ctx: kat.Context):
             "pyarrow": '''    import pyarrow as pa
     return pa.table({"value": [1]})''',
             "empty": "    return {}",
+            "scalar": "    return 1",
+            "list": "    return []",
+            "path": '''    from pathlib import Path
+    return Path("not-an-output")''',
+            "catalog": '''    import pyarrow.parquet as pq
+    catalog_root = ctx.datasource_root / "catalog"
+    catalog_root.mkdir(parents=True)
+    pq.write_table(pa.table({"value": [1]}), catalog_root / "events.parquet")
+    return dp.open(root=catalog_root)''',
+            "write-sink": '''    ctx.datasource_root.mkdir(parents=True, exist_ok=True)
+    schema = dp.Schema({"events": {"value": int}})
+    with dp.write(schema, destination=ctx.datasource_root / "facts") as sink:
+        sink["events"].append(value=1)
+    return sink''',
             "mixed": '''    import pyarrow as pa
     from datafusion import SessionContext
-    table = dp.Table({"value": int})
-    table.append(value=1)
+    table = dp.Table.from_arrow(pa.table({"value": [1]}))
     frame = SessionContext().from_arrow(pa.table({"value": [2]}))
     return {"table": table, "frame": frame}''',
             "dict-subclass": '''    class Outputs(dict):
         pass
-    table = dp.Table({"value": int})
+    table = dp.Table.from_arrow(pa.table({"value": [1]}))
     return Outputs(main=table)''',
-            "table-subclass": '''    class DerivedTable(dp.Table):
-        pass
-    return DerivedTable({"value": int})''',
+            "table-like": '''    class TableLike:
+        def to_arrow(self):
+            return pa.table({"value": [1]})
+    return TableLike()''',
         }
         for name, body in cases.items():
             with self.subTest(name=name):

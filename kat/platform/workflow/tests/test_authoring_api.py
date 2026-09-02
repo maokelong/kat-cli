@@ -280,6 +280,14 @@ class AuthoringApiTest(unittest.TestCase):
                 "open",
             },
         )
+        self.assertFalse(hasattr(kat.dataprovider, "materialize"))
+
+        write_signature = inspect.signature(kat.dataprovider.write)
+        self.assertEqual(tuple(write_signature.parameters), ("schema", "destination"))
+        self.assertEqual(
+            write_signature.parameters["destination"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
         self.assertNotIn("datasource", kat.__all__)
         self.assertFalse(hasattr(kat, "datasource"))
 
@@ -294,6 +302,7 @@ class AuthoringApiTest(unittest.TestCase):
             "table",
             "from_arrow",
             "to_arrow",
+            "materialize",
             "write",
             "open",
         ):

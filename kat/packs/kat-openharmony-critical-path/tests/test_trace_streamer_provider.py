@@ -76,11 +76,47 @@ def test_query_requires_named_parameters_and_an_exact_physical_schema(tmp_path: 
             "SELECT value AS actual FROM event",
             schema=pa.schema([pa.field("expected", pa.int64(), nullable=False)]),
         )
-    with pytest.raises(ValueError, match="column 'value'"):
+    with pytest.raises(ValueError, match="column 'value'.*int8"):
         provider.query(
             "SELECT value FROM event",
             schema=pa.schema([pa.field("value", pa.int8(), nullable=False)]),
         )
+    with pytest.raises(TypeError, match="column 'value'.*exact type int"):
+        provider.query(
+            "SELECT 1.5 AS value",
+            schema=pa.schema([pa.field("value", pa.int64(), nullable=False)]),
+        )
+    with pytest.raises(TypeError, match="column 'value'.*exact type float"):
+        provider.query(
+            "SELECT 1 AS value",
+            schema=pa.schema([pa.field("value", pa.float64(), nullable=False)]),
+        )
+    with pytest.raises(ValueError, match="column 'value'.*overflows float"):
+        provider.query(
+            "SELECT 1e40 AS value",
+            schema=pa.schema([pa.field("value", pa.float32(), nullable=False)]),
+        )
+
+
+def test_query_preserves_the_declared_schema_for_empty_results_and_rejects_nulls(
+    tmp_path: Path,
+):
+    database = _database(tmp_path / "trace.db")
+    provider = TraceStreamerSQLiteProvider(sqlite_path=str(database))
+    schema = pa.schema(
+        [pa.field("value", pa.int64(), nullable=False)],
+        metadata={b"source": b"trace-streamer"},
+    )
+
+    result = provider.query(
+        "SELECT value FROM event WHERE 0",
+        schema=schema,
+    )
+
+    assert result.to_rows() == []
+    assert result.to_arrow().schema.equals(schema, check_metadata=True)
+    with pytest.raises(ValueError, match="non-nullable column 'value'"):
+        provider.query("SELECT NULL AS value", schema=schema)
 
 
 def test_query_rejects_attach_ddl_dml_and_pragma(tmp_path: Path):

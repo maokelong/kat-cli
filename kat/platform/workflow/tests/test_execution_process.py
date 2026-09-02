@@ -9,6 +9,8 @@ import tempfile
 import unittest
 import uuid
 
+import pyarrow.parquet as pq
+
 
 class WorkflowExecutionProcessTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -56,6 +58,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
             f'''import kat
+import pyarrow as pa
 
 @kat.workflow(
     name="analyze",
@@ -103,9 +106,10 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             '''    import logging
     logging.getLogger("pack").info("executed")
     root = ctx.datasource_root
-    selected = kat.dataprovider.Table({"value": int})
-    selected.append(value=minimum)
-    empty = kat.dataprovider.Table({"value": int})
+    selected = kat.dataprovider.Table.from_arrow(pa.table({"value": [minimum]}))
+    empty = kat.dataprovider.Table.from_arrow(
+        pa.table({"value": pa.array([], type=pa.int64())})
+    )
     assert root.name == "example"
     return {"selected_rows": selected, "empty_rows": empty}'''
         )
@@ -148,9 +152,51 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertFalse((candidate / "manifest.json").exists())
 
+    def test_run_writes_arrow_batches_as_zstd_parquet_row_groups(self) -> None:
+        pack = self.pack(
+            '''    values = pa.chunked_array([
+        pa.array([1, 2], type=pa.int64()),
+        pa.array([3], type=pa.int64()),
+    ])
+    table = kat.dataprovider.Table.from_arrow(
+        pa.Table.from_arrays([values], names=["value"])
+    )
+    return table'''
+        )
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate)
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            response["result"]["outputs"]["main"],
+            {
+                "columns": [{"name": "value", "type": "int64"}],
+                "row_count": 3,
+            },
+        )
+        output = candidate / "outputs" / "main.parquet"
+        metadata = pq.read_metadata(output)
+        self.assertEqual(metadata.num_row_groups, 2)
+        self.assertEqual(
+            [
+                metadata.row_group(index).column(0).compression
+                for index in range(metadata.num_row_groups)
+            ],
+            ["ZSTD", "ZSTD"],
+        )
+        self.assertFalse((candidate / "manifest.json").exists())
+
     def test_run_request_rejects_removed_dataset_field(self) -> None:
         pack = self.pack(
-            '''    table = kat.dataprovider.Table({"value": int})
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
     return table'''
         )
         for legacy_dataset in (None, {"path": "private", "tables": {}}):
@@ -170,7 +216,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
 
     def test_run_rejects_a_non_uuidv7_candidate_without_exposing_it(self) -> None:
         pack = self.pack(
-            '''    table = kat.dataprovider.Table({"value": int})
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
     return table'''
         )
         candidate_id = "private-candidate"
@@ -188,7 +234,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
 
     def test_run_request_rejects_unowned_datasource_roots(self) -> None:
         pack = self.pack(
-            '''    table = kat.dataprovider.Table({"value": int})
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
     return table'''
         )
         for root in (
@@ -240,8 +286,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                 self.skipTest(f"directory link creation is unavailable: {error}")
 
         pack = self.pack(
-            '''    table = kat.dataprovider.Table({"value": int})
-    table.append(value=7)
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [7]}))
     return table'''
         )
         candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
@@ -277,12 +322,11 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self,
     ) -> None:
         pack = self.pack(
-            '''    import _kat_runtime.outputs as output_module
-    def fail_write(table, path, *args, **kwargs):
+            '''    import kat.dataprovider._parquet_writer as writer_module
+    def fail_write(path, schema, *args, **kwargs):
         raise ValueError(f"private output path: {path}")
-    output_module.pq.write_table = fail_write
-    table = kat.dataprovider.Table({"value": int})
-    table.append(value=7)
+    writer_module.pq.ParquetWriter = fail_write
+    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [7]}))
     return table'''
         )
         candidate_id, candidate = self.candidate()
@@ -304,6 +348,36 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertIn("private output path", operation_log)
         self.assertIn(str(candidate), operation_log)
 
+    def test_output_footer_failure_uses_the_shared_private_writer_boundary(
+        self,
+    ) -> None:
+        pack = self.pack(
+            '''    import kat.dataprovider._parquet_writer as writer_module
+    def fail_footer(path):
+        raise ValueError(f"private footer path: {path}")
+    writer_module.pq.read_metadata = fail_footer
+    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [7]}))
+    return table'''
+        )
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate)
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertIn(
+            "Output 'main' could not be materialized",
+            response["error"]["causes"],
+        )
+        rendered = json.dumps(response, ensure_ascii=False)
+        self.assertNotIn(candidate_id, rendered)
+        self.assertNotIn(str(candidate), rendered)
+        operation_log = completed.stderr.decode(errors="replace")
+        self.assertIn("private footer path", operation_log)
+        self.assertIn(str(candidate), operation_log)
+
     def test_output_names_are_portable_file_names(self) -> None:
         for reserved in (
             "con",
@@ -317,7 +391,9 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         ):
             with self.subTest(reserved=reserved):
                 pack = self.pack(
-                    f'''    table = kat.dataprovider.Table({{"value": int}})
+                    f'''    table = kat.dataprovider.Table.from_arrow(
+        pa.table({{"value": [1]}})
+    )
     return {{"{reserved}": table}}'''
                 )
                 candidate_id, candidate = self.candidate()
@@ -338,21 +414,23 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         workflows = pack / "workflows"
         workflows.mkdir(parents=True)
         (workflows / "a.py").write_text(
-            """from kat import Context, dataprovider, workflow
+            """import pyarrow as pa
+from kat import Context, dataprovider, workflow
 @workflow(name='a', description='A.')
 def analyze(ctx: Context):
     \"\"\"A.\"\"\"
-    return dataprovider.Table({'value': int})
+    return dataprovider.Table.from_arrow(pa.table({'value': [1]}))
 """,
             encoding="utf-8",
         )
         (workflows / "b.py").write_text(
-            """from kat import Context, dataprovider, workflow
+            """import pyarrow as pa
+from kat import Context, dataprovider, workflow
 from kat.pack.workflows.a import analyze
 @workflow(name='b', description='B.')
 def other(ctx: Context):
     \"\"\"B.\"\"\"
-    return dataprovider.Table({'value': int})
+    return dataprovider.Table.from_arrow(pa.table({'value': [1]}))
 """,
             encoding="utf-8",
         )

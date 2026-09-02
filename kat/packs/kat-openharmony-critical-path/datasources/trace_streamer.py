@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
+from decimal import Decimal
+import math
 from pathlib import Path
 import sqlite3
 
@@ -89,11 +92,82 @@ class TraceStreamerSQLiteProvider:
         finally:
             connection.close()
 
-        result = dp.Table.from_arrow(pa.Table.from_batches([], schema=schema))
-        for row in rows:
-            result.append(**dict(zip(expected_columns, row, strict=True)))
-        result.to_arrow()
-        return result
+        arrays: list[pa.Array] = []
+        for index, field in enumerate(schema):
+            arrays.append(_result_array(rows, index=index, field=field))
+        return dp.Table.from_arrow(pa.Table.from_arrays(arrays, schema=schema))
+
+
+def _result_array(
+    rows: list[tuple[object | None, ...]],
+    *,
+    index: int,
+    field: pa.Field,
+) -> pa.Array:
+    values = [row[index] for row in rows]
+    expected_types = _expected_python_types(field.type)
+    if expected_types is not None:
+        expected = " or ".join(expected_type.__name__ for expected_type in expected_types)
+        for value in values:
+            if value is not None and type(value) not in expected_types:
+                raise TypeError(
+                    f"Trace Streamer result column {field.name!r} must have exact "
+                    f"type {expected}, got {type(value).__name__}"
+                )
+    try:
+        result = pa.array(values, type=field.type)
+    except TypeError as error:
+        raise TypeError(
+            f"Trace Streamer result column {field.name!r} cannot be represented "
+            f"as {field.type}: {error}"
+        ) from error
+    except (ValueError, OverflowError) as error:
+        raise ValueError(
+            f"Trace Streamer result column {field.name!r} cannot be represented "
+            f"as {field.type}: {error}"
+        ) from error
+
+    if pa.types.is_floating(field.type):
+        for source, encoded in zip(values, result.to_pylist(), strict=True):
+            if (
+                source is not None
+                and math.isfinite(source)
+                and not math.isfinite(encoded)
+            ):
+                raise ValueError(
+                    f"Trace Streamer result column {field.name!r} overflows "
+                    f"{field.type}"
+                )
+    return result
+
+
+def _expected_python_types(
+    data_type: pa.DataType,
+) -> tuple[type[object], ...] | None:
+    if pa.types.is_boolean(data_type):
+        return (bool,)
+    if pa.types.is_integer(data_type):
+        return (int,)
+    if pa.types.is_floating(data_type):
+        return (float,)
+    if (
+        pa.types.is_string(data_type)
+        or pa.types.is_large_string(data_type)
+        or _is_string_view(data_type)
+    ):
+        return (str,)
+    if pa.types.is_binary(data_type) or pa.types.is_large_binary(data_type):
+        return (bytes,)
+    if pa.types.is_timestamp(data_type):
+        return (datetime, kat.WallClockTimestamp)
+    if pa.types.is_decimal128(data_type) or pa.types.is_decimal256(data_type):
+        return (Decimal,)
+    return None
+
+
+def _is_string_view(data_type: pa.DataType) -> bool:
+    predicate = getattr(pa.types, "is_string_view", None)
+    return bool(predicate and predicate(data_type))
 
 
 def _authorize_read_only(

@@ -13,9 +13,9 @@ Htrace 文件 -> trace_streamer <source> -e <workspace>/trace.db -> SQLite
 不把它当作可能进入日志的业务参数。
 
 `query(sql, schema=..., params=...)` 直接在生成的 SQLite 上执行来源内 SQL，并在连接
-关闭后返回 eager `dp.Table`。连接使用 `mode=ro`、`PRAGMA query_only` 和 SQLite
-authorizer，仅允许只读查询。调用方必须用基础 Python 类型按 SQL 投影顺序声明结果
-Schema；实际列名或顺序不一致会失败。
+关闭后从完整 `pyarrow.Table` 构造不可变 eager `dp.Table`。连接使用 `mode=ro`、
+`PRAGMA query_only` 和 SQLite authorizer，仅允许只读查询。调用方必须用基础 Python 类型
+按 SQL 投影顺序声明结果 Schema；实际列名或顺序不一致会失败。
 
 示例只依赖 Trace Streamer 的 `native_hook` relation，并查询：
 

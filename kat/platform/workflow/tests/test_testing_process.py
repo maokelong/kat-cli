@@ -81,6 +81,7 @@ class PackTestingProcessTest(unittest.TestCase):
         )
         (pack / "workflows" / "analyze.py").write_text(
             '''import kat
+import pyarrow as pa
 from kat import dataprovider as dp
 from kat.pack.helpers import rules
 
@@ -91,9 +92,7 @@ from kat.pack.helpers import rules
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0):
     """Analyze generated values."""
-    table = dp.Table({"value": int})
-    table.append(value=minimum + rules.OFFSET)
-    return table
+    return dp.Table.from_arrow(pa.table({"value": [minimum + rules.OFFSET]}))
 ''',
             encoding="utf-8",
         )
@@ -308,7 +307,8 @@ def test_not_selected():
             encoding="utf-8",
         )
         (datasources / "provider_state.py").write_text(
-            '''from kat import dataprovider as dp
+            '''import pyarrow as pa
+from kat import dataprovider as dp
 
 from . import DEFAULT_VALUE
 
@@ -322,9 +322,7 @@ class Provider:
 
     def query(self, value=DEFAULT_VALUE):
         self.query_count += 1
-        table = dp.Table({"value": int})
-        table.append(value=value)
-        return table
+        return dp.Table.from_arrow(pa.table({"value": [value]}))
 
 
 def create():
@@ -387,6 +385,7 @@ def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
         self.replace_workflow(
             pack,
             '''import kat
+import pyarrow as pa
 from kat import dataprovider as dp
 from kat.pack.helpers import datasource_state
 
@@ -400,9 +399,7 @@ def analyze(ctx: kat.Context):
     counter.write_text(str(value), encoding="utf-8")
     datasource_state.roots.append(root)
     datasource_state.contexts.append(ctx)
-    table = dp.Table({"value": int})
-    table.append(value=value)
-    return table
+    return dp.Table.from_arrow(pa.table({"value": [value]}))
 ''',
         )
         self.write_test(

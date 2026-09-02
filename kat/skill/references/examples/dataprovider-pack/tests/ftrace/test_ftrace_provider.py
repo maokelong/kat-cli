@@ -289,7 +289,8 @@ def test_write_failure_removes_partial_catalog_and_keeps_provider_unready(
         clock_domain="fixture_clock",
     )
 
-    def fail_write(_tables, *, destination):
+    def fail_write(schema, *, destination):
+        assert schema is ftrace_module.FTRACE_SCHEMA
         destination.mkdir()
         (destination / "partial.parquet").write_text("partial", encoding="utf-8")
         raise RuntimeError("write failed")

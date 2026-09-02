@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 import re
 import shutil
-from typing import Self
+from typing import Protocol, Self
 
 import kat
 from kat import dataprovider as dp
@@ -81,55 +81,56 @@ class FtraceTextProvider:
         self._fusion = None
         try:
             _remove_owned_catalog(self._catalog_root)
-            tables = FTRACE_SCHEMA.create()
-            events = tables["events"]
-            tracer: str | None = None
-            capture: tuple[int, int, int] | None = None
-            event_index = 0
-            with self._source.open("r", encoding="utf-8") as source:
-                for line_number, raw_line in enumerate(source, start=1):
-                    line = raw_line.rstrip("\r\n")
-                    if not line:
-                        continue
-                    if line.startswith("#"):
-                        tracer_match = _TRACER.fullmatch(line)
-                        if tracer_match is not None:
-                            tracer = tracer_match.group(1)
-                        entries_match = _ENTRIES.fullmatch(line)
-                        if entries_match is not None:
-                            capture = tuple(
-                                int(value) for value in entries_match.groups()
+            with dp.write(FTRACE_SCHEMA, destination=self._catalog_root) as sink:
+                events = sink["events"]
+                tracer: str | None = None
+                capture: tuple[int, int, int] | None = None
+                event_index = 0
+                with self._source.open("r", encoding="utf-8") as source:
+                    for line_number, raw_line in enumerate(source, start=1):
+                        line = raw_line.rstrip("\r\n")
+                        if not line:
+                            continue
+                        if line.startswith("#"):
+                            tracer_match = _TRACER.fullmatch(line)
+                            if tracer_match is not None:
+                                tracer = tracer_match.group(1)
+                            entries_match = _ENTRIES.fullmatch(line)
+                            if entries_match is not None:
+                                capture = tuple(
+                                    int(value) for value in entries_match.groups()
+                                )
+                            continue
+
+                        match = _EVENT.fullmatch(line)
+                        if match is None:
+                            raise ValueError(
+                                f"invalid tracefs event at line {line_number}"
                             )
-                        continue
+                        _append_event(
+                            events,
+                            match,
+                            event_index=event_index,
+                            clock_domain=self._clock_domain,
+                            line_number=line_number,
+                        )
+                        event_index += 1
 
-                    match = _EVENT.fullmatch(line)
-                    if match is None:
-                        raise ValueError(f"invalid tracefs event at line {line_number}")
-                    _append_event(
-                        events,
-                        match,
-                        event_index=event_index,
-                        clock_domain=self._clock_domain,
-                        line_number=line_number,
+                if tracer is None:
+                    raise ValueError("tracefs header is missing tracer")
+                if capture is None:
+                    raise ValueError(
+                        "tracefs header is missing entries-in-buffer/entries-written"
                     )
-                    event_index += 1
-
-            if tracer is None:
-                raise ValueError("tracefs header is missing tracer")
-            if capture is None:
-                raise ValueError(
-                    "tracefs header is missing entries-in-buffer/entries-written"
+                entries_in_buffer, entries_written, cpu_count = capture
+                sink["capture"].append(
+                    tracer=tracer,
+                    clock_domain=self._clock_domain,
+                    ticks_per_second=1_000_000_000,
+                    entries_in_buffer=entries_in_buffer,
+                    entries_written=entries_written,
+                    cpu_count=cpu_count,
                 )
-            entries_in_buffer, entries_written, cpu_count = capture
-            tables["capture"].append(
-                tracer=tracer,
-                clock_domain=self._clock_domain,
-                ticks_per_second=1_000_000_000,
-                entries_in_buffer=entries_in_buffer,
-                entries_written=entries_written,
-                cpu_count=cpu_count,
-            )
-            dp.write(tables, destination=self._catalog_root)
 
             catalog = dp.open(
                 tables={
@@ -171,8 +172,12 @@ def _cleanup_owned_catalog(catalog_root: Path) -> None:
         pass
 
 
+class _RowSink(Protocol):
+    def append(self, **row_values: object | None) -> None: ...
+
+
 def _append_event(
-    table: dp.Table,
+    sink: _RowSink,
     match: re.Match[str],
     *,
     event_index: int,
@@ -181,7 +186,7 @@ def _append_event(
 ) -> None:
     try:
         tgid = match.group("tgid")
-        table.append(
+        sink.append(
             event_index=event_index,
             clock_domain=clock_domain,
             clock_value=_clock_value(

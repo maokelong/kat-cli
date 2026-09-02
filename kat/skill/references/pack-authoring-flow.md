@@ -69,6 +69,10 @@ Decorator 中的 `guide` 是相对 `knowledge/` 的路径，例如 `providers/po
 
 List inspection 会校验全部声明及 guide，但只返回 `name`、`description`，不会把所有 Markdown 放进上下文。选中 detail 后，Runtime 才把对应文件按原样读成 Response 的 `guide` 字符串；Agent 直接使用该字段，不自行组合路径或实现 include。Workflow 未声明 guide 时 detail 返回 `null`；Provider guide 始终返回字符串。
 
+Workflow guide 始终来自当前 PACK 版本，不快照进 Run。它是可信的分析策略，不是 Output
+Schema、证据、结论或可执行控制流；实际 Run Output 的名称、列和类型始终是事实来源。当前
+guide 与旧 Run 不兼容时，不得按 guide 猜测缺失数据，应忽略不适用条款或重新执行 Workflow。
+
 ## 5. Provider inspection 的执行边界
 
 Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
@@ -104,6 +108,34 @@ def summarize_trace(ctx: kat.Context, *, source_path: str):
 ```
 
 `hitrace.decode()` 要求 destination 尚不存在；成功后 destination 的直接子级只含扁平具名 Parquet relation，并返回不可变 `DecodeReport`，列出 unsupported plugin 和 section type。它不创建平台来源身份或持久状态。失败时不要把残留路径、部分 relation 或 unsupported report 当作成功。
+
+自定义 Python Parser 需要处理大输入时，不要先把全部行累积进 eager Table。用
+`dp.write()` 显式选择 relation，让调用线程继续解析、后台线程同时写 Parquet：
+
+```python
+schema = dp.Schema(
+    {
+        "events": {"timestamp": int, "payload": bytes},
+        "capture": {"clock": str},
+    }
+)
+
+with dp.write(schema, destination=relations) as sink:
+    for event in parse_events(source):
+        sink["events"].append(
+            timestamp=event.timestamp,
+            payload=event.payload,
+        )
+    sink["capture"].append(clock="boot")
+
+catalog = dp.open(root=relations)
+```
+
+`append()` 返回只表示该行已经同步校验并被候选物化接纳；只有 `with` 正常退出才表示整个
+目录成功发布。`destination` 的父目录必须存在、其自身必须不存在。批次和队列阈值由 Toolkit
+管理；该入口是一次性只写过程，不提供处理中查询，也不替代查询结果与 Run Output 使用的
+不可变 eager `dp.Table`。`dp.write()` 是唯一公共 Datasource 物化入口；`Schema` 只声明
+多 relation 结构，不创建 Table，`Table` 也不提供逐行 append。
 
 `dp.open(root=...)` 发现一个 flat Parquet 目录；`dp.open(tables=...)` 绑定明确的 relation 路径。需要跨来源融合时，Workflow 先显式调用每个 Datasource Provider 得到 eager Table 或 Catalog，再把具名内存 Table 和至多一个磁盘 Catalog 交给普通 DataFusion Provider：
 

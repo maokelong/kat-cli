@@ -5,16 +5,12 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import TYPE_CHECKING, get_args, get_origin
+from typing import get_args, get_origin
 
 import pyarrow as pa
 
 from .._identifiers import valid_table_name
 from .._temporal import _MAX_TIMESTAMP_NS, _MIN_TIMESTAMP_NS
-
-if TYPE_CHECKING:
-    from ._table import Table
-
 
 _LOGICAL_TYPES = (bool, int, float, str, bytes, datetime, Decimal)
 _INT64_MIN = -(2**63)
@@ -57,14 +53,6 @@ class Schema:
 
     def __getitem__(self, table_name: str) -> Mapping[str, object]:
         return self.__declarations[table_name]
-
-    def create(self) -> dict[str, Table]:
-        from ._table import Table
-
-        return {
-            table_name: Table(columns)
-            for table_name, columns in self.__declarations.items()
-        }
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("Schema values are immutable")
@@ -122,6 +110,36 @@ def _arrow_type(annotation: object) -> pa.DataType:
     if logical_type is Decimal:
         return pa.decimal128(_DECIMAL_PRECISION, _DECIMAL_SCALE)
     raise AssertionError("validated logical type is not mapped to Arrow")
+
+
+def _logical_arrow_schema(logical_schema: Mapping[str, object]) -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field(
+                name,
+                _arrow_type(annotation),
+                nullable=_logical_type(annotation)[1],
+            )
+            for name, annotation in logical_schema.items()
+        ]
+    )
+
+
+def _normalize_logical_row(
+    logical_schema: Mapping[str, object],
+    row_values: Mapping[str, object | None],
+) -> tuple[object | None, ...]:
+    names = tuple(logical_schema)
+    if len(row_values) != len(names) or set(row_values) != set(names):
+        raise ValueError("row values must exactly match the Datasource table columns")
+    return tuple(
+        _normalize_python_value(
+            *_logical_type(logical_schema[name]),
+            row_values[name],
+            location=f"column {name!r}",
+        )
+        for name in names
+    )
 
 
 def _normalize_python_value(
