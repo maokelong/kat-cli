@@ -75,6 +75,19 @@ class DataProviderWriteTest(unittest.TestCase):
                 0,
             )
 
+    def test_write_accepts_self_as_a_schema_column_name(self) -> None:
+        schema = dp.Schema({"events": {"self": int}})
+
+        with tempfile.TemporaryDirectory() as parent:
+            destination = Path(parent) / "facts"
+            with dp.write(schema, destination=destination) as sink:
+                sink["events"].append(**{"self": 7})
+
+            result = dp.DataFusionProvider(catalog=dp.open(root=destination)).query(
+                'SELECT "self" FROM events'
+            )
+            self.assertEqual(result.to_rows(), [{"self": 7}])
+
     def test_invalid_row_is_atomic_and_does_not_poison_the_write_transaction(
         self,
     ) -> None:

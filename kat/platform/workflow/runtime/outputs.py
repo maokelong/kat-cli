@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any, NoReturn
 
-import pyarrow as pa
 from kat.dataprovider import Table
 from kat.dataprovider._parquet_writer import _ParquetRelationWriter
 from kat._identifiers import valid_output_name
@@ -81,13 +80,7 @@ def _write_table(
             arrow_table.schema,
             compression="zstd",
         )
-        for batch in arrow_table.to_batches():
-            if batch.num_rows == 0:
-                continue
-            writer.write_table(
-                pa.Table.from_batches([batch], schema=arrow_table.schema),
-                row_group_size=batch.num_rows,
-            )
+        writer.write_table(arrow_table)
         metadata = writer.close()
     except (Exception, SystemExit) as error:
         if writer is not None:

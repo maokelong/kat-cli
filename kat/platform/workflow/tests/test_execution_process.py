@@ -152,7 +152,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertFalse((candidate / "manifest.json").exists())
 
-    def test_run_writes_arrow_batches_as_zstd_parquet_row_groups(self) -> None:
+    def test_run_does_not_turn_arrow_chunks_into_parquet_row_groups(self) -> None:
         pack = self.pack(
             '''    values = pa.chunked_array([
         pa.array([1, 2], type=pa.int64()),
@@ -184,13 +184,13 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         output = candidate / "outputs" / "main.parquet"
         metadata = pq.read_metadata(output)
-        self.assertEqual(metadata.num_row_groups, 2)
+        self.assertEqual(metadata.num_row_groups, 1)
         self.assertEqual(
             [
                 metadata.row_group(index).column(0).compression
                 for index in range(metadata.num_row_groups)
             ],
-            ["ZSTD", "ZSTD"],
+            ["ZSTD"],
         )
         self.assertFalse((candidate / "manifest.json").exists())
 

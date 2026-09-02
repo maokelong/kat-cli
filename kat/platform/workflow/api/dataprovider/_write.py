@@ -57,7 +57,7 @@ class _RelationSink:
         object.__setattr__(self, "_RelationSink__transaction", transaction)
         object.__setattr__(self, "_RelationSink__relation_name", relation_name)
 
-    def append(self, **row_values: object | None) -> None:
+    def append(self, /, **row_values: object | None) -> None:
         self.__transaction._append(self.__relation_name, row_values)
 
     def __setattr__(self, name: str, value: object) -> None:
