@@ -21,6 +21,9 @@ _READ_ONLY_SQLITE_ACTIONS = frozenset(
         sqlite3.SQLITE_SELECT,
     }
 )
+_MIN_TIMESTAMP_NS = -(2**63)
+_MAX_TIMESTAMP_NS = 2**63 - 1
+_UNIX_EPOCH = datetime(1970, 1, 1)
 
 
 @kat.provider(
@@ -114,6 +117,16 @@ def _result_array(
                     f"Trace Streamer result column {field.name!r} must have exact "
                     f"type {expected}, got {type(value).__name__}"
                 )
+    if pa.types.is_timestamp(field.type):
+        values = [
+            None
+            if value is None
+            else _timestamp_nanoseconds(
+                value,
+                location=f"Trace Streamer result column {field.name!r}",
+            )
+            for value in values
+        ]
     try:
         result = pa.array(values, type=field.type)
     except TypeError as error:
@@ -139,6 +152,41 @@ def _result_array(
                     f"{field.type}"
                 )
     return result
+
+
+def _timestamp_nanoseconds(
+    value: datetime | kat.WallClockTimestamp,
+    *,
+    location: str,
+) -> int:
+    if type(value) is kat.WallClockTimestamp:
+        base, _, fraction = str(value)[:-1].partition(".")
+        instant = datetime.fromisoformat(base)
+        delta = instant - _UNIX_EPOCH
+        return (
+            (delta.days * 86_400 + delta.seconds) * 1_000_000_000
+            + int(fraction.ljust(9, "0") or "0")
+        )
+
+    assert type(value) is datetime
+    try:
+        offset = value.utcoffset()
+    except Exception as error:
+        raise ValueError(f"{location} must have a valid UTC offset") from error
+    if offset is None:
+        raise ValueError(f"{location} must be timezone-aware")
+    try:
+        utc_value = value.replace(tzinfo=None) - offset
+    except (OverflowError, ValueError) as error:
+        raise ValueError(f"{location} cannot be normalized to UTC") from error
+    delta = utc_value - _UNIX_EPOCH
+    nanoseconds = (
+        (delta.days * 86_400 + delta.seconds) * 1_000_000_000
+        + delta.microseconds * 1_000
+    )
+    if not _MIN_TIMESTAMP_NS <= nanoseconds <= _MAX_TIMESTAMP_NS:
+        raise ValueError(f"{location} is outside the timestamp(ns) range")
+    return nanoseconds
 
 
 def _expected_python_types(

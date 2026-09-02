@@ -69,10 +69,6 @@ Decorator 中的 `guide` 是相对 `knowledge/` 的路径，例如 `providers/po
 
 List inspection 会校验全部声明及 guide，但只返回 `name`、`description`，不会把所有 Markdown 放进上下文。选中 detail 后，Runtime 才把对应文件按原样读成 Response 的 `guide` 字符串；Agent 直接使用该字段，不自行组合路径或实现 include。Workflow 未声明 guide 时 detail 返回 `null`；Provider guide 始终返回字符串。
 
-Workflow guide 始终来自当前 PACK 版本，不快照进 Run。它是可信的分析策略，不是 Output
-Schema、证据、结论或可执行控制流；实际 Run Output 的名称、列和类型始终是事实来源。当前
-guide 与旧 Run 不兼容时，不得按 guide 猜测缺失数据，应忽略不适用条款或重新执行 Workflow。
-
 ## 5. Provider inspection 的执行边界
 
 Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
