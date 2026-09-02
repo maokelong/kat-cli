@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 import shutil
 import sqlite3
@@ -8,6 +7,7 @@ import subprocess
 
 import kat
 from kat import dataprovider as dp
+import pyarrow as pa
 
 
 NATIVE_HOOK_SUMMARY_SQL = """
@@ -21,11 +21,13 @@ GROUP BY event_type
 ORDER BY event_type
 """
 
-NATIVE_HOOK_SUMMARY_SCHEMA = {
-    "event_type": str,
-    "event_count": int,
-    "total_heap_size": int,
-}
+NATIVE_HOOK_SUMMARY_SCHEMA = pa.schema(
+    [
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("event_count", pa.int64(), nullable=False),
+        pa.field("total_heap_size", pa.int64(), nullable=False),
+    ]
+)
 
 _READ_ONLY_SQLITE_ACTIONS = frozenset(
     {
@@ -124,17 +126,16 @@ class TraceStreamerProvider:
         self,
         sql: str,
         *,
-        schema: Mapping[str, object],
+        schema: pa.Schema,
         params: object | None = None,
     ) -> dp.Table:
         if self._database is None:
             raise RuntimeError("Trace Streamer Provider must decode before query")
         if type(sql) is not str or not sql.strip():
             raise TypeError("Trace Streamer SQL must be a non-empty string")
-        if not isinstance(schema, Mapping):
-            raise TypeError("Trace Streamer query schema must be a mapping")
-        validated_schema = dp.Schema({"result": dict(schema.items())})
-        expected_columns = tuple(validated_schema["result"])
+        if not isinstance(schema, pa.Schema):
+            raise TypeError("Trace Streamer query schema must be a PyArrow schema")
+        expected_columns = tuple(schema.names)
 
         try:
             connection = _open_query_connection(self._database)
@@ -162,14 +163,13 @@ class TraceStreamerProvider:
         except sqlite3.Error:
             raise RuntimeError("Trace Streamer query failed") from None
 
-        result = validated_schema.create()["result"]
-        for row in rows:
-            result.append(
-                **dict(zip(expected_columns, row, strict=True)),
-            )
-        del rows
-        result.to_arrow()
-        return result
+        return dp.Table.from_rows(
+            (
+                dict(zip(expected_columns, row, strict=True))
+                for row in rows
+            ),
+            schema=schema,
+        )
 
 
 def _open_read_only(database: Path) -> sqlite3.Connection:

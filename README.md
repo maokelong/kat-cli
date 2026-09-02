@@ -157,8 +157,8 @@ PACK Authoring API 向每次显式 Workflow 调用提供一个 `kat.Context`。C
 
 PACK 可在顶层 `datasources/` 中定义普通 Provider 类并由 Workflow 显式调用；
 生产 Workflow Runtime 不扫描、注册、构造或包装 Provider，只有显式的 Provider
-inspection 会扫描其 metadata declaration。可追加 Table、Schema、Parquet 写入/打开
-与显式本地融合统一由 `kat.dataprovider` Toolkit 提供，推荐导入为
+inspection 会扫描其 metadata declaration。不可变 Table、Datasource Schema、唯一的
+流式 Parquet 写入、Parquet Catalog 打开与显式本地融合由 `kat.dataprovider` Toolkit 提供，推荐导入为
 `from kat import dataprovider as dp`；多个内存 Table、Parquet Catalog 或两者的混合
 通过普通 `dp.DataFusionProvider` 查询，不进入 Workflow Context 的隐式 catalog。
 Workflow 必须返回精确的 `dp.Table`，或返回一个非空普通 `dict`，其字符串键是 Output

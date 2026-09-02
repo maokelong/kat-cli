@@ -57,7 +57,7 @@ Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，指导�
 KAT 在一次 Workflow 调用内提供的窄能力对象，只通过 `datasource_root` 暴露当前 PACK 在 KAT Data Home 下的私有存储范围。Context 不查询来源、不持有查询 Session、不转换引擎值，也不创建、发现、包装或自动关闭 Provider。它只在当前调用期间有效，不是用户输入，也不存在隐式全局当前 Context。
 
 **Datasource root**:
-`ctx.datasource_root` 返回的当前 PACK 私有目录能力。文件 Provider 在其下为当前 Workflow 创建临时 workspace，再把普通路径显式传给来源 API；它不是跨 Workflow cache 或需要在输出中暴露的用户路径。
+`ctx.datasource_root` 返回的当前 PACK 私有目录能力。文件 Provider 可以在其下创建当前 Workflow 的临时 workspace，也可以管理依据稳定来源身份命名、可确定重建的内部目录，再把普通路径显式传给来源 API；它不是 KAT 平台状态或需要在输出中暴露的用户路径。
 
 **Workflow arguments**:
 调用 Workflow 时提供的原始具名文本输入。它们尚未表达类型、默认值或业务语义，只有选定的 Workflow 才能把它们解释为 Workflow input values。
@@ -84,19 +84,19 @@ _Avoid_: Source executor、KAT Provider facade
 Provider declaration 必须引用的 PACK 自有 Markdown 来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。它服务 PACK 开发，不是 Workflow 分析策略，也不规定 Provider 固定方法。
 
 **Data Provider Toolkit**:
-`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它包含 Schema、Table、Parquet 写入与打开、Catalog 和具体 DataFusion Provider，但不定义 Datasource Provider 基类，不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
+`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它提供 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力，但不是 Database facade，不拥有 Datasource Provider 的来源定位、decode、query 或生命周期，也不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
 
 **Datasource Schema**:
-PACK 通过 `dp.Schema` 保存的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的事实结构，并能创建与每张声明对应的 Table。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Table 构造与追加合同，不是打开既有 Parquet 时必须提供的持久化 Schema。
+PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的多表事实结构。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Provider 产出事实的逻辑合同，也是 `dp.write()` 创建一次 Datasource 流式写事务时唯一需要的结构声明，但不是 Database 定义或打开既有 Parquet 时必须提供的持久化 Schema。
 
 **Table**:
-一个具有明确列结构、可追加并可重复读取的 eager 单表值。Datasource Schema 创建、`dp.Table.from_arrow()`、Source query 与 Fusion query 都产生这种值；Table 不携带固有名称，Schema 表名、Fusion relation name、Parquet 表名和 Run Output name 都由各自边界的 Mapping 表达。Workflow 的标准 Output 只能是精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 且每个值都是精确 Table。
+一个已经完成、具有明确物理列结构、不可变且可重复读取的 eager 单表值。Source query、Fusion query、已经形成的 Arrow 数据，以及带显式 PyArrow Schema 的完整小型 Python rows 可以产生 Table；它不是逐行构建器、Datasource Schema 的可写实例或隐式持久化指令。Table 不携带固有名称，Fusion relation name、Parquet relation name 和 Run Output name 都由各自边界表达；它是 Workflow 首版唯一允许产生的 Output value。
 
 **Source catalog**:
 Datasource Provider 私有的来源 relation 集合及名称映射，只供该 Provider 的 Source query 使用。KAT 不规定其发现或布局，也不把其中关系自动传给 DataFusion Provider。
 
 **Parquet catalog**:
-以 Parquet 文件承载多张具名 relation 的只读集合，可以由 `dp.write()` 产生，也可以接入已有 Parser 产物。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合；`dp.open(tables=...)` 显式绑定调用方列出的 relation 路径。两者从 Parquet footer 取得物理结构。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，本身不创建 Session、执行 SQL 或持有查询结果；它只能显式交给 DataFusion Provider 扫描。
+以 Parquet 文件承载多张具名 relation 的只读集合，可以由以 Datasource Schema 约束的 `dp.write()` 流式写事务产生，也可以接入已有 Parser 产物。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合；`dp.open(tables=...)` 显式绑定调用方列出的 relation 路径。两者从 Parquet footer 取得物理结构。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，本身不创建 Session、执行 SQL 或持有查询结果；它只能显式交给 DataFusion Provider 扫描。
 
 **Source query**:
 Workflow 显式交给 Datasource Provider、由该 Provider 在一个来源内解释的查询。其方言、参数和来源内关系组合属于 Datasource；KAT 不把它解析或拆分成跨来源计划。它不同于 DataFusion Provider 执行的 Fusion query。
@@ -115,7 +115,11 @@ DataFusion Provider 对 Workflow 显式提供的内存 Table、Parquet Catalog �
 PACK 通过独立 `kat-datasource` wheel 的 `kat_datasource.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 通常把 destination 放进 `ctx.datasource_root` 下的临时 workspace，再用 `dp.open(root=destination)` 打开；解码结果不是平台持久状态，也不会自动成为 Run Output。
 
 **Datasource materialization**:
-Datasource Provider 为来源查询准备的本地 backend，其格式与生命周期属于当前 PACK。文件 Provider 只在当前 Workflow 内、`ctx.datasource_root` 的临时子目录中使用这类产物，eager Table 脱离来源后即可清理；它不是跨 Workflow cache、KAT 平台状态、Provider query result 或 Run Output。
+Datasource Provider 为来源查询准备的本地 backend，其格式与生命周期属于当前 PACK。文件 Provider 可以在当前 Workflow 的私有临时目录中使用这类产物，也可以依据稳定来源身份在 `ctx.datasource_root` 下跨 Workflow 复用可确定重建的内部目录；它不是 KAT 平台状态、Provider query result 或 Run Output。
+
+**Streaming materialization**:
+自定义 Parser 在不先形成完整 eager Table 的前提下，持续形成完整 Datasource materialization 的作者能力。`dp.write(schema, destination=...)` 是该能力唯一的公共入口：它产生一次性、多 relation、只写事务，并只在全部输入成功结束后发布可由 `dp.open()` 打开的 Parquet 目录。它不是 Table、解析中的部分 Catalog 或 Run Output；独立 `materialize` API、接受完整 Table Mapping 的 eager `write` 重载和可追加 Table 都不属于该模型。
+_Avoid_: Streaming Table、Disk-backed Table
 
 **Trace fact**:
 Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多个 PACK 复用的来源事实。它仍是来源数据，不是预先计算的分析结果。
@@ -137,7 +141,7 @@ Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多�
 一个 Run 的唯一持久清单，记录 Run 身份及其 PACK、Workflow、有效输入和 Run Output 元数据。新 Manifest 不记录来源选择；Query 为读取历史 Run 而忽略任意 JSON 形状的旧 `dataset` 字段，但不会据此注册关系或恢复旧能力。Manifest 不记录失败状态，也不承载 Analysis Result。
 
 **Run Output**:
-随 Run 持久发布的具名结构化程序产物，只来源于 Workflow 返回的标准 Table Output，并可供后续 Output Query 使用。单值使用 `main`，多个值由非空普通 dict 显式命名；Table 自身不携带 Output name。Run Output 的 Parquet 数据合同独立于某次查询采用的 Arrow JSON 映射。它不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
+随 Run 持久发布的具名不可变表格事实，只能来源于 Workflow 返回的精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 中的精确 Table；单值命名为 `main`，多值由 dict key 显式命名。Runtime 私下把它保存为 Parquet，但物理文件、任意 Python 对象、裸路径、Markdown 或 JSON 都不是首版 Run Output；它也不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
 _Avoid_: Artifact、Result
 
 **Output Query**:

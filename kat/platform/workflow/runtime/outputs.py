@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, NoReturn
 
-import pyarrow.parquet as pq
 from kat.dataprovider import Table
+from kat.dataprovider._parquet_writer import _ParquetRelationWriter
 from kat._identifiers import valid_output_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,11 +73,27 @@ def _write_table(
     table: Table, output_path: Path, output_name: str
 ) -> dict[str, Any]:
     arrow_table = table.to_arrow()
+    writer: _ParquetRelationWriter | None = None
     try:
-        pq.write_table(arrow_table, output_path, compression="zstd")
-    except (Exception, SystemExit):
+        writer = _ParquetRelationWriter(
+            output_path,
+            arrow_table.schema,
+            compression="zstd",
+        )
+        writer.write_table(arrow_table)
+        metadata = writer.close()
+    except (Exception, SystemExit) as error:
+        if writer is not None:
+            try:
+                writer.close()
+            except (Exception, SystemExit) as close_error:
+                if close_error is not error:
+                    error.add_note(
+                        "Run Output writer also failed while closing: "
+                        f"{type(close_error).__name__}: {close_error}"
+                    )
         _raise_output_write_error(output_name)
-    return _output_metadata(arrow_table.schema, arrow_table.num_rows)
+    return _output_metadata(metadata.schema, metadata.row_count)
 
 
 def _output_metadata(schema: Any, row_count: int) -> dict[str, Any]:

@@ -2,11 +2,21 @@ from pathlib import Path
 import sqlite3
 import sys
 
+import pyarrow as pa
 import pytest
 
 from kat import dataprovider as dp
 from kat.pack.datasources import trace_streamer as trace_streamer_module
 from kat.pack.datasources.trace_streamer import TraceStreamerProvider
+
+
+def _schema(**columns: pa.DataType) -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field(name, data_type, nullable=False)
+            for name, data_type in columns.items()
+        ]
+    )
 
 
 def _successful_trace_streamer(tmp_path: Path) -> tuple[Path, Path]:
@@ -64,7 +74,7 @@ def test_query_before_decode_is_rejected(tmp_path: Path):
     assert type(provider) is TraceStreamerProvider
     assert not hasattr(provider, "context")
     with pytest.raises(RuntimeError, match="decode"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
 
 def test_decode_then_query_returns_a_reusable_eager_table(tmp_path: Path):
@@ -83,11 +93,15 @@ def test_decode_then_query_returns_a_reusable_eager_table(tmp_path: Path):
         GROUP BY event_type
         ORDER BY event_type
         """,
-        schema={"event_type": str, "event_count": int, "heap_size": int},
+        schema=_schema(
+            event_type=pa.string(),
+            event_count=pa.int64(),
+            heap_size=pa.int64(),
+        ),
     )
     second = provider.query(
         "SELECT event_type, heap_size FROM native_hook ORDER BY rowid",
-        schema={"event_type": str, "heap_size": int},
+        schema=_schema(event_type=pa.string(), heap_size=pa.int64()),
     )
 
     assert decoded is provider
@@ -123,7 +137,7 @@ def test_failed_redecode_discards_old_and_current_workspaces(tmp_path: Path):
 
     assert not workspace.exists()
     with pytest.raises(RuntimeError, match="decode"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
 
 def test_decode_removes_the_lexical_workspace_leaf(monkeypatch, tmp_path: Path):
@@ -173,7 +187,7 @@ def test_workspace_removal_failure_keeps_provider_unready_and_retries_cleanup(
 
     assert removed == [workspace, workspace]
     with pytest.raises(RuntimeError, match="decode"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
 
 def test_new_provider_rebuilds_the_same_owned_workspace(tmp_path: Path):
@@ -235,7 +249,7 @@ def test_decode_accepts_only_a_valid_sqlite_with_relations(
 
     assert not workspace.exists()
     with pytest.raises(RuntimeError, match="decode"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
 
 def test_query_is_read_only_and_can_retry_after_failure(tmp_path: Path):
@@ -249,12 +263,12 @@ def test_query_is_read_only_and_can_retry_after_failure(tmp_path: Path):
     with pytest.raises(RuntimeError, match="query failed"):
         provider.query(
             "DELETE FROM native_hook RETURNING event_type",
-            schema={"event_type": str},
+            schema=_schema(event_type=pa.string()),
         )
 
     result = provider.query(
         "SELECT COUNT(*) AS event_count FROM native_hook",
-        schema={"event_count": int},
+        schema=_schema(event_count=pa.int64()),
     )
     assert result.to_rows() == [{"event_count": 3}]
 
@@ -271,13 +285,13 @@ def test_query_rejects_attach_without_creating_a_file_and_can_retry(tmp_path: Pa
     with pytest.raises(RuntimeError, match="query failed"):
         provider.query(
             f"ATTACH DATABASE '{attached.as_posix()}' AS attached",
-            schema={"value": int},
+            schema=_schema(value=pa.int64()),
         )
 
     assert not attached.exists()
     assert provider.query(
         "SELECT COUNT(*) AS event_count FROM native_hook",
-        schema={"event_count": int},
+        schema=_schema(event_count=pa.int64()),
     ).to_rows() == [{"event_count": 3}]
 
 
@@ -305,7 +319,7 @@ def test_query_closes_a_connection_when_read_only_setup_fails(
     monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(RuntimeError, match="query failed"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
     assert connection.closed
 
@@ -320,10 +334,10 @@ def test_query_requires_non_empty_sql(tmp_path: Path, sql: object):
     ).decode()
 
     with pytest.raises(TypeError, match="non-empty string"):
-        provider.query(sql, schema={"value": int})
+        provider.query(sql, schema=_schema(value=pa.int64()))
 
 
-def test_query_schema_must_be_a_mapping(tmp_path: Path):
+def test_query_schema_must_be_a_pyarrow_schema(tmp_path: Path):
     executable, source = _successful_trace_streamer(tmp_path)
     provider = TraceStreamerProvider(
         source=source,
@@ -331,14 +345,11 @@ def test_query_schema_must_be_a_mapping(tmp_path: Path):
         workspace=tmp_path / "workspace",
     ).decode()
 
-    with pytest.raises(TypeError, match="schema.*mapping"):
-        provider.query("SELECT 1 AS value", schema=[("value", int)])
+    with pytest.raises(TypeError, match="schema.*PyArrow"):
+        provider.query("SELECT 1 AS value", schema={"value": int})
 
 
-def test_invalid_query_schema_is_rejected_before_source_io(
-    tmp_path: Path,
-    monkeypatch,
-):
+def test_query_rejects_an_unsupported_physical_schema(tmp_path: Path):
     executable, source = _successful_trace_streamer(tmp_path)
     provider = TraceStreamerProvider(
         source=source,
@@ -346,17 +357,11 @@ def test_invalid_query_schema_is_rejected_before_source_io(
         workspace=tmp_path / "workspace",
     ).decode()
 
-    def unexpected_open(_database):
-        raise AssertionError("invalid Schema must fail before opening SQLite")
-
-    monkeypatch.setattr(
-        trace_streamer_module,
-        "_open_query_connection",
-        unexpected_open,
-    )
-
-    with pytest.raises(TypeError, match="Datasource columns"):
-        provider.query("SELECT 1 AS value", schema={"value": list})
+    with pytest.raises(TypeError, match="unsupported Arrow type"):
+        provider.query(
+            "SELECT 1 AS value",
+            schema=_schema(value=pa.list_(pa.int64())),
+        )
 
 
 def test_process_start_failure_is_a_clean_decode_failure(tmp_path: Path):
@@ -376,7 +381,7 @@ def test_process_start_failure_is_a_clean_decode_failure(tmp_path: Path):
 
     assert not workspace.exists()
     with pytest.raises(RuntimeError, match="decode"):
-        provider.query("SELECT 1 AS value", schema={"value": int})
+        provider.query("SELECT 1 AS value", schema=_schema(value=pa.int64()))
 
 
 def test_query_enforces_schema_order_then_can_retry_with_parameters(
@@ -392,7 +397,7 @@ def test_query_enforces_schema_order_then_can_retry_with_parameters(
     with pytest.raises(ValueError) as captured:
         provider.query(
             "SELECT event_type, heap_size FROM native_hook",
-            schema={"heap_size": int, "event_type": str},
+            schema=_schema(heap_size=pa.int64(), event_type=pa.string()),
         )
     message = str(captured.value)
     assert "expected ('heap_size', 'event_type')" in message
@@ -404,12 +409,12 @@ def test_query_enforces_schema_order_then_can_retry_with_parameters(
         FROM native_hook
         WHERE heap_size > :minimum
         """,
-        schema={"event_type": str, "heap_size": int},
+        schema=_schema(event_type=pa.string(), heap_size=pa.int64()),
         params={"minimum": 100},
     )
     all_null = provider.query(
         "SELECT NULL AS note FROM native_hook LIMIT 1",
-        schema={"note": str | None},
+        schema=pa.schema([pa.field("note", pa.string(), nullable=True)]),
     )
 
     assert empty.columns == ("event_type", "heap_size")
@@ -431,7 +436,7 @@ def test_decode_resolves_relative_paths_before_switching_workspace(
 
     result = provider.query(
         "SELECT COUNT(*) AS event_count FROM native_hook",
-        schema={"event_count": int},
+        schema=_schema(event_count=pa.int64()),
     )
 
     assert result.to_rows() == [{"event_count": 3}]

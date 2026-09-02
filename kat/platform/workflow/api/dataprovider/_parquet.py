@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 from types import MappingProxyType
 
 import pyarrow as pa
@@ -11,46 +10,9 @@ import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
 from .._identifiers import valid_table_name
-from ._table import Table
 
 
 _CATALOG_CONSTRUCTION_TOKEN = object()
-
-
-def write(tables: Mapping[str, Table], *, destination: Path) -> None:
-    """Synchronously write a named Table mapping to a new flat directory."""
-    _require_path(destination, "destination")
-    if not isinstance(tables, Mapping):
-        raise TypeError("dp.write tables must be a Mapping of names to dp.Table values")
-
-    snapshot = dict(tables.items())
-    if not snapshot:
-        raise ValueError("dp.write tables must not be empty")
-
-    arrow_tables: dict[str, pa.Table] = {}
-    for table_name, value in snapshot.items():
-        _require_table_name(table_name)
-        if not isinstance(value, Table):
-            raise TypeError(f"table {table_name!r} must be a dp.Table")
-        arrow_tables[table_name] = value.to_arrow()
-
-    created = False
-    try:
-        destination.mkdir()
-        created = True
-        for table_name, arrow_table in arrow_tables.items():
-            pq.write_table(arrow_table, destination / f"{table_name}.parquet")
-    except BaseException as error:
-        if created:
-            try:
-                shutil.rmtree(destination)
-            except BaseException as cleanup_error:
-                _add_note(
-                    error,
-                    "Datasource write also failed to clean its destination",
-                    cleanup_error,
-                )
-        raise
 
 
 def open(
@@ -265,10 +227,3 @@ def _read_and_validate_parts(
     if first is None:
         raise ValueError(f"table {table_name!r} must contain at least one Parquet file")
     return first
-
-
-def _add_note(primary: BaseException, message: str, secondary: BaseException) -> None:
-    try:
-        primary.add_note(f"{message}: {secondary}")
-    except BaseException:
-        pass

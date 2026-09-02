@@ -18,8 +18,6 @@ _READ_ONLY_SQLITE_ACTIONS = frozenset(
         sqlite3.SQLITE_SELECT,
     }
 )
-
-
 @kat.provider(
     name="trace-streamer-sqlite",
     description="以只读 SQL 查询 Thread CPU Time 使用的 Trace Streamer SQLite 数据库。",
@@ -89,11 +87,13 @@ class TraceStreamerSQLiteProvider:
         finally:
             connection.close()
 
-        result = dp.Table.from_arrow(pa.Table.from_batches([], schema=schema))
-        for row in rows:
-            result.append(**dict(zip(expected_columns, row, strict=True)))
-        result.to_arrow()
-        return result
+        return dp.Table.from_rows(
+            (
+                dict(zip(expected_columns, row, strict=True))
+                for row in rows
+            ),
+            schema=schema,
+        )
 
 
 def _authorize_read_only(

@@ -1,22 +1,14 @@
 from __future__ import annotations
 
-import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
+import math
 
 import pyarrow as pa
 
 from .._temporal import WallClockTimestamp, _wall_clock_nanoseconds
-from ._schema import (
-    _arrow_type,
-    _datetime_nanoseconds,
-    _freeze_table_schema,
-    _logical_type,
-    _normalize_python_value,
-    _require_utf8_text,
-    _rescale_decimal,
-)
+from ._schema import _datetime_nanoseconds, _require_utf8_text, _rescale_decimal
 
 
 _NANOSECONDS_PER_SECOND = 1_000_000_000
@@ -24,32 +16,14 @@ _UNIX_EPOCH = datetime(1970, 1, 1)
 
 
 class Table:
-    """An eager, appendable single-table value backed by Arrow chunks."""
+    """An eager, immutable single-table value backed by Arrow."""
 
-    __slots__ = ("__arrow", "__logical_schema", "__pending")
+    __slots__ = ("__arrow",)
 
-    def __init__(self, schema: Mapping[str, object]) -> None:
-        logical_schema = _freeze_table_schema(schema)
-        arrow_schema = pa.schema(
-            [
-                pa.field(
-                    name,
-                    _arrow_type(annotation),
-                    nullable=_logical_type(annotation)[1],
-                )
-                for name, annotation in logical_schema.items()
-            ]
+    def __new__(cls, *args: object, **kwargs: object) -> Table:
+        raise TypeError(
+            "Table values must be created with Table.from_arrow() or Table.from_rows()"
         )
-        object.__setattr__(
-            self,
-            "_Table__arrow",
-            pa.Table.from_arrays(
-                [pa.chunked_array([], type=field.type) for field in arrow_schema],
-                schema=arrow_schema,
-            ),
-        )
-        object.__setattr__(self, "_Table__logical_schema", logical_schema)
-        object.__setattr__(self, "_Table__pending", [])
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         raise TypeError("Table cannot be subclassed")
@@ -59,37 +33,43 @@ class Table:
         _admit_arrow_table(arrow_table)
         table = object.__new__(cls)
         object.__setattr__(table, "_Table__arrow", arrow_table)
-        object.__setattr__(table, "_Table__logical_schema", None)
-        object.__setattr__(table, "_Table__pending", [])
         return table
 
-    def append(self, **row_values: object | None) -> None:
-        names = self.columns
-        if len(row_values) != len(names) or set(row_values) != set(names):
-            raise ValueError("row values must exactly match the Table columns")
-
-        if self.__logical_schema is not None:
-            normalized = tuple(
-                _normalize_python_value(
-                    *_logical_type(self.__logical_schema[name]),
-                    row_values[name],
-                    location=f"column {name!r}",
+    @classmethod
+    def from_rows(
+        cls,
+        rows: Iterable[Mapping[str, object | None]],
+        *,
+        schema: pa.Schema,
+    ) -> Table:
+        _admit_arrow_schema(schema)
+        names = tuple(schema.names)
+        columns: list[list[object | None]] = [[] for _ in schema]
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, Mapping):
+                raise TypeError(f"Table row {row_index} must be a mapping")
+            if len(row) != len(names) or set(row) != set(names):
+                raise ValueError(
+                    f"Table row {row_index} fields must exactly match the Table columns"
                 )
-                for name in names
-            )
-        else:
             normalized = tuple(
                 _normalize_physical_value(
-                    self.__arrow.schema.field(name),
-                    row_values[name],
-                    location=f"column {name!r}",
+                    field,
+                    row[field.name],
+                    location=f"Table row {row_index}, column {field.name!r}",
                 )
-                for name in names
+                for field in schema
             )
-        self.__pending.append(normalized)
+            for column, value in zip(columns, normalized, strict=True):
+                column.append(value)
+        arrays = [
+            pa.array(column, type=field.type)
+            for column, field in zip(columns, schema, strict=True)
+        ]
+        return cls.from_arrow(pa.Table.from_arrays(arrays, schema=schema))
 
     def __len__(self) -> int:
-        return self.to_arrow().num_rows
+        return self.__arrow.num_rows
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -98,39 +78,23 @@ class Table:
     def __getitem__(self, column_name: str) -> tuple[object | None, ...]:
         if type(column_name) is not str or column_name not in self.__arrow.column_names:
             raise KeyError(column_name)
-        return _column_to_python(self.to_arrow().column(column_name))
+        return _column_to_python(self.__arrow.column(column_name))
 
     def to_rows(self) -> list[dict[str, object | None]]:
-        snapshot = self.to_arrow()
         names = self.columns
-        columns = [_column_to_python(snapshot.column(name)) for name in names]
+        columns = [_column_to_python(self.__arrow.column(name)) for name in names]
         return [
             {name: columns[column_index][row_index] for column_index, name in enumerate(names)}
             for row_index in range(len(self))
         ]
 
     def to_arrow(self) -> pa.Table:
-        if self.__pending:
-            arrays = [
-                pa.array(
-                    [row[column_index] for row in self.__pending],
-                    type=field.type,
-                )
-                for column_index, field in enumerate(self.__arrow.schema)
-            ]
-            columns = [
-                pa.chunked_array(
-                    [*self.__arrow.column(index).chunks, arrays[index]],
-                    type=field.type,
-                )
-                for index, field in enumerate(self.__arrow.schema)
-            ]
-            snapshot = pa.Table.from_arrays(columns, schema=self.__arrow.schema)
-            object.__setattr__(self, "_Table__arrow", snapshot)
-            self.__pending.clear()
         return self.__arrow
 
     def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("Table attributes are immutable")
+
+    def __delattr__(self, name: str) -> None:
         raise AttributeError("Table attributes are immutable")
 
 
@@ -138,22 +102,30 @@ def _admit_arrow_table(arrow_table: pa.Table) -> None:
     if not isinstance(arrow_table, pa.Table):
         raise TypeError("standard Table backing must be a pyarrow.Table")
     arrow_table.validate(full=True)
-    if arrow_table.num_columns == 0:
+    _admit_arrow_schema(arrow_table.schema)
+
+    for index, field in enumerate(arrow_table.schema):
+        if not field.nullable and arrow_table.column(index).null_count:
+            raise ValueError(
+                f"non-nullable column {field.name!r} contains null values"
+            )
+
+
+def _admit_arrow_schema(arrow_schema: pa.Schema) -> None:
+    if not isinstance(arrow_schema, pa.Schema):
+        raise TypeError("standard Table row schema must be a pyarrow.Schema")
+    if len(arrow_schema) == 0:
         raise ValueError("a standard Table must contain at least one column")
 
-    names = arrow_table.column_names
+    names = arrow_schema.names
     if any(type(name) is not str or not name for name in names):
         raise ValueError("standard Table column names must be non-empty strings")
     if len(set(names)) != len(names):
         raise ValueError("standard Table column names must be unique")
 
-    for index, field in enumerate(arrow_table.schema):
+    for field in arrow_schema:
         if not _is_admitted_type(field.type):
             raise TypeError(f"column {field.name!r} has unsupported Arrow type {field.type}")
-        if not field.nullable and arrow_table.column(index).null_count:
-            raise ValueError(
-                f"non-nullable column {field.name!r} contains null values"
-            )
 
 
 def _normalize_physical_value(
@@ -216,10 +188,15 @@ def _normalize_physical_value(
             scale=data_type.scale,
             location=location,
         )
-    raise AssertionError(f"admitted Arrow type {data_type} has no append encoding")
+    raise AssertionError(f"admitted Arrow type {data_type} has no row encoding")
 
 
-def _require_exact_type(value: object, expected: type[object], *, location: str) -> None:
+def _require_exact_type(
+    value: object,
+    expected: type[object],
+    *,
+    location: str,
+) -> None:
     if type(value) is not expected:
         raise TypeError(
             f"{location} must have exact type {expected.__name__}, "

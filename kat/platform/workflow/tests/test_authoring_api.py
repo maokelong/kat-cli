@@ -280,6 +280,20 @@ class AuthoringApiTest(unittest.TestCase):
                 "open",
             },
         )
+        self.assertFalse(hasattr(kat.dataprovider, "materialize"))
+
+        write_signature = inspect.signature(kat.dataprovider.write)
+        self.assertEqual(tuple(write_signature.parameters), ("schema", "destination"))
+        self.assertEqual(
+            write_signature.parameters["destination"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+        from_rows_signature = inspect.signature(kat.dataprovider.Table.from_rows)
+        self.assertEqual(tuple(from_rows_signature.parameters), ("rows", "schema"))
+        self.assertEqual(
+            from_rows_signature.parameters["schema"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
         self.assertNotIn("datasource", kat.__all__)
         self.assertFalse(hasattr(kat, "datasource"))
 
@@ -293,7 +307,9 @@ class AuthoringApiTest(unittest.TestCase):
             "DataFusionProvider",
             "table",
             "from_arrow",
+            "from_rows",
             "to_arrow",
+            "materialize",
             "write",
             "open",
         ):
@@ -301,7 +317,7 @@ class AuthoringApiTest(unittest.TestCase):
                 self.assertNotIn(name, kat.__all__)
                 self.assertFalse(hasattr(kat, name))
 
-        for name in ("table", "from_arrow", "to_arrow"):
+        for name in ("table", "from_arrow", "from_rows", "to_arrow"):
             with self.subTest(dataprovider_name=name):
                 self.assertFalse(hasattr(kat.dataprovider, name))
 
@@ -324,8 +340,12 @@ class AuthoringApiTest(unittest.TestCase):
             "KAT_DATA_HOME/datasources/<pack-name>/",
             "isolated to the current pytest test",
             "valid only for this Workflow execution",
+            "without a stable source identity",
             "temporary per-Workflow workspace",
-            "instead of treating old files as cache",
+            "stable source identity",
+            "deterministically rebuildable",
+            "validating existing contents",
+            "discardable cache",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, datasource_root_documentation)

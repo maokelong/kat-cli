@@ -50,7 +50,7 @@ class PostgreSQLProvider:
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 只提供 `ctx.datasource_root`；PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
-PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。文件 Provider 应在 `ctx.datasource_root` 下建立当前 Workflow 的临时 workspace，向 Provider 传普通路径，并在 eager Table 脱离来源后清理临时物化。
+PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。没有稳定来源身份的文件 Provider 应在 `ctx.datasource_root` 下建立当前 Workflow 的临时 workspace，向 Provider 传普通路径，并在 eager Table 脱离来源后清理临时物化。能够依据来源内容建立稳定身份、并能确定性重建结果的 Provider，可以跨 Workflow 复用自己的私有内部目录；命中旧目录时必须重新执行最小准入检查，打开失败、必需 relation 缺失或内容损坏时丢弃并重建。旧内容始终只是可丢弃 cache，不是 KAT 状态或用户资产。
 
 `kat-workflow` 与 `kat-datasource` 是 Payload 中两个独立的私有 wheel：
 
@@ -104,6 +104,68 @@ def summarize_trace(ctx: kat.Context, *, source_path: str):
 ```
 
 `hitrace.decode()` 要求 destination 尚不存在；成功后 destination 的直接子级只含扁平具名 Parquet relation，并返回不可变 `DecodeReport`，列出 unsupported plugin 和 section type。它不创建平台来源身份或持久状态。失败时不要把残留路径、部分 relation 或 unsupported report 当作成功。
+
+来源查询已经完整取得少量 Python rows 时，可以用显式物理 Schema 一次形成不可变 Table：
+
+```python
+import pyarrow as pa
+
+schema = pa.schema(
+    [
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("event_count", pa.int64(), nullable=False),
+    ]
+)
+result = dp.Table.from_rows(rows, schema=schema)
+```
+
+`from_rows()` 会立即消费 rows，严格校验字段、nullability 和物理类型并完成 Arrow 转换；它
+适合已经完成的 eager 查询结果，不是追加构建器或落盘入口。已有 `pyarrow.Table` 则继续用
+`Table.from_arrow()` 保留其 Arrow backing。
+
+Datasource `Schema` 只接受下列逻辑类型。用 `T | None` 声明 nullable 列；裸 `T` 拒绝
+`None`。每个非空值必须是表中所列的精确 Python 类型，不接受子类或隐式转换。
+
+| Schema 类型 | Parquet 前的 Arrow 类型 | 关键拒绝规则 |
+| --- | --- | --- |
+| `bool` | `bool` | 只接受精确 `bool` |
+| `int` | `int64` | 拒绝 `bool` 及有符号 64 位范围外的值 |
+| `float` | `float64` | 只接受精确 `float` |
+| `str` | `string` | 拒绝无法编码为 UTF-8 的文本 |
+| `bytes` | `binary` | 只接受精确 `bytes` |
+| `datetime` | `timestamp[ns, tz=UTC]` | 必须带有效 UTC offset；规范化到 UTC 后须在有符号 64 位纳秒范围内 |
+| `Decimal` | `decimal128(38, 18)` | 必须有限，且能在不舍入的前提下缩放到 18 位小数并满足 38 位精度 |
+
+除此之外的类型、空的 `Schema`、空列定义以及与声明不完全一致的行字段都会被拒绝。
+`Schema` 构造后不可变且不可继承；一次 `dp.write()` 使用其完整多 relation 声明作为固定事务合同。
+
+自定义 Python Parser 需要处理大输入时，不要先把全部行累积进 eager Table。用
+`dp.write()` 显式选择 relation，让调用线程继续解析、后台线程同时写 Parquet：
+
+```python
+schema = dp.Schema(
+    {
+        "events": {"timestamp": int, "payload": bytes},
+        "capture": {"clock": str},
+    }
+)
+
+with dp.write(schema, destination=relations) as sink:
+    for event in parse_events(source):
+        sink["events"].append(
+            timestamp=event.timestamp,
+            payload=event.payload,
+        )
+    sink["capture"].append(clock="boot")
+
+catalog = dp.open(root=relations)
+```
+
+`append()` 返回只表示该行已经同步校验并被候选物化接纳；只有 `with` 正常退出才表示整个
+目录成功发布。`destination` 的父目录必须存在、其自身必须不存在。批次和队列阈值由 Toolkit
+管理；该入口是一次性只写过程，不提供处理中查询，也不替代查询结果与 Run Output 使用的
+不可变 eager `dp.Table`。`dp.write()` 是唯一公共 Datasource 物化入口；`Schema` 只声明
+多 relation 结构，不创建 Table，`Table` 也不提供逐行 append。
 
 `dp.open(root=...)` 发现一个 flat Parquet 目录；`dp.open(tables=...)` 绑定明确的 relation 路径。需要跨来源融合时，Workflow 先显式调用每个 Datasource Provider 得到 eager Table 或 Catalog，再把具名内存 Table 和至多一个磁盘 Catalog 交给普通 DataFusion Provider：
 

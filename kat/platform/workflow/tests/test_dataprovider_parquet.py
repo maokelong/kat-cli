@@ -30,50 +30,6 @@ class DataProviderParquetTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(table, path)
 
-    def test_write_creates_one_file_per_table_and_returns_none(self) -> None:
-        tables = dp.Schema(
-            {
-                "events": {"value": int},
-                "empty_rows": {"payload": bytes | None},
-            }
-        ).create()
-        tables["events"].append(value=7)
-        destination = self.root / "catalog"
-
-        result = dp.write(tables, destination=destination)
-
-        self.assertIsNone(result)
-        self.assertEqual(
-            sorted(path.name for path in destination.iterdir()),
-            ["empty_rows.parquet", "events.parquet"],
-        )
-        self.assertEqual(
-            pq.read_table(destination / "events.parquet").to_pylist(),
-            [{"value": 7}],
-        )
-        self.assertEqual(
-            pq.read_table(destination / "empty_rows.parquet").num_rows,
-            0,
-        )
-
-    def test_write_rejects_invalid_inputs_without_replacing_existing_content(self) -> None:
-        table = dp.Table({"value": int})
-        existing = self.root / "existing"
-        existing.mkdir()
-        sentinel = existing / "caller.txt"
-        sentinel.write_text("keep", encoding="utf-8")
-
-        with self.assertRaises(FileExistsError):
-            dp.write({"events": table}, destination=existing)
-
-        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
-        with self.assertRaisesRegex(ValueError, "empty"):
-            dp.write({}, destination=self.root / "empty")
-        with self.assertRaisesRegex(ValueError, "table name"):
-            dp.write({"Bad-Name": table}, destination=self.root / "bad-name")
-        with self.assertRaisesRegex(TypeError, "dp.Table"):
-            dp.write({"events": object()}, destination=self.root / "bad-value")
-
     def test_open_root_discovers_a_schema_less_read_only_catalog(self) -> None:
         catalog_root = self.root / "catalog"
         self.write_parquet(
@@ -94,21 +50,19 @@ class DataProviderParquetTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "dp.open"):
             dp.Catalog({})  # type: ignore[arg-type]
 
-    def test_datafusion_provider_reuses_immutable_memory_bindings_with_fresh_snapshots(
+    def test_datafusion_provider_reuses_immutable_memory_bindings(
         self,
     ) -> None:
-        events = dp.Table({"value": int})
-        events.append(value=1)
+        events = dp.Table.from_arrow(pa.table({"value": [1]}))
         bindings = {"events": events}
         fusion = dp.DataFusionProvider(tables=bindings)
 
         first = fusion.query("SELECT value FROM events ORDER BY value")
         bindings.clear()
-        events.append(value=2)
         second = fusion.query("SELECT value FROM events ORDER BY value")
 
         self.assertEqual(first["value"], (1,))
-        self.assertEqual(second["value"], (1, 2))
+        self.assertEqual(second["value"], (1,))
 
     def test_explicit_parts_catalog_is_queried_without_hive_inference(self) -> None:
         parts = self.root / "parts"
@@ -145,8 +99,9 @@ class DataProviderParquetTest(unittest.TestCase):
                 }
             ),
         )
-        samples = dp.Table({"thread_id": int, "cpu": float})
-        samples.append(thread_id=1, cpu=0.75)
+        samples = dp.Table.from_arrow(
+            pa.table({"thread_id": [1], "cpu": [0.75]})
+        )
 
         result = dp.DataFusionProvider(
             tables={"samples": samples},
@@ -159,7 +114,7 @@ class DataProviderParquetTest(unittest.TestCase):
         self.assertEqual(result.to_rows(), [{"owner": "render", "cpu": 0.75}])
 
     def test_datafusion_provider_rejects_invalid_or_overlapping_bindings(self) -> None:
-        table = dp.Table({"value": int})
+        table = dp.Table.from_arrow(pa.table({"value": [1]}))
         file = self.root / "events.parquet"
         self.write_parquet(file, pa.table({"value": [1]}))
         catalog = dp.open(tables={"events": file})
@@ -182,7 +137,9 @@ class DataProviderParquetTest(unittest.TestCase):
                 self.assertFalse(hasattr(fusion, method))
 
     def test_query_normalizes_the_explicit_scalar_parameter_set(self) -> None:
-        fusion = dp.DataFusionProvider(tables={"unused": dp.Table({"value": int})})
+        fusion = dp.DataFusionProvider(
+            tables={"unused": dp.Table.from_arrow(pa.table({"value": [1]}))}
+        )
 
         result = fusion.query(
             "SELECT $truth AS truth, $number AS number, $ratio AS ratio, "
@@ -227,7 +184,9 @@ class DataProviderParquetTest(unittest.TestCase):
     def test_query_rejects_ambiguous_parameters_without_poisoning_the_provider(
         self,
     ) -> None:
-        fusion = dp.DataFusionProvider(tables={"unused": dp.Table({"value": int})})
+        fusion = dp.DataFusionProvider(
+            tables={"unused": dp.Table.from_arrow(pa.table({"value": [1]}))}
+        )
         invalid = (
             None,
             2**63,
@@ -294,8 +253,7 @@ class DataProviderParquetTest(unittest.TestCase):
     def test_query_accepts_one_read_only_statement_and_rejects_session_mutation(
         self,
     ) -> None:
-        events = dp.Table({"value": int})
-        events.append(value=1)
+        events = dp.Table.from_arrow(pa.table({"value": [1]}))
         fusion = dp.DataFusionProvider(tables={"events": events})
 
         self.assertEqual(fusion.query("VALUES (1)")["column1"], (1,))

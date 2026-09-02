@@ -65,14 +65,13 @@ class DataFusionProvider:
         prepared_sql, values = prepare_query(sql, params)
         session = SessionContext()
 
-        # 在 collect() 完成前保留 Arrow 快照和 Dataset；后续 append 形成的新
-        # 快照只对下一次 query 可见。
-        arrow_snapshots: list[pa.Table] = []
+        # 在 collect() 完成前保留不可变 Table 的 Arrow backing 和 Dataset。
+        arrow_tables: list[pa.Table] = []
         datasets: list[pads.Dataset] = []
         for relation_name, table in self.__tables.items():
-            snapshot = table.to_arrow()
-            arrow_snapshots.append(snapshot)
-            session.from_arrow(snapshot, name=relation_name)
+            arrow_table = table.to_arrow()
+            arrow_tables.append(arrow_table)
+            session.from_arrow(arrow_table, name=relation_name)
 
         if self.__catalog is not None:
             for relation_name, relation in self.__catalog._relation_items():
