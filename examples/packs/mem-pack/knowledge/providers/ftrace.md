@@ -11,9 +11,19 @@
 时，Provider 删除并重建。相同内容已经保存的 `clock_domain` 与本次请求不一致时明确
 失败，避免把同一时间值解释成不同的时钟域。
 
-调用方需要在 Provider 对象释放时删除内部物化结果，可以传入 `auto_cleanup=True`。该
-模式使用实例独占临时目录，不命中也不删除默认的 SHA-256 目录。未传入时默认为
-`False`，保留可供后续 Workflow 复用的内部结果。
+`redecode` 与 `auto_cleanup` 是两个独立的布尔参数：
+
+| `redecode` | `auto_cleanup` | 行为 |
+| --- | --- | --- |
+| `False` | `False` | 复用或创建，`finish()` 后保留 |
+| `False` | `True` | 复用或创建，`finish()` 时删除 |
+| `True` | `False` | 删除旧结果并重新解析，`finish()` 后保留 |
+| `True` | `True` | 删除旧结果并重新解析，`finish()` 时删除 |
+
+`finish()` 可重复调用；调用后不能继续查询。Workflow 在 eager `dp.Table` 脱离 Provider
+后调用它，用户不需要使用上下文管理器。同一内容被多个 Workflow 并发查询、重解析或
+清理时由调用方协调，Provider 不提供并发保障。转换合同升级后，调用方也可以通过
+`redecode=True` 主动重建旧缓存。
 
 ## 运行时发现
 
@@ -24,13 +34,17 @@ tables = provider.query("SHOW TABLES")
 columns = provider.query("DESCRIBE text_ftrace_event")
 ```
 
-`text_ftrace_header`、`text_ftrace_event_occurrence` 和 `text_ftrace_event` 固定存在。
-四张 payload 表只在来源中出现对应事件时生成。
+`provider.tables` 返回当前 Catalog 的稳定排序关系名；`provider.decode_report` 返回排序、
+去重后的未支持事件名。`text_ftrace_header` 固定存在；只有至少一个已支持事件时，
+`text_ftrace_event_occurrence` 和 `text_ftrace_event` 才同时存在。四张 payload 表只在
+来源中出现对应事件时生成，`text_ftrace_unsupported_event` 只在存在未支持事件时生成。
 
 ## 关系拓扑
 
 ```text
 text_ftrace_header
+
+text_ftrace_unsupported_event (存在未支持事件时)
 
 text_ftrace_event_occurrence
   _kat_row_id
@@ -46,18 +60,25 @@ text_ftrace_event_occurrence
 每个已支持的来源事件恰好有一行 occurrence、一行事件根和一行对应 payload。
 合法但暂未支持的事件不会产生这三类行，因此 `source_event_sequence` 可以出现间隙。
 
+### `text_ftrace_unsupported_event`
+
+按名称汇总本次转换遇到的合法但未支持事件；名称排序且去重。
+
+| 字段 | Arrow 类型 | 含义 |
+| --- | --- | --- |
+| `event_name` | `Utf8` | 未支持的 ftrace 事件名 |
+
 ## 固定关系
 
 ### `text_ftrace_header`
 
-每个 Catalog 恰好一行，描述输入文件头。
+每个 Catalog 恰好一行，只保留解析事件结构需要的输入合同。展示性的
+`entries-in-buffer/entries-written` 与 `#P` 行会被忽略，无论它包含数字、格式占位符或
+完全缺失都不影响事件解析；Provider 不据此校验事件数量或 CPU 范围。
 
 | 字段 | Arrow 类型 | 含义 |
 | --- | --- | --- |
 | `tracer` | `Utf8` | tracefs tracer 名称 |
-| `entries_in_buffer` | `UInt64` | 文件头声明的 buffer 内事件数 |
-| `entries_written` | `UInt64` | 文件头声明的累计写入事件数 |
-| `cpu_count` | `UInt32` | 文件头声明的 CPU 数量 |
 | `has_tgid_column` | `Boolean` | 事件列标题是否包含 TGID |
 
 ### `text_ftrace_event_occurrence`
@@ -151,11 +172,12 @@ ORDER BY o.source_event_sequence
 ## 文档来源
 
 `text_ftrace_event` 的业务字段以及四类 payload 字段来源于
-`kat/platform/datasource/proto/text_ftrace_event.proto`。
+`kat/platform/datasource/proto/text_ftrace/text_ftrace_event.proto`。
 
 以下内容当前不在 Proto 中，不能只根据该文件完整生成：
 
-- `text_ftrace_header` 和 `text_ftrace_event_occurrence`；
+- `text_ftrace_header`、`text_ftrace_event_occurrence` 和
+  `text_ftrace_unsupported_event`；
 - `_kat_row_id`、`_kat_parent_row_id` 以及父子关系；
 - Proto 类型到实际 Arrow/Parquet 类型的映射；
 - 表的生成条件、时钟语义和稳定性承诺。

@@ -28,9 +28,11 @@ fn decode_text_ftrace(
     source: PathBuf,
     destination: PathBuf,
     clock_domain: String,
-) -> PyResult<()> {
-    py.detach(move || crate::decode_text_ftrace(&source, &destination, &clock_domain))
-        .map_err(|error| _TextFtraceDecodeError::new_err(format!("{error:#}")))
+) -> PyResult<Vec<String>> {
+    let report = py
+        .detach(move || crate::decode_text_ftrace(&source, &destination, &clock_domain))
+        .map_err(|error| _TextFtraceDecodeError::new_err(format!("{error:#}")))?;
+    Ok(report.unsupported_event_names().to_vec())
 }
 
 #[pymodule]

@@ -60,10 +60,12 @@ struct TracingMarkWriteRow {
 #[derive(Serialize, Deserialize)]
 struct HeaderRow {
     tracer: String,
-    entries_in_buffer: u64,
-    entries_written: u64,
-    cpu_count: u32,
     has_tgid_column: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct UnsupportedEventRow {
+    event_name: String,
 }
 
 pub(crate) struct OutputTables {
@@ -74,6 +76,7 @@ pub(crate) struct OutputTables {
     sched_wakeup: Option<TableWriter<WakeupRow>>,
     sched_wakeup_new: Option<TableWriter<WakeupRow>>,
     tracing_mark_write: Option<TableWriter<TracingMarkWriteRow>>,
+    unsupported_event: Option<TableWriter<UnsupportedEventRow>>,
     header: Option<FtraceHeader>,
     next_root: u64,
     next_switch: u64,
@@ -92,6 +95,7 @@ impl OutputTables {
             sched_wakeup: None,
             sched_wakeup_new: None,
             tracing_mark_write: None,
+            unsupported_event: None,
             header: None,
             next_root: 0,
             next_switch: 0,
@@ -103,6 +107,15 @@ impl OutputTables {
 
     pub(crate) fn set_header(&mut self, header: FtraceHeader) {
         self.header = Some(header);
+    }
+
+    pub(crate) fn push_unsupported_event(&mut self, event_name: String) -> Result<()> {
+        initialize(
+            &self.relations,
+            &mut self.unsupported_event,
+            "text_ftrace_unsupported_event",
+        )?
+        .push(UnsupportedEventRow { event_name })
     }
 
     pub(crate) fn push(
@@ -226,9 +239,6 @@ impl OutputTables {
             TableWriter::<HeaderRow>::new(&self.relations, "text_ftrace_header")?;
         header_table.push(HeaderRow {
             tracer: header.tracer,
-            entries_in_buffer: header.entries_in_buffer,
-            entries_written: header.entries_written,
-            cpu_count: header.cpu_count,
             has_tgid_column: header.has_tgid_column,
         })?;
         header_table.finish()?;
@@ -238,6 +248,7 @@ impl OutputTables {
         finish(self.sched_wakeup)?;
         finish(self.sched_wakeup_new)?;
         finish(self.tracing_mark_write)?;
+        finish(self.unsupported_event)?;
         self.relations.validate()?;
         Ok(())
     }

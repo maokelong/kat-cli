@@ -99,8 +99,8 @@ def test_real_hdc_capture_converts_queries_and_reuses_content_hash(tmp_path):
         FROM text_ftrace_event
         """
     ).to_rows()
-    assert header["entries_in_buffer"] > 0
-    assert header["cpu_count"] > 0
+    assert header["tracer"]
+    assert isinstance(header["has_tgid_column"], bool)
     assert summary["event_count"] > 0
     assert summary["observed_cpu_count"] > 0
     assert summary["clock_domain"] == "boot"

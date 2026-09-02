@@ -7,12 +7,16 @@ use crate::proto::ftrace2parquet::{
 
 const TICKS_PER_SECOND: u64 = 1_000_000_000;
 
+pub(crate) enum ParsedEvent {
+    Supported(TextFtraceEvent),
+    Unsupported(String),
+}
+
 pub(crate) fn parse_event(
     line: &str,
     clock_domain: &str,
-    header_cpu_count: u32,
     has_tgid_column: bool,
-) -> Result<Option<TextFtraceEvent>> {
+) -> Result<ParsedEvent> {
     let first_separator = line.find(": ").context("missing event separator")?;
     let cpu_start = line[..first_separator]
         .rfind(" [")
@@ -20,9 +24,6 @@ pub(crate) fn parse_event(
         + 1;
     let cpu_end = line[cpu_start..].find("] ").context("invalid CPU field")? + cpu_start;
     let cpu = parse_u32(&line[cpu_start + 1..cpu_end], "CPU")?;
-    if cpu >= header_cpu_count {
-        bail!("CPU {cpu} is outside header CPU count {header_cpu_count}");
-    }
     let emitter = line[..cpu_start].trim_end();
     let (flags_and_clock, event_and_payload) = line[cpu_end + 2..]
         .split_once(": ")
@@ -48,9 +49,9 @@ pub(crate) fn parse_event(
         "tracing_mark_write" => Payload::TracingMarkWrite(TracingMarkWrite {
             content: payload_text.to_owned(),
         }),
-        _ => return Ok(None),
+        _ => return Ok(ParsedEvent::Unsupported(event_name.to_owned())),
     };
-    Ok(Some(TextFtraceEvent {
+    Ok(ParsedEvent::Supported(TextFtraceEvent {
         clock_domain: clock_domain.to_owned(),
         clock_value,
         cpu,
@@ -180,9 +181,5 @@ fn parse_i32(value: &str, label: &str) -> Result<i32> {
 }
 
 pub(crate) fn parse_u32(value: &str, label: &str) -> Result<u32> {
-    value.parse().with_context(|| format!("invalid {label}"))
-}
-
-pub(crate) fn parse_u64(value: &str, label: &str) -> Result<u64> {
     value.parse().with_context(|| format!("invalid {label}"))
 }

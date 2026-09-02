@@ -1,4 +1,3 @@
-import gc
 from pathlib import Path
 
 import pyarrow as pa
@@ -17,15 +16,13 @@ def _write_catalog(
     *,
     include_root: bool = True,
     clock_domain: str = "fixture_clock",
+    unsupported_event_names: tuple[str, ...] = (),
 ) -> None:
     root.mkdir()
     pq.write_table(
         pa.table(
             {
                 "tracer": ["nop"],
-                "entries_in_buffer": pa.array([5], type=pa.uint64()),
-                "entries_written": pa.array([5], type=pa.uint64()),
-                "cpu_count": pa.array([4], type=pa.uint32()),
                 "has_tgid_column": [True],
             }
         ),
@@ -42,6 +39,11 @@ def _write_catalog(
         ),
         root / "text_ftrace_event_occurrence.parquet",
     )
+    if unsupported_event_names:
+        pq.write_table(
+            pa.table({"event_name": list(unsupported_event_names)}),
+            root / "text_ftrace_unsupported_event.parquet",
+        )
     if not include_root:
         return
     pq.write_table(
@@ -80,6 +82,23 @@ def _write_catalog(
             }
         ),
         root / "text_ftrace_event_sched_switch.parquet",
+    )
+
+
+def _write_unknown_only_catalog(root: Path) -> None:
+    root.mkdir()
+    pq.write_table(
+        pa.table(
+            {
+                "tracer": ["nop"],
+                "has_tgid_column": [True],
+            }
+        ),
+        root / "text_ftrace_header.parquet",
+    )
+    pq.write_table(
+        pa.table({"event_name": ["a_event", "z_event"]}),
+        root / "text_ftrace_unsupported_event.parquet",
     )
 
 
@@ -218,6 +237,73 @@ def test_same_file_content_reuses_the_materialized_catalog(monkeypatch, tmp_path
     ]
 
 
+def test_redecode_replaces_the_cached_catalog_and_keeps_the_new_result(
+    monkeypatch, tmp_path
+):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    provider = FtraceProvider(
+        **_arguments(tmp_path, monkeypatch, redecode=True)
+    )
+    provider.finish()
+
+    assert conversions == 2
+    assert len(_catalog_directories(tmp_path)) == 1
+
+
+def test_reused_catalog_can_be_cleaned_after_use(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    provider = FtraceProvider(
+        **_arguments(tmp_path, monkeypatch, auto_cleanup=True)
+    )
+    assert conversions == 1
+    provider.finish()
+
+    assert _catalog_directories(tmp_path) == []
+
+
+def test_redecoded_catalog_can_be_cleaned_after_use(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    provider = FtraceProvider(
+        **_arguments(
+            tmp_path,
+            monkeypatch,
+            redecode=True,
+            auto_cleanup=True,
+        )
+    )
+    assert conversions == 2
+    provider.finish()
+
+    assert _catalog_directories(tmp_path) == []
+
+
 def test_different_file_content_uses_a_different_catalog(monkeypatch, tmp_path):
     first_source = tmp_path / "first.ftrace"
     second_source = tmp_path / "second.ftrace"
@@ -265,20 +351,6 @@ def test_corrupt_cached_catalog_is_rebuilt(monkeypatch, tmp_path):
     ]
 
 
-def test_concurrent_publisher_winner_is_reused(monkeypatch, tmp_path):
-    def convert(_source, catalog, _clock_domain):
-        _write_catalog(catalog)
-        raise provider_module.text_ftrace.DecodeError("destination already exists")
-
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
-
-    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch))
-
-    assert provider.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
-        {"count": 4}
-    ]
-
-
 def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
     conversions = 0
 
@@ -299,7 +371,7 @@ def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
     assert len(_catalog_directories(tmp_path)) == 1
 
 
-def test_auto_cleanup_uses_and_releases_a_private_catalog(monkeypatch, tmp_path):
+def test_finish_is_idempotent_and_prevents_more_queries(monkeypatch, tmp_path):
     converted_catalog = None
 
     def convert(_source, catalog, _clock_domain):
@@ -308,19 +380,39 @@ def test_auto_cleanup_uses_and_releases_a_private_catalog(monkeypatch, tmp_path)
         _write_catalog(converted_catalog)
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
-    provider = FtraceProvider(
-        **_arguments(tmp_path, monkeypatch, auto_cleanup=True)
-    )
+    provider = FtraceProvider(**_arguments(tmp_path, monkeypatch, auto_cleanup=True))
 
     assert converted_catalog is not None
     assert converted_catalog.is_dir()
-    assert converted_catalog.parent.name.startswith("ftrace-")
-    assert _catalog_directories(tmp_path) == []
-
-    del provider
-    gc.collect()
+    assert converted_catalog.parent == tmp_path / ".ftrace-cache"
+    provider.finish()
+    provider.finish()
 
     assert not converted_catalog.exists()
+    with pytest.raises(RuntimeError, match="finished"):
+        provider.query("SELECT 1")
+
+
+def test_unknown_only_catalog_is_queryable_and_preserves_the_decode_report(
+    monkeypatch, tmp_path
+):
+    def convert(_source, catalog, _clock_domain):
+        _write_unknown_only_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    first = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+    second = FtraceProvider(**_arguments(tmp_path, monkeypatch))
+
+    assert first.tables == (
+        "text_ftrace_header",
+        "text_ftrace_unsupported_event",
+    )
+    assert first.decode_report.unsupported_event_names == ("a_event", "z_event")
+    assert second.decode_report == first.decode_report
+    assert first.query(
+        "SELECT tracer, has_tgid_column FROM text_ftrace_header"
+    ).to_rows() == [{"tracer": "nop", "has_tgid_column": True}]
 
 
 @pytest.mark.parametrize("field", ("source", "workspace_root"))
@@ -358,4 +450,14 @@ def test_auto_cleanup_must_be_a_bool(tmp_path):
             clock_domain="fixture_clock",
             workspace_root=tmp_path,
             auto_cleanup=1,
+        )
+
+
+def test_redecode_must_be_a_bool(tmp_path):
+    with pytest.raises(TypeError, match="redecode.*bool"):
+        FtraceProvider(
+            source=_FIXTURE,
+            clock_domain="fixture_clock",
+            workspace_root=tmp_path,
+            redecode=1,
         )

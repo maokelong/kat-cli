@@ -13,8 +13,6 @@ def _write_summary_catalog(root: Path) -> None:
         pa.table(
             {
                 "tracer": ["nop"],
-                "entries_in_buffer": pa.array([5], type=pa.uint64()),
-                "cpu_count": pa.array([4], type=pa.uint32()),
                 "has_tgid_column": [True],
             }
         ),
@@ -51,6 +49,23 @@ def _write_summary_catalog(root: Path) -> None:
     )
 
 
+def _write_unknown_summary_catalog(root: Path) -> None:
+    root.mkdir()
+    pq.write_table(
+        pa.table(
+            {
+                "tracer": ["nop"],
+                "has_tgid_column": [True],
+            }
+        ),
+        root / "text_ftrace_header.parquet",
+    )
+    pq.write_table(
+        pa.table({"event_name": ["custom_event"]}),
+        root / "text_ftrace_unsupported_event.parquet",
+    )
+
+
 def test_workflow_publishes_an_eager_summary(kat_run, monkeypatch, tmp_path):
     def convert(_source, catalog, _clock_domain):
         _write_summary_catalog(catalog)
@@ -70,8 +85,66 @@ def test_workflow_publishes_an_eager_summary(kat_run, monkeypatch, tmp_path):
     assert result["main"].to_pylist() == [
         {
             "tracer": "nop",
-            "cpu_count": 4,
-            "source_event_count": 5,
             "supported_event_count": 4,
+            "observed_cpu_count": 1,
         }
     ]
+
+
+def test_workflow_reports_zero_supported_events(kat_run, monkeypatch):
+    def convert(_source, catalog, _clock_domain):
+        _write_unknown_summary_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    result = kat_run(
+        workflow="summarize-ftrace",
+        arguments=(
+            "--trace-path",
+            str(_FIXTURE),
+            "--clock-domain",
+            "fixture_clock",
+        ),
+    )
+
+    assert result["main"].to_pylist() == [
+        {
+            "tracer": "nop",
+            "supported_event_count": 0,
+            "observed_cpu_count": 0,
+        }
+    ]
+
+
+def test_workflow_exposes_redecode_and_auto_cleanup_flags(kat_run, monkeypatch):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_summary_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    kat_run(
+        workflow="summarize-ftrace",
+        arguments=(
+            "--trace-path",
+            str(_FIXTURE),
+            "--clock-domain",
+            "fixture_clock",
+            "--redecode",
+            "--auto-cleanup",
+        ),
+    )
+    kat_run(
+        workflow="summarize-ftrace",
+        arguments=(
+            "--trace-path",
+            str(_FIXTURE),
+            "--clock-domain",
+            "fixture_clock",
+        ),
+    )
+
+    assert conversions == 2

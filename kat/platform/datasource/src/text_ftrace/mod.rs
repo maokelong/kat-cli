@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs::{self, File},
     io::{BufRead, BufReader},
     path::Path,
@@ -11,13 +12,28 @@ mod header;
 mod relations;
 mod writer;
 
-use event::parse_event;
+use event::{ParsedEvent, parse_event};
 use header::{HeaderParser, is_structured_header_line};
 use relations::OutputTables;
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 
-pub fn decode_text_ftrace(input: &Path, output: &Path, clock_domain: &str) -> Result<()> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextFtraceDecodeReport {
+    unsupported_event_names: Vec<String>,
+}
+
+impl TextFtraceDecodeReport {
+    pub fn unsupported_event_names(&self) -> &[String] {
+        &self.unsupported_event_names
+    }
+}
+
+pub fn decode_text_ftrace(
+    input: &Path,
+    output: &Path,
+    clock_domain: &str,
+) -> Result<TextFtraceDecodeReport> {
     if clock_domain.is_empty() {
         bail!("clock domain must not be empty");
     }
@@ -41,24 +57,28 @@ pub fn decode_text_ftrace(input: &Path, output: &Path, clock_domain: &str) -> Re
         .tempdir_in(parent)
         .with_context(|| format!("failed to create temporary output in {}", parent.display()))?;
     let mut tables = OutputTables::new(temporary.path());
-    if convert_reader(BufReader::new(input_file), clock_domain, &mut tables)? == 0 {
-        bail!("text ftrace contains no supported event records");
+    let unsupported_event_names =
+        convert_reader(BufReader::new(input_file), clock_domain, &mut tables)?;
+    for event_name in &unsupported_event_names {
+        tables.push_unsupported_event(event_name.clone())?;
     }
     tables.finish()?;
     fs::rename(temporary.path(), output)
         .with_context(|| format!("failed to publish output directory {}", output.display()))?;
-    Ok(())
+    Ok(TextFtraceDecodeReport {
+        unsupported_event_names: unsupported_event_names.into_iter().collect(),
+    })
 }
 
 fn convert_reader(
     mut reader: impl BufRead,
     clock_domain: &str,
     tables: &mut OutputTables,
-) -> Result<u64> {
+) -> Result<BTreeSet<String>> {
     let mut bytes = Vec::new();
     let mut line_number = 0_u64;
     let mut source_sequence = 0_u64;
-    let mut supported = 0_u64;
+    let mut unsupported_event_names = BTreeSet::new();
     let mut header_parser = Some(HeaderParser::default());
     let mut header = None;
     loop {
@@ -100,18 +120,13 @@ fn convert_reader(
             header = Some(parsed);
         }
         let parsed_header = header.as_ref().expect("header parsed before event");
-        if let Some(event) = parse_event(
-            line,
-            clock_domain,
-            parsed_header.cpu_count,
-            parsed_header.has_tgid_column,
-        )
-        .with_context(|| format!("invalid ftrace event at line {line_number}"))?
+        match parse_event(line, clock_domain, parsed_header.has_tgid_column)
+            .with_context(|| format!("invalid ftrace event at line {line_number}"))?
         {
-            tables.push(source_sequence, event)?;
-            supported = supported
-                .checked_add(1)
-                .context("supported event count overflows")?;
+            ParsedEvent::Supported(event) => tables.push(source_sequence, event)?,
+            ParsedEvent::Unsupported(event_name) => {
+                unsupported_event_names.insert(event_name);
+            }
         }
         source_sequence = source_sequence
             .checked_add(1)
@@ -124,14 +139,11 @@ fn convert_reader(
             .expect("header parser exists when no event was read")
             .finish()?,
     };
-    if source_sequence != header.entries_in_buffer {
-        bail!(
-            "ftrace header declares {} buffered events, but text contains {source_sequence}",
-            header.entries_in_buffer
-        );
+    if source_sequence == 0 {
+        bail!("text ftrace contains no event records");
     }
     tables.set_header(header);
-    Ok(supported)
+    Ok(unsupported_event_names)
 }
 
 fn read_bounded_line(
