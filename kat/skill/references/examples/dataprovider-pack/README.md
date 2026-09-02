@@ -105,8 +105,9 @@ query，返回的 eager Table 不再依赖临时 Parquet。
 `quick_check` 通过且存在业务 relation 时才进入 ready 状态。
 
 `query()` 用 `mode=ro`、`PRAGMA query_only` 和 authorizer 限制为只读 SQLite 查询。
-调用方用基础 Python 类型声明结果列，列名和顺序必须与 SQL 结果完全一致；Provider
-关闭 cursor 与 connection 后，用完整 `pyarrow.Table` 构造不可变 `dp.Table`。生产 Workflow 从
+调用方用 `pyarrow.Schema` 声明结果的精确物理列类型、nullability 与投影顺序；列名和顺序
+必须与 SQL 结果完全一致。Provider 关闭 cursor 与 connection 后，用
+`dp.Table.from_rows(..., schema=...)` 一次构造不可变 eager Table。生产 Workflow 从
 `KAT_TRACE_STREAMER_EXECUTABLE` 读取批准的可执行文件路径，不把可执行代码路径暴露为
 Workflow argument。
 

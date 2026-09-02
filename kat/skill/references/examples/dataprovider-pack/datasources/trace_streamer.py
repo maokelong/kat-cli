@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
-import types
-from typing import get_args, get_origin
 
 import kat
 from kat import dataprovider as dp
@@ -26,11 +21,13 @@ GROUP BY event_type
 ORDER BY event_type
 """
 
-NATIVE_HOOK_SUMMARY_SCHEMA = {
-    "event_type": str,
-    "event_count": int,
-    "total_heap_size": int,
-}
+NATIVE_HOOK_SUMMARY_SCHEMA = pa.schema(
+    [
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("event_count", pa.int64(), nullable=False),
+        pa.field("total_heap_size", pa.int64(), nullable=False),
+    ]
+)
 
 _READ_ONLY_SQLITE_ACTIONS = frozenset(
     {
@@ -129,17 +126,16 @@ class TraceStreamerProvider:
         self,
         sql: str,
         *,
-        schema: Mapping[str, object],
+        schema: pa.Schema,
         params: object | None = None,
     ) -> dp.Table:
         if self._database is None:
             raise RuntimeError("Trace Streamer Provider must decode before query")
         if type(sql) is not str or not sql.strip():
             raise TypeError("Trace Streamer SQL must be a non-empty string")
-        if not isinstance(schema, Mapping):
-            raise TypeError("Trace Streamer query schema must be a mapping")
-        validated_schema = dp.Schema({"result": dict(schema.items())})
-        expected_columns = tuple(validated_schema["result"])
+        if not isinstance(schema, pa.Schema):
+            raise TypeError("Trace Streamer query schema must be a PyArrow schema")
+        expected_columns = tuple(schema.names)
 
         try:
             connection = _open_query_connection(self._database)
@@ -167,85 +163,13 @@ class TraceStreamerProvider:
         except sqlite3.Error:
             raise RuntimeError("Trace Streamer query failed") from None
 
-        logical_schema = validated_schema["result"]
-        arrow_schema = pa.schema(
-            [
-                pa.field(
-                    name,
-                    _arrow_type(annotation),
-                    nullable=_logical_type(annotation)[1],
-                )
-                for name, annotation in logical_schema.items()
-            ]
+        return dp.Table.from_rows(
+            (
+                dict(zip(expected_columns, row, strict=True))
+                for row in rows
+            ),
+            schema=schema,
         )
-        records = [
-            _normalize_result_row(
-                logical_schema,
-                dict(zip(expected_columns, row, strict=True)),
-            )
-            for row in rows
-        ]
-        return dp.Table.from_arrow(pa.Table.from_pylist(records, schema=arrow_schema))
-
-
-_ARROW_TYPES = {
-    bool: pa.bool_(),
-    int: pa.int64(),
-    float: pa.float64(),
-    str: pa.string(),
-    bytes: pa.binary(),
-    datetime: pa.timestamp("ns", tz="UTC"),
-    Decimal: pa.decimal128(38, 18),
-}
-
-
-def _logical_type(annotation: object) -> tuple[type[object], bool]:
-    if annotation in _ARROW_TYPES:
-        return annotation, False  # type: ignore[return-value]
-    if get_origin(annotation) is types.UnionType:
-        arguments = get_args(annotation)
-        non_null = tuple(
-            argument for argument in arguments if argument is not type(None)
-        )
-        if (
-            len(arguments) == 2
-            and len(non_null) == 1
-            and non_null[0] in _ARROW_TYPES
-        ):
-            return non_null[0], True
-    raise AssertionError("dp.Schema admitted an unsupported logical type")
-
-
-def _arrow_type(annotation: object) -> pa.DataType:
-    logical_type, _ = _logical_type(annotation)
-    return _ARROW_TYPES[logical_type]
-
-
-def _normalize_result_row(
-    schema: Mapping[str, object],
-    row: dict[str, object | None],
-) -> dict[str, object | None]:
-    for name, annotation in schema.items():
-        expected, nullable = _logical_type(annotation)
-        value = row[name]
-        if value is None:
-            if nullable:
-                continue
-            raise ValueError(
-                f"Trace Streamer result column {name!r} is null but is not nullable"
-            )
-        if type(value) is not expected:
-            raise TypeError(
-                f"Trace Streamer result column {name!r} must have exact type "
-                f"{expected.__name__}, got {type(value).__name__}"
-            )
-        if expected is datetime:
-            assert type(value) is datetime
-            if value.utcoffset() is None:
-                raise ValueError(
-                    f"Trace Streamer result column {name!r} must be timezone-aware"
-                )
-    return row
 
 
 def _open_read_only(database: Path) -> sqlite3.Connection:

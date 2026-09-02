@@ -1,16 +1,11 @@
-from datetime import datetime
 from pathlib import Path
 import sqlite3
 
-import kat
 import pyarrow as pa
 import pytest
 
 from kat import dataprovider as dp
-from kat.pack.datasources.trace_streamer import (
-    TraceStreamerSQLiteProvider,
-    _result_array,
-)
+from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
 from kat.pack.helpers.critical_path import TraceStreamerFacts
 
 
@@ -120,22 +115,8 @@ def test_query_preserves_the_declared_schema_for_empty_results_and_rejects_nulls
 
     assert result.to_rows() == []
     assert result.to_arrow().schema.equals(schema, check_metadata=True)
-    with pytest.raises(ValueError, match="non-nullable column 'value'"):
+    with pytest.raises(ValueError, match="column 'value'.*not nullable"):
         provider.query("SELECT NULL AS value", schema=schema)
-
-
-def test_query_result_timestamp_preserves_nanoseconds_and_rejects_naive_datetime():
-    field = pa.field("observed_at", pa.timestamp("ns", tz="UTC"), nullable=False)
-
-    result = _result_array(
-        [(kat.WallClockTimestamp("1970-01-01T00:00:00.000000001Z"),)],
-        index=0,
-        field=field,
-    )
-
-    assert result.cast(pa.int64()).to_pylist() == [1]
-    with pytest.raises(ValueError, match="timezone-aware"):
-        _result_array([(datetime(1970, 1, 1),)], index=0, field=field)
 
 
 def test_query_rejects_attach_ddl_dml_and_pragma(tmp_path: Path):

@@ -105,6 +105,24 @@ def summarize_trace(ctx: kat.Context, *, source_path: str):
 
 `hitrace.decode()` 要求 destination 尚不存在；成功后 destination 的直接子级只含扁平具名 Parquet relation，并返回不可变 `DecodeReport`，列出 unsupported plugin 和 section type。它不创建平台来源身份或持久状态。失败时不要把残留路径、部分 relation 或 unsupported report 当作成功。
 
+来源查询已经完整取得少量 Python rows 时，可以用显式物理 Schema 一次形成不可变 Table：
+
+```python
+import pyarrow as pa
+
+schema = pa.schema(
+    [
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("event_count", pa.int64(), nullable=False),
+    ]
+)
+result = dp.Table.from_rows(rows, schema=schema)
+```
+
+`from_rows()` 会立即消费 rows，严格校验字段、nullability 和物理类型并完成 Arrow 转换；它
+适合已经完成的 eager 查询结果，不是追加构建器或落盘入口。已有 `pyarrow.Table` 则继续用
+`Table.from_arrow()` 保留其 Arrow backing。
+
 自定义 Python Parser 需要处理大输入时，不要先把全部行累积进 eager Table。用
 `dp.write()` 显式选择 relation，让调用线程继续解析、后台线程同时写 Parquet：
 

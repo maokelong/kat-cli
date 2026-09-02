@@ -90,7 +90,7 @@ Provider declaration 必须引用的 PACK 自有 Markdown 来源知识，说明 
 PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的多表事实结构。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Provider 产出事实的逻辑合同，也是 `dp.write()` 创建一次 Datasource 流式写事务时唯一需要的结构声明，但不是 Database 定义或打开既有 Parquet 时必须提供的持久化 Schema。
 
 **Table**:
-一个已经完成、具有明确物理列结构、不可变且可重复读取的 eager 单表值。Source query、Fusion query 与已经形成的 Arrow 数据可以产生 Table；它不是逐行构建器、Datasource Schema 的可写实例或隐式持久化指令。Table 不携带固有名称，Fusion relation name、Parquet relation name 和 Run Output name 都由各自边界表达；它是 Workflow 首版唯一允许产生的 Output value。
+一个已经完成、具有明确物理列结构、不可变且可重复读取的 eager 单表值。Source query、Fusion query、已经形成的 Arrow 数据，以及带显式 PyArrow Schema 的完整小型 Python rows 可以产生 Table；它不是逐行构建器、Datasource Schema 的可写实例或隐式持久化指令。Table 不携带固有名称，Fusion relation name、Parquet relation name 和 Run Output name 都由各自边界表达；它是 Workflow 首版唯一允许产生的 Output value。
 
 **Source catalog**:
 Datasource Provider 私有的来源 relation 集合及名称映射，只供该 Provider 的 Source query 使用。KAT 不规定其发现或布局，也不把其中关系自动传给 DataFusion Provider。

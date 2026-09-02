@@ -288,6 +288,12 @@ class AuthoringApiTest(unittest.TestCase):
             write_signature.parameters["destination"].kind,
             inspect.Parameter.KEYWORD_ONLY,
         )
+        from_rows_signature = inspect.signature(kat.dataprovider.Table.from_rows)
+        self.assertEqual(tuple(from_rows_signature.parameters), ("rows", "schema"))
+        self.assertEqual(
+            from_rows_signature.parameters["schema"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
         self.assertNotIn("datasource", kat.__all__)
         self.assertFalse(hasattr(kat, "datasource"))
 
@@ -301,6 +307,7 @@ class AuthoringApiTest(unittest.TestCase):
             "DataFusionProvider",
             "table",
             "from_arrow",
+            "from_rows",
             "to_arrow",
             "materialize",
             "write",
@@ -310,7 +317,7 @@ class AuthoringApiTest(unittest.TestCase):
                 self.assertNotIn(name, kat.__all__)
                 self.assertFalse(hasattr(kat, name))
 
-        for name in ("table", "from_arrow", "to_arrow"):
+        for name in ("table", "from_arrow", "from_rows", "to_arrow"):
             with self.subTest(dataprovider_name=name):
                 self.assertFalse(hasattr(kat.dataprovider, name))
 
