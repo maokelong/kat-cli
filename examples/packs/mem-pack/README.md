@@ -56,22 +56,13 @@ kat run \
   --clock-domain monotonic
 ```
 
-Provider 默认以 ftrace 文件内容的 SHA-256 为内部目录名，在 `ctx.datasource_root` 下跨
-Workflow 复用已经通过校验的 Parquet；调用方不感知目录位置。相同内容使用不同
-`clock_domain` 时明确失败，不静默复用错误的时间语义。旧目录打不开、缺少必需关系或
-损坏时直接重建。
+Provider 把 Parquet 写到 `ctx.datasource_root / trace_path.name`。该目录已经包含 Parquet
+时直接打开并校验，不再次解析；没有 Parquet 时才解析。已有 Parquet 无法打开、缺少
+必需关系或 `clock_domain` 不匹配时明确失败，不隐式删除或重建。
 
-`redecode` 与 `auto_cleanup` 独立控制本次使用的内容目录：
-
-| `redecode` | `auto_cleanup` | 行为 |
-| --- | --- | --- |
-| `False` | `False` | 复用或创建，结束后保留 |
-| `False` | `True` | 复用或创建，结束后删除 |
-| `True` | `False` | 删除旧结果并重新解析，结束后保留 |
-| `True` | `True` | 删除旧结果并重新解析，结束后删除 |
-
-Workflow 在 eager `dp.Table` 产生后调用 `finish()`，因此用户无需使用 `with`。同一 Trace
-被多个 Workflow 并发查询、重解析或清理时，由调用方协调；本 Provider 不提供并发保障。
+目录身份只由文件名决定：同一 Datasource root 下的同名来源复用同一目录。调用方需要用
+不同文件名或不同 Datasource root 区分内容不同的同名 Trace。Provider 不提供重新解析、
+自动清理或显式结束接口。
 
 ## 验证
 
@@ -81,11 +72,11 @@ Rust 合同测试负责解析、类型化 oneof 关系、来源序号间隙、�
 cargo test --locked -p kat-datasource
 ```
 
-PACK pytest 负责 Provider 原生调用边界、Catalog、查询拓扑、失败清理和 Workflow Output：
+PACK pytest 负责 Provider 原生调用边界、Catalog、查询拓扑、复用规则和 Workflow Output：
 
 ```bash
 kat test --pack-dir ./examples/packs/mem-pack
 ```
 
-真实 OpenHarmony 设备纵向用例还会执行 HDC 采集、拉取、转换、查询和第二次内容复用。
+真实 OpenHarmony 设备纵向用例还会执行 HDC 采集、拉取、转换、查询和第二次目录复用。
 它要求显式设置 `KAT_HDC_TARGET`；普通 CI 没有设备时跳过，不会猜测或默认选择连接目标。

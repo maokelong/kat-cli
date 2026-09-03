@@ -6,7 +6,7 @@ status: accepted
 
 Datasource Provider 是 PACK 拥有并由 Workflow 直接 import、构造和调用的普通 Python 类；KAT 不再以 `SourceExecutor`、`ctx.provider()` 和不可替换的 `kat.Provider` facade 包装来源实现。PACK 固定源码布局新增可选顶层 `datasources/`，规范 module identity 为 `kat.pack.datasources.*`；Runtime 只挂载该 namespace 并服从标准 Python import，不扫描、预加载、发现或注册 Provider。KAT 改为通过独立公共模块 `kat.dataprovider` 提供可组合的 Schema、Table、`write()`、`open()`、Catalog 与具体 `DataFusionProvider` Toolkit，推荐以 `from kat import dataprovider as dp` 使用；这些能力让来源作者可以复用数据面而不把来源语义和生命周期交给平台 facade，也不再平铺到 `kat.*` 顶层。`DataFusionProvider` 是显式构造的本地查询工具，不是 Datasource Provider 基类或 KAT Provider facade。
 
-Workflow Context 继续只读暴露受 Execution Lease 约束的 `ctx.datasource_root`，其生产值是当前 PACK 在所选 KAT Data Home 中的私有范围。Workflow 从该根派生普通 `Path` 后传给 Provider；Provider 不接收或保存 Context，Toolkit 也不读取隐式全局根。首版文件 Provider 在该根下使用当前 Workflow 的临时子目录，不把根的持久性误作跨 Workflow cache；具体 fail-closed 生命周期由 ADR-0069 固定。`kat test` 在同一 pytest test 的多次 `kat_run` 间复用该 test 的 PACK datasource root，不同 test 的根彼此隔离并在测试结束后清理，不写入生产 KAT Data Home。
+Workflow Context 继续只读暴露受 Execution Lease 约束的 `ctx.datasource_root`，其生产值是当前 PACK 在所选 KAT Data Home 中的私有范围。Workflow 从该根派生普通 `Path` 后传给 Provider；Provider 不接收或保存 Context，Toolkit 也不读取隐式全局根。文件 Provider 的具体物化与复用语义由 ADR-0069 和各 Provider 自身合同固定。`kat test` 在同一 pytest test 的多次 `kat_run` 间复用该 test 的 PACK datasource root，不同 test 的根彼此隔离并在测试结束后清理，不写入生产 KAT Data Home。
 
 这项边界选择以增加一个明确的 PACK 生产 namespace，换取来源特定的 Datasource Provider 只有一个所有者和一种面向 Workflow 的含义。继续使用 `helpers/datasources/` 不需要修改 PACK 布局，但会把稳定的来源合同误表达为无领域身份 helper；继续使用 KAT Provider facade 则会保留 factory、executor、facade 三层作者模型，并阻止 Provider 暴露来源特有的 `decode()`、`query()` 或 `materialize()`。
 

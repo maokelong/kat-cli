@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -25,8 +23,6 @@ class FtraceProvider:
         source: Path,
         clock_domain: str,
         workspace_root: Path,
-        redecode: bool = False,
-        auto_cleanup: bool = False,
     ) -> None:
         for field, value in (
             ("source", source),
@@ -36,10 +32,6 @@ class FtraceProvider:
                 raise TypeError(f"Ftrace Provider {field} must be a Path")
         if type(clock_domain) is not str:
             raise TypeError("Ftrace Provider clock_domain must be a string")
-        if type(redecode) is not bool:
-            raise TypeError("Ftrace Provider redecode must be a bool")
-        if type(auto_cleanup) is not bool:
-            raise TypeError("Ftrace Provider auto_cleanup must be a bool")
         clock_domain = clock_domain.strip()
         if not clock_domain:
             raise ValueError("Ftrace Provider clock_domain must be non-empty")
@@ -47,55 +39,41 @@ class FtraceProvider:
             raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
         self._clock_domain = clock_domain
-        self._query_provider: dp.DataFusionProvider | None = None
+        self._query_provider: dp.DataFusionProvider
         self._decode_report = text_ftrace.DecodeReport(unsupported_event_names=())
         self._tables: tuple[str, ...] = ()
-        self._auto_cleanup = auto_cleanup
 
         if not source.is_file():
             raise RuntimeError("Ftrace Provider source must be an existing file")
         source = source.resolve(strict=True)
-        cache_root = workspace_root / ".ftrace-cache"
-        cache_root.mkdir(exist_ok=True)
-        if cache_root.is_symlink() or not cache_root.is_dir():
-            raise RuntimeError("Ftrace Provider cache root must be a regular directory")
-        self._catalog_root = cache_root / _content_hash(source)
-        if redecode:
-            _remove_catalog(self._catalog_root)
-        self._open_or_rebuild_catalog(source)
+        self._catalog_root = workspace_root.resolve(strict=True) / source.name
+        if self._catalog_root.is_symlink() or self._catalog_root.is_file():
+            raise RuntimeError(
+                "Ftrace Provider catalog path must be a directory or absent"
+            )
+        if any(self._catalog_root.glob("*.parquet")):
+            self._open_catalog()
+            return
+        self._decode(source)
+        self._open_catalog()
 
-    def _open_or_rebuild_catalog(self, source: Path) -> None:
+    def _decode(self, source: Path) -> None:
+        """把来源转换到按文件名确定的 Parquet Catalog。"""
         if self._catalog_root.exists():
             try:
-                self._open_catalog()
-                return
-            except _ClockDomainMismatch:
-                raise
-            except Exception:  # noqa: BLE001 - 任意准入失败都表示缓存不可用。
-                _cleanup_catalog(self._catalog_root)
-        self._convert_and_open_catalog(source)
-
-    def _convert_and_open_catalog(self, source: Path) -> None:
-        """把当前来源完整转换为 Provider 管理的 Parquet Catalog。"""
-        try:
-            catalog_root = self._catalog_root.resolve(strict=False)
-            try:
-                text_ftrace.decode(source, catalog_root, self._clock_domain)
-            except text_ftrace.DecodeError as error:
-                raise RuntimeError(f"Ftrace Provider decode failed: {error}") from error
-            if not catalog_root.is_dir() or catalog_root.is_symlink():
+                self._catalog_root.rmdir()
+            except OSError:
                 raise RuntimeError(
-                    "Ftrace Provider did not produce a regular catalog directory"
-                )
-            self._open_catalog()
-        except _ClockDomainMismatch:
-            raise
-        except OSError:
-            _cleanup_catalog(self._catalog_root)
-            raise RuntimeError("Ftrace Provider decode failed") from None
-        except BaseException:
-            _cleanup_catalog(self._catalog_root)
-            raise
+                    "Ftrace Provider catalog without Parquet must be empty"
+                ) from None
+        try:
+            text_ftrace.decode(source, self._catalog_root, self._clock_domain)
+        except text_ftrace.DecodeError as error:
+            raise RuntimeError(f"Ftrace Provider decode failed: {error}") from error
+        if not self._catalog_root.is_dir() or self._catalog_root.is_symlink():
+            raise RuntimeError(
+                "Ftrace Provider did not produce a regular catalog directory"
+            )
 
     def _open_catalog(
         self,
@@ -123,7 +101,7 @@ class FtraceProvider:
                 ).to_rows()
             }
             if domains != {self._clock_domain}:
-                raise _ClockDomainMismatch(
+                raise RuntimeError(
                     "Ftrace Provider cached clock_domain does not match the request"
                 )
         unsupported_event_names: tuple[str, ...] = ()
@@ -161,45 +139,4 @@ class FtraceProvider:
         *,
         params: Mapping[str, object] | None = None,
     ) -> dp.Table:
-        query_provider = self._query_provider
-        if query_provider is None:
-            raise RuntimeError("Ftrace Provider is finished")
-        return query_provider.query(sql, params=params)
-
-    def finish(self) -> None:
-        if self._query_provider is None:
-            return
-        self._query_provider = None
-        if self._auto_cleanup:
-            _remove_catalog(self._catalog_root)
-
-    def __del__(self) -> None:
-        try:
-            self.finish()
-        except Exception:  # noqa: BLE001, S110 - 析构补偿不能泄漏异常。
-            pass
-
-
-def _content_hash(source: Path) -> str:
-    with source.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
-def _remove_catalog(catalog_root: Path) -> None:
-    if not catalog_root.exists() and not catalog_root.is_symlink():
-        return
-    if catalog_root.is_symlink() or catalog_root.is_file():
-        catalog_root.unlink()
-    else:
-        shutil.rmtree(catalog_root)
-
-
-def _cleanup_catalog(catalog_root: Path) -> None:
-    try:
-        _remove_catalog(catalog_root)
-    except OSError:
-        pass
-
-
-class _ClockDomainMismatch(RuntimeError):
-    pass
+        return self._query_provider.query(sql, params=params)

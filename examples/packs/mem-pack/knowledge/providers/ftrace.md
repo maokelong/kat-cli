@@ -6,24 +6,14 @@
 
 ## 内部物化
 
-默认模式以来源文件内容的 SHA-256 作为内部目录名。相同内容跨 Workflow 复用已经通过
-准入检查的 Parquet；目录位置不属于公共 API。旧目录无法打开、缺少固定关系或内容损坏
-时，Provider 删除并重建。相同内容已经保存的 `clock_domain` 与本次请求不一致时明确
-失败，避免把同一时间值解释成不同的时钟域。
+物化目录固定为 `workspace_root / source.name`。目录已经包含顶层 Parquet 文件时，Provider
+直接打开并执行关系与 `clock_domain` 准入检查，不再次解析。目录不存在或为空时才调用
+转换器；非空但没有 Parquet 的目录会被拒绝，避免覆盖不明文件。已有 Parquet 无法打开或
+未通过准入检查时明确失败，不隐式删除或重建。
 
-`redecode` 与 `auto_cleanup` 是两个独立的布尔参数：
-
-| `redecode` | `auto_cleanup` | 行为 |
-| --- | --- | --- |
-| `False` | `False` | 复用或创建，`finish()` 后保留 |
-| `False` | `True` | 复用或创建，`finish()` 时删除 |
-| `True` | `False` | 删除旧结果并重新解析，`finish()` 后保留 |
-| `True` | `True` | 删除旧结果并重新解析，`finish()` 时删除 |
-
-`finish()` 可重复调用；调用后不能继续查询。Workflow 在 eager `dp.Table` 脱离 Provider
-后调用它，用户不需要使用上下文管理器。同一内容被多个 Workflow 并发查询、重解析或
-清理时由调用方协调，Provider 不提供并发保障。转换合同升级后，调用方也可以通过
-`redecode=True` 主动重建旧缓存。
+目录身份只由文件名决定。同一 `workspace_root` 下的同名来源会复用同一目录，即使来源路径
+或内容不同；调用方需要用不同文件名或不同 `workspace_root` 区分它们。Provider 不提供
+`redecode`、自动清理或 `finish()` 接口。
 
 ## 运行时发现
 

@@ -22,9 +22,7 @@ def _write_summary_catalog(root: Path) -> None:
         pa.table(
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
-                "source_event_sequence": pa.array(
-                    [0, 1, 3, 4], type=pa.uint64()
-                ),
+                "source_event_sequence": pa.array([0, 1, 3, 4], type=pa.uint64()),
             }
         ),
         root / "text_ftrace_event_occurrence.parquet",
@@ -39,9 +37,7 @@ def _write_summary_catalog(root: Path) -> None:
                 "cpu": pa.array([2, 2, 2, 2], type=pa.uint32()),
                 "emitter_thread_name": ["worker"] * 4,
                 "emitter_thread_id": pa.array([7, 7, 7, 7], type=pa.int32()),
-                "emitter_process_id": pa.array(
-                    [7, 7, 7, 7], type=pa.int32()
-                ),
+                "emitter_process_id": pa.array([7, 7, 7, 7], type=pa.int32()),
                 "context_flags": ["d...."] * 4,
             }
         ),
@@ -114,37 +110,3 @@ def test_workflow_reports_zero_supported_events(kat_run, monkeypatch):
             "observed_cpu_count": 0,
         }
     ]
-
-
-def test_workflow_exposes_redecode_and_auto_cleanup_flags(kat_run, monkeypatch):
-    conversions = 0
-
-    def convert(_source, catalog, _clock_domain):
-        nonlocal conversions
-        conversions += 1
-        _write_summary_catalog(catalog)
-
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
-
-    kat_run(
-        workflow="summarize-ftrace",
-        arguments=(
-            "--trace-path",
-            str(_FIXTURE),
-            "--clock-domain",
-            "fixture_clock",
-            "--redecode",
-            "--auto-cleanup",
-        ),
-    )
-    kat_run(
-        workflow="summarize-ftrace",
-        arguments=(
-            "--trace-path",
-            str(_FIXTURE),
-            "--clock-domain",
-            "fixture_clock",
-        ),
-    )
-
-    assert conversions == 2
