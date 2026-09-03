@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::proto::ftrace2parquet::{TextFtraceEvent, text_ftrace_event::Payload};
+use crate::proto::ftrace2parquet::{FilemapPageCache, TextFtraceEvent, text_ftrace_event::Payload};
 use crate::relation_writer::RelationWriter;
 
 use super::{header::FtraceHeader, writer::TableWriter};
@@ -58,12 +58,84 @@ struct TracingMarkWriteRow {
 }
 
 #[derive(Serialize, Deserialize)]
+struct SchedBlockedReasonRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    pid: i32,
+    io_wait: u32,
+    caller: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FilemapPageCacheRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    device_major: u32,
+    device_minor: u32,
+    inode: u64,
+    page_frame_number: u64,
+    offset_bytes: u64,
+    order: Option<u32>,
+    page_address: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BlockRqIssueRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    device_major: u32,
+    device_minor: u32,
+    rwbs: String,
+    bytes: u32,
+    command: String,
+    sector: u64,
+    sector_count: u32,
+    process_name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BlockRqCompleteRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    device_major: u32,
+    device_minor: u32,
+    rwbs: String,
+    command: String,
+    sector: u64,
+    sector_count: u32,
+    error: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BinderTransactionRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    transaction_id: i32,
+    destination_node_id: i32,
+    destination_process_id: i32,
+    destination_thread_id: i32,
+    reply: i32,
+    flags: u32,
+    code: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PrintRow {
+    _kat_row_id: u64,
+    _kat_parent_row_id: u64,
+    instruction_pointer: String,
+    content: String,
+}
+
+#[derive(Serialize, Deserialize)]
 struct HeaderRow {
     tracer: String,
-    entries_in_buffer: u64,
-    entries_written: u64,
-    cpu_count: u32,
     has_tgid_column: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct UnsupportedEventRow {
+    event_name: String,
 }
 
 pub(crate) struct OutputTables {
@@ -74,12 +146,27 @@ pub(crate) struct OutputTables {
     sched_wakeup: Option<TableWriter<WakeupRow>>,
     sched_wakeup_new: Option<TableWriter<WakeupRow>>,
     tracing_mark_write: Option<TableWriter<TracingMarkWriteRow>>,
+    sched_blocked_reason: Option<TableWriter<SchedBlockedReasonRow>>,
+    mm_filemap_add_to_page_cache: Option<TableWriter<FilemapPageCacheRow>>,
+    mm_filemap_delete_from_page_cache: Option<TableWriter<FilemapPageCacheRow>>,
+    block_rq_issue: Option<TableWriter<BlockRqIssueRow>>,
+    block_rq_complete: Option<TableWriter<BlockRqCompleteRow>>,
+    binder_transaction: Option<TableWriter<BinderTransactionRow>>,
+    print: Option<TableWriter<PrintRow>>,
+    unsupported_event: Option<TableWriter<UnsupportedEventRow>>,
     header: Option<FtraceHeader>,
     next_root: u64,
     next_switch: u64,
     next_wakeup: u64,
     next_wakeup_new: u64,
     next_marker: u64,
+    next_sched_blocked_reason: u64,
+    next_mm_filemap_add: u64,
+    next_mm_filemap_delete: u64,
+    next_block_rq_issue: u64,
+    next_block_rq_complete: u64,
+    next_binder_transaction: u64,
+    next_print: u64,
 }
 
 impl OutputTables {
@@ -92,17 +179,41 @@ impl OutputTables {
             sched_wakeup: None,
             sched_wakeup_new: None,
             tracing_mark_write: None,
+            sched_blocked_reason: None,
+            mm_filemap_add_to_page_cache: None,
+            mm_filemap_delete_from_page_cache: None,
+            block_rq_issue: None,
+            block_rq_complete: None,
+            binder_transaction: None,
+            print: None,
+            unsupported_event: None,
             header: None,
             next_root: 0,
             next_switch: 0,
             next_wakeup: 0,
             next_wakeup_new: 0,
             next_marker: 0,
+            next_sched_blocked_reason: 0,
+            next_mm_filemap_add: 0,
+            next_mm_filemap_delete: 0,
+            next_block_rq_issue: 0,
+            next_block_rq_complete: 0,
+            next_binder_transaction: 0,
+            next_print: 0,
         }
     }
 
     pub(crate) fn set_header(&mut self, header: FtraceHeader) {
         self.header = Some(header);
+    }
+
+    pub(crate) fn push_unsupported_event(&mut self, event_name: String) -> Result<()> {
+        initialize(
+            &self.relations,
+            &mut self.unsupported_event,
+            "text_ftrace_unsupported_event",
+        )?
+        .push(UnsupportedEventRow { event_name })
     }
 
     pub(crate) fn push(
@@ -172,6 +283,78 @@ impl OutputTables {
                     content: value.content,
                 })?;
             }
+            Payload::SchedBlockedReason(value) => {
+                let id = take_next(&mut self.next_sched_blocked_reason)?;
+                self.sched_blocked_reason()?.push(SchedBlockedReasonRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    pid: value.pid,
+                    io_wait: value.io_wait,
+                    caller: value.caller,
+                })?;
+            }
+            Payload::MmFilemapAddToPageCache(value) => {
+                let id = take_next(&mut self.next_mm_filemap_add)?;
+                self.mm_filemap_add_to_page_cache()?
+                    .push(filemap_row(id, root_id, value))?;
+            }
+            Payload::MmFilemapDeleteFromPageCache(value) => {
+                let id = take_next(&mut self.next_mm_filemap_delete)?;
+                self.mm_filemap_delete_from_page_cache()?
+                    .push(filemap_row(id, root_id, value))?;
+            }
+            Payload::BlockRqIssue(value) => {
+                let id = take_next(&mut self.next_block_rq_issue)?;
+                self.block_rq_issue()?.push(BlockRqIssueRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    device_major: value.device_major,
+                    device_minor: value.device_minor,
+                    rwbs: value.rwbs,
+                    bytes: value.bytes,
+                    command: value.command,
+                    sector: value.sector,
+                    sector_count: value.sector_count,
+                    process_name: value.process_name,
+                })?;
+            }
+            Payload::BlockRqComplete(value) => {
+                let id = take_next(&mut self.next_block_rq_complete)?;
+                self.block_rq_complete()?.push(BlockRqCompleteRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    device_major: value.device_major,
+                    device_minor: value.device_minor,
+                    rwbs: value.rwbs,
+                    command: value.command,
+                    sector: value.sector,
+                    sector_count: value.sector_count,
+                    error: value.error,
+                })?;
+            }
+            Payload::BinderTransaction(value) => {
+                let id = take_next(&mut self.next_binder_transaction)?;
+                self.binder_transaction()?.push(BinderTransactionRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    transaction_id: value.transaction_id,
+                    destination_node_id: value.destination_node_id,
+                    destination_process_id: value.destination_process_id,
+                    destination_thread_id: value.destination_thread_id,
+                    reply: value.reply,
+                    flags: value.flags,
+                    code: value.code,
+                })?;
+            }
+            Payload::Print(value) => {
+                let id = take_next(&mut self.next_print)?;
+                self.print()?.push(PrintRow {
+                    _kat_row_id: id,
+                    _kat_parent_row_id: root_id,
+                    instruction_pointer: value.instruction_pointer,
+                    content: value.content,
+                })?;
+            }
         }
         Ok(())
     }
@@ -220,15 +403,66 @@ impl OutputTables {
         )
     }
 
+    fn sched_blocked_reason(&mut self) -> Result<&mut TableWriter<SchedBlockedReasonRow>> {
+        initialize(
+            &self.relations,
+            &mut self.sched_blocked_reason,
+            "text_ftrace_event_sched_blocked_reason",
+        )
+    }
+
+    fn mm_filemap_add_to_page_cache(&mut self) -> Result<&mut TableWriter<FilemapPageCacheRow>> {
+        initialize(
+            &self.relations,
+            &mut self.mm_filemap_add_to_page_cache,
+            "text_ftrace_event_mm_filemap_add_to_page_cache",
+        )
+    }
+
+    fn mm_filemap_delete_from_page_cache(
+        &mut self,
+    ) -> Result<&mut TableWriter<FilemapPageCacheRow>> {
+        initialize(
+            &self.relations,
+            &mut self.mm_filemap_delete_from_page_cache,
+            "text_ftrace_event_mm_filemap_delete_from_page_cache",
+        )
+    }
+
+    fn block_rq_issue(&mut self) -> Result<&mut TableWriter<BlockRqIssueRow>> {
+        initialize(
+            &self.relations,
+            &mut self.block_rq_issue,
+            "text_ftrace_event_block_rq_issue",
+        )
+    }
+
+    fn block_rq_complete(&mut self) -> Result<&mut TableWriter<BlockRqCompleteRow>> {
+        initialize(
+            &self.relations,
+            &mut self.block_rq_complete,
+            "text_ftrace_event_block_rq_complete",
+        )
+    }
+
+    fn binder_transaction(&mut self) -> Result<&mut TableWriter<BinderTransactionRow>> {
+        initialize(
+            &self.relations,
+            &mut self.binder_transaction,
+            "text_ftrace_event_binder_transaction",
+        )
+    }
+
+    fn print(&mut self) -> Result<&mut TableWriter<PrintRow>> {
+        initialize(&self.relations, &mut self.print, "text_ftrace_event_print")
+    }
+
     pub(crate) fn finish(self) -> Result<()> {
         let header = self.header.context("validated ftrace header is missing")?;
         let mut header_table =
             TableWriter::<HeaderRow>::new(&self.relations, "text_ftrace_header")?;
         header_table.push(HeaderRow {
             tracer: header.tracer,
-            entries_in_buffer: header.entries_in_buffer,
-            entries_written: header.entries_written,
-            cpu_count: header.cpu_count,
             has_tgid_column: header.has_tgid_column,
         })?;
         header_table.finish()?;
@@ -238,8 +472,30 @@ impl OutputTables {
         finish(self.sched_wakeup)?;
         finish(self.sched_wakeup_new)?;
         finish(self.tracing_mark_write)?;
+        finish(self.sched_blocked_reason)?;
+        finish(self.mm_filemap_add_to_page_cache)?;
+        finish(self.mm_filemap_delete_from_page_cache)?;
+        finish(self.block_rq_issue)?;
+        finish(self.block_rq_complete)?;
+        finish(self.binder_transaction)?;
+        finish(self.print)?;
+        finish(self.unsupported_event)?;
         self.relations.validate()?;
         Ok(())
+    }
+}
+
+fn filemap_row(id: u64, root_id: u64, value: FilemapPageCache) -> FilemapPageCacheRow {
+    FilemapPageCacheRow {
+        _kat_row_id: id,
+        _kat_parent_row_id: root_id,
+        device_major: value.device_major,
+        device_minor: value.device_minor,
+        inode: value.inode,
+        page_frame_number: value.page_frame_number,
+        offset_bytes: value.offset_bytes,
+        order: value.order,
+        page_address: value.page_address,
     }
 }
 

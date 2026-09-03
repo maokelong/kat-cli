@@ -9,7 +9,7 @@ import unittest
 
 _HEADER = """# tracer: nop
 #
-# entries-in-buffer/entries-written: {entries}/{entries}   #P:4
+# entries-in-buffer/entries-written: %lu/%lu   #P:%d
 #
 # _-----=> irqs-off/BH-disabled
 # / _----=> need-resched
@@ -28,7 +28,28 @@ class TextFtraceApiContractTests(unittest.TestCase):
         from kat_datasource import text_ftrace
 
         self.assertEqual(kat_datasource.__all__, ("hitrace", "text_ftrace"))
-        self.assertEqual(text_ftrace.__all__, ("decode", "DecodeError"))
+        self.assertEqual(
+            text_ftrace.__all__,
+            (
+                "decode",
+                "DecodeReport",
+                "DecodeError",
+                "HEADER_RELATION",
+                "OCCURRENCE_RELATION",
+                "EVENT_RELATION",
+                "UNSUPPORTED_EVENT_RELATION",
+            ),
+        )
+        self.assertEqual(text_ftrace.HEADER_RELATION, "text_ftrace_header")
+        self.assertEqual(
+            text_ftrace.OCCURRENCE_RELATION,
+            "text_ftrace_event_occurrence",
+        )
+        self.assertEqual(text_ftrace.EVENT_RELATION, "text_ftrace_event")
+        self.assertEqual(
+            text_ftrace.UNSUPPORTED_EVENT_RELATION,
+            "text_ftrace_unsupported_event",
+        )
         self.assertTrue(issubclass(text_ftrace.DecodeError, RuntimeError))
         self.assertFalse(hasattr(kat_datasource, "decode_text_ftrace"))
 
@@ -40,15 +61,14 @@ class TextFtraceApiContractTests(unittest.TestCase):
             source = root / "trace.ftrace"
             destination = root / "relations"
             source.write_text(
-                _HEADER.format(entries=1)
+                _HEADER
                 + "worker-7 ( 7) [002] d.... 1.0: sched_wakeup: "
                 "comm=target pid=8 prio=120 target_cpu=003\n",
                 encoding="utf-8",
             )
 
-            self.assertIsNone(
-                text_ftrace.decode(source, destination, "fixture_clock")
-            )
+            report = text_ftrace.decode(source, destination, "fixture_clock")
+            self.assertEqual(report.unsupported_event_names, ())
             self.assertEqual(
                 sorted(path.name for path in destination.iterdir()),
                 [
@@ -56,6 +76,32 @@ class TextFtraceApiContractTests(unittest.TestCase):
                     "text_ftrace_event_occurrence.parquet",
                     "text_ftrace_event_sched_wakeup.parquet",
                     "text_ftrace_header.parquet",
+                ],
+            )
+
+    def test_decode_reports_unknown_events_and_accepts_no_supported_events(self) -> None:
+        from kat_datasource import text_ftrace
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            source = root / "unknown.ftrace"
+            destination = root / "relations"
+            source.write_text(
+                _HEADER
+                + "worker-7 ( 7) [002] d.... 1.0: z_event: value=1\n"
+                + "worker-7 ( 7) [002] d.... 2.0: a_event: value=2\n"
+                + "worker-7 ( 7) [002] d.... 3.0: z_event: value=3\n",
+                encoding="utf-8",
+            )
+
+            report = text_ftrace.decode(source, destination, "fixture_clock")
+
+            self.assertEqual(report.unsupported_event_names, ("a_event", "z_event"))
+            self.assertEqual(
+                sorted(path.name for path in destination.iterdir()),
+                [
+                    "text_ftrace_header.parquet",
+                    "text_ftrace_unsupported_event.parquet",
                 ],
             )
 
@@ -86,7 +132,7 @@ class TextFtraceApiContractTests(unittest.TestCase):
                 "comm=target pid=8 prio=120 target_cpu=003\n"
             )
             source.write_text(
-                _HEADER.format(entries=event_count) + event * event_count,
+                _HEADER + event * event_count,
                 encoding="utf-8",
             )
 

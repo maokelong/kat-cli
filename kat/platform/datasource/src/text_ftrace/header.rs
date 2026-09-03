@@ -1,20 +1,14 @@
 use anyhow::{Context, Result, bail};
 
-use super::event::{parse_u32, parse_u64};
-
 #[derive(Clone, Debug)]
 pub(crate) struct FtraceHeader {
     pub(crate) tracer: String,
-    pub(crate) entries_in_buffer: u64,
-    pub(crate) entries_written: u64,
-    pub(crate) cpu_count: u32,
     pub(crate) has_tgid_column: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct HeaderParser {
     tracer: Option<String>,
-    entries: Option<(u64, u64, u32)>,
     legends: u8,
     has_tgid_column: Option<bool>,
 }
@@ -30,7 +24,7 @@ impl HeaderParser {
             if self.tracer.is_some() {
                 bail!("duplicate tracer header at line {line_number}");
             }
-            if self.entries.is_some() || self.legends != 0 || self.has_tgid_column.is_some() {
+            if self.legends != 0 || self.has_tgid_column.is_some() {
                 bail!("tracer header is out of order at line {line_number}");
             }
             let value = value.trim();
@@ -40,38 +34,7 @@ impl HeaderParser {
             self.tracer = Some(value.to_owned());
             return Ok(());
         }
-        if let Some(value) = content.strip_prefix("entries-in-buffer/entries-written:") {
-            if self.tracer.is_none() {
-                bail!("buffer header precedes tracer at line {line_number}");
-            }
-            if self.entries.is_some() {
-                bail!("duplicate buffer header at line {line_number}");
-            }
-            if self.legends != 0 || self.has_tgid_column.is_some() {
-                bail!("buffer header is out of order at line {line_number}");
-            }
-            let (counts, cpu_count) = value
-                .split_once("#P:")
-                .with_context(|| format!("invalid buffer header at line {line_number}"))?;
-            let (buffered, written) = counts
-                .trim()
-                .split_once('/')
-                .with_context(|| format!("invalid buffer counts at line {line_number}"))?;
-            let buffered = parse_u64(buffered.trim(), "entries-in-buffer")
-                .with_context(|| format!("invalid buffer header at line {line_number}"))?;
-            let written = parse_u64(written.trim(), "entries-written")
-                .with_context(|| format!("invalid buffer header at line {line_number}"))?;
-            let cpu_count = parse_u32(cpu_count.trim(), "CPU count")
-                .with_context(|| format!("invalid buffer header at line {line_number}"))?;
-            if cpu_count == 0 {
-                bail!("CPU count must be greater than zero at line {line_number}");
-            }
-            if buffered > written {
-                bail!(
-                    "entries-in-buffer {buffered} exceeds entries-written {written} at line {line_number}"
-                );
-            }
-            self.entries = Some((buffered, written, cpu_count));
+        if content.starts_with("entries-in-buffer/entries-written:") {
             return Ok(());
         }
         let legend = if content.contains("=> irqs-off") {
@@ -90,8 +53,8 @@ impl HeaderParser {
             None
         };
         if let Some(legend) = legend {
-            if self.entries.is_none() {
-                bail!("flag legend precedes buffer header at line {line_number}");
+            if self.tracer.is_none() {
+                bail!("flag legend precedes tracer at line {line_number}");
             }
             let expected = match self.legends {
                 0..=3 => self.legends,
@@ -151,9 +114,6 @@ impl HeaderParser {
         if self.tracer.is_none() {
             missing.push("tracer");
         }
-        if self.entries.is_none() {
-            missing.push("buffer counts and CPU count");
-        }
         if self.legends != 6 {
             missing.push("complete context flag legend");
         }
@@ -163,13 +123,8 @@ impl HeaderParser {
         if !missing.is_empty() {
             bail!("invalid ftrace header: missing {}", missing.join(", "));
         }
-        let (entries_in_buffer, entries_written, cpu_count) =
-            self.entries.expect("header entries checked");
         Ok(FtraceHeader {
             tracer: self.tracer.expect("header tracer checked"),
-            entries_in_buffer,
-            entries_written,
-            cpu_count,
             has_tgid_column: self.has_tgid_column.expect("header columns checked"),
         })
     }
@@ -178,7 +133,6 @@ impl HeaderParser {
 pub(crate) fn is_structured_header_line(line: &str) -> bool {
     let content = line.trim_start_matches('#').trim();
     content.starts_with("tracer:")
-        || content.starts_with("entries-in-buffer/entries-written:")
         || content.contains("TASK-PID")
         || content.contains("=> irqs-off")
 }

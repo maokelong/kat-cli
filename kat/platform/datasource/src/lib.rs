@@ -11,7 +11,7 @@ mod relation_writer;
 mod text_ftrace;
 
 pub use hitrace_decode::{HitraceDecodeError, HitraceDecodeReport, decode_hitrace};
-pub use text_ftrace::decode_text_ftrace;
+pub use text_ftrace::{TextFtraceDecodeReport, decode_text_ftrace};
 
 #[allow(dead_code)]
 pub(crate) mod proto {

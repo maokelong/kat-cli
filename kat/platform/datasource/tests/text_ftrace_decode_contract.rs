@@ -3,6 +3,56 @@ use std::{fs, fs::File};
 use arrow_array::{Array, BooleanArray, Int32Array, StringArray, UInt32Array, UInt64Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
+fn read_first_batch(path: &std::path::Path) -> arrow_array::RecordBatch {
+    ParquetRecordBatchReaderBuilder::try_new(File::open(path).unwrap())
+        .unwrap()
+        .build()
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+}
+
+fn string_value<'a>(batch: &'a arrow_array::RecordBatch, column: &str) -> &'a str {
+    batch
+        .column_by_name(column)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap()
+        .value(0)
+}
+
+fn i32_value(batch: &arrow_array::RecordBatch, column: &str) -> i32 {
+    batch
+        .column_by_name(column)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap()
+        .value(0)
+}
+
+fn u32_value(batch: &arrow_array::RecordBatch, column: &str) -> u32 {
+    batch
+        .column_by_name(column)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .unwrap()
+        .value(0)
+}
+
+fn u64_value(batch: &arrow_array::RecordBatch, column: &str) -> u64 {
+    batch
+        .column_by_name(column)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap()
+        .value(0)
+}
+
 fn row_count(path: &std::path::Path) -> usize {
     ParquetRecordBatchReaderBuilder::try_new(File::open(path).unwrap())
         .unwrap()
@@ -61,7 +111,8 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
     )
     .unwrap();
 
-    kat_datasource::decode_text_ftrace(&input, &output, "monotonic").unwrap();
+    let report = kat_datasource::decode_text_ftrace(&input, &output, "monotonic").unwrap();
+    assert_eq!(report.unsupported_event_names(), &["custom_event"]);
 
     let root = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_event.parquet")).unwrap(),
@@ -119,6 +170,25 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
             .join("text_ftrace_event_sched_switch.parquet")
             .exists()
     );
+    let unsupported = ParquetRecordBatchReaderBuilder::try_new(
+        File::open(output.join("text_ftrace_unsupported_event.parquet")).unwrap(),
+    )
+    .unwrap()
+    .build()
+    .unwrap()
+    .next()
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        unsupported
+            .column_by_name("event_name")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .value(0),
+        "custom_event"
+    );
     let header = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_header.parquet")).unwrap(),
     )
@@ -138,36 +208,9 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
             .value(0),
         "nop"
     );
-    assert_eq!(
-        header
-            .column_by_name("entries_in_buffer")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .unwrap()
-            .value(0),
-        3
-    );
-    assert_eq!(
-        header
-            .column_by_name("entries_written")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .unwrap()
-            .value(0),
-        3
-    );
-    assert_eq!(
-        header
-            .column_by_name("cpu_count")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt32Array>()
-            .unwrap()
-            .value(0),
-        8
-    );
+    for discarded_statistic in ["entries_in_buffer", "entries_written", "cpu_count"] {
+        assert!(header.column_by_name(discarded_statistic).is_none());
+    }
     assert!(
         header
             .column_by_name("has_tgid_column")
@@ -180,7 +223,94 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
 }
 
 #[test]
-fn creates_each_proto_oneof_table_only_when_observed() {
+fn ignores_optional_buffer_statistics_and_uses_the_event_column_contract() {
+    let event =
+        "worker-7 ( 7) [999] d.... 1.0: sched_wakeup: comm=target pid=8 prio=120 target_cpu=003\n";
+    let numeric = "# entries-in-buffer/entries-written: 1/0   #P:0\n";
+    let source = trace(event, 1, 0, 0, true);
+    let variants = [
+        (
+            "placeholder",
+            source.replace(
+                numeric,
+                "# entries-in-buffer/entries-written: %lu/%lu   #P:%d\n",
+            ),
+        ),
+        (
+            "unstructured",
+            source.replace(
+                numeric,
+                "# entries-in-buffer/entries-written: unavailable\n",
+            ),
+        ),
+        ("absent", source.replace(numeric, "")),
+    ];
+    let temp = tempfile::tempdir().unwrap();
+
+    for (name, source) in variants {
+        let input = temp.path().join(format!("{name}.ftrace"));
+        let output = temp.path().join(format!("{name}-parquet"));
+        fs::write(&input, source).unwrap();
+
+        kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
+
+        let root = ParquetRecordBatchReaderBuilder::try_new(
+            File::open(output.join("text_ftrace_event.parquet")).unwrap(),
+        )
+        .unwrap()
+        .build()
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            root.column_by_name("cpu")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(0),
+            999
+        );
+    }
+}
+
+#[test]
+fn accepts_only_unknown_events_and_reports_sorted_unique_names() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("unknown.ftrace");
+    let output = temp.path().join("parquet");
+    fs::write(
+        &input,
+        trace(
+            concat!(
+                "worker-7 ( 7) [002] d.... 1.0: z_event: value=1\n",
+                "worker-7 ( 7) [002] d.... 2.0: a_event: value=2\n",
+                "worker-7 ( 7) [002] d.... 3.0: z_event: value=3\n",
+            ),
+            3,
+            3,
+            4,
+            true,
+        ),
+    )
+    .unwrap();
+
+    let report = kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
+
+    assert_eq!(report.unsupported_event_names(), &["a_event", "z_event"]);
+    assert!(output.join("text_ftrace_header.parquet").is_file());
+    assert!(
+        output
+            .join("text_ftrace_unsupported_event.parquet")
+            .is_file()
+    );
+    assert!(!output.join("text_ftrace_event.parquet").exists());
+    assert!(!output.join("text_ftrace_event_occurrence.parquet").exists());
+}
+
+#[test]
+fn creates_payload_tables_only_when_observed() {
     let temp = tempfile::tempdir().unwrap();
     let input = temp.path().join("all.ftrace");
     let output = temp.path().join("parquet");
@@ -210,6 +340,76 @@ fn creates_each_proto_oneof_table_only_when_observed() {
     ] {
         assert_eq!(row_count(&output.join(format!("{table}.parquet"))), 1);
     }
+}
+
+#[test]
+fn parses_sched_filemap_block_binder_and_print_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("extended.ftrace");
+    let output = temp.path().join("parquet");
+    fs::write(
+        &input,
+        trace(
+            concat!(
+                "worker-7 ( 7) [002] d.... 1.0: sched_blocked_reason: pid=13 iowait=1 caller=io_schedule+0x4c/0x80\n",
+                "worker-7 ( 7) [002] d.... 2.0: mm_filemap_add_to_page_cache: dev 179:2 ino 1a2b pfn=0x123 ofs=4096 order=0\n",
+                "worker-7 ( 7) [002] d.... 3.0: mm_filemap_delete_from_page_cache: dev 253:6 ino 9a64 page=000000006e0f8322 pfn=797894 ofs=8192\n",
+                "worker-7 ( 7) [002] d.... 4.0: block_rq_issue: 179,0 WS 4096 () 123 + 8 [kworker/u16:3]\n",
+                "worker-7 ( 7) [002] d.... 5.0: block_rq_complete: 179,0 WS () 123 + 8 [-5]\n",
+                "worker-7 ( 7) [002] d.... 6.0: binder_transaction: transaction=515671 dest_node=0 dest_proc=12974 dest_thread=12974 reply=1 flags=0x10 code=0x83\n",
+                "worker-7 ( 7) [002] d.... 7.0: print: trace_printk: message: detail\n",
+            ),
+            7,
+            7,
+            4,
+            true,
+        ),
+    )
+    .unwrap();
+
+    let report = kat_datasource::decode_text_ftrace(&input, &output, "boottime").unwrap();
+    assert!(report.unsupported_event_names().is_empty());
+    assert_eq!(row_count(&output.join("text_ftrace_event.parquet")), 7);
+
+    let sched = read_first_batch(&output.join("text_ftrace_event_sched_blocked_reason.parquet"));
+    assert_eq!(i32_value(&sched, "pid"), 13);
+    assert_eq!(u32_value(&sched, "io_wait"), 1);
+    assert_eq!(string_value(&sched, "caller"), "io_schedule+0x4c/0x80");
+
+    let add =
+        read_first_batch(&output.join("text_ftrace_event_mm_filemap_add_to_page_cache.parquet"));
+    assert_eq!(u32_value(&add, "device_major"), 179);
+    assert_eq!(u32_value(&add, "device_minor"), 2);
+    assert_eq!(u64_value(&add, "inode"), 0x1a2b);
+    assert_eq!(u64_value(&add, "page_frame_number"), 0x123);
+    assert_eq!(u64_value(&add, "offset_bytes"), 4096);
+    assert_eq!(u32_value(&add, "order"), 0);
+
+    let delete = read_first_batch(
+        &output.join("text_ftrace_event_mm_filemap_delete_from_page_cache.parquet"),
+    );
+    assert_eq!(u64_value(&delete, "page_frame_number"), 797_894);
+    assert_eq!(string_value(&delete, "page_address"), "000000006e0f8322");
+    assert!(delete.column_by_name("order").unwrap().is_null(0));
+
+    let issue = read_first_batch(&output.join("text_ftrace_event_block_rq_issue.parquet"));
+    assert_eq!(u32_value(&issue, "bytes"), 4096);
+    assert_eq!(u64_value(&issue, "sector"), 123);
+    assert_eq!(u32_value(&issue, "sector_count"), 8);
+    assert_eq!(string_value(&issue, "process_name"), "kworker/u16:3");
+
+    let complete = read_first_batch(&output.join("text_ftrace_event_block_rq_complete.parquet"));
+    assert_eq!(i32_value(&complete, "error"), -5);
+
+    let binder = read_first_batch(&output.join("text_ftrace_event_binder_transaction.parquet"));
+    assert_eq!(i32_value(&binder, "transaction_id"), 515_671);
+    assert_eq!(i32_value(&binder, "destination_process_id"), 12_974);
+    assert_eq!(u32_value(&binder, "flags"), 0x10);
+    assert_eq!(u32_value(&binder, "code"), 0x83);
+
+    let print = read_first_batch(&output.join("text_ftrace_event_print.parquet"));
+    assert_eq!(string_value(&print, "instruction_pointer"), "trace_printk");
+    assert_eq!(string_value(&print, "content"), "message: detail");
 }
 
 #[test]
@@ -269,7 +469,7 @@ fn accepts_a_header_without_tgid_and_records_the_column_contract() {
 }
 
 #[test]
-fn rejects_malformed_or_inconsistent_headers_without_publication() {
+fn rejects_malformed_structural_headers_without_publication() {
     let event =
         "worker-7 ( 7) [002] d.... 1.0: sched_wakeup: comm=target pid=8 prio=120 target_cpu=003\n";
     let valid = trace(event, 1, 1, 4, true);
@@ -277,22 +477,12 @@ fn rejects_malformed_or_inconsistent_headers_without_publication() {
         (
             "missing-tracer",
             valid.replacen("# tracer: nop\n", "", 1),
-            "buffer header precedes tracer",
+            "flag legend precedes tracer",
         ),
         (
             "duplicate-tracer",
             valid.replacen("# tracer: nop\n", "# tracer: nop\n# tracer: nop\n", 1),
             "duplicate tracer header",
-        ),
-        (
-            "invalid-buffer-relation",
-            valid.replacen("1/1", "2/1", 1),
-            "entries-in-buffer 2 exceeds entries-written 1",
-        ),
-        (
-            "zero-cpu",
-            valid.replacen("#P:4", "#P:0", 1),
-            "CPU count must be greater than zero",
         ),
         (
             "missing-legend",
@@ -303,16 +493,6 @@ fn rejects_malformed_or_inconsistent_headers_without_publication() {
             "missing-column",
             valid.replacen("  FUNCTION\n", "\n", 1),
             "column header lacks FUNCTION",
-        ),
-        (
-            "event-count-mismatch",
-            valid.replacen("1/1", "2/2", 1),
-            "declares 2 buffered events, but text contains 1",
-        ),
-        (
-            "cpu-out-of-range",
-            valid.replacen("[002]", "[004]", 1),
-            "CPU 4 is outside header CPU count 4",
         ),
         (
             "late-header",

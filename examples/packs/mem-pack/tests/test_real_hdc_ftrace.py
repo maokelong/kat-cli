@@ -35,7 +35,7 @@ def _run_hdc(*arguments: str) -> subprocess.CompletedProcess[str]:
     return completed
 
 
-def test_real_hdc_capture_converts_queries_and_reuses_content_hash(tmp_path):
+def test_real_hdc_capture_converts_queries_and_reuses_file_name_catalog(tmp_path):
     target = _TARGET
     assert target is not None
     inventory = _run_hdc("list", "targets", "-v").stdout.splitlines()
@@ -99,14 +99,13 @@ def test_real_hdc_capture_converts_queries_and_reuses_content_hash(tmp_path):
         FROM text_ftrace_event
         """
     ).to_rows()
-    assert header["entries_in_buffer"] > 0
-    assert header["cpu_count"] > 0
+    assert header["tracer"]
+    assert isinstance(header["has_tgid_column"], bool)
     assert summary["event_count"] > 0
     assert summary["observed_cpu_count"] > 0
     assert summary["clock_domain"] == "boot"
 
-    cache_root = workspace_root / ".ftrace-cache"
-    [catalog_root] = list(cache_root.iterdir())
+    catalog_root = workspace_root / local_trace.name
     materialized_at = catalog_root.stat().st_mtime_ns
 
     reused = FtraceProvider(
@@ -114,7 +113,7 @@ def test_real_hdc_capture_converts_queries_and_reuses_content_hash(tmp_path):
         clock_domain="boot",
         workspace_root=workspace_root,
     )
-    assert reused.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
-        {"count": summary["event_count"]}
-    ]
+    assert reused.query(
+        "SELECT COUNT(*) AS count FROM text_ftrace_event"
+    ).to_rows() == [{"count": summary["event_count"]}]
     assert catalog_root.stat().st_mtime_ns == materialized_at

@@ -6,14 +6,14 @@
 
 ## 内部物化
 
-默认模式以来源文件内容的 SHA-256 作为内部目录名。相同内容跨 Workflow 复用已经通过
-准入检查的 Parquet；目录位置不属于公共 API。旧目录无法打开、缺少固定关系或内容损坏
-时，Provider 删除并重建。相同内容已经保存的 `clock_domain` 与本次请求不一致时明确
-失败，避免把同一时间值解释成不同的时钟域。
+物化目录固定为 `workspace_root / source.name`。目录已经包含顶层 Parquet 文件时，Provider
+直接打开并执行关系与 `clock_domain` 准入检查，不再次解析。目录不存在或为空时才调用
+转换器；非空但没有 Parquet 的目录会被拒绝，避免覆盖不明文件。已有 Parquet 无法打开或
+未通过准入检查时明确失败，不隐式删除或重建。
 
-调用方需要在 Provider 对象释放时删除内部物化结果，可以传入 `auto_cleanup=True`。该
-模式使用实例独占临时目录，不命中也不删除默认的 SHA-256 目录。未传入时默认为
-`False`，保留可供后续 Workflow 复用的内部结果。
+目录身份只由文件名决定。同一 `workspace_root` 下的同名来源会复用同一目录，即使来源路径
+或内容不同；调用方需要用不同文件名或不同 `workspace_root` 区分它们。Provider 不提供
+`redecode`、自动清理或 `finish()` 接口。
 
 ## 运行时发现
 
@@ -24,13 +24,17 @@ tables = provider.query("SHOW TABLES")
 columns = provider.query("DESCRIBE text_ftrace_event")
 ```
 
-`text_ftrace_header`、`text_ftrace_event_occurrence` 和 `text_ftrace_event` 固定存在。
-四张 payload 表只在来源中出现对应事件时生成。
+`provider.tables` 返回当前 Catalog 的稳定排序关系名；`provider.decode_report` 返回排序、
+去重后的未支持事件名。`text_ftrace_header` 固定存在；只有至少一个已支持事件时，
+`text_ftrace_event_occurrence` 和 `text_ftrace_event` 才同时存在。payload 表只在
+来源中出现对应事件时生成，`text_ftrace_unsupported_event` 只在存在未支持事件时生成。
 
 ## 关系拓扑
 
 ```text
 text_ftrace_header
+
+text_ftrace_unsupported_event (存在未支持事件时)
 
 text_ftrace_event_occurrence
   _kat_row_id
@@ -39,25 +43,39 @@ text_ftrace_event_occurrence
               ├── text_ftrace_event_sched_switch._kat_parent_row_id
               ├── text_ftrace_event_sched_wakeup._kat_parent_row_id
               ├── text_ftrace_event_sched_wakeup_new._kat_parent_row_id
-              └── text_ftrace_event_tracing_mark_write._kat_parent_row_id
+              ├── text_ftrace_event_tracing_mark_write._kat_parent_row_id
+              ├── text_ftrace_event_sched_blocked_reason._kat_parent_row_id
+              ├── text_ftrace_event_mm_filemap_add_to_page_cache._kat_parent_row_id
+              ├── text_ftrace_event_mm_filemap_delete_from_page_cache._kat_parent_row_id
+              ├── text_ftrace_event_block_rq_issue._kat_parent_row_id
+              ├── text_ftrace_event_block_rq_complete._kat_parent_row_id
+              ├── text_ftrace_event_binder_transaction._kat_parent_row_id
+              └── text_ftrace_event_print._kat_parent_row_id
 ```
 
 `_kat_row_id` 只在当前 Catalog 内标识一行；它不是跨转换稳定的业务 ID。
 每个已支持的来源事件恰好有一行 occurrence、一行事件根和一行对应 payload。
 合法但暂未支持的事件不会产生这三类行，因此 `source_event_sequence` 可以出现间隙。
 
+### `text_ftrace_unsupported_event`
+
+按名称汇总本次转换遇到的合法但未支持事件；名称排序且去重。
+
+| 字段 | Arrow 类型 | 含义 |
+| --- | --- | --- |
+| `event_name` | `Utf8` | 未支持的 ftrace 事件名 |
+
 ## 固定关系
 
 ### `text_ftrace_header`
 
-每个 Catalog 恰好一行，描述输入文件头。
+每个 Catalog 恰好一行，只保留解析事件结构需要的输入合同。展示性的
+`entries-in-buffer/entries-written` 与 `#P` 行会被忽略，无论它包含数字、格式占位符或
+完全缺失都不影响事件解析；Provider 不据此校验事件数量或 CPU 范围。
 
 | 字段 | Arrow 类型 | 含义 |
 | --- | --- | --- |
 | `tracer` | `Utf8` | tracefs tracer 名称 |
-| `entries_in_buffer` | `UInt64` | 文件头声明的 buffer 内事件数 |
-| `entries_written` | `UInt64` | 文件头声明的累计写入事件数 |
-| `cpu_count` | `UInt32` | 文件头声明的 CPU 数量 |
 | `has_tgid_column` | `Boolean` | 事件列标题是否包含 TGID |
 
 ### `text_ftrace_event_occurrence`
@@ -128,6 +146,76 @@ domain 的数值可直接比较。
 | --- | --- |
 | `content` | `Utf8` |
 
+### `text_ftrace_event_sched_blocked_reason`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `pid` | `Int32` |
+| `io_wait` | `UInt32` |
+| `caller` | `Utf8` |
+
+### `text_ftrace_event_mm_filemap_add_to_page_cache`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `inode` | `UInt64` |
+| `page_frame_number` | `UInt64` |
+| `offset_bytes` | `UInt64` |
+| `order` | `UInt32?` |
+| `page_address` | `Utf8?` |
+
+`order` 来自较新的 folio 输出，`page_address` 来自较旧的 page 输出；不存在的字段为 null。
+
+### `text_ftrace_event_mm_filemap_delete_from_page_cache`
+
+字段与 `text_ftrace_event_mm_filemap_add_to_page_cache` 相同，但只记录删除事件。
+
+### `text_ftrace_event_block_rq_issue`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `rwbs` | `Utf8` |
+| `bytes` | `UInt32` |
+| `command` | `Utf8` |
+| `sector` | `UInt64` |
+| `sector_count` | `UInt32` |
+| `process_name` | `Utf8` |
+
+### `text_ftrace_event_block_rq_complete`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `rwbs` | `Utf8` |
+| `command` | `Utf8` |
+| `sector` | `UInt64` |
+| `sector_count` | `UInt32` |
+| `error` | `Int32` |
+
+### `text_ftrace_event_binder_transaction`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `transaction_id` | `Int32` |
+| `destination_node_id` | `Int32` |
+| `destination_process_id` | `Int32` |
+| `destination_thread_id` | `Int32` |
+| `reply` | `Int32` |
+| `flags` | `UInt32` |
+| `code` | `UInt32` |
+
+### `text_ftrace_event_print`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `instruction_pointer` | `Utf8` |
+| `content` | `Utf8` |
+
 ## 查询示例
 
 查询发生过线程切换的来源位置和公共事件头：
@@ -150,12 +238,13 @@ ORDER BY o.source_event_sequence
 
 ## 文档来源
 
-`text_ftrace_event` 的业务字段以及四类 payload 字段来源于
-`kat/platform/datasource/proto/text_ftrace_event.proto`。
+`text_ftrace_event` 的业务字段以及各类 payload 字段来源于
+`kat/platform/datasource/proto/text_ftrace/text_ftrace_event.proto`。
 
 以下内容当前不在 Proto 中，不能只根据该文件完整生成：
 
-- `text_ftrace_header` 和 `text_ftrace_event_occurrence`；
+- `text_ftrace_header`、`text_ftrace_event_occurrence` 和
+  `text_ftrace_unsupported_event`；
 - `_kat_row_id`、`_kat_parent_row_id` 以及父子关系；
 - Proto 类型到实际 Arrow/Parquet 类型的映射；
 - 表的生成条件、时钟语义和稳定性承诺。

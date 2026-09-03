@@ -1,23 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from kat_datasource import text_ftrace
 
 import kat
 from kat import dataprovider as dp
-
-REQUIRED_RELATIONS = frozenset(
-    {
-        "text_ftrace_header",
-        "text_ftrace_event_occurrence",
-        "text_ftrace_event",
-    }
-)
 
 
 @kat.provider(
@@ -34,7 +23,6 @@ class FtraceProvider:
         source: Path,
         clock_domain: str,
         workspace_root: Path,
-        auto_cleanup: bool = False,
     ) -> None:
         for field, value in (
             ("source", source),
@@ -44,105 +32,106 @@ class FtraceProvider:
                 raise TypeError(f"Ftrace Provider {field} must be a Path")
         if type(clock_domain) is not str:
             raise TypeError("Ftrace Provider clock_domain must be a string")
-        if type(auto_cleanup) is not bool:
-            raise TypeError("Ftrace Provider auto_cleanup must be a bool")
         clock_domain = clock_domain.strip()
         if not clock_domain:
             raise ValueError("Ftrace Provider clock_domain must be non-empty")
         if not workspace_root.is_dir():
             raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
-        self._source = source
         self._clock_domain = clock_domain
-        self._workspace: TemporaryDirectory[str] | None = None
-        try:
-            if not self._source.is_file():
-                raise RuntimeError("Ftrace Provider source must be an existing file")
-            source = self._source.resolve(strict=True)
-            if auto_cleanup:
-                self._workspace = TemporaryDirectory(
-                    prefix="ftrace-",
-                    dir=workspace_root,
-                )
-                self._catalog_root = Path(self._workspace.name) / "catalog"
-                self._fusion = self._convert_and_open_catalog(source)
-            else:
-                cache_root = workspace_root / ".ftrace-cache"
-                cache_root.mkdir(exist_ok=True)
-                if cache_root.is_symlink() or not cache_root.is_dir():
-                    raise RuntimeError(
-                        "Ftrace Provider cache root must be a regular directory"
-                    )
-                self._catalog_root = cache_root / _content_hash(source)
-                self._fusion = self._open_or_rebuild_catalog(source)
-        except BaseException:
-            if self._workspace is not None:
-                self._workspace.cleanup()
-            raise
+        self._query_provider: dp.DataFusionProvider
+        self._decode_report = text_ftrace.DecodeReport(unsupported_event_names=())
+        self._tables: tuple[str, ...] = ()
 
-    def _open_or_rebuild_catalog(self, source: Path) -> dp.DataFusionProvider:
+        if not source.is_file():
+            raise RuntimeError("Ftrace Provider source must be an existing file")
+        source = source.resolve(strict=True)
+        self._catalog_root = workspace_root.resolve(strict=True) / source.name
+        if self._catalog_root.is_symlink() or self._catalog_root.is_file():
+            raise RuntimeError(
+                "Ftrace Provider catalog path must be a directory or absent"
+            )
+        if any(self._catalog_root.glob("*.parquet")):
+            self._open_catalog()
+            return
+        self._decode(source)
+        self._open_catalog()
+
+    def _decode(self, source: Path) -> None:
+        """把来源转换到按文件名确定的 Parquet Catalog。"""
         if self._catalog_root.exists():
             try:
-                return self._open_catalog()
-            except _ClockDomainMismatch:
-                raise
-            except Exception:  # noqa: BLE001 - 任意准入失败都表示缓存不可用。
-                _remove_catalog(self._catalog_root)
-        return self._convert_and_open_catalog(source)
-
-    def _convert_and_open_catalog(self, source: Path) -> dp.DataFusionProvider:
-        """把当前来源完整转换为 Provider 管理的 Parquet Catalog。"""
-        try:
-            catalog_root = self._catalog_root.resolve(strict=False)
-            try:
-                text_ftrace.decode(source, catalog_root, self._clock_domain)
-            except text_ftrace.DecodeError:
-                if (
-                    self._workspace is None
-                    and catalog_root.is_dir()
-                    and not catalog_root.is_symlink()
-                ):
-                    try:
-                        return self._open_catalog()
-                    except _ClockDomainMismatch:
-                        raise
-                    except Exception:  # noqa: BLE001, S110 - 并发产物未通过准入。
-                        pass
-                raise RuntimeError("Ftrace Provider decode failed")
-            if not catalog_root.is_dir() or catalog_root.is_symlink():
+                self._catalog_root.rmdir()
+            except OSError:
                 raise RuntimeError(
-                    "Ftrace Provider did not produce a regular catalog directory"
-                )
-            return self._open_catalog()
-        except _ClockDomainMismatch:
-            raise
-        except OSError:
-            _remove_catalog(self._catalog_root)
-            raise RuntimeError("Ftrace Provider decode failed") from None
-        except BaseException:
-            _remove_catalog(self._catalog_root)
-            raise
-
-    def _open_catalog(self) -> dp.DataFusionProvider:
-        catalog = dp.open(root=self._catalog_root)
-        missing = REQUIRED_RELATIONS.difference(catalog.tables)
-        if missing:
+                    "Ftrace Provider catalog without Parquet must be empty"
+                ) from None
+        try:
+            text_ftrace.decode(source, self._catalog_root, self._clock_domain)
+        except text_ftrace.DecodeError as error:
+            raise RuntimeError(f"Ftrace Provider decode failed: {error}") from error
+        if not self._catalog_root.is_dir() or self._catalog_root.is_symlink():
             raise RuntimeError(
-                "Ftrace Provider output is missing required relations: "
-                + ", ".join(sorted(missing))
+                "Ftrace Provider did not produce a regular catalog directory"
             )
-        fusion = dp.DataFusionProvider(catalog=catalog)
-        domains = {
-            row["clock_domain"]
-            for row in fusion.query(
-                "SELECT DISTINCT clock_domain FROM text_ftrace_event"
-            ).to_rows()
-        }
-        if domains != {self._clock_domain}:
-            raise _ClockDomainMismatch(
-                "Ftrace Provider cached clock_domain does not match the request"
+
+    def _open_catalog(
+        self,
+    ) -> None:
+        catalog = dp.open(root=self._catalog_root)
+        relations = set(catalog.tables)
+        if text_ftrace.HEADER_RELATION not in relations:
+            raise RuntimeError(
+                f"Ftrace Provider output is missing {text_ftrace.HEADER_RELATION}"
             )
-        return fusion
+        if (text_ftrace.OCCURRENCE_RELATION in relations) != (
+            text_ftrace.EVENT_RELATION in relations
+        ):
+            raise RuntimeError(
+                "Ftrace Provider output must contain both "
+                f"{text_ftrace.OCCURRENCE_RELATION} and "
+                f"{text_ftrace.EVENT_RELATION}"
+            )
+        query_provider = dp.DataFusionProvider(catalog=catalog)
+        if text_ftrace.EVENT_RELATION in relations:
+            domains = {
+                row["clock_domain"]
+                for row in query_provider.query(
+                    f"SELECT DISTINCT clock_domain FROM {text_ftrace.EVENT_RELATION}"
+                ).to_rows()
+            }
+            if domains != {self._clock_domain}:
+                raise RuntimeError(
+                    "Ftrace Provider cached clock_domain does not match the request"
+                )
+        unsupported_event_names: tuple[str, ...] = ()
+        if text_ftrace.UNSUPPORTED_EVENT_RELATION in relations:
+            unsupported_event_names = tuple(
+                row["event_name"]
+                for row in query_provider.query(
+                    "SELECT event_name FROM "
+                    f"{text_ftrace.UNSUPPORTED_EVENT_RELATION} "
+                    "ORDER BY event_name"
+                ).to_rows()
+            )
+            if unsupported_event_names != tuple(sorted(set(unsupported_event_names))):
+                raise RuntimeError(
+                    "Ftrace Provider unsupported event report is not sorted and unique"
+                )
+        decode_report = text_ftrace.DecodeReport(
+            unsupported_event_names=unsupported_event_names
+        )
+        self._query_provider = query_provider
+        self._decode_report = decode_report
+        self._tables = tuple(sorted(relations))
+
+    @property
+    def decode_report(self) -> text_ftrace.DecodeReport:
+        return self._decode_report
+
+    @property
+    def tables(self) -> tuple[str, ...]:
+        return self._tables
 
     def query(
         self,
@@ -150,26 +139,4 @@ class FtraceProvider:
         *,
         params: Mapping[str, object] | None = None,
     ) -> dp.Table:
-        return self._fusion.query(sql, params=params)
-
-
-def _content_hash(source: Path) -> str:
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _remove_catalog(catalog_root: Path) -> None:
-    try:
-        if catalog_root.is_symlink():
-            catalog_root.unlink(missing_ok=True)
-        else:
-            shutil.rmtree(catalog_root, ignore_errors=True)
-    except OSError:
-        pass
-
-
-class _ClockDomainMismatch(RuntimeError):
-    pass
+        return self._query_provider.query(sql, params=params)
