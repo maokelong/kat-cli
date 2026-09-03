@@ -46,47 +46,36 @@ class FtraceProvider:
         if not workspace_root.is_dir():
             raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
-        self._source = source
         self._clock_domain = clock_domain
-        self._fusion: dp.DataFusionProvider | None = None
+        self._query_provider: dp.DataFusionProvider | None = None
         self._decode_report = text_ftrace.DecodeReport(unsupported_event_names=())
         self._tables: tuple[str, ...] = ()
-        self._auto_cleanup = False
-        self._finished = False
-        try:
-            if not self._source.is_file():
-                raise RuntimeError("Ftrace Provider source must be an existing file")
-            source = self._source.resolve(strict=True)
-            cache_root = workspace_root / ".ftrace-cache"
-            cache_root.mkdir(exist_ok=True)
-            if cache_root.is_symlink() or not cache_root.is_dir():
-                raise RuntimeError(
-                    "Ftrace Provider cache root must be a regular directory"
-                )
-            self._catalog_root = cache_root / _content_hash(source)
-            if redecode:
-                _remove_catalog(self._catalog_root)
-            self._fusion, self._decode_report = self._open_or_rebuild_catalog(source)
-            self._auto_cleanup = auto_cleanup
-        except BaseException:
-            self._finished = True
-            raise
+        self._auto_cleanup = auto_cleanup
 
-    def _open_or_rebuild_catalog(
-        self, source: Path
-    ) -> tuple[dp.DataFusionProvider, text_ftrace.DecodeReport]:
+        if not source.is_file():
+            raise RuntimeError("Ftrace Provider source must be an existing file")
+        source = source.resolve(strict=True)
+        cache_root = workspace_root / ".ftrace-cache"
+        cache_root.mkdir(exist_ok=True)
+        if cache_root.is_symlink() or not cache_root.is_dir():
+            raise RuntimeError("Ftrace Provider cache root must be a regular directory")
+        self._catalog_root = cache_root / _content_hash(source)
+        if redecode:
+            _remove_catalog(self._catalog_root)
+        self._open_or_rebuild_catalog(source)
+
+    def _open_or_rebuild_catalog(self, source: Path) -> None:
         if self._catalog_root.exists():
             try:
-                return self._open_catalog()
+                self._open_catalog()
+                return
             except _ClockDomainMismatch:
                 raise
             except Exception:  # noqa: BLE001 - 任意准入失败都表示缓存不可用。
                 _cleanup_catalog(self._catalog_root)
-        return self._convert_and_open_catalog(source)
+        self._convert_and_open_catalog(source)
 
-    def _convert_and_open_catalog(
-        self, source: Path
-    ) -> tuple[dp.DataFusionProvider, text_ftrace.DecodeReport]:
+    def _convert_and_open_catalog(self, source: Path) -> None:
         """把当前来源完整转换为 Provider 管理的 Parquet Catalog。"""
         try:
             catalog_root = self._catalog_root.resolve(strict=False)
@@ -98,7 +87,7 @@ class FtraceProvider:
                 raise RuntimeError(
                     "Ftrace Provider did not produce a regular catalog directory"
                 )
-            return self._open_catalog()
+            self._open_catalog()
         except _ClockDomainMismatch:
             raise
         except OSError:
@@ -110,10 +99,9 @@ class FtraceProvider:
 
     def _open_catalog(
         self,
-    ) -> tuple[dp.DataFusionProvider, text_ftrace.DecodeReport]:
+    ) -> None:
         catalog = dp.open(root=self._catalog_root)
         relations = set(catalog.tables)
-        self._tables = tuple(sorted(relations))
         if text_ftrace.HEADER_RELATION not in relations:
             raise RuntimeError(
                 f"Ftrace Provider output is missing {text_ftrace.HEADER_RELATION}"
@@ -126,11 +114,11 @@ class FtraceProvider:
                 f"{text_ftrace.OCCURRENCE_RELATION} and "
                 f"{text_ftrace.EVENT_RELATION}"
             )
-        fusion = dp.DataFusionProvider(catalog=catalog)
+        query_provider = dp.DataFusionProvider(catalog=catalog)
         if text_ftrace.EVENT_RELATION in relations:
             domains = {
                 row["clock_domain"]
-                for row in fusion.query(
+                for row in query_provider.query(
                     f"SELECT DISTINCT clock_domain FROM {text_ftrace.EVENT_RELATION}"
                 ).to_rows()
             }
@@ -142,7 +130,7 @@ class FtraceProvider:
         if text_ftrace.UNSUPPORTED_EVENT_RELATION in relations:
             unsupported_event_names = tuple(
                 row["event_name"]
-                for row in fusion.query(
+                for row in query_provider.query(
                     "SELECT event_name FROM "
                     f"{text_ftrace.UNSUPPORTED_EVENT_RELATION} "
                     "ORDER BY event_name"
@@ -152,9 +140,12 @@ class FtraceProvider:
                 raise RuntimeError(
                     "Ftrace Provider unsupported event report is not sorted and unique"
                 )
-        return fusion, text_ftrace.DecodeReport(
+        decode_report = text_ftrace.DecodeReport(
             unsupported_event_names=unsupported_event_names
         )
+        self._query_provider = query_provider
+        self._decode_report = decode_report
+        self._tables = tuple(sorted(relations))
 
     @property
     def decode_report(self) -> text_ftrace.DecodeReport:
@@ -170,23 +161,22 @@ class FtraceProvider:
         *,
         params: Mapping[str, object] | None = None,
     ) -> dp.Table:
-        fusion = self._fusion
-        if fusion is None:
+        query_provider = self._query_provider
+        if query_provider is None:
             raise RuntimeError("Ftrace Provider is finished")
-        return fusion.query(sql, params=params)
+        return query_provider.query(sql, params=params)
 
     def finish(self) -> None:
-        if self._finished:
+        if self._query_provider is None:
             return
-        self._finished = True
-        self._fusion = None
+        self._query_provider = None
         if self._auto_cleanup:
             _remove_catalog(self._catalog_root)
 
     def __del__(self) -> None:
         try:
             self.finish()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - 析构补偿不能泄漏异常。
             pass
 
 
