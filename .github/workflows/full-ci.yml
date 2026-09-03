@@ -77,5 +77,8 @@ jobs:
       - name: Test real Workflow Host vertical slice
         run: cargo test --locked -p kat-cli --test inspect targeted_knowledge_inspection_runs_the_real_installed_host -- --ignored --exact
 
+      - name: Test Guide-driven critical-path chain
+        run: cargo test --locked -p kat-cli --test guide_chain critical_path_guides_drive_two_explicit_runs_through_public_operations -- --ignored --exact
+
       - name: Test Workflow Host
         run: python -I -B -m unittest discover -s kat/platform/workflow/tests
