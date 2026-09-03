@@ -16,6 +16,13 @@ message TextFtraceEvent {
     SchedWakeup sched_wakeup = 9;
     SchedWakeupNew sched_wakeup_new = 10;
     TracingMarkWrite tracing_mark_write = 11;
+    SchedBlockedReason sched_blocked_reason = 12;
+    FilemapPageCache mm_filemap_add_to_page_cache = 13;
+    FilemapPageCache mm_filemap_delete_from_page_cache = 14;
+    BlockRqIssue block_rq_issue = 15;
+    BlockRqComplete block_rq_complete = 16;
+    BinderTransaction binder_transaction = 17;
+    Print print = 18;
   }
 }
 
@@ -45,4 +52,56 @@ message SchedWakeupNew {
 
 message TracingMarkWrite {
   string content = 1;
+}
+
+message SchedBlockedReason {
+  int32 pid = 1;
+  uint32 io_wait = 2;
+  string caller = 3;
+}
+
+message FilemapPageCache {
+  uint32 device_major = 1;
+  uint32 device_minor = 2;
+  uint64 inode = 3;
+  uint64 page_frame_number = 4;
+  uint64 offset_bytes = 5;
+  optional uint32 order = 6;
+  optional string page_address = 7;
+}
+
+message BlockRqIssue {
+  uint32 device_major = 1;
+  uint32 device_minor = 2;
+  string rwbs = 3;
+  uint32 bytes = 4;
+  string command = 5;
+  uint64 sector = 6;
+  uint32 sector_count = 7;
+  string process_name = 8;
+}
+
+message BlockRqComplete {
+  uint32 device_major = 1;
+  uint32 device_minor = 2;
+  string rwbs = 3;
+  string command = 4;
+  uint64 sector = 5;
+  uint32 sector_count = 6;
+  int32 error = 7;
+}
+
+message BinderTransaction {
+  int32 transaction_id = 1;
+  int32 destination_node_id = 2;
+  int32 destination_process_id = 3;
+  int32 destination_thread_id = 4;
+  int32 reply = 5;
+  uint32 flags = 6;
+  uint32 code = 7;
+}
+
+message Print {
+  string instruction_pointer = 1;
+  string content = 2;
 }

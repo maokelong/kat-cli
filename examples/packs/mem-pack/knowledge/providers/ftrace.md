@@ -36,7 +36,7 @@ columns = provider.query("DESCRIBE text_ftrace_event")
 
 `provider.tables` 返回当前 Catalog 的稳定排序关系名；`provider.decode_report` 返回排序、
 去重后的未支持事件名。`text_ftrace_header` 固定存在；只有至少一个已支持事件时，
-`text_ftrace_event_occurrence` 和 `text_ftrace_event` 才同时存在。四张 payload 表只在
+`text_ftrace_event_occurrence` 和 `text_ftrace_event` 才同时存在。payload 表只在
 来源中出现对应事件时生成，`text_ftrace_unsupported_event` 只在存在未支持事件时生成。
 
 ## 关系拓扑
@@ -53,7 +53,14 @@ text_ftrace_event_occurrence
               ├── text_ftrace_event_sched_switch._kat_parent_row_id
               ├── text_ftrace_event_sched_wakeup._kat_parent_row_id
               ├── text_ftrace_event_sched_wakeup_new._kat_parent_row_id
-              └── text_ftrace_event_tracing_mark_write._kat_parent_row_id
+              ├── text_ftrace_event_tracing_mark_write._kat_parent_row_id
+              ├── text_ftrace_event_sched_blocked_reason._kat_parent_row_id
+              ├── text_ftrace_event_mm_filemap_add_to_page_cache._kat_parent_row_id
+              ├── text_ftrace_event_mm_filemap_delete_from_page_cache._kat_parent_row_id
+              ├── text_ftrace_event_block_rq_issue._kat_parent_row_id
+              ├── text_ftrace_event_block_rq_complete._kat_parent_row_id
+              ├── text_ftrace_event_binder_transaction._kat_parent_row_id
+              └── text_ftrace_event_print._kat_parent_row_id
 ```
 
 `_kat_row_id` 只在当前 Catalog 内标识一行；它不是跨转换稳定的业务 ID。
@@ -149,6 +156,76 @@ domain 的数值可直接比较。
 | --- | --- |
 | `content` | `Utf8` |
 
+### `text_ftrace_event_sched_blocked_reason`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `pid` | `Int32` |
+| `io_wait` | `UInt32` |
+| `caller` | `Utf8` |
+
+### `text_ftrace_event_mm_filemap_add_to_page_cache`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `inode` | `UInt64` |
+| `page_frame_number` | `UInt64` |
+| `offset_bytes` | `UInt64` |
+| `order` | `UInt32?` |
+| `page_address` | `Utf8?` |
+
+`order` 来自较新的 folio 输出，`page_address` 来自较旧的 page 输出；不存在的字段为 null。
+
+### `text_ftrace_event_mm_filemap_delete_from_page_cache`
+
+字段与 `text_ftrace_event_mm_filemap_add_to_page_cache` 相同，但只记录删除事件。
+
+### `text_ftrace_event_block_rq_issue`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `rwbs` | `Utf8` |
+| `bytes` | `UInt32` |
+| `command` | `Utf8` |
+| `sector` | `UInt64` |
+| `sector_count` | `UInt32` |
+| `process_name` | `Utf8` |
+
+### `text_ftrace_event_block_rq_complete`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `device_major` | `UInt32` |
+| `device_minor` | `UInt32` |
+| `rwbs` | `Utf8` |
+| `command` | `Utf8` |
+| `sector` | `UInt64` |
+| `sector_count` | `UInt32` |
+| `error` | `Int32` |
+
+### `text_ftrace_event_binder_transaction`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `transaction_id` | `Int32` |
+| `destination_node_id` | `Int32` |
+| `destination_process_id` | `Int32` |
+| `destination_thread_id` | `Int32` |
+| `reply` | `Int32` |
+| `flags` | `UInt32` |
+| `code` | `UInt32` |
+
+### `text_ftrace_event_print`
+
+| 字段 | Arrow 类型 |
+| --- | --- |
+| `instruction_pointer` | `Utf8` |
+| `content` | `Utf8` |
+
 ## 查询示例
 
 查询发生过线程切换的来源位置和公共事件头：
@@ -171,7 +248,7 @@ ORDER BY o.source_event_sequence
 
 ## 文档来源
 
-`text_ftrace_event` 的业务字段以及四类 payload 字段来源于
+`text_ftrace_event` 的业务字段以及各类 payload 字段来源于
 `kat/platform/datasource/proto/text_ftrace/text_ftrace_event.proto`。
 
 以下内容当前不在 Proto 中，不能只根据该文件完整生成：

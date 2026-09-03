@@ -16,13 +16,20 @@ Provider 构造成功后即可查询；调用方不需要知道转换器、Catal
 必需关系校验和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
 
 `text_ftrace_header` 固定存在。只要来源中至少有一个已支持事件，
-`text_ftrace_event_occurrence` 和 `text_ftrace_event` 就同时存在。四种首批类型化载荷关系
+`text_ftrace_event_occurrence` 和 `text_ftrace_event` 就同时存在。类型化载荷关系
 只在来源实际出现时生成：
 
 - `text_ftrace_event_sched_switch`
 - `text_ftrace_event_sched_wakeup`
 - `text_ftrace_event_sched_wakeup_new`
 - `text_ftrace_event_tracing_mark_write`
+- `text_ftrace_event_sched_blocked_reason`
+- `text_ftrace_event_mm_filemap_add_to_page_cache`
+- `text_ftrace_event_mm_filemap_delete_from_page_cache`
+- `text_ftrace_event_block_rq_issue`
+- `text_ftrace_event_block_rq_complete`
+- `text_ftrace_event_binder_transaction`
+- `text_ftrace_event_print`
 
 合法但未支持的事件只进入 `text_ftrace_unsupported_event` 报告，不产生无类型 raw
 payload；一份全部由未支持事件构成的合法 Trace 仍可查询 header。事件根显式保存
