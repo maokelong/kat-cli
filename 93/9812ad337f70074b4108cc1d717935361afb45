@@ -1,0 +1,41 @@
+CONTEXT.md
+  s_2e4ee2c01499f3::t_1573eeebf12a23 51,54,57
+  s_2e4ee2c01499f3::t_eeea2c25c77f1d 58-60
+  s_2e4ee2c01499f3::t_035ce258257763 63-69,75,78,102,108,118
+  s_2e4ee2c01499f3::t_09a76b23c9380f 124,127,146-148,153-156,159,169
+  s_2e4ee2c01499f3::t_69e7956b6b26d3 11
+docs/adr/0078-workflows-compose-through-context-run.md
+  s_2e4ee2c01499f3::t_8edf6aebd4f590 47-172
+  s_2e4ee2c01499f3::t_50297c57fee468 1-6
+  s_2e4ee2c01499f3::t_1a1020e61193b4 7-10
+  s_2e4ee2c01499f3::t_035ce258257763 11-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "939812ad337f70074b4108cc1d717935361afb45",
+  "prompts": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 202,
+      "total_deletions": 95,
+      "accepted_lines": 202,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
