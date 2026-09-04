@@ -385,6 +385,25 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
 
+    def test_full_ci_installs_the_repository_locked_rust_toolchain(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            'tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"]',
+            workflow,
+        )
+        self.assertIn(
+            "          toolchain: ${{ steps.rust-toolchain.outputs.channel }}\n",
+            workflow,
+        )
+        self.assertLess(
+            workflow.index("      - name: Install Python\n"),
+            workflow.index("      - name: Read locked Rust toolchain\n"),
+        )
+        self.assertLess(
+            workflow.index("      - name: Read locked Rust toolchain\n"),
+            workflow.index("      - name: Install Rust\n"),
+        )
+
     def test_payload_pr_runs_cancel_only_older_runs_for_the_same_pr(self) -> None:
         workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
         self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)

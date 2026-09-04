@@ -49,13 +49,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Read locked Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          channel=$(python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
 
       - name: Build and install Workflow Host wheel
         run: |
