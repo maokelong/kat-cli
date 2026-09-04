@@ -162,12 +162,19 @@ def _execute(
 def _private_run_values(request: RunWorkflowRequest) -> tuple[str, ...]:
     candidate_path = request.candidate.path
     datasource_root = request.datasource_root
+    scratch_root = request.scratch_root
+    session_root = candidate_path.parent.parent
     return (
         request.candidate.identifier,
+        session_root.name,
         str(candidate_path),
         candidate_path.as_posix(),
         str(datasource_root),
         datasource_root.as_posix(),
+        str(scratch_root),
+        scratch_root.as_posix(),
+        str(session_root),
+        session_root.as_posix(),
     )
 
 

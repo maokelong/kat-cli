@@ -24,8 +24,19 @@ class HitraceApiContractTests(unittest.TestCase):
         self.assertEqual(kat_datasource.__all__, ("hitrace", "text_ftrace"))
         self.assertEqual(
             hitrace.__all__,
-            ("decode", "DecodeReport", "DecodeError"),
+            (
+                "decode",
+                "DecodeReport",
+                "DecodeError",
+                "MATERIALIZATION_VERSION_METADATA_KEY",
+                "MATERIALIZATION_VERSION",
+            ),
         )
+        self.assertEqual(
+            hitrace.MATERIALIZATION_VERSION_METADATA_KEY,
+            b"kat.materialization.version",
+        )
+        self.assertEqual(hitrace.MATERIALIZATION_VERSION, "hitrace-v1")
 
         report = hitrace.DecodeReport(
             unsupported_plugins=("alpha", "zeta"),

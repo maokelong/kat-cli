@@ -73,14 +73,20 @@ def analyze(ctx: kat.Context):
         return pack.resolve()
 
     def candidate(self) -> tuple[str, Path]:
+        session_id = f"019f6d00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
-        candidate = self.root / "runs" / candidate_id
-        candidate.mkdir(parents=True)
+        session = self.root / "sessions" / session_id
+        for name in ("materializations", "scratch", "runs"):
+            (session / name).mkdir(parents=True)
+        candidate = session / "runs" / candidate_id
+        candidate.mkdir()
+        (session / "scratch" / candidate_id).mkdir()
         return candidate_id, candidate.resolve()
 
     def request(
         self, pack: Path, candidate_id: str, candidate: Path
     ) -> dict[str, object]:
+        session = candidate.parent.parent
         return {
             "operation": "run_workflow",
             "pack_name": "example",
@@ -89,9 +95,8 @@ def analyze(ctx: kat.Context):
             "arguments": [],
             "candidate_id": candidate_id,
             "candidate_path": str(candidate),
-            "datasource_root": str(
-                (self.root / "datasources" / "example").resolve(strict=False)
-            ),
+            "datasource_root": str((session / "materializations").resolve()),
+            "scratch_root": str((session / "scratch" / candidate_id).resolve()),
         }
 
     def test_standard_outputs_accept_table_and_exact_non_empty_dict(self) -> None:

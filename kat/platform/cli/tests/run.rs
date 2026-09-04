@@ -67,6 +67,7 @@ fn main() {
     if !request.contains("\"operation\":\"run_workflow\"")
         || !request.contains("\"candidate_id\":")
         || !request.contains("\"candidate_path\":")
+        || !request.contains("\"scratch_root\":")
     {
         process::exit(92);
     }
@@ -81,8 +82,30 @@ fn main() {
         fs::create_dir(&outputs).unwrap();
         fs::write(outputs.join("main.parquet"), b"opaque output").unwrap();
     }
+    if env::var_os("KAT_FAKE_WRITE_SESSION_MARKER").is_some() {
+        let candidate_path = json_string(&request, "candidate_path");
+        let session_root = Path::new(&candidate_path).parent().unwrap().parent().unwrap();
+        fs::write(session_root.join("session.json"), b"Runtime-owned marker").unwrap();
+    }
+    if env::var_os("KAT_FAKE_REPLACE_SCRATCH_WITH_FILE").is_some() {
+        let scratch_root = json_string(&request, "scratch_root");
+        fs::remove_dir(&scratch_root).unwrap();
+        fs::write(scratch_root, b"runtime replacement").unwrap();
+    }
+    if env::var_os("KAT_FAKE_REPLACE_CANDIDATE_WITH_FILE").is_some() {
+        let candidate_path = json_string(&request, "candidate_path");
+        fs::remove_dir(&candidate_path).unwrap();
+        fs::write(candidate_path, b"runtime replacement").unwrap();
+    }
     println!("fake Workflow output");
     let mut response = env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap();
+    let candidate_path = json_string(&request, "candidate_path");
+    let session_id = Path::new(&candidate_path)
+        .parent().unwrap()
+        .parent().unwrap()
+        .file_name().unwrap()
+        .to_str().unwrap();
+    response = response.replace("__SESSION_ID__", session_id);
     response = response.replace(
         "__CANDIDATE_ID__",
         &json_string(&request, "candidate_id"),
@@ -114,14 +137,9 @@ fn main() {
 }
 
 fn configure(command: &mut Command, root: &Path) {
-    command.env_remove("KAT_DATA_HOME");
-
-    #[cfg(not(windows))]
-    command
-        .env("XDG_DATA_HOME", root.join("xdg-data"))
-        .env("HOME", root.join("home"));
-    #[cfg(windows)]
-    let _ = (command, root);
+    let data_home = root.join("data-home");
+    fs::create_dir_all(&data_home).unwrap();
+    command.env("KAT_DATA_HOME", data_home);
 }
 
 fn wait_until_exists(path: &Path) {
@@ -169,28 +187,25 @@ impl Drop for PlatformDataHomeGuard {
     }
 }
 
-#[cfg(not(windows))]
 fn data_home(root: &Path) -> PathBuf {
-    root.join("xdg-data/kat")
+    root.join("data-home")
 }
 
-#[cfg(windows)]
-fn data_home(_root: &Path) -> PathBuf {
-    directories::ProjectDirs::from("", "", "KAT")
-        .expect("Windows runner has a standard user data directory")
-        .data_dir()
-        .to_path_buf()
-}
-
-fn pack(root: &Path) -> PathBuf {
-    let pack = root.join("pack");
+fn pack_named(root: &Path, directory: &str, name: &str) -> PathBuf {
+    let pack = root.join(directory);
     fs::create_dir_all(&pack).unwrap();
     fs::write(
         pack.join("pack.toml"),
-        "name = \"alpha\"\ntitle = \"Alpha\"\ndescription = \"Run fixture\"\nowner = \"Test\"\n",
+        format!(
+            "name = \"{name}\"\ntitle = \"{name}\"\ndescription = \"Run fixture\"\nowner = \"Test\"\n"
+        ),
     )
     .unwrap();
     pack
+}
+
+fn pack(root: &Path) -> PathBuf {
+    pack_named(root, "pack", "alpha")
 }
 
 #[test]
@@ -227,16 +242,19 @@ fn run_help_and_parser_do_not_expose_dataset() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn run_publishes_one_manifest_and_only_public_output_facts() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
     let pack = pack(temporary.path());
+    let legacy_run =
+        data_home(temporary.path()).join("runs/019f6e00-0000-7000-8000-000000000099/manifest.json");
+    let legacy_datasource = data_home(temporary.path()).join("datasources/alpha/sentinel");
+    fs::create_dir_all(legacy_run.parent().unwrap()).unwrap();
+    fs::create_dir_all(legacy_datasource.parent().unwrap()).unwrap();
+    fs::write(&legacy_run, b"legacy root must not be read").unwrap();
+    fs::write(&legacy_datasource, b"legacy datasource").unwrap();
     let captured = temporary.path().join("request.json");
     let mut command = Command::new(&binary);
     command
@@ -249,7 +267,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{"limit":"5"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"effective_inputs":{"limit":"5","session":"__SESSION_ID__"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -264,7 +282,13 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert!(output.stderr.is_empty());
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
+    let session_id = response["result"]["session_id"].as_str().unwrap();
     let run_id = response["result"]["run_id"].as_str().unwrap();
+    assert_ne!(session_id, run_id);
+    for identity in [session_id, run_id] {
+        let identity = uuid::Uuid::parse_str(identity).unwrap();
+        assert_eq!(identity.get_version_num(), 7);
+    }
     assert_eq!(
         response["result"]["outputs"],
         serde_json::json!({"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}})
@@ -274,16 +298,22 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert!(response.to_string().find("output_id").is_none());
 
     let manifest_path = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id)
         .join("runs")
         .join(run_id)
         .join("manifest.json");
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["session_id"], session_id);
     assert_eq!(manifest["run_id"], run_id);
     assert_eq!(manifest["pack"], "alpha");
     assert_eq!(manifest["workflow"], "analyze");
     assert!(manifest.get("dataset").is_none());
-    assert_eq!(manifest["inputs"], serde_json::json!({"limit":"5"}));
+    assert_eq!(
+        manifest["inputs"],
+        serde_json::json!({"limit":"5", "session": session_id})
+    );
     assert!(manifest["outputs"]["main"].get("output_id").is_none());
     assert_eq!(
         manifest["outputs"]["main"],
@@ -298,10 +328,52 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(
         request["datasource_root"],
         data_home(temporary.path())
-            .join("datasources/alpha")
+            .join("sessions")
+            .join(session_id)
+            .join("materializations")
             .to_str()
             .unwrap()
     );
+    assert_eq!(
+        request["candidate_path"],
+        data_home(temporary.path())
+            .join("sessions")
+            .join(session_id)
+            .join("runs")
+            .join(run_id)
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(
+        request["scratch_root"],
+        data_home(temporary.path())
+            .join("sessions")
+            .join(session_id)
+            .join("scratch")
+            .join(run_id)
+            .to_str()
+            .unwrap()
+    );
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &fs::read(session.join("session.json")).unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"session_id": session_id})
+    );
+    assert!(session.join("materializations").is_dir());
+    assert_eq!(
+        fs::read_dir(session.join("materializations"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(session.join("runs").is_dir());
+    assert!(session.join("scratch").is_dir());
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
     let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
     assert_eq!(
         log_path.file_name().unwrap().to_str().unwrap(),
@@ -314,13 +386,531 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert!(log.contains("runtime_status: success"));
     assert!(log.contains("publication_gate: ready"));
     assert!(!log.contains("dataset"));
+    assert_eq!(
+        fs::read(legacy_run).unwrap(),
+        b"legacy root must not be read"
+    );
+    assert_eq!(fs::read(legacy_datasource).unwrap(), b"legacy datasource");
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
+fn first_run_rejects_a_runtime_owned_session_marker_without_publishing_the_session() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+    let captured = temporary.path().join("request.json");
+    let mut command = Command::new(&binary);
+    command
+        .arg("run")
+        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir")
+        .arg(pack)
+        .env("KAT_CAPTURE_REQUEST", &captured)
+        .env("KAT_FAKE_WRITE_SESSION_MARKER", "1")
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut command, temporary.path());
+
+    let output = command.output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    assert_eq!(
+        response["error"]["message"],
+        "Workflow Runtime wrote the CLI-owned Analysis Session marker"
+    );
+    assert!(response.get("result").is_none());
+
+    let request: serde_json::Value = serde_json::from_slice(&fs::read(&captured).unwrap()).unwrap();
+    let candidate = PathBuf::from(request["candidate_path"].as_str().unwrap());
+    let session = candidate.parent().unwrap().parent().unwrap();
+    let session_id = session.file_name().unwrap().to_str().unwrap();
+    assert!(!session.exists());
+    assert!(
+        !session
+            .parent()
+            .unwrap()
+            .join(".leases")
+            .join(format!("{session_id}.lock"))
+            .exists()
+    );
+
+    let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
+    assert!(log_path.is_file());
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(log.contains("runtime_status: success"));
+    assert!(log.contains("publication_gate: ready"));
+}
+
+#[test]
+fn run_session_continues_the_same_materialization_scope_with_a_new_run() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+    let beta_pack = pack_named(temporary.path(), "beta-pack", "beta");
+    let first_capture = temporary.path().join("first-request.json");
+    let mut first = Command::new(&binary);
+    first
+        .arg("run")
+        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_CAPTURE_REQUEST", &first_capture)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut first, temporary.path());
+    let first = first.output().unwrap();
+    assert_eq!(first.status.code(), Some(0));
+    let first_response: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    let session_id = first_response["result"]["session_id"].as_str().unwrap();
+    let first_run_id = first_response["result"]["run_id"].as_str().unwrap();
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id);
+    fs::write(
+        session.join("materializations").join("shared-evidence"),
+        b"published",
+    )
+    .unwrap();
+
+    let second_capture = temporary.path().join("second-request.json");
+    let mut second = Command::new(&binary);
+    second
+        .arg("run")
+        .args([
+            "--session",
+            session_id,
+            "--pack",
+            "beta",
+            "--workflow",
+            "analyze",
+        ])
+        .arg("--pack-dir")
+        .arg(beta_pack)
+        .env("KAT_CAPTURE_REQUEST", &second_capture)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut second, temporary.path());
+    let second = second.output().unwrap();
+
+    assert_eq!(
+        second.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_response: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_response["result"]["session_id"], session_id);
+    let second_run_id = second_response["result"]["run_id"].as_str().unwrap();
+    assert_ne!(second_run_id, first_run_id);
+    let first_request: serde_json::Value =
+        serde_json::from_slice(&fs::read(first_capture).unwrap()).unwrap();
+    let second_request: serde_json::Value =
+        serde_json::from_slice(&fs::read(second_capture).unwrap()).unwrap();
+    assert_eq!(
+        second_request["datasource_root"],
+        first_request["datasource_root"]
+    );
+    assert_ne!(
+        second_request["candidate_path"],
+        first_request["candidate_path"]
+    );
+    assert_ne!(
+        second_request["scratch_root"],
+        first_request["scratch_root"]
+    );
+    assert_eq!(
+        fs::read(session.join("materializations").join("shared-evidence")).unwrap(),
+        b"published"
+    );
+    assert!(
+        session
+            .join("runs")
+            .join(first_run_id)
+            .join("manifest.json")
+            .is_file()
+    );
+    let second_manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            session
+                .join("runs")
+                .join(second_run_id)
+                .join("manifest.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(second_manifest["pack"], "beta");
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
+}
+
+#[test]
+fn explicit_missing_session_fails_without_starting_runtime_or_creating_it() {
+    const MISSING_SESSION: &str = "019f6e00-0000-7000-8000-000000000099";
+
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+    let captured = temporary.path().join("unexpected-request.json");
+    let mut command = Command::new(&binary);
+    command
+        .arg("run")
+        .args([
+            "--session",
+            MISSING_SESSION,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
+        .arg("--pack-dir")
+        .arg(pack)
+        .env("KAT_CAPTURE_REQUEST", &captured)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut command, temporary.path());
+
+    let output = command.output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        format!("Analysis Session {MISSING_SESSION} does not exist")
+    );
+    assert!(response.get("result").is_none());
+    assert!(!captured.exists());
+    assert!(!data_home(temporary.path()).join("sessions").exists());
+}
+
+#[test]
+fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+
+    let initial_capture = temporary.path().join("initial-request.json");
+    let mut initial = Command::new(&binary);
+    initial
+        .arg("run")
+        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_CAPTURE_REQUEST", &initial_capture)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut initial, temporary.path());
+    let initial = initial.output().unwrap();
+    assert_eq!(initial.status.code(), Some(0));
+    let initial_response: serde_json::Value = serde_json::from_slice(&initial.stdout).unwrap();
+    let session_id = initial_response["result"]["session_id"].as_str().unwrap();
+    let first_run_id = initial_response["result"]["run_id"].as_str().unwrap();
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id);
+    fs::write(
+        session.join("materializations").join("retained"),
+        b"published",
+    )
+    .unwrap();
+
+    for (case, replacement, skip_outputs) in [
+        ("scratch-file", "KAT_FAKE_REPLACE_SCRATCH_WITH_FILE", false),
+        (
+            "candidate-file",
+            "KAT_FAKE_REPLACE_CANDIDATE_WITH_FILE",
+            true,
+        ),
+    ] {
+        let capture = temporary.path().join(format!("{case}-request.json"));
+        let mut failed = Command::new(&binary);
+        failed
+            .arg("run")
+            .args([
+                "--session",
+                session_id,
+                "--pack",
+                "alpha",
+                "--workflow",
+                "analyze",
+            ])
+            .arg("--pack-dir")
+            .arg(&pack)
+            .env("KAT_CAPTURE_REQUEST", &capture)
+            .env(replacement, "1")
+            .env(
+                "KAT_FAKE_RUNTIME_RESPONSE",
+                r#"{"status":"failure","error":{"message":"expected failure"}}"#,
+            );
+        if skip_outputs {
+            failed.env("KAT_FAKE_SKIP_OUTPUTS", "1");
+        }
+        configure(&mut failed, temporary.path());
+
+        let failed = failed.output().unwrap();
+
+        assert_eq!(failed.status.code(), Some(1), "{case}");
+        let request: serde_json::Value =
+            serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
+        assert!(
+            !Path::new(request["candidate_path"].as_str().unwrap()).exists(),
+            "{case}"
+        );
+        assert!(
+            !Path::new(request["scratch_root"].as_str().unwrap()).exists(),
+            "{case}"
+        );
+        assert!(session.join("session.json").is_file(), "{case}");
+        assert!(
+            session
+                .join("runs")
+                .join(first_run_id)
+                .join("manifest.json")
+                .is_file(),
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(session.join("materializations").join("retained")).unwrap(),
+            b"published",
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn active_run_blocks_session_delete_until_its_response_is_published() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+
+    let first_capture = temporary.path().join("first-request.json");
+    let mut first = Command::new(&binary);
+    first
+        .arg("run")
+        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_CAPTURE_REQUEST", &first_capture)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut first, temporary.path());
+    let first = first.output().unwrap();
+    assert_eq!(first.status.code(), Some(0));
+    let first_response: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    let session_id = first_response["result"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(&session_id);
+
+    let capture = temporary.path().join("blocked-request.json");
+    let response_written = temporary.path().join("response-written");
+    let runtime_release = temporary.path().join("runtime-release");
+    let mut active = Command::new(&binary);
+    active
+        .arg("run")
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_CAPTURE_REQUEST", &capture)
+        .env("KAT_FAKE_RESPONSE_WRITTEN", &response_written)
+        .env("KAT_FAKE_RUNTIME_RELEASE", &runtime_release)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure(&mut active, temporary.path());
+    let active = active.spawn().unwrap();
+    wait_until_exists(&response_written);
+
+    let mut deleting = Command::new(&binary);
+    deleting.args(["session", "delete", "--session", &session_id]);
+    configure(&mut deleting, temporary.path());
+    let blocked_delete = deleting.output().unwrap();
+    fs::write(&runtime_release, "release").unwrap();
+    let active = active.wait_with_output().unwrap();
+
+    assert_eq!(blocked_delete.status.code(), Some(1));
+    let blocked_response: serde_json::Value =
+        serde_json::from_slice(&blocked_delete.stdout).unwrap();
+    assert_eq!(
+        blocked_response["error"]["message"],
+        format!("Analysis Session {session_id} is in use")
+    );
+    assert!(session.is_dir());
+    assert!(
+        !data_home(temporary.path())
+            .join("sessions/.deletions")
+            .join(&session_id)
+            .exists()
+    );
+    assert_eq!(
+        active.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&active.stderr)
+    );
+
+    let mut deleting = Command::new(&binary);
+    deleting.args(["session", "delete", "--session", &session_id]);
+    configure(&mut deleting, temporary.path());
+    let deleted = deleting.output().unwrap();
+    assert_eq!(
+        deleted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(!session.exists());
+    assert!(
+        data_home(temporary.path())
+            .join("sessions/.leases")
+            .join(format!("{session_id}.lock"))
+            .is_file()
+    );
+}
+
+#[test]
+fn two_runs_in_one_session_can_execute_concurrently() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let pack = pack(temporary.path());
+
+    let initial_capture = temporary.path().join("initial-request.json");
+    let mut initial = Command::new(&binary);
+    initial
+        .arg("run")
+        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_CAPTURE_REQUEST", &initial_capture)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut initial, temporary.path());
+    let initial = initial.output().unwrap();
+    assert_eq!(initial.status.code(), Some(0));
+    let initial_response: serde_json::Value = serde_json::from_slice(&initial.stdout).unwrap();
+    let session_id = initial_response["result"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let initial_run_id = initial_response["result"]["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let release = temporary.path().join("concurrent-release");
+    let mut markers = Vec::new();
+    let mut children = Vec::new();
+    for index in 0..2 {
+        let capture = temporary
+            .path()
+            .join(format!("concurrent-{index}-request.json"));
+        let marker = temporary
+            .path()
+            .join(format!("concurrent-{index}-response"));
+        let mut run = Command::new(&binary);
+        run.arg("run")
+            .args([
+                "--session",
+                &session_id,
+                "--pack",
+                "alpha",
+                "--workflow",
+                "analyze",
+            ])
+            .arg("--pack-dir")
+            .arg(&pack)
+            .env("KAT_CAPTURE_REQUEST", capture)
+            .env("KAT_FAKE_RESPONSE_WRITTEN", &marker)
+            .env("KAT_FAKE_RUNTIME_RELEASE", &release)
+            .env(
+                "KAT_FAKE_RUNTIME_RESPONSE",
+                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        configure(&mut run, temporary.path());
+        markers.push(marker);
+        children.push(run.spawn().unwrap());
+    }
+    for marker in &markers {
+        wait_until_exists(marker);
+    }
+    fs::write(&release, "release").unwrap();
+    let outputs = children
+        .into_iter()
+        .map(|child| child.wait_with_output().unwrap())
+        .collect::<Vec<_>>();
+
+    let mut run_ids = Vec::new();
+    for output in outputs {
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["result"]["session_id"], session_id);
+        run_ids.push(response["result"]["run_id"].as_str().unwrap().to_owned());
+    }
+    assert_ne!(run_ids[0], run_ids[1]);
+    assert!(run_ids.iter().all(|run_id| run_id != &initial_run_id));
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id);
+    for run_id in std::iter::once(&initial_run_id).chain(run_ids.iter()) {
+        assert!(
+            session
+                .join("runs")
+                .join(run_id)
+                .join("manifest.json")
+                .is_file()
+        );
+    }
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
+}
+
+#[test]
 fn runtime_success_response_is_the_authority_for_output_materialization() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -352,17 +942,18 @@ fn runtime_success_response_is_the_authority_for_output_materialization() {
     );
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
+    let session_id = response["result"]["session_id"].as_str().unwrap();
     let run_id = response["result"]["run_id"].as_str().unwrap();
-    let run_path = data_home(temporary.path()).join("runs").join(run_id);
+    let run_path = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id)
+        .join("runs")
+        .join(run_id);
     assert!(run_path.join("manifest.json").is_file());
     assert!(!run_path.join("outputs").join("main.parquet").exists());
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -488,8 +1079,13 @@ def analyze(ctx: Context):
             {"name":"data","type":"string"}
         ])
     );
+    let session_id = response["result"]["session_id"].as_str().unwrap();
     let run_id = response["result"]["run_id"].as_str().unwrap();
-    let run = data_home(temporary.path()).join("runs").join(run_id);
+    let run = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id)
+        .join("runs")
+        .join(run_id);
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(run.join("manifest.json")).unwrap()).unwrap();
     assert!(manifest["outputs"]["main"].get("output_id").is_none());
@@ -498,10 +1094,6 @@ def analyze(ctx: Context):
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn run_log_projects_user_controlled_text() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -547,10 +1139,6 @@ fn run_log_projects_user_controlled_text() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn runtime_failure_never_publishes_or_exposes_the_candidate() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -579,20 +1167,13 @@ fn runtime_failure_never_publishes_or_exposes_the_candidate() {
     assert!(response.get("result").is_none());
     let request: serde_json::Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
     let candidate_id = request["candidate_id"].as_str().unwrap();
+    let candidate_path = PathBuf::from(request["candidate_path"].as_str().unwrap());
     assert!(!response["error"].to_string().contains(candidate_id));
-    assert!(
-        !data_home(temporary.path())
-            .join("runs")
-            .join(candidate_id)
-            .exists()
-    );
+    assert!(!candidate_path.exists());
+    assert!(!candidate_path.parent().unwrap().parent().unwrap().exists());
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn untrusted_runtime_response_never_exposes_the_candidate() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -645,6 +1226,7 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
         let request: serde_json::Value =
             serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
         let candidate_id = request["candidate_id"].as_str().unwrap();
+        let candidate_path = PathBuf::from(request["candidate_path"].as_str().unwrap());
         assert_eq!(response["status"], "failure", "{case}");
         assert!(response.get("result").is_none(), "{case}");
         assert_eq!(
@@ -664,11 +1246,9 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
             !String::from_utf8_lossy(&output.stderr).contains(candidate_id),
             "{case}"
         );
+        assert!(!candidate_path.exists(), "{case}");
         assert!(
-            !data_home(&case_root)
-                .join("runs")
-                .join(candidate_id)
-                .exists(),
+            !candidate_path.parent().unwrap().parent().unwrap().exists(),
             "{case}"
         );
         let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
@@ -677,10 +1257,6 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -710,16 +1286,12 @@ fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
     assert_eq!(response["status"], "failure");
     assert!(response.get("result").is_none());
     assert!(!captured.exists());
-    assert!(!data_home(temporary.path()).join("runs").exists());
+    assert!(!data_home(temporary.path()).join("sessions").exists());
     assert!(response.get("log_path").is_none());
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
-fn candidate_creation_failure_is_completed_through_its_run_log() {
+fn session_allocation_failure_is_completed_through_its_run_log() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
@@ -727,7 +1299,11 @@ fn candidate_creation_failure_is_completed_through_its_run_log() {
     let pack = pack(temporary.path());
     let captured = temporary.path().join("unexpected-candidate-request.json");
     fs::create_dir_all(data_home(temporary.path())).unwrap();
-    fs::write(data_home(temporary.path()).join("runs"), "not a directory").unwrap();
+    fs::write(
+        data_home(temporary.path()).join("sessions"),
+        "not a directory",
+    )
+    .unwrap();
     let mut command = Command::new(&binary);
     command
         .arg("run")
@@ -760,15 +1336,11 @@ fn candidate_creation_failure_is_completed_through_its_run_log() {
     assert!(
         fs::read_to_string(log_path)
             .unwrap()
-            .contains("failed to create Run root")
+            .contains("Analysis Session storage layout is invalid")
     );
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires an isolated Windows user profile; full-ci runs it on windows-latest"
-)]
 fn manifest_publication_failure_never_returns_or_publishes_a_run() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -798,13 +1370,10 @@ fn manifest_publication_failure_never_returns_or_publishes_a_run() {
     assert!(response.get("result").is_none());
     let request: serde_json::Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
     let candidate_id = request["candidate_id"].as_str().unwrap();
+    let candidate_path = PathBuf::from(request["candidate_path"].as_str().unwrap());
     assert!(!response["error"].to_string().contains(candidate_id));
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
     assert!(log.contains("publication_gate: ready"));
-    assert!(
-        !data_home(temporary.path())
-            .join("runs")
-            .join(candidate_id)
-            .exists()
-    );
+    assert!(!candidate_path.exists());
+    assert!(!candidate_path.parent().unwrap().parent().unwrap().exists());
 }

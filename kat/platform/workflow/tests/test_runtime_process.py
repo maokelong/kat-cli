@@ -1184,9 +1184,15 @@ def analyze(ctx: Context, value: str = invalid_default):
         (pack / "workflows" / "crash.py").write_text(
             "import os\nos._exit(17)\n", encoding="utf-8"
         )
+        session_id = f"019f6d00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
-        candidate = self.root / "runs" / candidate_id
-        candidate.mkdir(parents=True)
+        session = self.root / "sessions" / session_id
+        for name in ("materializations", "scratch", "runs"):
+            (session / name).mkdir(parents=True)
+        candidate = session / "runs" / candidate_id
+        candidate.mkdir()
+        scratch = session / "scratch" / candidate_id
+        scratch.mkdir()
 
         completed, response_path = self.run_runtime_process(
             {
@@ -1197,11 +1203,8 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "arguments": [],
                 "candidate_id": candidate_id,
                 "candidate_path": str(candidate.resolve()),
-                "datasource_root": str(
-                    (
-                        self.root / "datasources" / "run-worker-crash"
-                    ).resolve(strict=False)
-                ),
+                "datasource_root": str((session / "materializations").resolve()),
+                "scratch_root": str(scratch.resolve()),
             }
         )
 

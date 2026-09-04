@@ -54,10 +54,16 @@ PACK 中回答一个具体分析问题的显式可调用入口，定义用户输
 Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，指导如何解释 Run Output、向哪些方向继续取证。它不是 Output Schema、可执行计划或 Run 快照；inspection 每次读取当前 PACK 版本。
 
 **Workflow Context**:
-KAT 在一次 Workflow 调用内提供的窄能力对象，只通过 `datasource_root` 暴露当前 PACK 在 KAT Data Home 下的私有存储范围。Context 不查询来源、不持有查询 Session、不转换引擎值，也不创建、发现、包装或自动关闭 Provider。它只在当前调用期间有效，不是用户输入，也不存在隐式全局当前 Context。
+KAT 在一次 Workflow 调用内提供的窄能力对象，通过 `datasource_root` 暴露当前 Analysis Session 的共享来源物化范围，并通过 `scratch_root` 暴露当前候选执行的临时工作范围。Context 不直接提供 Session 身份或根目录能力，不查询来源、不持有查询 Session，也不创建、发现、包装或自动关闭 Provider；它只在当前调用期间有效，不是用户输入，不存在隐式全局当前 Context，并且向受信任 PACK 提供的普通路径不构成文件系统沙箱。
 
 **Datasource root**:
-`ctx.datasource_root` 返回的当前 PACK 私有目录能力。文件 Provider 可以在其下创建当前 Workflow 的临时 workspace，也可以管理依据稳定来源身份命名、可确定重建的内部目录，再把普通路径显式传给来源 API；它不是 KAT 平台状态或需要在输出中暴露的用户路径。
+`ctx.datasource_root` 返回的当前 Analysis Session 共享来源物化目录能力。同一 Session 中的 Workflow 可以跨 PACK 按约定复用其中以 Source stem 命名且首次发布后不可原位替换的完整物化；它不是临时工作目录、Run Output、整个 Session 根或需要向用户暴露的物理路径。
+
+**Source stem**:
+原始来源 basename 去掉最后一个后缀后的 Session 内物化名称。它不附加 hash 或自动消歧，不是跨 Session 的 Source identity；同一分析中的唯一性由用户保证。
+
+**Scratch root**:
+`ctx.scratch_root` 返回的当前候选执行私有临时目录能力。它只承载本次执行可丢弃的中间文件，执行结束时清理，不能被后续 Workflow 当作输入。
 
 **Workflow arguments**:
 调用 Workflow 时提供的原始具名文本输入。它们尚未表达类型、默认值或业务语义，只有选定的 Workflow 才能把它们解释为 Workflow input values。
@@ -112,10 +118,10 @@ Data Provider Toolkit 提供的具体本地查询 Provider，由 Workflow 或 PA
 DataFusion Provider 对 Workflow 显式提供的内存 Table、Parquet Catalog 或两者组合执行并形成新 Table 的本地查询。它不能透明引用 Datasource Provider 私有的 Source catalog、发现来源 Provider、隐式触发 Source query，或替 Workflow 拆分和下推远端 SQL；来源特定下推由各 Datasource Provider 自己负责。
 
 **Hitrace decode**:
-PACK 通过独立 `kat-datasource` wheel 的 `kat_datasource.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 通常把 destination 放进 `ctx.datasource_root` 下的临时 workspace，再用 `dp.open(root=destination)` 打开；解码结果不是平台持久状态，也不会自动成为 Run Output。
+PACK 通过独立 `kat-datasource` wheel 的 `kat_datasource.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 可以把一次性 destination 放进 `ctx.scratch_root`，或按 Session 复用约定发布到 `ctx.datasource_root` 下的来源目录，再用 `dp.open(root=destination)` 打开；解码结果不会自动成为 Run Output。
 
 **Datasource materialization**:
-Datasource Provider 为来源查询准备的本地 backend，其格式与生命周期属于当前 PACK。文件 Provider 可以在当前 Workflow 的私有临时目录中使用这类产物，也可以依据稳定来源身份在 `ctx.datasource_root` 下跨 Workflow 复用可确定重建的内部目录；它不是 KAT 平台状态、Provider query result 或 Run Output。
+Datasource Provider 为来源查询准备的本地 backend，其来源语义与准入合同由 Provider 拥有。准备跨 Run 复用的物化在 Analysis Session 中首次完整发布后不可原位替换，其他 Workflow 可以跨 PACK 按约定只读复用；一次性物化留在 `ctx.scratch_root`，打不开或不符合合同的共享物化只能换用新的 Source stem 或在新 Session 中重新物化，并且它不是 Provider query result 或 Run Output。
 
 **Streaming materialization**:
 自定义 Parser 在不先形成完整 eager Table 的前提下，持续形成完整 Datasource materialization 的作者能力。`dp.write(schema, destination=...)` 是该能力唯一的公共入口：它产生一次性、多 relation、只写事务，并只在全部输入成功结束后发布可由 `dp.open()` 打开的 Parquet 目录。它不是 Table、解析中的部分 Catalog 或 Run Output；独立 `materialize` API、接受完整 Table Mapping 的 eager `write` 重载和可追加 Table 都不属于该模型。
@@ -134,18 +140,21 @@ Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多�
 
 ## Run、查询与结论
 
+**Analysis Session**:
+一次可以跨 PACK 的多 Workflow 分析边界，归集其中相互独立的 Run、可复用来源物化与临时工作数据。它具有独立于其中各 Run 和 PACK 的身份，统一这些内容的分析归属和生命周期，但不把不可变 Run Output、可重建 Datasource materialization 与临时数据变成同一种事实。
+
 **Run**:
-一次成功发布的 Workflow 执行，包含唯一 Run Manifest 和至少一个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立。
+Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest 和至少一个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
 
 **Run Manifest**:
-一个 Run 的唯一持久清单，记录 Run 身份及其 PACK、Workflow、有效输入和 Run Output 元数据。新 Manifest 不记录来源选择；Query 为读取历史 Run 而忽略任意 JSON 形状的旧 `dataset` 字段，但不会据此注册关系或恢复旧能力。Manifest 不记录失败状态，也不承载 Analysis Result。
+一个 Run 的唯一持久清单，记录其 Session 与 Run 身份，以及 PACK、Workflow、有效输入和 Run Output 元数据。它不记录 Datasource materialization provenance、失败状态或 Analysis Result。
 
 **Run Output**:
 随 Run 持久发布的具名不可变表格事实，只能来源于 Workflow 返回的精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 中的精确 Table；单值命名为 `main`，多值由 dict key 显式命名。Runtime 私下把它保存为 Parquet，但物理文件、任意 Python 对象、裸路径、Markdown 或 JSON 都不是首版 Run Output；它也不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
 _Avoid_: Artifact、Result
 
 **Output Query**:
-针对一个已发布 Run 的 `output.*` 发起的本地只读后续查询，不创建新 Run，也不重新执行 Provider query。每次查询使用独立 DataFusion Session，只注册该 Run 的 Output 与 `information_schema`；PACK、Datasource、其他 Run 和历史 Manifest 字段均不可见。Python/DataFusion 把单条只读 SQL 的结果以原生 Arrow JSON 映射直接写成单文件 NDJSON；KAT 不建立自定义标量转换层，也不自动增加分页、截断、固定 `LIMIT` 或超时。用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
+针对由 Session ID 与 Run ID 共同定位的已发布 Run `output.*` 发起的本地只读后续查询，不创建新 Run，也不重新执行 Provider query。每次查询使用独立 DataFusion Session，只注册该 Run 的 Output 与 `information_schema`；PACK、Datasource、同一 Session 的其他 Run 和历史 Manifest 字段均不可见。Python/DataFusion 把单条只读 SQL 的结果以原生 Arrow JSON 映射直接写成单文件 NDJSON；KAT 不建立自定义标量转换层，也不自动增加分页、截断、固定 `LIMIT` 或超时。用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
 
 **Query Result**:
 一次成功 Output Query 发布的单文件 NDJSON。KAT Response 只返回 `format="ndjson"`、文件 `path` 和有序 `columns`；文件每行是一个使用查询列名的 JSON object，零行结果是空文件。它不会成为新的 Run Output，也不是模型面向用户形成的 Analysis Result。

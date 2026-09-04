@@ -164,15 +164,19 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
         with self.assertRaisesRegex(RuntimeRequestError, "fields must be exactly"):
             read_request(request_path)
 
-    def test_run_workflow_request_has_an_exact_dataset_free_shape(self) -> None:
+    def test_run_workflow_request_has_an_exact_session_root_shape(self) -> None:
         pack = self.root / "request-pack"
         pack.mkdir()
         data_home = self.root / "data-home"
-        runs = data_home / "runs"
-        runs.mkdir(parents=True)
+        session_id = f"019f0000-0000-7000-8000-{uuid.uuid4().hex[:12]}"
+        session = data_home / "sessions" / session_id
+        for name in ("materializations", "scratch", "runs"):
+            (session / name).mkdir(parents=True)
         candidate_id = f"019f0000-0000-7000-8000-{uuid.uuid4().hex[:12]}"
-        candidate_path = runs / candidate_id
+        candidate_path = session / "runs" / candidate_id
         candidate_path.mkdir()
+        scratch_root = session / "scratch" / candidate_id
+        scratch_root.mkdir()
         request_path = self.root / "run-workflow-request.json"
         request_path.write_text(
             json.dumps(
@@ -184,9 +188,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
                     "arguments": [],
                     "candidate_id": candidate_id,
                     "candidate_path": str(candidate_path.resolve()),
-                    "datasource_root": str(
-                        (data_home / "datasources" / "example").resolve()
-                    ),
+                    "datasource_root": str((session / "materializations").resolve()),
+                    "scratch_root": str(scratch_root.resolve()),
                 }
             ),
             encoding="utf-8",
@@ -196,6 +199,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
 
         self.assertIsInstance(request, _RunWorkflowRequest)
         self.assertEqual(request.workflow_name, "analyze")
+        self.assertEqual(request.datasource_root, (session / "materializations").resolve())
+        self.assertEqual(request.scratch_root, scratch_root.resolve())
         self.assertFalse(hasattr(request, "dataset"))
 
         legacy_request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -374,12 +379,12 @@ def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
         )
         self.assertTrue(report.is_file())
 
-    def test_datasource_root_is_shared_within_one_test_and_isolated_between_tests(
+    def test_kat_run_uses_one_session_per_test_and_one_scratch_per_call(
         self,
     ) -> None:
         pack = self.pack()
         (pack / "helpers" / "datasource_state.py").write_text(
-            "roots = []\ncontexts = []\n",
+            "datasource_roots = []\nscratch_roots = []\ncontexts = []\n",
             encoding="utf-8",
         )
         self.replace_workflow(
@@ -394,10 +399,13 @@ from kat.pack.helpers import datasource_state
 def analyze(ctx: kat.Context):
     """Increment a test-scoped Datasource materialization."""
     root = ctx.datasource_root
+    scratch = ctx.scratch_root
     counter = root / "counter.txt"
     value = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
     counter.write_text(str(value), encoding="utf-8")
-    datasource_state.roots.append(root)
+    scratch.joinpath("temporary.txt").write_text(str(value), encoding="utf-8")
+    datasource_state.datasource_roots.append(root)
+    datasource_state.scratch_roots.append(scratch)
     datasource_state.contexts.append(ctx)
     return dp.Table.from_arrow(pa.table({"value": [value]}))
 ''',
@@ -406,6 +414,7 @@ def analyze(ctx: kat.Context):
             pack,
             "test_datasource_root.py",
             '''import pytest
+import uuid
 from kat.pack.helpers import datasource_state
 
 
@@ -414,16 +423,34 @@ def test_shared_within_one_test(kat_run):
     second = kat_run(workflow="analyze")
     assert first["main"].to_pydict() == {"value": [1]}
     assert second["main"].to_pydict() == {"value": [2]}
-    assert datasource_state.roots[-2] == datasource_state.roots[-1]
-    with pytest.raises(RuntimeError, match="lease is no longer active"):
-        _ = datasource_state.contexts[-1].datasource_root
+    first_root, second_root = datasource_state.datasource_roots[-2:]
+    first_scratch, second_scratch = datasource_state.scratch_roots[-2:]
+    assert first_root == second_root
+    assert first_root.name == "materializations"
+    assert first_scratch != second_scratch
+    assert first_scratch.name != second_scratch.name
+    assert uuid.UUID(first_scratch.name).version == 7
+    assert uuid.UUID(second_scratch.name).version == 7
+    assert first_scratch.parent.parent == first_root.parent
+    assert second_scratch.parent.parent == second_root.parent
+    assert not first_scratch.exists()
+    assert not second_scratch.exists()
+    for context in datasource_state.contexts[-2:]:
+        with pytest.raises(RuntimeError, match="lease is no longer active"):
+            _ = context.datasource_root
+        with pytest.raises(RuntimeError, match="lease is no longer active"):
+            _ = context.scratch_root
 
 
 def test_isolated_from_the_previous_test(kat_run):
-    previous = datasource_state.roots[0]
+    previous_session = datasource_state.datasource_roots[0].parent
     result = kat_run(workflow="analyze")
     assert result["main"].to_pydict() == {"value": [1]}
-    assert datasource_state.roots[-1] != previous
+    current_root = datasource_state.datasource_roots[-1]
+    current_scratch = datasource_state.scratch_roots[-1]
+    assert current_root.parent != previous_session
+    assert current_scratch.parent.parent == current_root.parent
+    assert not current_scratch.exists()
 ''',
         )
 

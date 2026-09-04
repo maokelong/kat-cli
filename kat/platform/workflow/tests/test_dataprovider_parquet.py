@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 import uuid
@@ -49,6 +51,41 @@ class DataProviderParquetTest(unittest.TestCase):
         self.assertFalse(hasattr(catalog, "close"))
         with self.assertRaisesRegex(TypeError, "dp.open"):
             dp.Catalog({})  # type: ignore[arg-type]
+
+    def test_open_root_rejects_a_linked_catalog_directory(self) -> None:
+        target = self.root / "outside-catalog"
+        self.write_parquet(target / "events.parquet", pa.table({"value": [1]}))
+        linked = self.root / "linked-catalog"
+        if os.name == "nt":
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/j", str(linked), str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                self.skipTest(f"could not create a Windows junction: {result.stderr}")
+        else:
+            linked.symlink_to(target, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "ordinary directory"):
+            dp.open(root=linked)
+
+    def test_open_root_rejects_a_linked_relation_file(self) -> None:
+        catalog = self.root / "catalog"
+        catalog.mkdir()
+        target = self.root / "outside.parquet"
+        self.write_parquet(target, pa.table({"value": [1]}))
+        linked = catalog / "events.parquet"
+        try:
+            linked.symlink_to(target)
+        except OSError as error:
+            if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+                self.skipTest("creating file symlinks requires Windows developer mode")
+            raise
+
+        with self.assertRaisesRegex(ValueError, "ordinary Parquet file"):
+            dp.open(root=catalog)
 
     def test_datafusion_provider_reuses_immutable_memory_bindings(
         self,

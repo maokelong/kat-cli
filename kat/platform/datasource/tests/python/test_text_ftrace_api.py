@@ -38,6 +38,8 @@ class TextFtraceApiContractTests(unittest.TestCase):
                 "OCCURRENCE_RELATION",
                 "EVENT_RELATION",
                 "UNSUPPORTED_EVENT_RELATION",
+                "MATERIALIZATION_VERSION_METADATA_KEY",
+                "MATERIALIZATION_VERSION",
             ),
         )
         self.assertEqual(text_ftrace.HEADER_RELATION, "text_ftrace_header")
@@ -50,6 +52,11 @@ class TextFtraceApiContractTests(unittest.TestCase):
             text_ftrace.UNSUPPORTED_EVENT_RELATION,
             "text_ftrace_unsupported_event",
         )
+        self.assertEqual(
+            text_ftrace.MATERIALIZATION_VERSION_METADATA_KEY,
+            b"kat.materialization.version",
+        )
+        self.assertEqual(text_ftrace.MATERIALIZATION_VERSION, "text-ftrace-v1")
         self.assertTrue(issubclass(text_ftrace.DecodeError, RuntimeError))
         self.assertFalse(hasattr(kat_datasource, "decode_text_ftrace"))
 

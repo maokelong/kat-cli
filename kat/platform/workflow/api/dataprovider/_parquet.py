@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import stat
 from types import MappingProxyType
 
 import pyarrow as pa
@@ -26,14 +28,26 @@ def open(
 
     if root is not None:
         _require_path(root, "root")
-        if not root.is_dir():
-            raise ValueError("dp.open root must be an existing directory")
+        if _is_link_or_reparse(root) or not root.is_dir():
+            raise ValueError("dp.open root must be an existing ordinary directory")
+        resolved_root = root.resolve(strict=True)
         paths_by_table: dict[str, tuple[Path, ...]] = {}
         for path in sorted(root.iterdir(), key=lambda item: item.name):
-            if not path.is_file() or path.suffix != ".parquet":
+            if path.suffix != ".parquet":
                 continue
+            if _is_link_or_reparse(path):
+                raise ValueError(
+                    "dp.open root relations must be direct ordinary Parquet files"
+                )
+            if not path.is_file():
+                continue
+            resolved = path.resolve(strict=True)
+            if resolved.parent != resolved_root:
+                raise ValueError(
+                    "dp.open root relations must be direct ordinary Parquet files"
+                )
             table_name = _require_table_name(path.stem)
-            paths_by_table[table_name] = (path.resolve(),)
+            paths_by_table[table_name] = (resolved,)
     else:
         if not isinstance(tables, Mapping):
             raise TypeError("dp.open tables must be a Mapping of table names to Paths")
@@ -176,6 +190,21 @@ def _matches_arrow_type(predicate_name: str, data_type: pa.DataType) -> bool:
 def _require_path(path: object, name: str) -> None:
     if not isinstance(path, Path):
         raise TypeError(f"{name} must be a pathlib.Path")
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    junction = getattr(path, "is_junction", None)
+    if junction is not None and junction():
+        return True
+    if os.name != "nt":
+        return False
+    try:
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except FileNotFoundError:
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
 def _require_table_name(name: object) -> str:

@@ -35,7 +35,7 @@ def _run_hdc(*arguments: str) -> subprocess.CompletedProcess[str]:
     return completed
 
 
-def test_real_hdc_capture_converts_queries_and_reuses_file_name_catalog(tmp_path):
+def test_real_hdc_capture_converts_queries_and_reuses_source_stem_catalog(tmp_path):
     target = _TARGET
     assert target is not None
     inventory = _run_hdc("list", "targets", "-v").stdout.splitlines()
@@ -105,7 +105,7 @@ def test_real_hdc_capture_converts_queries_and_reuses_file_name_catalog(tmp_path
     assert summary["observed_cpu_count"] > 0
     assert summary["clock_domain"] == "boot"
 
-    catalog_root = workspace_root / local_trace.name
+    catalog_root = workspace_root / local_trace.stem
     materialized_at = catalog_root.stat().st_mtime_ns
 
     reused = FtraceProvider(

@@ -41,19 +41,26 @@ class WorkflowContext(kat.Context):
     def datasource_root(self) -> Path:
         return self._operation.datasource_root
 
+    @property
+    def scratch_root(self) -> Path:
+        return self._operation.scratch_root
+
 
 def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
     pack_name = request.pack_name
     workflow_name = request.workflow_name
-    workflow = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
-    return run_loaded_workflow(
-        workflow,
-        pack_name=pack_name,
-        workflow_name=workflow_name,
-        arguments=request.arguments,
-        candidate=request.candidate,
-        datasource_root=request.datasource_root,
-    )
+    with _workflow_operation(
+        request.datasource_root, request.scratch_root
+    ) as operation:
+        workflow = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
+        return _run_loaded_workflow(
+            workflow,
+            operation=operation,
+            pack_name=pack_name,
+            workflow_name=workflow_name,
+            arguments=request.arguments,
+            candidate=request.candidate,
+        )
 
 
 def run_loaded_workflow(
@@ -64,6 +71,27 @@ def run_loaded_workflow(
     arguments: list[str],
     candidate: RunCandidateRef,
     datasource_root: Path,
+    scratch_root: Path,
+) -> RunWorkflowRuntimeResult:
+    with _workflow_operation(datasource_root, scratch_root) as operation:
+        return _run_loaded_workflow(
+            workflow,
+            operation=operation,
+            pack_name=pack_name,
+            workflow_name=workflow_name,
+            arguments=arguments,
+            candidate=candidate,
+        )
+
+
+def _run_loaded_workflow(
+    workflow: CompiledWorkflow,
+    *,
+    operation: WorkflowOperation,
+    pack_name: str,
+    workflow_name: str,
+    arguments: list[str],
+    candidate: RunCandidateRef,
 ) -> RunWorkflowRuntimeResult:
     candidate_id = candidate.identifier
     candidate_path = candidate.path
@@ -72,26 +100,65 @@ def run_loaded_workflow(
         effective = workflow.parse_arguments(arguments)
     except ValueError as error:
         raise WorkflowExecutionFailure() from error
-    operation = WorkflowOperation(datasource_root)
     context = WorkflowContext(operation)
-    try:
-        with workflow_logging(candidate_id, pack_name, workflow_name):
-            try:
-                value = workflow.function(context, **effective)
-            except (Exception, SystemExit) as error:
-                raise WorkflowExecutionFailure() from error
-            try:
-                outputs = materialize_outputs(value, candidate_path)
-            except (Exception, SystemExit) as error:
-                raise WorkflowExecutionFailure() from error
-    finally:
-        operation.expire()
+    with workflow_logging(candidate_id, pack_name, workflow_name):
+        try:
+            value = workflow.function(context, **effective)
+        except (Exception, SystemExit) as error:
+            raise WorkflowExecutionFailure() from error
+        try:
+            outputs = materialize_outputs(value, candidate_path)
+        except (Exception, SystemExit) as error:
+            raise WorkflowExecutionFailure() from error
     return RunWorkflowRuntimeResult(
         effective_inputs={
             name: _project_effective_input(value) for name, value in effective.items()
         },
         outputs=outputs,
     )
+
+
+@contextmanager
+def _workflow_operation(
+    datasource_root: Path, scratch_root: Path
+) -> Iterator[WorkflowOperation]:
+    operation = WorkflowOperation(datasource_root, scratch_root)
+    try:
+        yield operation
+    except BaseException as execution_error:
+        operation.expire()
+        try:
+            operation.cleanup_scratch()
+        except BaseException as cleanup_error:
+            _append_cleanup_error(execution_error, cleanup_error)
+        raise
+    else:
+        operation.expire()
+        operation.cleanup_scratch()
+
+
+def _append_cleanup_error(
+    execution_error: BaseException, cleanup_error: BaseException
+) -> None:
+    # 清理是发布门，但不是已经发生的执行失败的根因；把它追加到现有异常链末端。
+    seen: set[int] = set()
+    current = execution_error
+    while id(current) not in seen:
+        seen.add(id(current))
+        cause = BaseException.__cause__.__get__(current, BaseException)
+        if cause is not None:
+            next_error = cause
+        elif BaseException.__suppress_context__.__get__(current, BaseException):
+            break
+        else:
+            next_error = BaseException.__context__.__get__(current, BaseException)
+            if next_error is None:
+                break
+        if id(next_error) in seen:
+            break
+        current = next_error
+    current.__cause__ = cleanup_error
+    current.__suppress_context__ = True
 
 
 def _project_effective_input(value: object) -> object:

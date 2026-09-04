@@ -7,7 +7,10 @@ use tempfile::tempdir;
 
 #[path = "support/mod.rs"]
 mod support;
-use support::{Relation, assert_no_staging, profiler_section};
+use support::{
+    Relation, assert_all_relations_have_materialization_version, assert_no_staging,
+    profiler_section,
+};
 
 #[allow(dead_code)]
 mod proto {
@@ -44,6 +47,7 @@ fn decode_preserves_ftrace_values_presence_oneof_parentage_and_repeated_order() 
         .expect("decode publishes descriptor-derived Ftrace relations");
 
     assert!(report.unsupported_plugins().is_empty());
+    assert_all_relations_have_materialization_version(&destination, "hitrace-v1");
     assert!(!destination.join("sched_switch.parquet").exists());
     for relation in [
         "profiler_payload_occurrence",

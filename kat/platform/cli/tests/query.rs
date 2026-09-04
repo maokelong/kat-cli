@@ -1,7 +1,10 @@
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use base64::Engine;
@@ -10,6 +13,8 @@ use base64::Engine;
 mod test_home;
 
 const RUN_ID: &str = "019f6e00-0000-7000-8000-000000000031";
+const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000030";
+const OTHER_SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000032";
 const PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
 
 fn cargo_kat() -> PathBuf {
@@ -31,9 +36,23 @@ fn query_help_describes_the_native_ndjson_contract() {
         "{help}"
     );
     assert!(help.contains("--run <RUN_ID>"), "{help}");
+    assert!(help.contains("--session <SESSION_ID>"), "{help}");
     assert!(help.contains("--sql <SQL>"), "{help}");
     assert!(!help.contains("--dataset"), "{help}");
     assert!(!help.contains("positional JSON scalars"), "{help}");
+}
+
+#[test]
+fn query_requires_both_session_and_run_id() {
+    for arguments in [
+        vec!["query", "--run", RUN_ID, "--sql", "SELECT 1"],
+        vec!["query", "--session", SESSION_ID, "--sql", "SELECT 1"],
+    ] {
+        let output = Command::new(cargo_kat()).args(&arguments).output().unwrap();
+
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+    }
 }
 
 fn stage_skill(root: &Path) -> PathBuf {
@@ -67,7 +86,7 @@ fn stage_fake_host(binary: &Path) {
     fs::write(
         &source,
         r#"
-use std::{env, fs, process};
+use std::{env, fs, path::Path, process, thread, time::Duration};
 
 fn json_string_field(document: &str, field: &str) -> String {
     let prefix = format!("\"{field}\":\"");
@@ -118,8 +137,18 @@ fn main() {
     if env::var_os("KAT_FAKE_EXIT_AFTER_RESULT").is_some() {
         process::exit(96);
     }
-    let response = env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap();
+    let response = match env::var_os("KAT_FAKE_RUNTIME_RESPONSE_FILE") {
+        Some(path) => fs::read(path).unwrap(),
+        None => env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap().into_bytes(),
+    };
     fs::write(&arguments[10], response).unwrap();
+    if let Some(response_written) = env::var_os("KAT_FAKE_RESPONSE_WRITTEN") {
+        fs::write(response_written, "written").unwrap();
+        let release = env::var("KAT_FAKE_RUNTIME_RELEASE").unwrap();
+        while !Path::new(&release).exists() {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
 }
 "#,
     )
@@ -143,8 +172,24 @@ fn data_home(root: &Path) -> PathBuf {
 }
 
 fn write_manifest(root: &Path, dataset: Option<serde_json::Value>) -> PathBuf {
-    let run = data_home(root).join("runs").join(RUN_ID);
+    let sessions = data_home(root).join("sessions");
+    let session = sessions.join(SESSION_ID);
+    fs::create_dir_all(sessions.join(".leases")).unwrap();
+    fs::create_dir_all(sessions.join(".deletions")).unwrap();
+    fs::write(
+        sessions.join(".leases").join(format!("{SESSION_ID}.lock")),
+        [],
+    )
+    .unwrap();
+    fs::create_dir_all(session.join("materializations")).unwrap();
+    fs::create_dir_all(session.join("scratch")).unwrap();
+    let run = session.join("runs").join(RUN_ID);
     fs::create_dir_all(run.join("outputs")).unwrap();
+    fs::write(
+        session.join("session.json"),
+        serde_json::to_vec(&serde_json::json!({"session_id": SESSION_ID})).unwrap(),
+    )
+    .unwrap();
     fs::write(
         run.join("outputs/main.parquet"),
         base64::engine::general_purpose::STANDARD
@@ -153,6 +198,7 @@ fn write_manifest(root: &Path, dataset: Option<serde_json::Value>) -> PathBuf {
     )
     .unwrap();
     let mut manifest = serde_json::json!({
+        "session_id": SESSION_ID,
         "run_id": RUN_ID,
         "pack": "alpha",
         "workflow": "analyze",
@@ -180,7 +226,14 @@ fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
     test_home::configure(&mut command, root);
     command
         .arg("query")
-        .args(["--run", RUN_ID, "--sql", sql])
+        .args([
+            "--session",
+            SESSION_ID,
+            "--run",
+            RUN_ID,
+            "--sql",
+            sql,
+        ])
         .env("KAT_CAPTURE_REQUEST", captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
@@ -197,6 +250,15 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
         temporary.path(),
         Some(serde_json::json!({"legacy": ["invalid", 42]})),
     );
+    let legacy_run = data_home(temporary.path())
+        .join("runs")
+        .join(RUN_ID)
+        .join("manifest.json");
+    let legacy_datasource = data_home(temporary.path()).join("datasources/alpha/sentinel");
+    fs::create_dir_all(legacy_run.parent().unwrap()).unwrap();
+    fs::create_dir_all(legacy_datasource.parent().unwrap()).unwrap();
+    fs::write(&legacy_run, b"legacy root must not be read").unwrap();
+    fs::write(&legacy_datasource, b"legacy datasource").unwrap();
     let manifest_path = run.join("manifest.json");
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
@@ -294,6 +356,11 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
     );
     assert_ne!(second_response["log_path"], response["log_path"]);
     assert!(Path::new(second_response["result"]["path"].as_str().unwrap()).is_file());
+    assert_eq!(
+        fs::read(legacy_run).unwrap(),
+        b"legacy root must not be read"
+    );
+    assert_eq!(fs::read(legacy_datasource).unwrap(), b"legacy datasource");
 }
 
 #[test]
@@ -354,6 +421,222 @@ fn corrupt_manifest_never_starts_runtime() {
     assert_eq!(response["error"]["message"], "Run is corrupted");
     assert!(response.get("result").is_none());
     assert!(!captured.exists());
+}
+
+fn wait_until_exists(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !path.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {}",
+            path.display()
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn query_never_scans_another_session_for_the_run_id() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temporary.path());
+    write_manifest(temporary.path(), None);
+    let sessions = data_home(temporary.path()).join("sessions");
+    let other = sessions.join(OTHER_SESSION_ID);
+    fs::write(
+        sessions
+            .join(".leases")
+            .join(format!("{OTHER_SESSION_ID}.lock")),
+        [],
+    )
+    .unwrap();
+    fs::create_dir_all(other.join("materializations")).unwrap();
+    fs::create_dir_all(other.join("scratch")).unwrap();
+    fs::create_dir_all(other.join("runs")).unwrap();
+    fs::write(
+        other.join("session.json"),
+        serde_json::to_vec(&serde_json::json!({"session_id": OTHER_SESSION_ID})).unwrap(),
+    )
+    .unwrap();
+    let captured = temporary.path().join("unexpected-request.json");
+    let mut query = Command::new(&binary);
+    test_home::configure(&mut query, temporary.path());
+    query
+        .arg("query")
+        .args([
+            "--session",
+            OTHER_SESSION_ID,
+            "--run",
+            RUN_ID,
+            "--sql",
+            "SELECT * FROM output.main",
+        ])
+        .env("KAT_CAPTURE_REQUEST", &captured);
+
+    let output = query.output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        format!("Run {RUN_ID} does not exist in Analysis Session {OTHER_SESSION_ID}")
+    );
+    assert!(!captured.exists());
+}
+
+#[test]
+fn active_query_blocks_session_delete_until_the_query_response_is_published() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temporary.path());
+    write_manifest(temporary.path(), None);
+    let captured = temporary.path().join("request.json");
+    let response_written = temporary.path().join("response-written");
+    let runtime_release = temporary.path().join("runtime-release");
+    let mut query = command(
+        &binary,
+        temporary.path(),
+        &captured,
+        "SELECT * FROM output.main",
+    );
+    query
+        .env("KAT_FAKE_RESPONSE_WRITTEN", &response_written)
+        .env("KAT_FAKE_RUNTIME_RELEASE", &runtime_release)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let query = query.spawn().unwrap();
+    wait_until_exists(&response_written);
+
+    let mut deleting = Command::new(&binary);
+    test_home::configure(&mut deleting, temporary.path());
+    let blocked = deleting
+        .args(["session", "delete", "--session", SESSION_ID])
+        .output()
+        .unwrap();
+    fs::write(&runtime_release, "release").unwrap();
+    let query = query.wait_with_output().unwrap();
+
+    assert_eq!(blocked.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        format!("Analysis Session {SESSION_ID} is in use")
+    );
+    assert_eq!(
+        query.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&query.stderr)
+    );
+    assert!(
+        data_home(temporary.path())
+            .join("sessions")
+            .join(SESSION_ID)
+            .is_dir()
+    );
+}
+
+#[test]
+fn query_holds_session_lease_until_its_large_response_is_flushed() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = stage_skill(temporary.path());
+    write_manifest(temporary.path(), None);
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(SESSION_ID);
+    let captured = temporary.path().join("request.json");
+    let runtime_response = temporary.path().join("large-runtime-response.json");
+    fs::write(
+        &runtime_response,
+        serde_json::to_vec(&serde_json::json!({
+            "status": "success",
+            "result": {
+                "columns": [{"name": "x".repeat(8 * 1024 * 1024), "type": "int64"}]
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut query = command(
+        &binary,
+        temporary.path(),
+        &captured,
+        "SELECT * FROM output.main",
+    );
+    query
+        .env("KAT_FAKE_RUNTIME_RESPONSE_FILE", &runtime_response)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut query = query.spawn().unwrap();
+    let mut stdout = query.stdout.take().unwrap();
+    let mut first_byte = [0];
+    stdout.read_exact(&mut first_byte).unwrap();
+    assert_eq!(first_byte, [b'{']);
+
+    let mut deleting = Command::new(&binary);
+    test_home::configure(&mut deleting, temporary.path());
+    deleting
+        .args(["session", "delete", "--session", SESSION_ID])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut deleting = deleting.spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let delete_completed = loop {
+        if deleting.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            deleting.kill().unwrap();
+            break false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let blocked = deleting.wait_with_output().unwrap();
+    let session_remained_while_blocked = session.is_dir();
+    let tombstone_remained_absent = !data_home(temporary.path())
+        .join("sessions/.deletions")
+        .join(SESSION_ID)
+        .exists();
+
+    let mut frame = Vec::with_capacity(8 * 1024 * 1024);
+    frame.extend_from_slice(&first_byte);
+    stdout.read_to_end(&mut frame).unwrap();
+    let status = query.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
+    let response: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+    assert_eq!(
+        response["result"]["columns"][0]["name"]
+            .as_str()
+            .unwrap()
+            .len(),
+        8 * 1024 * 1024
+    );
+
+    let mut deleting = Command::new(&binary);
+    test_home::configure(&mut deleting, temporary.path());
+    let deleted = deleting
+        .args(["session", "delete", "--session", SESSION_ID])
+        .output()
+        .unwrap();
+
+    assert!(
+        delete_completed,
+        "Session delete did not fail immediately while Query stdout was blocked"
+    );
+    assert_eq!(blocked.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        format!("Analysis Session {SESSION_ID} is in use")
+    );
+    assert!(session_remained_while_blocked);
+    assert!(tombstone_remained_absent);
+    assert_eq!(
+        deleted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(!session.exists());
 }
 
 #[test]

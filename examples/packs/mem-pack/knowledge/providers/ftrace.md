@@ -6,14 +6,18 @@
 
 ## 内部物化
 
-物化目录固定为 `workspace_root / source.name`。目录已经包含顶层 Parquet 文件时，Provider
-直接打开并执行关系与 `clock_domain` 准入检查，不再次解析。目录不存在或为空时才调用
-转换器；非空但没有 Parquet 的目录会被拒绝，避免覆盖不明文件。已有 Parquet 无法打开或
-未通过准入检查时明确失败，不隐式删除或重建。
+物化目录固定为 `workspace_root / Path(source).stem`。目标存在时，Provider 必须先通过
+`dp.open(root=...)` 打开，拒绝白名单外的 relation，并对每个实际 relation 执行完整列/
+物理类型/nullability、`clock_domain` 与物化版本合同检查，不再次解析。每个 Parquet relation 的 Arrow
+Schema metadata 必须包含 `kat.materialization.version=text-ftrace-v1`；缺失或其他值都不兼容。
+只有目标完全不存在时才调用转换器。既有空目录、非 Parquet 内容、损坏 Parquet 或不兼容
+合同都会明确失败，绝不隐式删除、覆盖或原位重建。
 
-目录身份只由文件名决定。同一 `workspace_root` 下的同名来源会复用同一目录，即使来源路径
-或内容不同；调用方需要用不同文件名或不同 `workspace_root` 区分它们。Provider 不提供
-`redecode`、自动清理或 `finish()` 接口。
+目录身份只由 basename 去掉最后一个后缀后的 Source stem 决定。同一 Session 的
+`workspace_root` 下，相同 stem 会复用首次发布的目录，即使来源路径或内容后来不同；调用方
+需要用不同 stem 或新的 Session 区分它们。空名称、`.`、`..`、路径分隔符、控制字符、
+Windows 非法字符、尾随点/空格和大小写不敏感的 Windows device name 都会被拒绝，不自动
+清洗或消歧。Provider 不提供 `redecode`、自动清理或 `finish()` 接口。
 
 ## 运行时发现
 
@@ -107,6 +111,11 @@ text_ftrace_event_occurrence
 domain 的数值可直接比较。
 
 ## 按需生成的 payload 关系
+
+下列清单也是 Provider 接受的完整 relation 白名单；每张实际出现的 payload relation 都按
+本节列出的完整列顺序、物理类型与 `?` 标注的 nullability 验证，不能用未知或仅部分兼容的
+relation 扩张查询面。任一 payload relation 存在时，`text_ftrace_event_occurrence` 与
+`text_ftrace_event` 必须同时存在；只有 header 与 unsupported relation 的全未知事件输入仍合法。
 
 每张 payload 表都包含：
 

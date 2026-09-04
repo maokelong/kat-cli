@@ -66,9 +66,21 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                     "status": "success",
                     "result": {"summary": {"passed": 1}},
                 },
-                "run": {
+                "first-run": {
                     "status": "success",
-                    "result": {"outputs": {"main": {"row_count": 1}}},
+                    "result": {
+                        "session_id": "session-1",
+                        "run_id": "run-1",
+                        "outputs": {"main": {"row_count": 1}},
+                    },
+                },
+                "second-run": {
+                    "status": "success",
+                    "result": {
+                        "session_id": "session-1",
+                        "run_id": "run-2",
+                        "outputs": {"main": {"row_count": 1}},
+                    },
                 },
                 "query": {
                     "status": "success",
@@ -113,9 +125,21 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                     "status": "success",
                     "result": {"summary": {"passed": 1}},
                 },
-                "run": {
+                "first-run": {
                     "status": "success",
-                    "result": {"outputs": {"main": {"row_count": 1}}},
+                    "result": {
+                        "session_id": "session-1",
+                        "run_id": "run-1",
+                        "outputs": {"main": {"row_count": 1}},
+                    },
+                },
+                "second-run": {
+                    "status": "success",
+                    "result": {
+                        "session_id": "session-1",
+                        "run_id": "run-2",
+                        "outputs": {"main": {"row_count": 1}},
+                    },
                 },
                 "query": {
                     "status": "success",
@@ -210,8 +234,38 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertNotIn("--dataset", assembly)
         self.assertIn("build/fixtures/create_payload_smoke_hitrace.py", assembly)
         self.assertIn("build/fixtures/payload-smoke-pack", assembly)
+        self.assertIn("build/fixtures/payload-smoke-consumer-pack", assembly)
         self.assertEqual(assembly.count(" test --pack-dir "), 2)
-        self.assertIn("--workflow summarize-hitrace-clock", assembly)
+        self.assertEqual(assembly.count("--workflow summarize-hitrace-clock"), 2)
+        self.assertEqual(assembly.count("--workflow reuse-hitrace-clock"), 2)
+        self.assertEqual(assembly.count(" query --session "), 2)
+        self.assertEqual(
+            assembly.count("verify_payload_materialization_race.py"), 2
+        )
+        self.assertIn(
+            'run --session "$session_id" --pack payload-smoke-consumer',
+            assembly,
+        )
+        self.assertIn(
+            "run --session $firstRun.result.session_id "
+            "--pack payload-smoke-consumer",
+            assembly,
+        )
+        self.assertIn('/bin/rm -- "$fixture"', assembly)
+        self.assertIn("Remove-Item -LiteralPath $fixture", assembly)
+        self.assertLess(
+            assembly.index('/bin/rm -- "$fixture"'),
+            assembly.index(
+                'run --session "$session_id" --pack payload-smoke-consumer'
+            ),
+        )
+        self.assertLess(
+            assembly.index("Remove-Item -LiteralPath $fixture"),
+            assembly.index(
+                "run --session $firstRun.result.session_id "
+                "--pack payload-smoke-consumer"
+            ),
+        )
         self.assertIn("SELECT clock_domain, clock_value FROM output.main", assembly)
         verifier = (
             REPOSITORY / "build/fixtures/verify_payload_smoke.py"
@@ -230,6 +284,10 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             REPOSITORY
             / "build/fixtures/payload-smoke-pack/workflows/summarize_hitrace_clock.py"
         ).read_text(encoding="utf-8")
+        consumer = (
+            REPOSITORY
+            / "build/fixtures/payload-smoke-consumer-pack/workflows/reuse_hitrace_clock.py"
+        ).read_text(encoding="utf-8")
         pack_test = (
             REPOSITORY
             / "build/fixtures/payload-smoke-pack/tests/test_payload_smoke.py"
@@ -240,8 +298,34 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertIn("hitrace.decode", provider)
         self.assertIn("dp.open(root=", provider)
         self.assertIn("dp.DataFusionProvider", provider)
+        self.assertIn("source.stem", provider)
+        self.assertIn("pq.read_schema", provider)
+        self.assertIn("field.nullable", provider)
+        self.assertIn("MATERIALIZATION_VERSION_METADATA_KEY", provider)
+        self.assertIn("MATERIALIZATION_VERSION", provider)
+        self.assertIn("KAT_PAYLOAD_SMOKE_BARRIER", provider)
+        self.assertNotIn("unsupported_plugins", provider)
+        self.assertNotIn("unsupported_section_types", provider)
         self.assertIn("HitraceProvider", workflow)
         self.assertIn("return provider.query", workflow)
+        self.assertIn("dp.open(root=", consumer)
+        self.assertIn("dp.DataFusionProvider", consumer)
+        self.assertIn("source.stem", consumer)
+        self.assertIn("pq.read_schema", consumer)
+        self.assertIn("field.nullable", consumer)
+        self.assertIn('b"kat.materialization.version"', consumer)
+        self.assertIn('b"hitrace-v1"', consumer)
+        self.assertNotIn("kat_datasource", consumer)
+        self.assertNotIn("HitraceProvider", consumer)
+        self.assertNotIn("decode", consumer)
+
+        race_verifier = (
+            REPOSITORY / "build/fixtures/verify_payload_materialization_race.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("subprocess.Popen", race_verifier)
+        self.assertIn('_CONTENDER_CLOCK_VALUES = (111_111, 222_222)', race_verifier)
+        self.assertIn('outcomes != ["published", "reused"]', race_verifier)
+        self.assertIn("Source-free reuse replaced", race_verifier)
 
     def test_platform_payload_builds_use_an_optional_observable_sccache(self) -> None:
         for platform in ("linux", "windows"):

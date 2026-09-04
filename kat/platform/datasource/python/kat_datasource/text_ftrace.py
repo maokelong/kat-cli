@@ -12,12 +12,16 @@ __all__ = (
     "OCCURRENCE_RELATION",
     "EVENT_RELATION",
     "UNSUPPORTED_EVENT_RELATION",
+    "MATERIALIZATION_VERSION_METADATA_KEY",
+    "MATERIALIZATION_VERSION",
 )
 
 HEADER_RELATION = "text_ftrace_header"
 OCCURRENCE_RELATION = "text_ftrace_event_occurrence"
 EVENT_RELATION = "text_ftrace_event"
 UNSUPPORTED_EVENT_RELATION = "text_ftrace_unsupported_event"
+MATERIALIZATION_VERSION_METADATA_KEY = b"kat.materialization.version"
+MATERIALIZATION_VERSION = "text-ftrace-v1"
 
 _PathLike: TypeAlias = str | os.PathLike[str]
 

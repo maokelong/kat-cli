@@ -56,13 +56,19 @@ kat run \
   --clock-domain monotonic
 ```
 
-Provider 把 Parquet 写到 `ctx.datasource_root / trace_path.name`。该目录已经包含 Parquet
-时直接打开并校验，不再次解析；没有 Parquet 时才解析。已有 Parquet 无法打开、缺少
-必需关系或 `clock_domain` 不匹配时明确失败，不隐式删除或重建。
+Provider 把 Parquet 写到 `ctx.datasource_root / Path(trace_path).stem`。目标存在时先通过
+`dp.open(root=...)` 打开，拒绝未知 relation，并校验每个实际 relation 的完整列/物理类型/nullability、
+`clock_domain` 以及 Arrow Schema metadata
+`kat.materialization.version=text-ftrace-v1`，不再次解析；只有目标完全不存在时才解析。
+已有目标无法打开或未通过合同检查时明确失败，绝不隐式删除、覆盖或原位重建。
 
-目录身份只由文件名决定：同一 Datasource root 下的同名来源复用同一目录。调用方需要用
-不同文件名或不同 Datasource root 区分内容不同的同名 Trace。Provider 不提供重新解析、
-自动清理或显式结束接口。
+首个成功 Response 同时给出 Session ID 与 Run ID。要验证同一来源的跨 Run 复用，后续
+调用必须显式增加外层 `--session <session-id>`；省略该参数会建立新 Session 并重新物化。
+
+目录身份只由 Source basename 去掉最后一个后缀得到。同一 Analysis Session 中相同 stem
+复用首次完整发布的目录，即使原始路径或内容后来变化；调用方需要用不同 stem 或新 Session
+分析不同事实。非法或不可移植 stem 会被拒绝，不会清洗、hash 或自动消歧。Provider 不
+提供重新解析、自动清理或显式结束接口。
 
 ## 验证
 

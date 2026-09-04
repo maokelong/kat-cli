@@ -4,6 +4,10 @@
 Python 单遍解析输入，在 `dp.write(schema, destination=...)` 写事务中把标量追加到明确的
 relation；后台线程同时写 Parquet，事务正常退出后才一次发布整个多表目录。成功后同一个
 实例可反复执行 DataFusion SQL；解析或物化失败时不会留下可查询的半成品 catalog。
+reference Workflow 把这个调用方独占 catalog 放在当前执行的 `ctx.scratch_root`，它不是
+Session 共享物化，执行结束后不能复用。若实际 PACK 需要跨 Run 复用同一来源，必须改为
+`ctx.datasource_root / Path(source).stem`，并在命中时先 open 和验证完整合同；既有无效
+目标必须失败，不能沿用本 Provider 的独占目录清理逻辑去替换它。
 
 物化目录包含两张 Parquet 表：
 

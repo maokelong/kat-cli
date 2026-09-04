@@ -48,9 +48,13 @@ class PostgreSQLProvider:
 
 ## 3. 使用当前作者与数据合同
 
-Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 只提供 `ctx.datasource_root`；PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
+Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 只提供当前 Session 共享的 `ctx.datasource_root` 与当前候选执行私有的 `ctx.scratch_root`；不提供 Session identity 或整个 Session 根。PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
-PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。没有稳定来源身份的文件 Provider 应在 `ctx.datasource_root` 下建立当前 Workflow 的临时 workspace，向 Provider 传普通路径，并在 eager Table 脱离来源后清理临时物化。能够依据来源内容建立稳定身份、并能确定性重建结果的 Provider，可以跨 Workflow 复用自己的私有内部目录；命中旧目录时必须重新执行最小准入检查，打开失败、必需 relation 缺失或内容损坏时丢弃并重建。旧内容始终只是可丢弃 cache，不是 KAT 状态或用户资产。
+PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
+
+Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格以及大小写不敏感的 Windows device name。目标存在时先用 `dp.open()` 打开，并校验允许的 relation 集合、每个实际 relation 的完整 columns/物理类型/nullability 与显式版本合同，只有目标不存在时才 decode 或 `dp.write()`。原生 decoder 使用每张 Parquet relation 的 Arrow Schema metadata `kat.materialization.version` 保存版本；Provider 应与对应 `kat_datasource` 模块导出的 `MATERIALIZATION_VERSION_METADATA_KEY` 和 `MATERIALIZATION_VERSION` 比较，不把目录存在或 Schema 恰好相同当成版本兼容。自定义物化也必须定义并验证等价的稳定版本事实。
+
+已经发布的同名物化打不开或合同不兼容时当前执行失败，不能删除、覆盖或原位修复；原始来源后来变化也不刷新当前 Session 的槽位。并发生产方各自完成 staging 后以 no-replace 发布，loser 打开并验证 winner，兼容则复用，否则失败且保留 winner。Session 内名称唯一性和大小写碰撞由调用方保证。
 
 `kat-workflow` 与 `kat-datasource` 是 Payload 中两个独立的私有 wheel：
 
@@ -83,8 +87,6 @@ Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普�
 
 ```python
 from pathlib import Path
-from tempfile import TemporaryDirectory
-
 import kat
 from kat import dataprovider as dp
 from kat_datasource import hitrace
@@ -96,14 +98,13 @@ from kat_datasource import hitrace
     parameters={"source_path": "Hitrace source path."},
 )
 def summarize_trace(ctx: kat.Context, *, source_path: str):
-    with TemporaryDirectory(dir=ctx.datasource_root) as temporary:
-        relations = Path(temporary) / "relations"
-        hitrace.decode(Path(source_path), relations)
-        catalog = dp.open(root=relations)
-        return dp.DataFusionProvider(catalog=catalog).query("SELECT ...")
+    relations = ctx.scratch_root / "relations"
+    hitrace.decode(Path(source_path), relations)
+    catalog = dp.open(root=relations)
+    return dp.DataFusionProvider(catalog=catalog).query("SELECT ...")
 ```
 
-`hitrace.decode()` 要求 destination 尚不存在；成功后 destination 的直接子级只含扁平具名 Parquet relation，并返回不可变 `DecodeReport`，列出 unsupported plugin 和 section type。它不创建平台来源身份或持久状态。失败时不要把残留路径、部分 relation 或 unsupported report 当作成功。
+`hitrace.decode()` 要求 destination 尚不存在；成功后 destination 的直接子级只含扁平具名 Parquet relation，并返回不可变 `DecodeReport`，列出 unsupported plugin 和 section type。上例是无需跨 Run 复用的一次性工作，因此使用 scratch。要复用时改用经过上述合法性检查的 `ctx.datasource_root / Path(source_path).stem`，命中先 open 与验证，未命中才 decode；失败时不要把残留路径、部分 relation 或 unsupported report 当作成功。
 
 来源查询已经完整取得少量 Python rows 时，可以用显式物理 Schema 一次形成不可变 Table：
 
@@ -177,7 +178,7 @@ result = dp.DataFusionProvider(
 ).query("SELECT ...")
 ```
 
-DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Provider、不触发远端查询，也没有跨 Workflow Session。完整可执行写法见随 Skill 发布的 [Data Provider reference PACK](examples/dataprovider-pack/README.md)。
+DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Provider、不触发远端查询，也不会自动取得同一 Analysis Session 的其他内容。完整可执行写法见随 Skill 发布的 [Data Provider reference PACK](examples/dataprovider-pack/README.md)。
 
 ## 7. 实施并验证已授权变更
 

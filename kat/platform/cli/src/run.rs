@@ -15,12 +15,17 @@ use crate::{
     operation_log::{OperationLog, OperationLogError},
     pack_discovery::{self, PackDiscoveryPaths},
     response,
+    run_manifest::RunManifest,
+    session_store::{RunAllocation, RunId, SessionId, SessionStore, SessionStoreError},
     text_projection::project_inline_text,
     workflow_runtime,
 };
 
 #[derive(Args)]
 pub(super) struct RunArgs {
+    /// Continue one exact published Analysis Session.
+    #[arg(long, value_name = "SESSION_ID")]
+    session: Option<String>,
     /// Select one exact PACK by manifest name.
     #[arg(long, value_name = "NAME")]
     pack: String,
@@ -43,9 +48,10 @@ pub(super) struct RunArgs {
 ///
 /// `run_id` publishes the identity for later Run operations; this slice returns
 /// Run metadata only.
-/// Output rows are addressed by the Run ID and Output name, not a physical path.
+/// Output rows are addressed by the Session ID, Run ID, and Output name, not a physical path.
 #[derive(Serialize)]
 pub(super) struct RunResult {
+    session_id: String,
     run_id: String,
     outputs: BTreeMap<String, PublicOutput>,
 }
@@ -57,48 +63,23 @@ struct PublicOutput {
     row_count: u64,
 }
 
-#[derive(Serialize)]
-pub(super) struct RunManifest {
-    pub(super) run_id: String,
-    pub(super) pack: String,
-    pub(super) workflow: String,
-    pub(super) inputs: BTreeMap<String, serde_json::Value>,
-    pub(super) outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
-}
-
-impl RunManifest {
-    fn new(
-        candidate_id: String,
-        pack: String,
-        workflow: String,
-        runtime: workflow_runtime::RunWorkflowReport,
-    ) -> Self {
-        Self {
-            run_id: candidate_id,
-            pack,
-            workflow,
-            inputs: runtime.effective_inputs,
-            outputs: runtime.outputs,
-        }
-    }
-
-    fn public_result(&self) -> RunResult {
-        RunResult {
-            run_id: self.run_id.clone(),
-            outputs: self
-                .outputs
-                .iter()
-                .map(|(name, output)| {
-                    (
-                        name.clone(),
-                        PublicOutput {
-                            columns: output.columns.clone(),
-                            row_count: output.row_count,
-                        },
-                    )
-                })
-                .collect(),
-        }
+fn public_result(manifest: &RunManifest) -> RunResult {
+    RunResult {
+        session_id: manifest.session_id.clone(),
+        run_id: manifest.run_id.clone(),
+        outputs: manifest
+            .outputs
+            .iter()
+            .map(|(name, output)| {
+                (
+                    name.clone(),
+                    PublicOutput {
+                        columns: output.columns.clone(),
+                        row_count: output.row_count,
+                    },
+                )
+            })
+            .collect(),
     }
 }
 
@@ -107,7 +88,12 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let candidate_id = uuid::Uuid::now_v7().to_string();
+    let run_id = RunId::generate();
+    let mut generated_session_id = SessionId::generate();
+    while generated_session_id.as_str() == run_id.as_str() {
+        generated_session_id = SessionId::generate();
+    }
+    let candidate_id = run_id.as_str().to_owned();
     let pack_log = project_inline_text(&arguments.pack);
     let workflow_log = project_inline_text(&arguments.workflow);
     let mut log = match OperationLog::create_run(&data_home, &candidate_id, |file| {
@@ -122,10 +108,47 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         Ok(log) => log,
         Err(error) => return log_failure(error),
     };
-    let mut candidate = match create_run_candidate(&data_home, &candidate_id) {
-        Ok(path) => path,
-        Err(error) => return finish_failure(log, error),
+    let store = SessionStore::new(&data_home);
+    let mut allocation = match arguments.session.as_deref() {
+        Some(session_id) => match store.create_run_in(session_id, run_id) {
+            Ok(allocation) => allocation,
+            Err(error) => {
+                let prepared = finish_failure(log, RunOperationError::SessionStore(error.error));
+                return match error.lease {
+                    Some(lease) => response::retain_session_lease(prepared, lease),
+                    None => prepared,
+                };
+            }
+        },
+        None => match store.create_run(generated_session_id, run_id) {
+            Ok(allocation) => allocation,
+            Err(error) => return finish_failure(log, RunOperationError::SessionStore(error)),
+        },
     };
+    let session_log =
+        project_inline_text(&format!("{:?}", allocation.layout().session_id().as_str()));
+    if let Err(error) = log.append(format!("session: {session_log}\n").as_bytes()) {
+        let prepared = log_failure(error);
+        return if allocation.session_is_published() {
+            response::retain_session_lease(prepared, allocation.into_lease())
+        } else {
+            prepared
+        };
+    }
+    let prepared = execute_allocated_run(&data_home, log, arguments, &mut allocation);
+    if allocation.session_is_published() {
+        response::retain_session_lease(prepared, allocation.into_lease())
+    } else {
+        prepared
+    }
+}
+
+fn execute_allocated_run(
+    data_home: &Path,
+    mut log: OperationLog,
+    arguments: RunArgs,
+    allocation: &mut RunAllocation,
+) -> response::PreparedResponse<RunResult> {
     let skill_root = match locate_skill_root() {
         Ok(path) => path,
         Err(source) => {
@@ -159,23 +182,19 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
             },
         );
     };
-    let Some(candidate_path) = candidate.path().to_str().map(str::to_owned) else {
+    let Some(candidate_path) = allocation.candidate().to_str().map(str::to_owned) else {
         return finish_failure(log, RunOperationError::PrivateCandidatePath);
     };
-    let datasource_root_path = match datasource_root_from_data_home(&data_home, pack.name()) {
-        Ok(path) => path,
-        Err(source) => {
-            return finish_failure(
-                log,
-                RunOperationError::CanonicalDataHome {
-                    path: data_home,
-                    source,
-                },
-            );
-        }
-    };
-    let Some(datasource_root) = datasource_root_path.to_str().map(str::to_owned) else {
+    let Some(datasource_root) = allocation
+        .layout()
+        .materializations()
+        .to_str()
+        .map(str::to_owned)
+    else {
         return finish_failure(log, RunOperationError::PrivateDatasourceRootPath);
+    };
+    let Some(scratch_root) = allocation.scratch().to_str().map(str::to_owned) else {
+        return finish_failure(log, RunOperationError::PrivateScratchRootPath);
     };
     let pack_path_log = project_inline_text(&format!("{:?}", pack.directory()));
     let arguments_log = project_inline_text(&format!("{:?}", arguments.workflow_arguments));
@@ -188,13 +207,15 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
     let outcome = workflow_runtime::execute_workflow_runtime(
         log,
         workflow_runtime::RunWorkflowInvocation {
+            session_id: allocation.layout().session_id().as_str().to_owned(),
             pack_name: pack.name().to_owned(),
             pack_path,
             workflow_name: arguments.workflow.clone(),
             arguments: arguments.workflow_arguments,
-            candidate_id: candidate_id.clone(),
+            candidate_id: allocation.run_id().as_str().to_owned(),
             candidate_path,
             datasource_root,
+            scratch_root,
         },
     );
     let (runtime, mut log) = match outcome {
@@ -209,13 +230,19 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         }
     };
 
+    if let Err(error) = allocation.clean_scratch() {
+        return finish_failure(log, RunOperationError::SessionStore(error));
+    }
+
     let manifest = RunManifest::new(
-        candidate_id,
+        allocation.layout().session_id().as_str().to_owned(),
+        allocation.run_id().as_str().to_owned(),
         pack.name().to_owned(),
         arguments.workflow,
-        runtime,
+        runtime.effective_inputs,
+        runtime.outputs,
     );
-    let result = manifest.public_result();
+    let result = public_result(&manifest);
     if let Err(error) = log.append(b"publication_gate: ready\n") {
         return log_failure(error);
     }
@@ -223,70 +250,17 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         Ok(log_path) => log_path,
         Err(error) => return log_failure(error),
     };
-    if let Err(error) = candidate.publish(&manifest) {
+    if let Err(error) = publish_run_manifest(allocation.candidate(), &manifest) {
         return response::prepare_cli_failure_with_log(miette::Report::new(error), Some(log_path));
     }
+    allocation.mark_run_published();
+    if let Err(error) = allocation.publish_session() {
+        return response::prepare_cli_failure_with_log(
+            miette::Report::new(RunOperationError::SessionStore(error)),
+            Some(log_path),
+        );
+    }
     response::prepare_success_with_log(result, Some(log_path))
-}
-
-/// Owns a private candidate until the manifest makes it a published Run.
-///
-/// Cleanup is intentionally best effort: an externally terminated process may
-/// leave cache data, but a directory without the manifest is never Run state.
-struct RunCandidate {
-    path: PathBuf,
-    published: bool,
-}
-
-impl RunCandidate {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    fn publish(&mut self, manifest: &RunManifest) -> Result<(), RunOperationError> {
-        publish_run_manifest(&self.path, manifest)?;
-        self.published = true;
-        Ok(())
-    }
-}
-
-impl Drop for RunCandidate {
-    fn drop(&mut self) {
-        if !self.published {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-}
-
-fn create_run_candidate(data_home: &Path, id: &str) -> Result<RunCandidate, RunOperationError> {
-    let runs = data_home.join("runs");
-    fs::create_dir_all(&runs).map_err(|source| RunOperationError::CreateRuns {
-        path: runs.clone(),
-        source,
-    })?;
-    let path = runs.join(id);
-    fs::create_dir(&path).map_err(|source| RunOperationError::CreateCandidate {
-        path: path.clone(),
-        source,
-    })?;
-    let mut candidate = RunCandidate {
-        path,
-        published: false,
-    };
-    let unresolved = candidate.path.clone();
-    candidate.path = dunce::canonicalize(&unresolved).map_err(|source| {
-        RunOperationError::CanonicalCandidate {
-            path: unresolved,
-            source,
-        }
-    })?;
-    Ok(candidate)
-}
-
-fn datasource_root_from_data_home(data_home: &Path, pack_name: &str) -> io::Result<PathBuf> {
-    Ok(dunce::canonicalize(data_home)?
-        .join("datasources")
-        .join(pack_name))
 }
 
 fn publish_run_manifest(candidate: &Path, manifest: &RunManifest) -> Result<(), RunOperationError> {
@@ -349,28 +323,12 @@ fn log_failure(error: OperationLogError) -> response::PreparedResponse<RunResult
 
 #[derive(Debug, Error, Diagnostic)]
 enum RunOperationError {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    SessionStore(#[from] SessionStoreError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
-    #[error("failed to create Run root {path}")]
-    CreateRuns {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to create private Run candidate")]
-    #[diagnostic(help("Provide writable KAT Data Home storage and retry"))]
-    CreateCandidate {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to resolve private Run candidate")]
-    CanonicalCandidate {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
     #[error("Run Operation log could not be delivered")]
     #[diagnostic(help("Provide writable KAT Data Home storage and retry the complete Run"))]
     OperationLog(#[source] OperationLogError),
@@ -421,14 +379,10 @@ enum RunOperationError {
     },
     #[error("private Run candidate path is not representable as native Unicode")]
     PrivateCandidatePath,
-    #[error("failed to resolve the selected KAT Data Home")]
-    CanonicalDataHome {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
     #[error("private Datasource root path is not representable as native Unicode")]
     PrivateDatasourceRootPath,
+    #[error("private scratch root path is not representable as native Unicode")]
+    PrivateScratchRootPath,
 }
 
 #[cfg(test)]
@@ -437,62 +391,6 @@ mod tests {
 
     use super::*;
     use crate::{Cli, Operation};
-
-    #[test]
-    fn unpublished_run_candidate_is_removed_when_its_owner_drops() {
-        let temporary = tempfile::tempdir().unwrap();
-        let candidate_path;
-        {
-            let candidate =
-                create_run_candidate(temporary.path(), "019f6e00-0000-7000-8000-000000000008")
-                    .unwrap();
-            candidate_path = candidate.path().to_path_buf();
-            assert!(candidate_path.is_dir());
-        }
-
-        assert!(!candidate_path.exists());
-    }
-
-    #[test]
-    fn datasource_root_is_derived_from_the_selected_data_home() {
-        let temporary = tempfile::tempdir().unwrap();
-        create_run_candidate(temporary.path(), "019f6e00-0000-7000-8000-000000000009").unwrap();
-
-        assert_eq!(
-            datasource_root_from_data_home(temporary.path(), "example").unwrap(),
-            dunce::canonicalize(temporary.path())
-                .unwrap()
-                .join("datasources")
-                .join("example")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn linked_runs_directory_does_not_relocate_the_datasource_root() {
-        let temporary = tempfile::tempdir().unwrap();
-        let data_home = temporary.path().join("data-home");
-        let external_runs = temporary.path().join("external-runs");
-        fs::create_dir(&data_home).unwrap();
-        fs::create_dir(&external_runs).unwrap();
-        std::os::unix::fs::symlink(&external_runs, data_home.join("runs")).unwrap();
-
-        let candidate =
-            create_run_candidate(&data_home, "019f6e00-0000-7000-8000-000000000010").unwrap();
-        let canonical_external_runs = dunce::canonicalize(&external_runs).unwrap();
-
-        assert_eq!(
-            candidate.path().parent(),
-            Some(canonical_external_runs.as_path())
-        );
-        assert_eq!(
-            datasource_root_from_data_home(&data_home, "example").unwrap(),
-            dunce::canonicalize(&data_home)
-                .unwrap()
-                .join("datasources")
-                .join("example")
-        );
-    }
 
     #[test]
     fn run_log_diagnostics_keep_the_io_cause_and_hide_the_private_candidate() {
@@ -549,19 +447,20 @@ mod tests {
     fn premature_manifest_is_removed_and_never_accepted_as_publication() {
         let temporary = tempfile::tempdir().unwrap();
         fs::write(temporary.path().join("manifest.json"), "runtime-owned").unwrap();
-        let manifest = RunManifest {
-            run_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
-            pack: "alpha".to_owned(),
-            workflow: "analyze".to_owned(),
-            inputs: BTreeMap::new(),
-            outputs: BTreeMap::from([(
+        let manifest = RunManifest::new(
+            "019f6e00-0000-7000-8000-000000000000".to_owned(),
+            "019f6e00-0000-7000-8000-000000000001".to_owned(),
+            "alpha".to_owned(),
+            "analyze".to_owned(),
+            BTreeMap::new(),
+            BTreeMap::from([(
                 "main".to_owned(),
                 workflow_runtime::RunOutputMetadata {
                     columns: Vec::new(),
                     row_count: 0,
                 },
             )]),
-        };
+        );
 
         assert!(matches!(
             publish_run_manifest(temporary.path(), &manifest),
@@ -574,13 +473,12 @@ mod tests {
     fn published_run_manifest_has_no_dataset_field() {
         let temporary = tempfile::tempdir().unwrap();
         let manifest = RunManifest::new(
+            "019f6e00-0000-7000-8000-000000000010".to_owned(),
             "019f6e00-0000-7000-8000-000000000011".to_owned(),
             "alpha".to_owned(),
             "analyze".to_owned(),
-            workflow_runtime::RunWorkflowReport {
-                effective_inputs: BTreeMap::new(),
-                outputs: BTreeMap::new(),
-            },
+            BTreeMap::new(),
+            BTreeMap::new(),
         );
 
         publish_run_manifest(temporary.path(), &manifest).unwrap();
@@ -591,6 +489,7 @@ mod tests {
         assert_eq!(
             document,
             serde_json::json!({
+                "session_id": "019f6e00-0000-7000-8000-000000000010",
                 "run_id": "019f6e00-0000-7000-8000-000000000011",
                 "pack": "alpha",
                 "workflow": "analyze",

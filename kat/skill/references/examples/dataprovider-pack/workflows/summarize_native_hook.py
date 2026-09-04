@@ -25,7 +25,7 @@ def summarize_native_hook(
         raise RuntimeError(
             "KAT_TRACE_STREAMER_EXECUTABLE must identify the approved parser"
         )
-    with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+    with TemporaryDirectory(dir=ctx.scratch_root) as workspace:
         provider = trace_streamer.TraceStreamerProvider(
             source=Path(source_path),
             executable=Path(executable),
