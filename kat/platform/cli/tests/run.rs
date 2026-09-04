@@ -321,42 +321,28 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     );
 
     let request: serde_json::Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
+    let session = dunce::canonicalize(
+        data_home(temporary.path())
+            .join("sessions")
+            .join(session_id),
+    )
+    .unwrap();
     assert_eq!(request["candidate_id"], run_id);
     assert_eq!(request["workflow_name"], "analyze");
     assert_eq!(request["arguments"], serde_json::json!(["--limit", "5"]));
     assert!(request.get("dataset").is_none());
     assert_eq!(
-        request["datasource_root"],
-        data_home(temporary.path())
-            .join("sessions")
-            .join(session_id)
-            .join("materializations")
-            .to_str()
-            .unwrap()
+        PathBuf::from(request["datasource_root"].as_str().unwrap()),
+        session.join("materializations")
     );
     assert_eq!(
-        request["candidate_path"],
-        data_home(temporary.path())
-            .join("sessions")
-            .join(session_id)
-            .join("runs")
-            .join(run_id)
-            .to_str()
-            .unwrap()
+        PathBuf::from(request["candidate_path"].as_str().unwrap()),
+        session.join("runs").join(run_id)
     );
     assert_eq!(
-        request["scratch_root"],
-        data_home(temporary.path())
-            .join("sessions")
-            .join(session_id)
-            .join("scratch")
-            .join(run_id)
-            .to_str()
-            .unwrap()
+        PathBuf::from(request["scratch_root"].as_str().unwrap()),
+        session.join("scratch").join(run_id)
     );
-    let session = data_home(temporary.path())
-        .join("sessions")
-        .join(session_id);
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(
             &fs::read(session.join("session.json")).unwrap()
