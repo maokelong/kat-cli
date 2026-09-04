@@ -594,6 +594,14 @@ mod tests {
             .unwrap();
     }
 
+    fn canonical_temporary_directory() -> (tempfile::TempDir, PathBuf) {
+        let temporary = tempfile::tempdir().unwrap();
+        // SessionStore passes canonical candidate paths in production. Hosted Windows
+        // runners may expose TEMP through an 8.3 alias, so fixtures must do the same.
+        let canonical = dunce::canonicalize(temporary.path()).unwrap();
+        (temporary, canonical)
+    }
+
     fn publish_test_run(
         store: &crate::session_store::SessionStore,
         session_id: &str,
@@ -626,18 +634,18 @@ mod tests {
 
     #[test]
     fn candidate_output_gate_accepts_matching_parquet_footer_facts() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
 
-        validate_candidate_outputs(candidate.path(), &typed_output("int64", 0)).unwrap();
+        validate_candidate_outputs(&candidate, &typed_output("int64", 0)).unwrap();
     }
 
     #[test]
     fn candidate_output_gate_accepts_temporal_and_nested_arrow_types() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         let fields = vec![
             Field::new("day", DataType::Date32, true),
@@ -683,13 +691,13 @@ mod tests {
             },
         )]);
 
-        validate_candidate_outputs(candidate.path(), &metadata).unwrap();
+        validate_candidate_outputs(&candidate, &metadata).unwrap();
     }
 
     #[test]
     fn candidate_output_gate_does_not_reject_an_ordered_dictionary() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(
             &outputs.join("main.parquet"),
@@ -697,7 +705,7 @@ mod tests {
         );
 
         validate_candidate_outputs(
-            candidate.path(),
+            &candidate,
             &typed_output("dictionary<values=string, indices=int32, ordered=1>", 0),
         )
         .unwrap();
@@ -705,8 +713,8 @@ mod tests {
 
     #[test]
     fn candidate_output_gate_accepts_an_ordered_nested_dictionary() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(
             &outputs.join("main.parquet"),
@@ -718,7 +726,7 @@ mod tests {
         );
 
         validate_candidate_outputs(
-            candidate.path(),
+            &candidate,
             &typed_output(
                 "list<item: dictionary<values=string, indices=int32, ordered=1>>",
                 0,
@@ -729,8 +737,8 @@ mod tests {
 
     #[test]
     fn candidate_output_gate_rejects_wrong_dictionary_index_or_value_types() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(
             &outputs.join("main.parquet"),
@@ -742,7 +750,7 @@ mod tests {
             "dictionary<values=binary, indices=int32, ordered=0>",
         ] {
             assert!(matches!(
-                validate_candidate_outputs(candidate.path(), &typed_output(declared, 0)),
+                validate_candidate_outputs(&candidate, &typed_output(declared, 0)),
                 Err(PublishedRunError::InvalidFacts)
             ));
         }
@@ -750,53 +758,53 @@ mod tests {
 
     #[test]
     fn candidate_output_gate_rejects_a_corrupt_parquet_footer() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         fs::write(outputs.join("main.parquet"), b"not parquet").unwrap();
 
         assert!(matches!(
-            validate_candidate_outputs(candidate.path(), &typed_output("int64", 0)),
+            validate_candidate_outputs(&candidate, &typed_output("int64", 0)),
             Err(PublishedRunError::InvalidParquet(_))
         ));
     }
 
     #[test]
     fn candidate_output_gate_rejects_a_schema_fact_mismatch() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
 
         assert!(matches!(
-            validate_candidate_outputs(candidate.path(), &typed_output("string", 0)),
+            validate_candidate_outputs(&candidate, &typed_output("string", 0)),
             Err(PublishedRunError::InvalidFacts)
         ));
     }
 
     #[test]
     fn candidate_output_gate_rejects_a_row_count_fact_mismatch() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
 
         assert!(matches!(
-            validate_candidate_outputs(candidate.path(), &typed_output("int64", 1)),
+            validate_candidate_outputs(&candidate, &typed_output("int64", 1)),
             Err(PublishedRunError::InvalidFacts)
         ));
     }
 
     #[test]
     fn candidate_output_gate_rejects_an_undeclared_direct_entry() {
-        let candidate = tempfile::tempdir().unwrap();
-        let outputs = candidate.path().join("outputs");
+        let (_temporary, candidate) = canonical_temporary_directory();
+        let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         fs::write(outputs.join("main.parquet"), b"declared").unwrap();
         fs::write(outputs.join("extra.parquet"), b"undeclared").unwrap();
 
         assert!(matches!(
-            validate_candidate_outputs(candidate.path(), &one_output()),
+            validate_candidate_outputs(&candidate, &one_output()),
             Err(PublishedRunError::InvalidLayout)
         ));
     }
