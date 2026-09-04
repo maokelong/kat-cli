@@ -34,7 +34,8 @@ kat test --pack-dir ./examples/packs/local-parquet-fusion
 生产运行需要三份已有 Parquet 输入；`labels` 可以是一个同 Schema 分片目录：
 
 ```bash
-kat run \
+kat session create
+kat run --session <session-id> \
   --pack local-parquet-fusion \
   --workflow fuse-local-parquet \
   --pack-dir ./examples/packs/local-parquet-fusion \
@@ -48,7 +49,8 @@ kat run \
 Workflow 返回单个 `main` Output。它包含 `event_id`、`label`、`owner_name` 和
 `score`；结果按 `event_id` 稳定排序。
 
-使用 `kat run` 同时返回的 `session_id` 与 `run_id` 可以继续查询已发布结果：
+先从 `kat session create` 的成功 Response 取得 Session ID；`kat run` 成功后使用其返回的
+同一 `session_id` 与新 `run_id` 继续查询已发布结果：
 
 ```bash
 kat query --session <session-id> --run <run-id> --sql \

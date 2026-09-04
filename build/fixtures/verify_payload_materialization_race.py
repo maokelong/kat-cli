@@ -45,11 +45,14 @@ def main(argv: list[str]) -> int:
 
     environment = os.environ.copy()
     environment["KAT_DATA_HOME"] = str(data_home.resolve(strict=True))
+    session_id = _create_session(cli, environment, work)
 
     seed_source = work / "session-seed.htrace"
     shutil.copyfile(source, seed_source)
-    setup_response = _run(cli, pack, seed_source, environment, work)
-    session_id, setup_run_id = _successful_run(setup_response)
+    setup_response = _run(cli, pack, seed_source, environment, work, session_id)
+    setup_session_id, setup_run_id = _successful_run(setup_response)
+    if setup_session_id != session_id:
+        raise RuntimeError("Setup Run did not use the explicitly created Session")
     session_root = data_home / "sessions" / session_id
     destination = session_root / "materializations" / source.stem
     contender_sources = _create_contender_sources(source, work)
@@ -164,7 +167,7 @@ def _run(
     source: Path,
     environment: dict[str, str],
     work: Path,
-    session_id: str | None = None,
+    session_id: str,
 ) -> dict[str, object]:
     completed = subprocess.run(
         _run_command(cli, pack, source, session_id),
@@ -177,6 +180,33 @@ def _run(
         timeout=120,
     )
     return _response(completed.returncode, completed.stdout, completed.stderr, "Run")
+
+
+def _create_session(
+    cli: Path,
+    environment: dict[str, str],
+    work: Path,
+) -> str:
+    completed = subprocess.run(
+        (str(cli), "session", "create"),
+        cwd=work,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=120,
+    )
+    response = _response(
+        completed.returncode,
+        completed.stdout,
+        completed.stderr,
+        "Session create",
+    )
+    result = response.get("result")
+    if type(result) is not dict or set(result) != {"session_id"}:
+        raise RuntimeError("Session create did not return its exact result")
+    return _uuid7(result["session_id"], "Session")
 
 
 def _start_run(
@@ -268,11 +298,9 @@ def _finish_runs(
 
 
 def _run_command(
-    cli: Path, pack: Path, source: Path, session_id: str | None
+    cli: Path, pack: Path, source: Path, session_id: str
 ) -> list[str]:
-    command = [str(cli), "run"]
-    if session_id is not None:
-        command.extend(("--session", session_id))
+    command = [str(cli), "run", "--session", session_id]
     command.extend(
         (
             "--pack",

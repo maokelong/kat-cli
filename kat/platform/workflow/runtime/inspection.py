@@ -94,6 +94,43 @@ class CompiledWorkflow:
         finally:
             context.close()
 
+    def parse_inputs(self, inputs: dict[str, object]) -> dict[str, Any]:
+        """Compile already typed nested-call inputs without CLI coercion."""
+        if type(inputs) is not dict or any(type(name) is not str for name in inputs):
+            raise ValueError("nested Workflow inputs must be a dict with string names")
+        parameters = self.interface["parameters"]
+        expected = {parameter["name"] for parameter in parameters}
+        unknown = sorted(set(inputs) - expected)
+        if unknown:
+            raise ValueError(f"unknown nested Workflow inputs: {unknown}")
+
+        context = click.Context(self.command)
+        try:
+            effective: dict[str, Any] = {}
+            for raw_option, parameter in zip(
+                self.command.params, parameters, strict=True
+            ):
+                option = typing.cast(click.Option, raw_option)
+                name = parameter["name"]
+                if name in inputs:
+                    value = inputs[name]
+                    _require_typed_input(parameter, value)
+                    effective[name] = value
+                    continue
+                if parameter["required"]:
+                    raise ValueError(f"missing nested Workflow input: {name!r}")
+                try:
+                    effective[name] = option.type_cast_value(
+                        context, option.get_default(context, call=True)
+                    )
+                except (Exception, SystemExit) as error:
+                    raise ValueError(
+                        f"Workflow parameter {name!r} default is invalid"
+                    ) from error
+            return effective
+        finally:
+            context.close()
+
 
 def inspect_declared_workflow(
     function: typing.Callable[..., Any],
@@ -311,3 +348,32 @@ def _project_default(public_type: str, value: object) -> WorkflowDefault:
     if public_type in ("duration", "wall_clock_timestamp"):
         return str(value)
     return typing.cast(str, value)
+
+
+def _require_typed_input(parameter: WorkflowParameter, value: object) -> None:
+    name = parameter["name"]
+    if value is None:
+        if parameter.get("default", _MISSING) is None:
+            return
+        raise ValueError(f"nested Workflow input {name!r} does not accept None")
+
+    public_type = parameter["type"]
+    valid = False
+    if public_type == "string":
+        valid = type(value) is str
+        if valid and "choices" in parameter:
+            valid = value in parameter["choices"]
+    elif public_type == "int64":
+        valid = type(value) is int and -(2**63) <= value <= 2**63 - 1
+    elif public_type == "float64":
+        valid = type(value) is float and math.isfinite(value)
+    elif public_type == "boolean":
+        valid = type(value) is bool
+    elif public_type == "duration":
+        valid = type(value) is kat.Duration
+    elif public_type == "wall_clock_timestamp":
+        valid = type(value) is kat.WallClockTimestamp
+    if not valid:
+        raise ValueError(
+            f"nested Workflow input {name!r} does not match {public_type}"
+        )

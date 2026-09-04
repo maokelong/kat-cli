@@ -9,7 +9,6 @@ from pathlib import Path
 import sys
 import tempfile
 from typing import Any
-import uuid
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -20,6 +19,7 @@ from .execution import WorkflowExecutionFailure, run_loaded_workflow
 from .inspection import CompiledWorkflow
 from .pack import ProductionPack
 from .request import RunCandidateRef, TestPackRequest
+from .rpc import _NestedRunClient
 
 
 class PytestExitError(Exception):
@@ -46,9 +46,11 @@ class KatPytestPlugin:
         *,
         pack_name: str,
         workflows: dict[str, CompiledWorkflow],
+        nested_runs: _NestedRunClient,
     ) -> None:
         self._pack_name = pack_name
         self._workflows = workflows
+        self._nested_runs = nested_runs
         self._summary: Counter[str] = Counter()
         self._config: pytest.Config | None = None
         self._temporary_roots: dict[str, Path] = {}
@@ -58,54 +60,54 @@ class KatPytestPlugin:
         self._config = config
 
     @pytest.fixture
-    def kat_run(self, tmp_path: Path, request: pytest.FixtureRequest) -> Callable[..., dict[str, pa.Table]]:
+    def kat_run(
+        self,
+        tmp_path: Path,
+        request: pytest.FixtureRequest,
+    ) -> Iterator[Callable[..., dict[str, pa.Table]]]:
         self._temporary_roots[request.node.nodeid] = tmp_path
-        session_root = tmp_path / "session"
-        datasource_root = session_root / "materializations"
-        scratch_parent = session_root / "scratch"
-        runs_root = session_root / "runs"
-        for root in (datasource_root, scratch_parent, runs_root):
-            root.mkdir(parents=True)
+        with self._nested_runs.test_session() as test_session:
 
-        def run(
-            *,
-            workflow: str,
-            arguments: Sequence[str] = (),
-        ) -> dict[str, pa.Table]:
-            try:
+            def run(
+                *,
+                workflow: str,
+                arguments: Sequence[str] = (),
+            ) -> dict[str, pa.Table]:
                 try:
-                    selected_workflow = self._workflows[workflow]
-                except KeyError:
-                    raise WorkflowExecutionFailure() from ValueError(
-                        f"Workflow {workflow!r} was not found in the selected PACK"
-                    )
-                candidate_id = str(uuid.uuid7())
-                run_path = runs_root / candidate_id
-                run_path.mkdir()
-                scratch_root = scratch_parent / candidate_id
-                scratch_root.mkdir()
-                result = run_loaded_workflow(
-                    selected_workflow,
-                    pack_name=self._pack_name,
-                    workflow_name=workflow,
-                    arguments=list(arguments),
-                    candidate=RunCandidateRef(
-                        identifier=candidate_id,
-                        path=run_path.resolve(strict=True),
-                    ),
-                    datasource_root=datasource_root.resolve(strict=True),
-                    scratch_root=scratch_root.resolve(strict=True),
-                )
-            # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
-            # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。
-            except WorkflowExecutionFailure as error:
-                pytest.fail(_test_workflow_diagnostic(error), pytrace=False)
-            return {
-                name: pq.read_table(run_path / "outputs" / f"{name}.parquet")
-                for name in result.outputs
-            }
+                    try:
+                        selected_workflow = self._workflows[workflow]
+                    except KeyError:
+                        raise WorkflowExecutionFailure() from ValueError(
+                            f"Workflow {workflow!r} was not found in the selected PACK"
+                        )
+                    with test_session.workflow(self._pack_name, workflow) as execution:
+                        result = run_loaded_workflow(
+                            selected_workflow,
+                            pack_name=self._pack_name,
+                            workflow_name=workflow,
+                            arguments=list(arguments),
+                            candidate=RunCandidateRef(
+                                identifier=execution.candidate_id,
+                                path=execution.candidate_path,
+                            ),
+                            datasource_root=execution.datasource_root,
+                            scratch_root=execution.scratch_root,
+                            nested_runs=execution,
+                        )
+                        return {
+                            name: pq.read_table(
+                                execution.candidate_path
+                                / "outputs"
+                                / f"{name}.parquet"
+                            )
+                            for name in result.outputs
+                        }
+                # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
+                # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。
+                except WorkflowExecutionFailure as error:
+                    pytest.fail(_test_workflow_diagnostic(error), pytrace=False)
 
-        return run
+            yield run
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         if report.when == "call" or report.skipped:
@@ -147,11 +149,16 @@ class TestPackRuntimeResult:
     summary: dict[str, int]
 
 
-def test_pack(request: TestPackRequest, test_report_path: Path) -> TestPackRuntimeResult:
+def test_pack(
+    request: TestPackRequest,
+    test_report_path: Path,
+    nested_runs: _NestedRunClient,
+) -> TestPackRuntimeResult:
     workflows = ProductionPack.open(request.pack_name, request.pack_path).load_all()
     plugin = KatPytestPlugin(
         pack_name=request.pack_name,
         workflows=workflows,
+        nested_runs=nested_runs,
     )
     with tempfile.TemporaryDirectory(prefix="kat-pytest-config-") as temporary:
         config_path = Path(temporary) / "pytest.ini"

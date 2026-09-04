@@ -3,6 +3,7 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use clap::Args;
@@ -15,17 +16,22 @@ use crate::{
     operation_log::{OperationLog, OperationLogError},
     pack_discovery::{self, PackDiscoveryPaths},
     response,
-    run_manifest::RunManifest,
-    session_store::{RunAllocation, RunId, SessionId, SessionStore, SessionStoreError},
+    run_manifest::{self, RunManifest},
+    session_store::{RunAllocation, RunId, SessionStore, SessionStoreError},
     text_projection::project_inline_text,
     workflow_runtime,
 };
+
+mod nested;
+
+use nested::NestedRunCoordinator;
+pub(crate) use nested::TestRunCoordinator;
 
 #[derive(Args)]
 pub(super) struct RunArgs {
     /// Continue one exact published Analysis Session.
     #[arg(long, value_name = "SESSION_ID")]
-    session: Option<String>,
+    session: String,
     /// Select one exact PACK by manifest name.
     #[arg(long, value_name = "NAME")]
     pack: String,
@@ -89,10 +95,6 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let run_id = RunId::generate();
-    let mut generated_session_id = SessionId::generate();
-    while generated_session_id.as_str() == run_id.as_str() {
-        generated_session_id = SessionId::generate();
-    }
     let candidate_id = run_id.as_str().to_owned();
     let pack_log = project_inline_text(&arguments.pack);
     let workflow_log = project_inline_text(&arguments.workflow);
@@ -109,38 +111,24 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
         Err(error) => return log_failure(error),
     };
     let store = SessionStore::new(&data_home);
-    let mut allocation = match arguments.session.as_deref() {
-        Some(session_id) => match store.create_run_in(session_id, run_id) {
-            Ok(allocation) => allocation,
-            Err(error) => {
-                let prepared = finish_failure(log, RunOperationError::SessionStore(error.error));
-                return match error.lease {
-                    Some(lease) => response::retain_session_lease(prepared, lease),
-                    None => prepared,
-                };
-            }
-        },
-        None => match store.create_run(generated_session_id, run_id) {
-            Ok(allocation) => allocation,
-            Err(error) => return finish_failure(log, RunOperationError::SessionStore(error)),
-        },
+    let mut allocation = match store.create_run_in(&arguments.session, run_id) {
+        Ok(allocation) => allocation,
+        Err(error) => {
+            let prepared = finish_failure(log, RunOperationError::SessionStore(error.error));
+            return match error.lease {
+                Some(lease) => response::retain_session_lease(prepared, lease),
+                None => prepared,
+            };
+        }
     };
     let session_log =
         project_inline_text(&format!("{:?}", allocation.layout().session_id().as_str()));
     if let Err(error) = log.append(format!("session: {session_log}\n").as_bytes()) {
         let prepared = log_failure(error);
-        return if allocation.session_is_published() {
-            response::retain_session_lease(prepared, allocation.into_lease())
-        } else {
-            prepared
-        };
+        return response::retain_session_lease(prepared, allocation.into_lease());
     }
     let prepared = execute_allocated_run(&data_home, log, arguments, &mut allocation);
-    if allocation.session_is_published() {
-        response::retain_session_lease(prepared, allocation.into_lease())
-    } else {
-        prepared
-    }
+    response::retain_session_lease(prepared, allocation.into_lease())
 }
 
 fn execute_allocated_run(
@@ -155,11 +143,12 @@ fn execute_allocated_run(
             return finish_failure(log, RunOperationError::SkillRoot(source));
         }
     };
-    let discovered = match pack_discovery::discover(PackDiscoveryPaths {
+    let discovery_paths = PackDiscoveryPaths {
         skill_pack_search_directory: skill_root.join("assets").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: arguments.pack_directories,
-    }) {
+    };
+    let discovered = match pack_discovery::discover(discovery_paths.clone()) {
         Ok(discovered) => discovered,
         Err(source) => {
             return finish_failure(log, RunOperationError::Discovery { source });
@@ -204,7 +193,14 @@ fn execute_allocated_run(
         return log_failure(error);
     }
 
-    let outcome = workflow_runtime::execute_workflow_runtime(
+    let coordinator = Arc::new(NestedRunCoordinator::for_root(
+        data_home.to_path_buf(),
+        allocation.layout().session_id().as_str().to_owned(),
+        discovery_paths,
+        pack.name().to_owned(),
+        arguments.workflow.clone(),
+    ));
+    let outcome = workflow_runtime::execute_workflow_runtime_with_nested(
         log,
         workflow_runtime::RunWorkflowInvocation {
             session_id: allocation.layout().session_id().as_str().to_owned(),
@@ -217,6 +213,7 @@ fn execute_allocated_run(
             datasource_root,
             scratch_root,
         },
+        coordinator.clone(),
     );
     let (runtime, mut log) = match outcome {
         Ok(workflow_runtime::RunWorkflowOutcome::Success { result, log }) => (result, log),
@@ -233,12 +230,24 @@ fn execute_allocated_run(
     if let Err(error) = allocation.clean_scratch() {
         return finish_failure(log, RunOperationError::SessionStore(error));
     }
+    if let Err(source) =
+        run_manifest::validate_candidate_outputs(allocation.candidate(), &runtime.outputs)
+    {
+        return finish_failure(log, RunOperationError::InvalidOutputLayout { source });
+    }
 
+    let child_runs = match coordinator.child_runs() {
+        Ok(child_runs) => child_runs,
+        Err(source) => {
+            return finish_failure(log, RunOperationError::ChildRunLedger { source });
+        }
+    };
     let manifest = RunManifest::new(
         allocation.layout().session_id().as_str().to_owned(),
         allocation.run_id().as_str().to_owned(),
         pack.name().to_owned(),
         arguments.workflow,
+        child_runs,
         runtime.effective_inputs,
         runtime.outputs,
     );
@@ -254,12 +263,6 @@ fn execute_allocated_run(
         return response::prepare_cli_failure_with_log(miette::Report::new(error), Some(log_path));
     }
     allocation.mark_run_published();
-    if let Err(error) = allocation.publish_session() {
-        return response::prepare_cli_failure_with_log(
-            miette::Report::new(RunOperationError::SessionStore(error)),
-            Some(log_path),
-        );
-    }
     response::prepare_success_with_log(result, Some(log_path))
 }
 
@@ -383,6 +386,18 @@ enum RunOperationError {
     PrivateDatasourceRootPath,
     #[error("private scratch root path is not representable as native Unicode")]
     PrivateScratchRootPath,
+    #[error("Workflow Runtime produced an invalid Run Output layout")]
+    #[diagnostic(help("Inspect the Operation log and repair the Workflow Output writer"))]
+    InvalidOutputLayout {
+        #[source]
+        source: run_manifest::PublishedRunError,
+    },
+    #[error("nested Workflow child Run ledger is unavailable")]
+    #[diagnostic(help("Inspect the Operation log and retry the complete Run"))]
+    ChildRunLedger {
+        #[source]
+        source: nested::ChildRunLedgerError,
+    },
 }
 
 #[cfg(test)]
@@ -415,6 +430,8 @@ mod tests {
         let cli = Cli::try_parse_from([
             "kat",
             "run",
+            "--session",
+            "019f6e00-0000-7000-8000-000000000000",
             "--pack",
             "alpha",
             "--workflow",
@@ -432,6 +449,8 @@ mod tests {
             Cli::try_parse_from([
                 "kat",
                 "run",
+                "--session",
+                "019f6e00-0000-7000-8000-000000000000",
                 "--pack",
                 "alpha",
                 "--workflow",
@@ -444,6 +463,14 @@ mod tests {
     }
 
     #[test]
+    fn parser_requires_a_session_selector() {
+        assert!(
+            Cli::try_parse_from(["kat", "run", "--pack", "alpha", "--workflow", "analyze",])
+                .is_err()
+        );
+    }
+
+    #[test]
     fn premature_manifest_is_removed_and_never_accepted_as_publication() {
         let temporary = tempfile::tempdir().unwrap();
         fs::write(temporary.path().join("manifest.json"), "runtime-owned").unwrap();
@@ -452,6 +479,7 @@ mod tests {
             "019f6e00-0000-7000-8000-000000000001".to_owned(),
             "alpha".to_owned(),
             "analyze".to_owned(),
+            Vec::new(),
             BTreeMap::new(),
             BTreeMap::from([(
                 "main".to_owned(),
@@ -477,6 +505,10 @@ mod tests {
             "019f6e00-0000-7000-8000-000000000011".to_owned(),
             "alpha".to_owned(),
             "analyze".to_owned(),
+            vec![
+                "019f6e00-0000-7000-8000-000000000013".to_owned(),
+                "019f6e00-0000-7000-8000-000000000012".to_owned(),
+            ],
             BTreeMap::new(),
             BTreeMap::new(),
         );
@@ -493,6 +525,10 @@ mod tests {
                 "run_id": "019f6e00-0000-7000-8000-000000000011",
                 "pack": "alpha",
                 "workflow": "analyze",
+                "child_runs": [
+                    "019f6e00-0000-7000-8000-000000000012",
+                    "019f6e00-0000-7000-8000-000000000013"
+                ],
                 "inputs": {},
                 "outputs": {}
             })

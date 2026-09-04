@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum, auto
 import logging
 from pathlib import Path
 import sys
-from typing import Iterator
+import threading
+from typing import Iterator, Protocol
 
 import kat
 
@@ -33,9 +35,33 @@ class WorkflowExecutionFailure(Exception):
     """
 
 
+class _NestedRunExecutor(Protocol):
+    def run(
+        self,
+        pack_name: str,
+        workflow_name: str,
+        inputs: dict[str, object],
+    ) -> dict[str, Path]: ...
+
+
+class _ContextState(Enum):
+    OPEN = auto()
+    CLOSING = auto()
+    CLOSED = auto()
+
+
 class WorkflowContext(kat.Context):
-    def __init__(self, operation: WorkflowOperation) -> None:
+    def __init__(
+        self,
+        operation: WorkflowOperation,
+        nested_runs: _NestedRunExecutor | None = None,
+    ) -> None:
         self._operation = operation
+        self._nested_runs = nested_runs
+        self._condition = threading.Condition()
+        self._state = _ContextState.OPEN
+        self._active_calls = 0
+        self._had_active_calls_on_close: bool | None = None
 
     @property
     def datasource_root(self) -> Path:
@@ -45,8 +71,71 @@ class WorkflowContext(kat.Context):
     def scratch_root(self) -> Path:
         return self._operation.scratch_root
 
+    def run(
+        self,
+        pack_name: str,
+        workflow_name: str,
+        /,
+        **inputs: object,
+    ) -> kat.dataprovider.Catalog:
+        with self._condition:
+            if self._state is not _ContextState.OPEN:
+                raise kat.RunError("Workflow Context is closed")
+            self._active_calls += 1
+        try:
+            if self._nested_runs is None:
+                raise kat.RunError("Nested Workflow execution is unavailable")
+            try:
+                relations = self._nested_runs.run(
+                    pack_name,
+                    workflow_name,
+                    dict(inputs),
+                )
+            except kat.RunError:
+                raise
+            except (Exception, SystemExit):
+                logging.getLogger(__name__).exception(
+                    "unexpected nested Workflow client failure"
+                )
+                raise kat.RunError("Nested Workflow execution failed") from None
+            try:
+                return kat.dataprovider.open(tables=relations)
+            except (Exception, SystemExit):
+                logging.getLogger(__name__).exception(
+                    "failed to construct the nested Workflow Output Catalog"
+                )
+                raise kat.RunError(
+                    "Nested Workflow Output Catalog is unavailable"
+                ) from None
+        finally:
+            with self._condition:
+                self._active_calls -= 1
+                self._condition.notify_all()
 
-def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
+    def close(self) -> bool:
+        """Stop accepting calls, collect registered calls, and return whether any were active."""
+        with self._condition:
+            if self._state is _ContextState.CLOSED:
+                assert self._had_active_calls_on_close is not None
+                return self._had_active_calls_on_close
+            if self._state is not _ContextState.OPEN:
+                while self._state is _ContextState.CLOSING:
+                    self._condition.wait()
+                assert self._had_active_calls_on_close is not None
+                return self._had_active_calls_on_close
+            self._state = _ContextState.CLOSING
+            self._had_active_calls_on_close = self._active_calls != 0
+            while self._active_calls:
+                self._condition.wait()
+            self._state = _ContextState.CLOSED
+            self._condition.notify_all()
+            return self._had_active_calls_on_close
+
+
+def run_workflow(
+    request: RunWorkflowRequest,
+    nested_runs: _NestedRunExecutor | None = None,
+) -> RunWorkflowRuntimeResult:
     pack_name = request.pack_name
     workflow_name = request.workflow_name
     with _workflow_operation(
@@ -59,7 +148,9 @@ def run_workflow(request: RunWorkflowRequest) -> RunWorkflowRuntimeResult:
             pack_name=pack_name,
             workflow_name=workflow_name,
             arguments=request.arguments,
+            inputs=request.inputs,
             candidate=request.candidate,
+            nested_runs=nested_runs,
         )
 
 
@@ -68,10 +159,12 @@ def run_loaded_workflow(
     *,
     pack_name: str,
     workflow_name: str,
-    arguments: list[str],
+    arguments: list[str] | None,
+    inputs: dict[str, object] | None = None,
     candidate: RunCandidateRef,
     datasource_root: Path,
     scratch_root: Path,
+    nested_runs: _NestedRunExecutor | None = None,
 ) -> RunWorkflowRuntimeResult:
     with _workflow_operation(datasource_root, scratch_root) as operation:
         return _run_loaded_workflow(
@@ -80,7 +173,9 @@ def run_loaded_workflow(
             pack_name=pack_name,
             workflow_name=workflow_name,
             arguments=arguments,
+            inputs=inputs,
             candidate=candidate,
+            nested_runs=nested_runs,
         )
 
 
@@ -90,22 +185,37 @@ def _run_loaded_workflow(
     operation: WorkflowOperation,
     pack_name: str,
     workflow_name: str,
-    arguments: list[str],
+    arguments: list[str] | None,
+    inputs: dict[str, object] | None,
     candidate: RunCandidateRef,
+    nested_runs: _NestedRunExecutor | None,
 ) -> RunWorkflowRuntimeResult:
     candidate_id = candidate.identifier
     candidate_path = candidate.path
 
     try:
-        effective = workflow.parse_arguments(arguments)
+        if (arguments is None) == (inputs is None):
+            raise ValueError("Workflow execution requires exactly one input representation")
+        if arguments is not None:
+            effective = workflow.parse_arguments(arguments)
+        else:
+            assert inputs is not None
+            effective = workflow.parse_inputs(inputs)
     except ValueError as error:
         raise WorkflowExecutionFailure() from error
-    context = WorkflowContext(operation)
+    context = WorkflowContext(operation, nested_runs)
     with workflow_logging(candidate_id, pack_name, workflow_name):
         try:
-            value = workflow.function(context, **effective)
-        except (Exception, SystemExit) as error:
-            raise WorkflowExecutionFailure() from error
+            try:
+                value = workflow.function(context, **effective)
+            except (Exception, SystemExit) as error:
+                raise WorkflowExecutionFailure() from error
+        finally:
+            had_active_calls = context.close()
+        if had_active_calls:
+            raise WorkflowExecutionFailure() from kat.RunError(
+                "Workflow returned while nested Workflow calls were still running"
+            )
         try:
             outputs = materialize_outputs(value, candidate_path)
         except (Exception, SystemExit) as error:

@@ -239,8 +239,19 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertEqual(assembly.count("--workflow summarize-hitrace-clock"), 2)
         self.assertEqual(assembly.count("--workflow reuse-hitrace-clock"), 2)
         self.assertEqual(assembly.count(" query --session "), 2)
+        self.assertEqual(assembly.count(" session create"), 2)
         self.assertEqual(
             assembly.count("verify_payload_materialization_race.py"), 2
+        )
+        self.assertIn(
+            'run --session "$session_id" --pack payload-smoke '
+            "--workflow summarize-hitrace-clock",
+            assembly,
+        )
+        self.assertIn(
+            "run --session $session.result.session_id --pack payload-smoke "
+            "--workflow summarize-hitrace-clock",
+            assembly,
         )
         self.assertIn(
             'run --session "$session_id" --pack payload-smoke-consumer',

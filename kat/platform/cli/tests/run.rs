@@ -1,11 +1,15 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
+
+use arrow_schema::{DataType, Field, Schema};
+use parquet::arrow::ArrowWriter;
 
 mod support;
 use support::cargo_kat;
@@ -18,13 +22,24 @@ fn stage_fake_host(binary: &Path) {
     let payload = binary.parent().unwrap();
     let host = support::host_path(binary);
     fs::create_dir_all(host.parent().unwrap()).unwrap();
+    let output_template = host.parent().unwrap().join("fake-output.parquet");
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        true,
+    )]));
+    ArrowWriter::try_new(fs::File::create(output_template).unwrap(), schema, None)
+        .unwrap()
+        .close()
+        .unwrap();
     let source = payload.join("fake-run-host.rs");
     fs::write(
         &source,
         r#"
-use std::{
-    env, fs,
-    path::Path,
+ use std::{
+     env, fs::{self, OpenOptions},
+     io::{self, BufRead, Write},
+     path::Path,
     process,
     thread,
     time::Duration,
@@ -34,21 +49,29 @@ fn json_string(document: &str, key: &str) -> String {
     let marker = format!("\"{key}\":\"");
     let value = document.split_once(&marker).unwrap().1;
     let mut decoded = String::new();
-    let mut escaped = false;
-    for character in value.chars() {
-        if escaped {
-            decoded.push(match character {
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            let escape = characters.next().expect("unterminated test JSON escape");
+            if escape == 'u' {
+                let digits = characters.by_ref().take(4).collect::<String>();
+                let code = u16::from_str_radix(&digits, 16)
+                    .expect("invalid test JSON unicode escape");
+                decoded.push(char::from_u32(u32::from(code))
+                    .expect("unsupported test JSON surrogate escape"));
+            } else {
+                decoded.push(match escape {
                 '\\' => '\\',
                 '"' => '"',
                 '/' => '/',
+                'b' => '\u{0008}',
+                'f' => '\u{000c}',
                 'n' => '\n',
                 'r' => '\r',
                 't' => '\t',
                 _ => panic!("unsupported test JSON escape"),
-            });
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
+                });
+            }
         } else if character == '"' {
             return decoded;
         } else {
@@ -63,15 +86,104 @@ fn main() {
     if arguments.len() != 11 || arguments[7] != "--request" || arguments[9] != "--response" {
         process::exit(91);
     }
-    let request = fs::read_to_string(&arguments[8]).unwrap();
-    if !request.contains("\"operation\":\"run_workflow\"")
+     let request = fs::read_to_string(&arguments[8]).unwrap();
+     let operation = json_string(&request, "operation");
+     let workflow_name = json_string(&request, "workflow_name");
+     if let Some(path) = env::var_os("KAT_CAPTURE_HOST_OPERATIONS") {
+         let mut operations = OpenOptions::new()
+             .create(true)
+             .append(true)
+             .open(path)
+             .unwrap();
+         writeln!(operations, "{operation}:{workflow_name}").unwrap();
+     }
+     if operation == "inspect_workflow" {
+         if let Some(path) = env::var_os("KAT_CAPTURE_PREFLIGHT_ALLOCATIONS") {
+             let sessions = Path::new(&env::var("KAT_DATA_HOME").unwrap()).join("sessions");
+             let mut runs = 0;
+             let mut scratch = 0;
+             for session in fs::read_dir(sessions).unwrap() {
+                 let session = session.unwrap().path();
+                 let run_directory = session.join("runs");
+                 let scratch_directory = session.join("scratch");
+                 if run_directory.is_dir() && scratch_directory.is_dir() {
+                     runs += fs::read_dir(run_directory).unwrap().count();
+                     scratch += fs::read_dir(scratch_directory).unwrap().count();
+                 }
+             }
+             fs::write(path, format!("{runs},{scratch}")).unwrap();
+         }
+         let response = match env::var("KAT_FAKE_NESTED_PREFLIGHT_FAILURE") {
+             Ok(message) => format!(
+                 "{{\"status\":\"failure\",\"error\":{{\"message\":\"{message}\"}}}}"
+             ),
+             Err(_) => format!(
+                 "{{\"status\":\"success\",\"result\":{{\"workflow\":{{\"name\":\"{workflow_name}\",\"description\":\"Fixture Workflow\",\"parameters\":[],\"guide\":null}}}}}}"
+             ),
+         };
+         fs::write(&arguments[10], response).unwrap();
+         return;
+     }
+    let valid_input_shape = match operation.as_str() {
+        "run_workflow" => {
+            request.contains("\"arguments\":") && !request.contains("\"inputs\":")
+        }
+        "run_workflow_with_inputs" => {
+            !request.contains("\"arguments\":") && request.contains("\"inputs\":")
+        }
+        _ => false,
+    };
+    if !valid_input_shape
         || !request.contains("\"candidate_id\":")
         || !request.contains("\"candidate_path\":")
         || !request.contains("\"scratch_root\":")
     {
         process::exit(92);
     }
-    fs::write(env::var("KAT_CAPTURE_REQUEST").unwrap(), &request).unwrap();
+     fs::write(env::var("KAT_CAPTURE_REQUEST").unwrap(), &request).unwrap();
+     let nested_parent_workflow = env::var("KAT_FAKE_NESTED_PARENT_WORKFLOW").ok();
+     let second_nested_parent = env::var("KAT_FAKE_SECOND_NESTED_PARENT_WORKFLOW").ok();
+     for (parent, pack_key, workflow_key, count) in [
+         (
+             nested_parent_workflow.as_deref(),
+             "KAT_FAKE_NESTED_PACK",
+             "KAT_FAKE_NESTED_WORKFLOW",
+             env::var("KAT_FAKE_NESTED_CALL_COUNT")
+                 .ok()
+                 .and_then(|value| value.parse::<u64>().ok())
+                 .unwrap_or(1),
+         ),
+         (
+             second_nested_parent.as_deref(),
+             "KAT_FAKE_SECOND_NESTED_PACK",
+             "KAT_FAKE_SECOND_NESTED_WORKFLOW",
+             1,
+         ),
+     ] {
+         if parent == Some(workflow_name.as_str()) {
+          for call_id in 1..=count {
+             let nested_request = format!(
+                 "{{\"call_id\":{call_id},\"pack_name\":\"{}\",\"workflow_name\":\"{}\",\"inputs\":{{}}}}",
+                 env::var(pack_key).unwrap(),
+                 env::var(workflow_key).unwrap(),
+             );
+             println!("{nested_request}");
+             io::stdout().flush().unwrap();
+             let mut nested_response = String::new();
+             io::stdin().lock().read_line(&mut nested_response).unwrap();
+             if let Some(path) = env::var_os("KAT_CAPTURE_NESTED_RESPONSE") {
+                 fs::write(path, &nested_response).unwrap();
+             }
+             let caught = env::var("KAT_FAKE_CATCH_NESTED_FAILURE_WORKFLOW")
+                 .ok()
+                 .as_deref()
+                 == Some(workflow_name.as_str());
+             if !nested_response.contains("\"status\":\"success\"") && !caught {
+                 process::exit(93);
+             }
+          }
+         }
+     }
     if env::var_os("KAT_FAKE_MANIFEST_DIRECTORY").is_some() {
         let candidate_path = json_string(&request, "candidate_path");
         fs::create_dir(Path::new(&candidate_path).join("manifest.json")).unwrap();
@@ -80,7 +192,17 @@ fn main() {
         let candidate_path = json_string(&request, "candidate_path");
         let outputs = Path::new(&candidate_path).join("outputs");
         fs::create_dir(&outputs).unwrap();
-        fs::write(outputs.join("main.parquet"), b"opaque output").unwrap();
+        let output = outputs.join("main.parquet");
+        if env::var_os("KAT_FAKE_CORRUPT_OUTPUT").is_some() {
+            fs::write(output, b"not parquet").unwrap();
+        } else {
+            let template = env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("fake-output.parquet");
+            fs::copy(template, output).unwrap();
+        }
     }
     if env::var_os("KAT_FAKE_WRITE_SESSION_MARKER").is_some() {
         let candidate_path = json_string(&request, "candidate_path");
@@ -97,9 +219,22 @@ fn main() {
         fs::remove_dir(&candidate_path).unwrap();
         fs::write(candidate_path, b"runtime replacement").unwrap();
     }
-    println!("fake Workflow output");
-    let mut response = env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap();
-    let candidate_path = json_string(&request, "candidate_path");
+     eprintln!("fake Workflow output");
+     let mut response = env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap();
+     if env::var_os("KAT_FAKE_PARENT_RUNTIME_FAILURE").is_some()
+         && nested_parent_workflow.as_deref()
+             == Some(json_string(&request, "workflow_name").as_str())
+     {
+         response = "{\"status\":\"failure\",\"error\":{\"message\":\"parent Workflow failed\"}}"
+             .to_owned();
+     }
+     if env::var("KAT_FAKE_RUNTIME_FAILURE_WORKFLOW").ok().as_deref()
+         == Some(workflow_name.as_str())
+     {
+         response = "{\"status\":\"failure\",\"error\":{\"message\":\"Workflow failed after its child completed\"}}"
+             .to_owned();
+     }
+     let candidate_path = json_string(&request, "candidate_path");
     let session_id = Path::new(&candidate_path)
         .parent().unwrap()
         .parent().unwrap()
@@ -140,6 +275,76 @@ fn configure(command: &mut Command, root: &Path) {
     let data_home = root.join("data-home");
     fs::create_dir_all(&data_home).unwrap();
     command.env("KAT_DATA_HOME", data_home);
+}
+
+fn create_session(binary: &Path, root: &Path) -> String {
+    let mut command = Command::new(binary);
+    command.args(["session", "create"]);
+    configure(&mut command, root);
+    let output = command.output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["result"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn query_rows(
+    binary: &Path,
+    root: &Path,
+    session_id: &str,
+    run_id: &str,
+    sql: &str,
+) -> Vec<serde_json::Value> {
+    let mut command = Command::new(binary);
+    command
+        .arg("query")
+        .args(["--session", session_id, "--run", run_id, "--sql", sql]);
+    configure(&mut command, root);
+    let output = command.output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "success");
+    fs::read_to_string(response["result"]["path"].as_str().unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+fn manifests_by_workflow(
+    root: &Path,
+    session_id: &str,
+) -> BTreeMap<String, (String, serde_json::Value)> {
+    let runs = data_home(root)
+        .join("sessions")
+        .join(session_id)
+        .join("runs");
+    fs::read_dir(runs)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let run_id = entry.file_name().into_string().unwrap();
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&fs::read(entry.path().join("manifest.json")).unwrap())
+                    .unwrap();
+            (
+                manifest["workflow"].as_str().unwrap().to_owned(),
+                (run_id, manifest),
+            )
+        })
+        .collect()
 }
 
 fn wait_until_exists(path: &Path) {
@@ -247,6 +452,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let legacy_run =
         data_home(temporary.path()).join("runs/019f6e00-0000-7000-8000-000000000099/manifest.json");
@@ -259,7 +465,14 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .arg("--")
@@ -282,7 +495,8 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert!(output.stderr.is_empty());
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
-    let session_id = response["result"]["session_id"].as_str().unwrap();
+    assert_eq!(response["result"]["session_id"], session_id);
+    let session_id = session_id.as_str();
     let run_id = response["result"]["run_id"].as_str().unwrap();
     assert_ne!(session_id, run_id);
     for identity in [session_id, run_id] {
@@ -309,6 +523,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(manifest["run_id"], run_id);
     assert_eq!(manifest["pack"], "alpha");
     assert_eq!(manifest["workflow"], "analyze");
+    assert_eq!(manifest["child_runs"], serde_json::json!([]));
     assert!(manifest.get("dataset").is_none());
     assert_eq!(
         manifest["inputs"],
@@ -330,6 +545,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(request["candidate_id"], run_id);
     assert_eq!(request["workflow_name"], "analyze");
     assert_eq!(request["arguments"], serde_json::json!(["--limit", "5"]));
+    assert!(request.get("inputs").is_none());
     assert!(request.get("dataset").is_none());
     assert_eq!(
         PathBuf::from(request["datasource_root"].as_str().unwrap()),
@@ -380,21 +596,281 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
 }
 
 #[test]
-fn first_run_rejects_a_runtime_owned_session_marker_without_publishing_the_session() {
+fn sequential_nested_runs_publish_each_child_before_the_parent_records_them() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
-    let pack = pack(temporary.path());
+    let session_id = create_session(&binary, temporary.path());
+    let parent_pack = pack(temporary.path());
+    let child_pack = pack_named(temporary.path(), "child-pack", "beta");
     let captured = temporary.path().join("request.json");
+    let nested_response = temporary.path().join("nested-response.json");
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
-        .arg(pack)
-        .env("KAT_CAPTURE_REQUEST", &captured)
-        .env("KAT_FAKE_WRITE_SESSION_MARKER", "1")
+        .arg(&parent_pack)
+        .arg("--pack-dir")
+        .arg(&child_pack)
+        .env("KAT_CAPTURE_REQUEST", captured)
+        .env("KAT_FAKE_NESTED_PARENT_WORKFLOW", "analyze")
+        .env("KAT_FAKE_NESTED_PACK", "beta")
+        .env("KAT_FAKE_NESTED_WORKFLOW", "child")
+        .env("KAT_FAKE_NESTED_CALL_COUNT", "2")
+        .env("KAT_CAPTURE_NESTED_RESPONSE", &nested_response)
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut command, temporary.path());
+
+    let output = command.output().unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let parent_run_id = response["result"]["run_id"].as_str().unwrap();
+    let runs = data_home(temporary.path())
+        .join("sessions")
+        .join(&session_id)
+        .join("runs");
+    let mut run_ids = fs::read_dir(&runs)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    run_ids.sort();
+    assert_eq!(run_ids.len(), 3);
+    let child_run_ids = run_ids
+        .iter()
+        .filter(|run_id| run_id.as_str() != parent_run_id)
+        .collect::<Vec<_>>();
+    assert_eq!(child_run_ids.len(), 2);
+    let parent_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(runs.join(parent_run_id).join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        parent_manifest["child_runs"],
+        serde_json::json!(child_run_ids)
+    );
+    for child_run_id in &child_run_ids {
+        let child_manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(runs.join(child_run_id).join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(child_manifest["pack"], "beta");
+        assert_eq!(child_manifest["workflow"], "child");
+        assert_eq!(child_manifest["child_runs"], serde_json::json!([]));
+    }
+
+    let delivered: serde_json::Value =
+        serde_json::from_slice(&fs::read(nested_response).unwrap()).unwrap();
+    assert_eq!(delivered["status"], "success");
+    assert_eq!(delivered["relations"][0]["name"], "main");
+    let delivered_path = PathBuf::from(delivered["relations"][0]["path"].as_str().unwrap());
+    assert!(child_run_ids.iter().any(|child_run_id| {
+        delivered_path
+            == dunce::canonicalize(runs.join(child_run_id).join("outputs/main.parquet")).unwrap()
+    }));
+}
+
+#[test]
+fn nested_manifests_record_only_direct_children_and_do_not_promote_orphans() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let parent_pack = pack(temporary.path());
+    let child_pack = pack_named(temporary.path(), "child-pack", "beta");
+    let grandchild_pack = pack_named(temporary.path(), "grandchild-pack", "gamma");
+
+    for child_fails in [false, true] {
+        let session_id = create_session(&binary, temporary.path());
+        let captured = temporary
+            .path()
+            .join(format!("multilevel-{child_fails}-request.json"));
+        let mut command = Command::new(&binary);
+        command
+            .arg("run")
+            .args([
+                "--session",
+                &session_id,
+                "--pack",
+                "alpha",
+                "--workflow",
+                "analyze",
+            ])
+            .arg("--pack-dir")
+            .arg(&parent_pack)
+            .arg("--pack-dir")
+            .arg(&child_pack)
+            .arg("--pack-dir")
+            .arg(&grandchild_pack)
+            .env("KAT_CAPTURE_REQUEST", captured)
+            .env("KAT_FAKE_NESTED_PARENT_WORKFLOW", "analyze")
+            .env("KAT_FAKE_NESTED_PACK", "beta")
+            .env("KAT_FAKE_NESTED_WORKFLOW", "child")
+            .env("KAT_FAKE_SECOND_NESTED_PARENT_WORKFLOW", "child")
+            .env("KAT_FAKE_SECOND_NESTED_PACK", "gamma")
+            .env("KAT_FAKE_SECOND_NESTED_WORKFLOW", "grandchild")
+            .env(
+                "KAT_FAKE_RUNTIME_RESPONSE",
+                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            );
+        if child_fails {
+            command
+                .env("KAT_FAKE_RUNTIME_FAILURE_WORKFLOW", "child")
+                .env("KAT_FAKE_CATCH_NESTED_FAILURE_WORKFLOW", "analyze");
+        }
+        configure(&mut command, temporary.path());
+
+        let output = command.output().unwrap();
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let manifests = manifests_by_workflow(temporary.path(), &session_id);
+        let (parent_id, parent) = manifests.get("analyze").unwrap();
+        let (grandchild_id, grandchild) = manifests.get("grandchild").unwrap();
+        assert_eq!(grandchild["child_runs"], serde_json::json!([]));
+        if child_fails {
+            assert_eq!(manifests.len(), 2);
+            assert!(!manifests.contains_key("child"));
+            assert_eq!(parent["child_runs"], serde_json::json!([]));
+        } else {
+            assert_eq!(manifests.len(), 3);
+            let (child_id, child) = manifests.get("child").unwrap();
+            assert_eq!(parent["child_runs"], serde_json::json!([child_id]));
+            assert_eq!(child["child_runs"], serde_json::json!([grandchild_id]));
+        }
+        assert_ne!(parent_id, grandchild_id);
+    }
+}
+
+#[test]
+fn nested_target_preflight_rejects_missing_and_ambiguous_workflows_before_allocation() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let parent_pack = pack(temporary.path());
+    let child_pack = pack_named(temporary.path(), "child-pack", "beta");
+
+    for (case, private_diagnostic) in [
+        ("missing", "Workflow was not found"),
+        ("ambiguous", "duplicate Workflow name"),
+    ] {
+        let session_id = create_session(&binary, temporary.path());
+        let captured = temporary.path().join(format!("{case}-request.json"));
+        let nested_response = temporary
+            .path()
+            .join(format!("{case}-nested-response.json"));
+        let operations = temporary.path().join(format!("{case}-host-operations.txt"));
+        let allocations = temporary.path().join(format!("{case}-allocations.txt"));
+        let mut command = Command::new(&binary);
+        command
+            .arg("run")
+            .args([
+                "--session",
+                &session_id,
+                "--pack",
+                "alpha",
+                "--workflow",
+                "analyze",
+            ])
+            .arg("--pack-dir")
+            .arg(&parent_pack)
+            .arg("--pack-dir")
+            .arg(&child_pack)
+            .env("KAT_CAPTURE_REQUEST", captured)
+            .env("KAT_FAKE_NESTED_PARENT_WORKFLOW", "analyze")
+            .env("KAT_FAKE_NESTED_PACK", "beta")
+            .env("KAT_FAKE_NESTED_WORKFLOW", "child")
+            .env("KAT_CAPTURE_NESTED_RESPONSE", &nested_response)
+            .env("KAT_CAPTURE_HOST_OPERATIONS", &operations)
+            .env("KAT_CAPTURE_PREFLIGHT_ALLOCATIONS", &allocations)
+            .env("KAT_FAKE_NESTED_PREFLIGHT_FAILURE", private_diagnostic)
+            .env(
+                "KAT_FAKE_RUNTIME_RESPONSE",
+                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            );
+        configure(&mut command, temporary.path());
+
+        let output = command.output().unwrap();
+
+        assert_eq!(output.status.code(), Some(1));
+        let public_response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(public_response["status"], "failure");
+        assert!(!public_response.to_string().contains(private_diagnostic));
+        let delivered: serde_json::Value =
+            serde_json::from_slice(&fs::read(&nested_response).unwrap()).unwrap();
+        assert_eq!(delivered["status"], "failure");
+        assert_eq!(delivered["message"], "nested Workflow execution failed");
+        assert_eq!(
+            fs::read_to_string(&operations).unwrap(),
+            "run_workflow:analyze\ninspect_workflow:child\n",
+            "{case} preflight must not start the child execution Host"
+        );
+        assert_eq!(
+            fs::read_to_string(&allocations).unwrap(),
+            "1,1",
+            "{case} preflight must run before child allocation"
+        );
+        let session = data_home(temporary.path())
+            .join("sessions")
+            .join(session_id);
+        assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn published_child_survives_when_the_parent_runtime_fails() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
+    let parent_pack = pack(temporary.path());
+    let child_pack = pack_named(temporary.path(), "child-pack", "beta");
+    let captured = temporary.path().join("request.json");
+    let nested_response = temporary.path().join("nested-response.json");
+    let mut command = Command::new(&binary);
+    command
+        .arg("run")
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
+        .arg("--pack-dir")
+        .arg(&parent_pack)
+        .arg("--pack-dir")
+        .arg(&child_pack)
+        .env("KAT_CAPTURE_REQUEST", captured)
+        .env("KAT_FAKE_NESTED_PARENT_WORKFLOW", "analyze")
+        .env("KAT_FAKE_NESTED_PACK", "beta")
+        .env("KAT_FAKE_NESTED_WORKFLOW", "child")
+        .env("KAT_CAPTURE_NESTED_RESPONSE", nested_response)
+        .env("KAT_FAKE_PARENT_RUNTIME_FAILURE", "1")
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
             r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
@@ -406,31 +882,31 @@ fn first_run_rejects_a_runtime_owned_session_marker_without_publishing_the_sessi
     assert_eq!(output.status.code(), Some(1));
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "failure");
+    let runs = data_home(temporary.path())
+        .join("sessions")
+        .join(&session_id)
+        .join("runs");
+    let entries = fs::read_dir(&runs)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    let child_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(entries[0].join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(child_manifest["pack"], "beta");
+    assert_eq!(child_manifest["workflow"], "child");
+    assert_eq!(child_manifest["child_runs"], serde_json::json!([]));
     assert_eq!(
-        response["error"]["message"],
-        "Workflow Runtime wrote the CLI-owned Analysis Session marker"
+        fs::read_dir(
+            data_home(temporary.path())
+                .join("sessions")
+                .join(session_id)
+                .join("scratch")
+        )
+        .unwrap()
+        .count(),
+        0
     );
-    assert!(response.get("result").is_none());
-
-    let request: serde_json::Value = serde_json::from_slice(&fs::read(&captured).unwrap()).unwrap();
-    let candidate = PathBuf::from(request["candidate_path"].as_str().unwrap());
-    let session = candidate.parent().unwrap().parent().unwrap();
-    let session_id = session.file_name().unwrap().to_str().unwrap();
-    assert!(!session.exists());
-    assert!(
-        !session
-            .parent()
-            .unwrap()
-            .join(".leases")
-            .join(format!("{session_id}.lock"))
-            .exists()
-    );
-
-    let log_path = PathBuf::from(response["log_path"].as_str().unwrap());
-    assert!(log_path.is_file());
-    let log = fs::read_to_string(log_path).unwrap();
-    assert!(log.contains("runtime_status: success"));
-    assert!(log.contains("publication_gate: ready"));
 }
 
 #[test]
@@ -439,13 +915,21 @@ fn run_session_continues_the_same_materialization_scope_with_a_new_run() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let beta_pack = pack_named(temporary.path(), "beta-pack", "beta");
     let first_capture = temporary.path().join("first-request.json");
     let mut first = Command::new(&binary);
     first
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .env("KAT_CAPTURE_REQUEST", &first_capture)
@@ -457,7 +941,8 @@ fn run_session_continues_the_same_materialization_scope_with_a_new_run() {
     let first = first.output().unwrap();
     assert_eq!(first.status.code(), Some(0));
     let first_response: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
-    let session_id = first_response["result"]["session_id"].as_str().unwrap();
+    assert_eq!(first_response["result"]["session_id"], session_id);
+    let session_id = session_id.as_str();
     let first_run_id = first_response["result"]["run_id"].as_str().unwrap();
     let session = data_home(temporary.path())
         .join("sessions")
@@ -590,13 +1075,21 @@ fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
 
     let initial_capture = temporary.path().join("initial-request.json");
     let mut initial = Command::new(&binary);
     initial
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .env("KAT_CAPTURE_REQUEST", &initial_capture)
@@ -608,7 +1101,8 @@ fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
     let initial = initial.output().unwrap();
     assert_eq!(initial.status.code(), Some(0));
     let initial_response: serde_json::Value = serde_json::from_slice(&initial.stdout).unwrap();
-    let session_id = initial_response["result"]["session_id"].as_str().unwrap();
+    assert_eq!(initial_response["result"]["session_id"], session_id);
+    let session_id = session_id.as_str();
     let first_run_id = initial_response["result"]["run_id"].as_str().unwrap();
     let session = data_home(temporary.path())
         .join("sessions")
@@ -688,13 +1182,21 @@ fn active_run_blocks_session_delete_until_its_response_is_published() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
 
     let first_capture = temporary.path().join("first-request.json");
     let mut first = Command::new(&binary);
     first
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .env("KAT_CAPTURE_REQUEST", &first_capture)
@@ -706,10 +1208,7 @@ fn active_run_blocks_session_delete_until_its_response_is_published() {
     let first = first.output().unwrap();
     assert_eq!(first.status.code(), Some(0));
     let first_response: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
-    let session_id = first_response["result"]["session_id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    assert_eq!(first_response["result"]["session_id"], session_id);
     let session = data_home(temporary.path())
         .join("sessions")
         .join(&session_id);
@@ -796,13 +1295,21 @@ fn two_runs_in_one_session_can_execute_concurrently() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
 
     let initial_capture = temporary.path().join("initial-request.json");
     let mut initial = Command::new(&binary);
     initial
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .env("KAT_CAPTURE_REQUEST", &initial_capture)
@@ -814,10 +1321,7 @@ fn two_runs_in_one_session_can_execute_concurrently() {
     let initial = initial.output().unwrap();
     assert_eq!(initial.status.code(), Some(0));
     let initial_response: serde_json::Value = serde_json::from_slice(&initial.stdout).unwrap();
-    let session_id = initial_response["result"]["session_id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    assert_eq!(initial_response["result"]["session_id"], session_id);
     let initial_run_id = initial_response["result"]["run_id"]
         .as_str()
         .unwrap()
@@ -897,17 +1401,25 @@ fn two_runs_in_one_session_can_execute_concurrently() {
 }
 
 #[test]
-fn runtime_success_response_is_the_authority_for_output_materialization() {
+fn runtime_declared_outputs_must_exist_before_manifest_publication() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("request.json");
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -920,23 +1432,65 @@ fn runtime_success_response_is_the_authority_for_output_materialization() {
 
     let output = command.output().unwrap();
 
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_eq!(output.status.code(), Some(1));
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "success");
-    let session_id = response["result"]["session_id"].as_str().unwrap();
-    let run_id = response["result"]["run_id"].as_str().unwrap();
-    let run_path = data_home(temporary.path())
+    assert_eq!(response["status"], "failure");
+    assert!(response.get("result").is_none());
+    let request: serde_json::Value = serde_json::from_slice(&fs::read(&captured).unwrap()).unwrap();
+    let candidate_id = request["candidate_id"].as_str().unwrap();
+    let candidate_path = PathBuf::from(request["candidate_path"].as_str().unwrap());
+    assert!(!response["error"].to_string().contains(candidate_id));
+    assert!(!candidate_path.exists());
+    let session = data_home(temporary.path())
         .join("sessions")
-        .join(session_id)
-        .join("runs")
-        .join(run_id);
-    assert!(run_path.join("manifest.json").is_file());
-    assert!(!run_path.join("outputs").join("main.parquet").exists());
+        .join(session_id);
+    assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
+}
+
+#[test]
+fn runtime_declared_outputs_must_be_valid_parquet_before_manifest_publication() {
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
+    let pack = pack(temporary.path());
+    let captured = temporary.path().join("request.json");
+    let mut command = Command::new(&binary);
+    command
+        .arg("run")
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
+        .arg("--pack-dir")
+        .arg(pack)
+        .env("KAT_CAPTURE_REQUEST", &captured)
+        .env("KAT_FAKE_CORRUPT_OUTPUT", "1")
+        .env(
+            "KAT_FAKE_RUNTIME_RESPONSE",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        );
+    configure(&mut command, temporary.path());
+
+    let output = command.output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    assert!(response.get("result").is_none());
+    let request: serde_json::Value = serde_json::from_slice(&fs::read(&captured).unwrap()).unwrap();
+    assert!(!Path::new(request["candidate_path"].as_str().unwrap()).exists());
+    let session = data_home(temporary.path())
+        .join("sessions")
+        .join(session_id);
+    assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
 }
 
 #[test]
@@ -945,6 +1499,7 @@ fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("request.json");
     let response_written = temporary.path().join("response-written");
@@ -952,7 +1507,14 @@ fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1007,7 +1569,7 @@ fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
 
 #[test]
 #[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
-fn run_uses_real_installed_workflow_host_end_to_end() {
+fn run_composes_real_installed_workflows_end_to_end() {
     let python = PathBuf::from(
         std::env::var_os("KAT_TEST_PYTHON").expect("KAT_TEST_PYTHON identifies CPython"),
     );
@@ -1019,31 +1581,60 @@ fn run_uses_real_installed_workflow_host_end_to_end() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) =
         support::stage_real_host_skill(temporary.path(), &cargo_kat(), &python, &workflow_wheel);
-    let pack = pack(temporary.path());
-    let workflows = pack.join("workflows");
-    fs::create_dir(&workflows).unwrap();
+    let session_id = create_session(&binary, temporary.path());
+    let parent_pack = pack(temporary.path());
+    let parent_workflows = parent_pack.join("workflows");
+    fs::create_dir(&parent_workflows).unwrap();
     fs::write(
-        workflows.join("analyze.py"),
+        parent_workflows.join("compose.py"),
+        r#"from kat import Context, dataprovider as dp, workflow
+
+@workflow(
+    name="compose",
+    description="Compose a child Workflow's published facts.",
+)
+def compose(ctx: Context):
+    child = ctx.run("beta", "facts", base=20)
+    return dp.DataFusionProvider(catalog=child).query(
+        "SELECT SUM(value) AS total FROM facts"
+    )
+"#,
+    )
+    .unwrap();
+    let child_pack = pack_named(temporary.path(), "child-pack", "beta");
+    let child_workflows = child_pack.join("workflows");
+    fs::create_dir(&child_workflows).unwrap();
+    fs::write(
+        child_workflows.join("facts.py"),
         r#"import pyarrow as pa
 from kat import Context, dataprovider as dp, workflow
 
 @workflow(
-    name="analyze",
-    description="Return one ordinary Table.",
+    name="facts",
+    description="Publish facts for a parent Workflow.",
+    parameters={"base": "First value to publish."},
 )
-def analyze(ctx: Context):
-    """Return one ordinary Table."""
+def facts(ctx: Context, base: int):
     del ctx
-    return dp.Table.from_arrow(pa.table({"id": [1, 2], "data": ["first", "second"]}))
+    return {"facts": dp.Table.from_arrow(pa.table({"value": [base, base + 2]}))}
 "#,
     )
     .unwrap();
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "compose",
+        ])
         .arg("--pack-dir")
-        .arg(pack);
+        .arg(&parent_pack)
+        .arg("--pack-dir")
+        .arg(&child_pack);
     configure(&mut command, temporary.path());
 
     let output = command.output().unwrap();
@@ -1057,26 +1648,84 @@ def analyze(ctx: Context):
     assert!(output.stderr.is_empty());
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
-    assert_eq!(response["result"]["outputs"]["main"]["row_count"], 2);
+    assert_eq!(response["result"]["outputs"]["main"]["row_count"], 1);
     assert_eq!(
         response["result"]["outputs"]["main"]["columns"],
-        serde_json::json!([
-            {"name":"id","type":"int64"},
-            {"name":"data","type":"string"}
-        ])
+        serde_json::json!([{"name":"total","type":"int64"}])
     );
     let session_id = response["result"]["session_id"].as_str().unwrap();
-    let run_id = response["result"]["run_id"].as_str().unwrap();
-    let run = data_home(temporary.path())
+    let parent_run_id = response["result"]["run_id"].as_str().unwrap();
+
+    let mut inspect = Command::new(&binary);
+    inspect.args(["inspect", "session", "--session", session_id]);
+    configure(&mut inspect, temporary.path());
+    let inspected = inspect.output().unwrap();
+    assert_eq!(
+        inspected.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    let inventory: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(inventory["status"], "success");
+    let runs = inventory["result"]["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    let parent = runs
+        .iter()
+        .find(|run| run["run_id"] == parent_run_id)
+        .unwrap();
+    let child = runs.iter().find(|run| run["workflow"] == "facts").unwrap();
+    let child_run_id = child["run_id"].as_str().unwrap();
+    assert_eq!(parent["pack"], "alpha");
+    assert_eq!(parent["workflow"], "compose");
+    assert_eq!(parent["child_runs"], serde_json::json!([child_run_id]));
+    assert_eq!(child["pack"], "beta");
+    assert_eq!(child["child_runs"], serde_json::json!([]));
+    assert_eq!(child["outputs"]["facts"]["row_count"], 2);
+
+    let run_root = data_home(temporary.path())
         .join("sessions")
         .join(session_id)
-        .join("runs")
-        .join(run_id);
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(run.join("manifest.json")).unwrap()).unwrap();
-    assert!(manifest["outputs"]["main"].get("output_id").is_none());
-    assert!(run.join("outputs").join("main.parquet").is_file());
-    assert!(!workflows.join("__pycache__").exists());
+        .join("runs");
+    let parent_run = run_root.join(parent_run_id);
+    let child_run = run_root.join(child_run_id);
+    let parent_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(parent_run.join("manifest.json")).unwrap()).unwrap();
+    let child_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(child_run.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(
+        parent_manifest["child_runs"],
+        serde_json::json!([child_run_id])
+    );
+    assert_eq!(child_manifest["child_runs"], serde_json::json!([]));
+    assert!(parent_run.join("outputs/main.parquet").is_file());
+    assert!(child_run.join("outputs/facts.parquet").is_file());
+
+    assert_eq!(
+        query_rows(
+            &binary,
+            temporary.path(),
+            session_id,
+            parent_run_id,
+            "SELECT total FROM output.main",
+        ),
+        vec![serde_json::json!({"total": 42})]
+    );
+    assert_eq!(
+        query_rows(
+            &binary,
+            temporary.path(),
+            session_id,
+            child_run_id,
+            "SELECT value FROM output.facts ORDER BY value",
+        ),
+        vec![
+            serde_json::json!({"value": 20}),
+            serde_json::json!({"value": 22}),
+        ]
+    );
+    assert!(!parent_workflows.join("__pycache__").exists());
+    assert!(!child_workflows.join("__pycache__").exists());
 }
 
 #[test]
@@ -1085,12 +1734,15 @@ fn run_log_projects_user_controlled_text() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("projected-request.json");
     let mut command = Command::new(&binary);
     command
         .arg("run")
         .args([
+            "--session",
+            &session_id,
             "--pack",
             "alpha",
             "--workflow",
@@ -1130,12 +1782,20 @@ fn runtime_failure_never_publishes_or_exposes_the_candidate() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("failed-request.json");
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1156,7 +1816,7 @@ fn runtime_failure_never_publishes_or_exposes_the_candidate() {
     let candidate_path = PathBuf::from(request["candidate_path"].as_str().unwrap());
     assert!(!response["error"].to_string().contains(candidate_id));
     assert!(!candidate_path.exists());
-    assert!(!candidate_path.parent().unwrap().parent().unwrap().exists());
+    assert!(candidate_path.parent().unwrap().parent().unwrap().exists());
 }
 
 #[test]
@@ -1194,11 +1854,19 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
     ] {
         let case_root = temporary.path().join(case);
         fs::create_dir(&case_root).unwrap();
+        let session_id = create_session(&binary, &case_root);
         let captured = case_root.join("request.json");
         let mut command = Command::new(&binary);
         command
             .arg("run")
-            .args(["--pack", "alpha", "--workflow", "analyze"])
+            .args([
+                "--session",
+                &session_id,
+                "--pack",
+                "alpha",
+                "--workflow",
+                "analyze",
+            ])
             .arg("--pack-dir")
             .arg(&pack)
             .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1234,7 +1902,7 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
         );
         assert!(!candidate_path.exists(), "{case}");
         assert!(
-            !candidate_path.parent().unwrap().parent().unwrap().exists(),
+            candidate_path.parent().unwrap().parent().unwrap().exists(),
             "{case}"
         );
         let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
@@ -1248,6 +1916,7 @@ fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("unexpected-request.json");
     fs::create_dir_all(data_home(temporary.path())).unwrap();
@@ -1255,7 +1924,14 @@ fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1272,12 +1948,19 @@ fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
     assert_eq!(response["status"], "failure");
     assert!(response.get("result").is_none());
     assert!(!captured.exists());
-    assert!(!data_home(temporary.path()).join("sessions").exists());
+    assert!(
+        data_home(temporary.path())
+            .join("sessions")
+            .join(session_id)
+            .is_dir()
+    );
     assert!(response.get("log_path").is_none());
 }
 
 #[test]
 fn session_allocation_failure_is_completed_through_its_run_log() {
+    const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000098";
+
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
@@ -1293,7 +1976,14 @@ fn session_allocation_failure_is_completed_through_its_run_log() {
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            SESSION_ID,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1332,12 +2022,20 @@ fn manifest_publication_failure_never_returns_or_publishes_a_run() {
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
     stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
     let pack = pack(temporary.path());
     let captured = temporary.path().join("manifest-fault-request.json");
     let mut command = Command::new(&binary);
     command
         .arg("run")
-        .args(["--pack", "alpha", "--workflow", "analyze"])
+        .args([
+            "--session",
+            &session_id,
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+        ])
         .arg("--pack-dir")
         .arg(pack)
         .env("KAT_CAPTURE_REQUEST", &captured)
@@ -1361,5 +2059,5 @@ fn manifest_publication_failure_never_returns_or_publishes_a_run() {
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
     assert!(log.contains("publication_gate: ready"));
     assert!(!candidate_path.exists());
-    assert!(!candidate_path.parent().unwrap().parent().unwrap().exists());
+    assert!(candidate_path.parent().unwrap().parent().unwrap().exists());
 }

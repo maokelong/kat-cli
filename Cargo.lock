@@ -708,13 +708,15 @@ dependencies = [
 name = "kat-cli"
 version = "0.1.1-rc.3"
 dependencies = [
- "base64",
+ "arrow-array",
+ "arrow-schema",
  "clap",
  "config",
  "directories",
  "distill-strip-ansi",
  "dunce",
  "miette",
+ "parquet",
  "rustix",
  "serde",
  "serde_json",

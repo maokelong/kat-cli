@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Workflow 通过 Context 显式调用其他 Workflow
@@ -55,6 +55,8 @@ KAT 在每次调用前检查当前活动 Workflow 调用链；目标 `(PACK, Wor
 一个 Run 的唯一发布提交点是 Host 以 no-replace 方式原子提交其最终 Manifest。在此之前，KAT 必须满足既有 Runtime Response、进程退出与 Operation log flush 等发布门槛，并完成 Workflow Output 写入和关闭、目录层级与非 reparse 普通文件校验、Parquet footer/Schema 校验、Host 对 Output metadata 与 `child_runs` 的组装，以及该候选 scratch 的清理；任一步失败都不形成 Run。Manifest 提交后 Run 即已发布且不可变。Host 随后仍从这个已发布 Run 重新解析并验证 Output，再为父 Runtime 构造 Catalog；此时若因外部损坏或基础设施错误失败，`ctx.run()` 失败且读取闭合失败，但不回滚已经发布的 Run。
 
 父 Runtime 与 Rust Host 复用该 Runtime 独占的 stdin/stdout，建立严格、私有的双向 JSONL RPC 控制面，不新增 socket、常驻服务或递归 `kat` CLI。Python 在导入 PACK 前保留协议文件描述符，把 PACK 可见 stdin 指向空输入，并在文件描述符层把 PACK stdout 重定向到 stderr，避免 Python `print()`、原生扩展或子进程输出破坏协议帧。Rust Host 必须持续读取请求、调度子 Runtime 并写回响应，最后才能等待父 Runtime 退出；先等待进程再处理请求会形成确定死锁。
+
+本决策仅在 `run_workflow` 与 `test_pack` 的嵌套调用、测试控制帧范围内，局部取代 ADR-0010、ADR-0057 关于 Runtime 标准流只承载诊断而不参与控制协议的描述，以及 ADR-0053 关于当前唯一生产 worker 的描述。最终 Runtime Response 仍通过原子文件交付，stdin/stdout 只传输上述私有 JSONL 控制帧；直接 Host 继续拥有 Runtime 进程生命周期和回收责任，PACK 可见输出也继续进入既有诊断投影。局部取代的原因是 Host 必须在 Runtime 存活期间服务子调用，才能避免 wait-first 死锁并隔离 PACK stdout。
 
 每次嵌套调用使用父 Runtime 内单调分配的 `call_id`，并发请求可以乱序完成，但由唯一响应 reader 分派回对应调用线程，写入端只在单帧 write/flush 期间串行化。调用成功帧只携带 `call_id` 与按 relation name 稳定排序的非空 Catalog relation 描述，不携带 Session ID、Run ID、`child_runs`、列统计或 Arrow 数据。Host 隐含拥有 Analysis Session、PACK discovery roots、活动调用链和直接子 Run ledger；它不接受 Python 自报的 Run ID、路径或父子关系。
 

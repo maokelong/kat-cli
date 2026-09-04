@@ -7,7 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::Engine;
+#[path = "support/parquet.rs"]
+mod parquet_fixture;
 
 #[path = "support/test_home.rs"]
 mod test_home;
@@ -15,8 +16,6 @@ mod test_home;
 const RUN_ID: &str = "019f6e00-0000-7000-8000-000000000031";
 const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000030";
 const OTHER_SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000032";
-const PARQUET: &str = "UEFSMRUEFSAVIEwVBBUAEgAAAQAAAAAAAAACAAAAAAAAABUAFRIVEiwVBBUQFQYVBgAAAgAAAAQBAQMCFQQVMBUwTBUEFQASAAAGAAAAY2FsbGVyCgAAAGZ1dGV4X3dhaXQVABUSFRIsFQQVEBUGFQYAAAIAAAAEAQEDAhkSAhkYCAEAAAAAAAAAGRgIAgAAAAAAAAAVAhkWACkmAAQAGRICGRgGY2FsbGVyGRgKZnV0ZXhfd2FpdBUCGRYAKSYABAAZHBZEFTQWAAAAGRwWxAEVNBYAABkWIAAVAhk8SAxhcnJvd19zY2hlbWEVBAAVBCUCGAJpZAAVDCUCGARkYXRhJQBMHAAAABYEGRwZLCYAHBUEGTUABhAZGAJpZBUAFgQWcBZwJkQmCBwYCAIAAAAAAAAAGAgBAAAAAAAAABYAKAgCAAAAAAAAABgIAQAAAAAAAAAREQAZLBUEFQAVAgAVABUQFQIAPDkmAAQAABaEAxUUFvgBFUYAJgAcFQwZNQAGEBkYBGRhdGEVABYEFoABFoABJsQBJngcNgAoCmZ1dGV4X3dhaXQYBmNhbGxlchERABksFQQVABUCABUAFRAVAgA8FiApJgAEAAAWmAMVHBa+AhVGABbwARYEJggW8AEUAAAZHBgMQVJST1c6c2NoZW1hGOwBLy8vLy82Z0FBQUFRQUFBQUFBQUtBQXdBQ2dBSkFBUUFDZ0FBQUJBQUFBQUFBUVFBQ0FBSUFBQUFCQUFJQUFBQUJBQUFBQUlBQUFCRUFBQUFCQUFBQU5ULy8vOFlBQUFBREFBQUFBQUFBUVVRQUFBQUFBQUFBQVFBQkFBRUFBQUFCQUFBQUdSaGRHRUFBQUFBRUFBVUFCQUFEZ0FQQUFRQUFBQUlBQkFBQUFBWUFBQUFJQUFBQUFBQUFRSWNBQUFBQ0FBTUFBUUFDd0FJQUFBQVFBQUFBQUFBQUFFQUFBQUFBZ0FBQUdsa0FBQT0AGBlwYXJxdWV0LXJzIHZlcnNpb24gNTguMy4wGSwcAAAcAAAALwIAAFBBUjE=";
-
 fn cargo_kat() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_kat"))
 }
@@ -190,18 +189,13 @@ fn write_manifest(root: &Path, dataset: Option<serde_json::Value>) -> PathBuf {
         serde_json::to_vec(&serde_json::json!({"session_id": SESSION_ID})).unwrap(),
     )
     .unwrap();
-    fs::write(
-        run.join("outputs/main.parquet"),
-        base64::engine::general_purpose::STANDARD
-            .decode(PARQUET)
-            .unwrap(),
-    )
-    .unwrap();
+    parquet_fixture::write_i64(&run.join("outputs/main.parquet"), "value", &[1]);
     let mut manifest = serde_json::json!({
         "session_id": SESSION_ID,
         "run_id": RUN_ID,
         "pack": "alpha",
         "workflow": "analyze",
+        "child_runs": [],
         "inputs": {},
         "outputs": {
             "main": {
@@ -263,7 +257,7 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
     manifest["outputs"]["summary"] = serde_json::json!({
-        "columns": [{"name":"count","type":"int64"}],
+        "columns": [{"name":"value","type":"int64"}],
         "row_count": 1
     });
     fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();

@@ -56,9 +56,9 @@ fn main() {
         env::var("KAT_CAPTURE_CWD").unwrap(),
         env::current_dir().unwrap().to_string_lossy().as_bytes(),
     ).unwrap();
-    io::stdout().write_all(b"\x1b[31mpytest stdout\x1b[0m\r\n").unwrap();
+    // stdout is the test-control JSONL channel; all human output belongs on stderr.
+    io::stderr().write_all(b"\x1b[31mpytest stdout\x1b[0m\r\n").unwrap();
     io::stderr().write_all(b"tests/test_flow.py::test_case FAILED\r\n").unwrap();
-    io::stdout().flush().unwrap();
     io::stderr().flush().unwrap();
     if let Some(release) = env::var_os("KAT_RELEASE_FILE") {
         let release = PathBuf::from(release);
@@ -501,18 +501,29 @@ fn test_uses_real_installed_workflow_host_end_to_end() {
     for (case, workflow_source, test_source, expected) in [
         (
             "success",
-            r#"import pyarrow as pa
-import kat
+            r#"import kat
 from kat import dataprovider as dp
 
-@kat.workflow(name="analyze", description="Return the fixture table.")
+@kat.workflow(name="analyze", description="Compose a child Workflow from an installed PACK.")
 def analyze(ctx: kat.Context):
-    """Return an ordinary Table."""
-    del ctx
-    return dp.Table.from_arrow(pa.table({"id": [1, 2]}))
+    """Query the independently published child Output."""
+    local = dp.DataFusionProvider(catalog=ctx.run("alpha", "leaf")).query(
+        "SELECT SUM(value) AS total FROM main"
+    )
+    installed = dp.DataFusionProvider(catalog=ctx.run("beta", "facts")).query(
+        "SELECT SUM(value) AS total FROM facts"
+    )
+    return dp.DataFusionProvider(tables={"local": local, "installed": installed}).query(
+        "SELECT local.total + installed.total AS total FROM local CROSS JOIN installed"
+    )
 "#,
-            r#"def test_case(kat_run):
-    assert kat_run(workflow="analyze")["main"].num_rows == 2
+            r#"import pyarrow as pa
+
+def test_case(kat_run):
+    result = kat_run(workflow="analyze")
+    assert type(result) is dict
+    assert isinstance(result["main"], pa.Table)
+    assert result["main"].to_pydict() == {"total": [13]}
 "#,
             ExpectedOutcome::Success,
         ),
@@ -548,10 +559,59 @@ def interrupt(ctx: kat.Context):
     ] {
         let case_root = temporary.path().join(case);
         fs::create_dir_all(&case_root).unwrap();
-        let pack = case_root.join("pack");
+        let pack = case_root.join("target-pack");
         write_pack(&pack, "alpha");
         fs::create_dir_all(pack.join("workflows")).unwrap();
         fs::write(pack.join("workflows/workflow.py"), workflow_source).unwrap();
+        if case == "success" {
+            fs::write(
+                pack.join("workflows/leaf.py"),
+                r#"import pyarrow as pa
+import kat
+from kat import dataprovider as dp
+
+@kat.workflow(name="leaf", description="Return a fact from the exact tested PACK.")
+def leaf(ctx: kat.Context):
+    """Prove same-PACK calls remain pinned to --pack-dir."""
+    del ctx
+    return dp.Table.from_arrow(pa.table({"value": [10]}))
+"#,
+            )
+            .unwrap();
+            let child_pack = test_home::data_home(&case_root).join("packs/beta-source");
+            write_pack(&child_pack, "beta");
+            fs::create_dir_all(child_pack.join("workflows")).unwrap();
+            fs::write(
+                child_pack.join("workflows/facts.py"),
+                r#"import pyarrow as pa
+import kat
+from kat import dataprovider as dp
+
+@kat.workflow(name="facts", description="Publish facts for a parent Workflow.")
+def facts(ctx: kat.Context):
+    """Return child facts."""
+    del ctx
+    return {"facts": dp.Table.from_arrow(pa.table({"value": [1, 2]}))}
+"#,
+            )
+            .unwrap();
+            let shadow_pack = test_home::data_home(&case_root).join("packs/alpha-shadow");
+            write_pack(&shadow_pack, "alpha");
+            fs::create_dir_all(shadow_pack.join("workflows")).unwrap();
+            fs::write(
+                shadow_pack.join("workflows/leaf.py"),
+                r#"import pyarrow as pa
+import kat
+from kat import dataprovider as dp
+
+@kat.workflow(name="leaf", description="Wrong installed shadow of the tested PACK.")
+def leaf(ctx: kat.Context):
+    del ctx
+    return dp.Table.from_arrow(pa.table({"value": [999]}))
+"#,
+            )
+            .unwrap();
+        }
         fs::write(pack.join("tests/test_flow.py"), test_source).unwrap();
         let mut command = Command::new(&binary);
         command.arg("test").arg("--pack-dir").arg(&pack);
@@ -561,16 +621,19 @@ def interrupt(ctx: kat.Context):
 
         let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(Path::new(response["log_path"].as_str().unwrap()).is_file());
+        let log_path = Path::new(response["log_path"].as_str().unwrap());
+        assert!(log_path.is_file());
+        let log = fs::read_to_string(log_path).unwrap();
         match expected {
             ExpectedOutcome::Success => {
-                assert_eq!(output.status.code(), Some(0), "{stderr}");
+                assert_eq!(output.status.code(), Some(0), "{stderr}\n{log}");
                 assert_eq!(response["status"], "success");
                 assert_eq!(
                     response["result"],
                     serde_json::json!({"summary":{"passed":1}})
                 );
                 assert!(Path::new(response["test_report_path"].as_str().unwrap()).is_file());
+                assert!(!test_home::data_home(&case_root).join("sessions").exists());
             }
             ExpectedOutcome::RuntimeFailure => {
                 assert_eq!(output.status.code(), Some(1));

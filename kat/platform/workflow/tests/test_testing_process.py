@@ -14,6 +14,7 @@ import pyarrow as pa
 from _kat_runtime.request import TestPackRequest as _TestPackRequest
 from _kat_runtime.request import RunWorkflowRequest as _RunWorkflowRequest
 from _kat_runtime.request import RuntimeRequestError, read_request
+from _test_control_peer import run_runtime_with_test_control
 
 
 class PackTestingProcessTest(unittest.TestCase):
@@ -36,28 +37,30 @@ class PackTestingProcessTest(unittest.TestCase):
         response_path = self.root / f"response-{token}.json"
         report_path = self.root / f"report-{token}.xml"
         request_path.write_text(json.dumps(request), encoding="utf-8")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                "-X",
-                "utf8",
-                "-u",
-                "-m",
-                "_kat_runtime",
-                "--request",
-                str(request_path),
-                "--response",
-                str(response_path),
-                "--test-report",
-                str(report_path),
-            ],
+        arguments = [
+            sys.executable,
+            "-B",
+            "-X",
+            "utf8",
+            "-u",
+            "-m",
+            "_kat_runtime",
+            "--request",
+            str(request_path),
+            "--response",
+            str(response_path),
+            "--test-report",
+            str(report_path),
+        ]
+        completed = run_runtime_with_test_control(
+            arguments,
             cwd=pack,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            env={**os.environ, "NO_COLOR": "1", **(environment or {})},
+            environment={
+                **os.environ,
+                "NO_COLOR": "1",
+                **(environment or {}),
+            },
+            data_home=self.root / f"host-{token}",
         )
         if not response_path.exists():
             self.fail(
@@ -149,7 +152,6 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
             ),
             encoding="utf-8",
         )
-
         request = read_request(request_path)
 
         self.assertIsInstance(request, _TestPackRequest)
@@ -194,11 +196,27 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
             ),
             encoding="utf-8",
         )
+        self.assertEqual(
+            set(json.loads(request_path.read_text(encoding="utf-8"))),
+            {
+                "operation",
+                "pack_name",
+                "pack_path",
+                "workflow_name",
+                "arguments",
+                "candidate_id",
+                "candidate_path",
+                "datasource_root",
+                "scratch_root",
+            },
+        )
 
         request = read_request(request_path)
 
         self.assertIsInstance(request, _RunWorkflowRequest)
         self.assertEqual(request.workflow_name, "analyze")
+        self.assertEqual(request.arguments, [])
+        self.assertIsNone(request.inputs)
         self.assertEqual(request.datasource_root, (session / "materializations").resolve())
         self.assertEqual(request.scratch_root, scratch_root.resolve())
         self.assertFalse(hasattr(request, "dataset"))
@@ -208,6 +226,45 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
         request_path.write_text(json.dumps(legacy_request), encoding="utf-8")
         with self.assertRaisesRegex(RuntimeRequestError, "invalid field set"):
             read_request(request_path)
+
+        nested_request = json.loads(request_path.read_text(encoding="utf-8"))
+        nested_request.pop("dataset")
+        nested_request["operation"] = "run_workflow_with_inputs"
+        nested_request.pop("arguments")
+        nested_request["inputs"] = {
+            "minimum": {"type": "int64", "value": "2"},
+            "enabled": {"type": "boolean", "value": True},
+        }
+        self.assertEqual(
+            set(nested_request),
+            {
+                "operation",
+                "pack_name",
+                "pack_path",
+                "workflow_name",
+                "inputs",
+                "candidate_id",
+                "candidate_path",
+                "datasource_root",
+                "scratch_root",
+            },
+        )
+        request_path.write_text(json.dumps(nested_request), encoding="utf-8")
+        nested = read_request(request_path)
+        self.assertIsNone(nested.arguments)
+        self.assertEqual(nested.inputs, {"minimum": 2, "enabled": True})
+
+        for invalid in (
+            {**nested_request, "arguments": []},
+            {
+                **nested_request,
+                "operation": "run_workflow",
+                "arguments": [],
+            },
+        ):
+            request_path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeRequestError, "invalid field set"):
+                read_request(request_path)
 
     def test_native_pytest_owns_plugins_fixtures_and_pack_imports(self) -> None:
         pack = self.pack()

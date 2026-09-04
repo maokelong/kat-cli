@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 import uuid
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 
@@ -167,6 +169,170 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertFalse((session / "scratch" / candidate_id).exists())
         self.assertFalse((candidate / "manifest.json").exists())
+
+    def test_run_reserves_standard_streams_for_rpc_before_importing_pack(self) -> None:
+        pack = self.pack(
+            '''    import os
+    import atexit
+    import subprocess
+    import sys
+    assert sys.stdin.buffer.read() == b""
+    atexit.register(print, "atexit stdout diagnostic", flush=True)
+    atexit.register(os.write, 1, b"native atexit stdout diagnostic\\n")
+    print("python stdout diagnostic", flush=True)
+    os.write(1, b"native stdout diagnostic\\n")
+    subprocess.run(
+        [sys.executable, "-c", "print('child stdout diagnostic', flush=True)"],
+        check=True,
+    )
+    return kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))'''
+        )
+        candidate_id, candidate = self.candidate()
+
+        completed, response = self.run_runtime(
+            self.request(pack, candidate_id, candidate)
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(completed.stdout, b"")
+        diagnostic = completed.stderr.decode(errors="replace")
+        self.assertIn("python stdout diagnostic", diagnostic)
+        self.assertIn("native stdout diagnostic", diagnostic)
+        self.assertIn("child stdout diagnostic", diagnostic)
+        self.assertIn("atexit stdout diagnostic", diagnostic)
+        self.assertIn("native atexit stdout diagnostic", diagnostic)
+
+    def test_run_accepts_typed_inputs_without_cli_string_coercion(self) -> None:
+        pack = self.pack(
+            '''    return kat.dataprovider.Table.from_arrow(
+        pa.table({"minimum": [minimum], "window": [str(window)]})
+    )'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+        request["operation"] = "run_workflow_with_inputs"
+        request.pop("arguments")
+        request["inputs"] = {
+            "minimum": {"type": "int64", "value": "2"},
+            "window": {"type": "duration", "value": "8us"},
+        }
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            response["result"]["effective_inputs"],
+            {"minimum": "2", "window": "8000"},
+        )
+        self.assertEqual(
+            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
+            {"minimum": [2], "window": ["8us"]},
+        )
+
+    def test_context_run_uses_private_jsonl_and_opens_the_returned_catalog(self) -> None:
+        child_output = self.root / "child-main.parquet"
+        pq.write_table(pa.table({"value": [41]}), child_output)
+        pack = self.pack(
+            '''    child = ctx.run(
+        "child-pack",
+        "summarize",
+        count=2,
+        enabled=True,
+        window=kat.Duration("5ms"),
+        at=kat.WallClockTimestamp("2026-07-14T08:30:00Z"),
+        optional=None,
+    )
+    return kat.dataprovider.DataFusionProvider(catalog=child).query(
+        "SELECT value + 1 AS value FROM main"
+    )'''
+        )
+        candidate_id, candidate = self.candidate()
+        token = uuid.uuid4().hex
+        request_path = self.root / f"request-rpc-{token}.json"
+        response_path = self.root / f"response-rpc-{token}.json"
+        request_path.write_text(
+            json.dumps(self.request(pack, candidate_id, candidate)),
+            encoding="utf-8",
+        )
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-B",
+                "-X",
+                "utf8",
+                "-u",
+                "-m",
+                "_kat_runtime",
+                "--request",
+                str(request_path),
+                "--response",
+                str(response_path),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "NO_COLOR": "1"},
+        )
+        assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                request_line = pool.submit(process.stdout.readline).result(timeout=10)
+            nested_request = json.loads(request_line)
+            process.stdin.write(
+                json.dumps(
+                    {
+                        "call_id": nested_request["call_id"],
+                        "status": "success",
+                        "relations": [
+                            {"name": "main", "path": str(child_output.resolve())}
+                        ],
+                    },
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                + b"\n"
+            )
+            process.stdin.flush()
+            return_code = process.wait(timeout=10)
+            remaining_stdout = process.stdout.read()
+            stderr = process.stderr.read()
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            process.stdin.close()
+            process.stdout.close()
+            process.stderr.close()
+
+        self.assertEqual(return_code, 0, stderr.decode(errors="replace"))
+        self.assertEqual(remaining_stdout, b"")
+        self.assertEqual(
+            nested_request,
+            {
+                "call_id": 0,
+                "pack_name": "child-pack",
+                "workflow_name": "summarize",
+                "inputs": {
+                    "count": {"type": "int64", "value": "2"},
+                    "enabled": {"type": "boolean", "value": True},
+                    "window": {"type": "duration", "value": "5ms"},
+                    "at": {
+                        "type": "wall_clock_timestamp",
+                        "value": "2026-07-14T08:30:00Z",
+                    },
+                    "optional": {"type": "none"},
+                },
+            },
+        )
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            pq.read_table(candidate / "outputs" / "main.parquet").to_pydict(),
+            {"value": [42]},
+        )
 
     def test_run_does_not_turn_arrow_chunks_into_parquet_row_groups(self) -> None:
         pack = self.pack(

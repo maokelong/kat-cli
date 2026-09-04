@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 
+from _test_control_peer import run_runtime_with_test_control
+
 
 class SkillReferencePackProcessTest(unittest.TestCase):
     def test_runtime_executes_the_only_public_reference_pack_source(self) -> None:
@@ -39,7 +41,7 @@ class SkillReferencePackProcessTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            completed = subprocess.run(
+            completed = run_runtime_with_test_control(
                 [
                     sys.executable,
                     "-B",
@@ -56,11 +58,8 @@ class SkillReferencePackProcessTest(unittest.TestCase):
                     str(report_path),
                 ],
                 cwd=pack,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                env={**os.environ, "NO_COLOR": "1"},
+                environment={**os.environ, "NO_COLOR": "1"},
+                data_home=private / "host",
             )
 
             terminal = completed.stderr.decode(errors="replace")

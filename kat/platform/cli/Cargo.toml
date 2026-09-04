@@ -5,11 +5,13 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+arrow-schema.workspace = true
 clap.workspace = true
 config.workspace = true
 directories.workspace = true
 dunce.workspace = true
 miette.workspace = true
+parquet.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,7 +23,7 @@ uuid.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
-base64.workspace = true
+arrow-array.workspace = true
 
 [[bin]]
 name = "kat"

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs, io, path::PathBuf};
+use std::{collections::BTreeMap, fs, io, path::PathBuf, sync::Arc};
 
 use clap::Args;
 use miette::Diagnostic;
@@ -6,9 +6,11 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
-    locate_data_home,
+    SkillRootError, locate_data_home, locate_skill_root,
     operation_log::{OperationLog, OperationLogError},
-    pack_discovery, response,
+    pack_discovery::{self, PackDiscoveryPaths},
+    response,
+    run::TestRunCoordinator,
     text_projection::project_inline_text,
     workflow_runtime,
 };
@@ -105,6 +107,30 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
         return test_pack_log_failure(error, None);
     }
 
+    let skill_root = match locate_skill_root() {
+        Ok(path) => path,
+        Err(source) => {
+            return finish_test_pack_failure(log, TestPackOperationError::SkillRoot(source));
+        }
+    };
+    let coordinator = match TestRunCoordinator::new(
+        PackDiscoveryPaths {
+            skill_pack_search_directory: skill_root.join("assets").join("packs"),
+            data_home_pack_search_directory: data_home.join("packs"),
+            additional_pack_directories: Vec::new(),
+        },
+        pack.name().to_owned(),
+        pack.directory(),
+    ) {
+        Ok(coordinator) => Arc::new(coordinator),
+        Err(source) => {
+            return finish_test_pack_failure(
+                log,
+                TestPackOperationError::CreateTemporarySessionStorage { source },
+            );
+        }
+    };
+
     let outcome = workflow_runtime::test_pack(
         log,
         workflow_runtime::TestPackInvocation {
@@ -112,6 +138,7 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
             pack_path: pack.directory(),
             tests: &arguments.tests,
             test_report_path: &report_path,
+            callback: coordinator,
         },
     );
     match outcome {
@@ -248,6 +275,15 @@ enum TestPackOperationError {
     Discovery {
         #[source]
         source: pack_discovery::PackDiscoveryError,
+    },
+    #[error("KAT Skill root could not be resolved")]
+    #[diagnostic(help("Repair the KAT Skill installation and retry the complete PACK test"))]
+    SkillRoot(#[source] SkillRootError),
+    #[error("failed to create temporary PACK test Session storage")]
+    #[diagnostic(help("Provide writable temporary storage and retry the complete PACK test"))]
+    CreateTemporarySessionStorage {
+        #[source]
+        source: io::Error,
     },
     #[error("the selected PACK does not contain a tests/ directory")]
     #[diagnostic(help(
