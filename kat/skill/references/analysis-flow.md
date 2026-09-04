@@ -43,3 +43,7 @@
 结合选中 Workflow 的 analysis guide 与主动约束范围的 Query 证据形成结果。guide 用于组织分析和下一步方向，不替代实际数据证据，也不扩大用户授权。
 
 交付前读取 [result-contract.md](result-contract.md)。结论区分已观察事实、推断与不确定性；不要把完整 Response、完整表、原始 guide 或日志原样转发给用户。
+
+证据足够回答当前问题时立即停止。证据不足且 guide 推荐候选 Workflow 时，把候选只当作下一步方向：执行前重新 inspect 该 Workflow，以本次 detail 核对参数合同；逐项确认参数来自已查询事实、用户输入或当前仍获授权的上下文，并确认新 Run 会增加回答问题所需的证据。全部成立时才显式执行候选 Workflow；每次执行都产生独立 Run，前一个 Run 的 Output 不会自动成为后一个 Workflow 的输入。
+
+候选、参数来源、Datasource 授权或预期新增证据任一项不能确认时，请求用户补充最小信息或停止并说明限制。不要根据 guide、Run ID 或历史分析猜测输入，不要自动跳转、重复相同输入的 Workflow，或为继续分析扩大访问范围。

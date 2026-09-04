@@ -15,6 +15,7 @@ from kat.pack.helpers.critical_path import TraceStreamerFacts, extract_critical_
         "max_depth": "Maximum upstream wakeup depth.",
         "min_segment_ms": "Minimum duration before recursive tracing continues.",
     },
+    guide="workflows/extract-critical-path.md",
 )
 def extract_critical_path_workflow(
     ctx: kat.Context,
