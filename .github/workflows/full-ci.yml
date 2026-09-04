@@ -58,13 +58,30 @@ jobs:
         id: rust-toolchain
         shell: bash
         run: |
-          channel=$(python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          with Path("rust-toolchain.toml").open("rb") as stream:
+              toolchain = tomllib.load(stream)["toolchain"]
+
+          outputs = {
+              "channel": toolchain["channel"],
+              "components": ",".join(toolchain.get("components", [])),
+              "targets": ",".join(toolchain.get("targets", [])),
+          }
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+              for key, value in outputs.items():
+                  stream.write(f"{key}={value}\n")
+          PY
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          components: ${{ steps.rust-toolchain.outputs.components }}
+          targets: ${{ steps.rust-toolchain.outputs.targets }}
 
       - name: Build and install Workflow Host wheel
         run: |

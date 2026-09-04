@@ -388,13 +388,24 @@ class PayloadCiWorkflowTests(unittest.TestCase):
     def test_full_ci_installs_the_repository_locked_rust_toolchain(self) -> None:
         workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
-            'tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"]',
+            'tomllib.load(stream)["toolchain"]',
             workflow,
         )
-        self.assertIn(
-            "          toolchain: ${{ steps.rust-toolchain.outputs.channel }}\n",
-            workflow,
-        )
+        for output, source, action_input in (
+            ("channel", 'toolchain["channel"]', "toolchain"),
+            (
+                "components",
+                '",".join(toolchain.get("components", []))',
+                "components",
+            ),
+            ("targets", '",".join(toolchain.get("targets", []))', "targets"),
+        ):
+            self.assertIn(f'"{output}": {source}', workflow)
+            self.assertIn(
+                f"          {action_input}: "
+                f"${{{{ steps.rust-toolchain.outputs.{output} }}}}\n",
+                workflow,
+            )
         self.assertLess(
             workflow.index("      - name: Install Python\n"),
             workflow.index("      - name: Read locked Rust toolchain\n"),
