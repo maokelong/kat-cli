@@ -1,0 +1,4 @@
+name = "payload-smoke-consumer"
+title = "Payload Smoke Consumer"
+description = "Internal cross-PACK validation of shared Hitrace materialization."
+owner = "KAT Maintainers"

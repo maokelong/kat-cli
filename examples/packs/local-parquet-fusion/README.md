@@ -48,10 +48,10 @@ kat run \
 Workflow 返回单个 `main` Output。它包含 `event_id`、`label`、`owner_name` 和
 `score`；结果按 `event_id` 稳定排序。
 
-使用 `kat run` 返回的 `run_id` 可以继续查询已发布结果：
+使用 `kat run` 同时返回的 `session_id` 与 `run_id` 可以继续查询已发布结果：
 
 ```bash
-kat query --run <run-id> --sql \
+kat query --session <session-id> --run <run-id> --sql \
   "SELECT event_id, label, owner_name, score FROM output.main ORDER BY event_id"
 ```
 

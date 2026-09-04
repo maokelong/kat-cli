@@ -107,9 +107,11 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 - `kat inspect`：只读取 manifest，发现 PACK。
 - `kat inspect workflow`：发现或读取 Workflow 分析知识。
 - `kat inspect provider`：发现或读取 Provider 开发知识。
+- `kat inspect session`：按已知 Session ID 列出其中已发布 Run 的公开 inventory。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
-- `kat run`：执行一个 Workflow 并原子发布 Run。
-- `kat query`：只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result。
+- `kat run`：新建 Analysis Session，或在显式 `--session` 中原子发布一个 Run。
+- `kat query`：用 Session ID 与 Run ID 只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result。
+- `kat session delete`：按已知 Session ID 永久删除整个 Session。
 
 使用外部 PACK 的调用模板如下；`/path/to/example-pack/pack.toml` 的 `name`
 应为 `example`，并声明 `analyze` Workflow：
@@ -132,28 +134,54 @@ kat run \
 ```
 
 `kat run` 将 `--` 后的 token 原样交给 Workflow Input Compiler。Operation log
-可能保留解析后的路径和这些参数，因此不得通过 Workflow arguments 传递秘密。
+可能保留解析后的路径和这些参数，因此不得通过 Workflow arguments 传递秘密。首次成功
+Response 同时返回 `result.session_id`、`result.run_id` 和 `result.outputs`；后续 Workflow
+若属于同一次分析，必须显式在外层参数中增加 `--session <session-id>`。省略该参数总会创建
+新的 Session，没有隐式 current/last Session。
 
-## Run 公开合同
+## Analysis Session 与 Run 公开合同
 
-`manifest.json` 是 Run 的唯一发布门禁；只有 Runtime 成功结束、Operation log 和
-Response 都通过校验后，CLI 才发布 Manifest。新 Manifest 只记录 Run、PACK、Workflow、
-有效输入和 Output 元数据；Query 读取历史 Manifest 时会忽略任意 JSON 形状的旧
-`dataset` 字段，不把它注册为查询关系或恢复成当前能力。`kat query` 只接受已发布 Run，
-并通过 `output.<name>` 或 `information_schema` 查询 Manifest 声明的输出；不存在、未发布
-或损坏的 Run 都明确失败。查询成功 Response 只返回 `format`、`path` 与 `columns`，
-对象行由 Python/DataFusion 直接写入 `path` 指向的单文件 NDJSON，不内联回传 Rust。
+一次 Analysis Session 可以包含不同 PACK 的多个独立 Run，并把 Session 共享来源物化、
+每次候选执行的临时数据和不可变 Run Output 分别放在 `materializations/`、`scratch/` 与
+`runs/` 下。Session 与 Run 各有独立 UUIDv7；Run 的公开地址始终是
+`(session_id, run_id)`，KAT 不按 Run ID 扫描其他 Session，也不维护全局 locator。
+
+`session.json` 是 Session 的不可变公开标记，`manifest.json` 是 Run 的唯一发布门禁。
+首次执行只有在 Run Manifest 与 Session marker 都发布后才成功；已有 Session 中的后续
+执行只发布自己的 Manifest。失败候选不返回 Session ID 或 Run ID，scratch 清理失败也不
+发布 Run。Manifest 只记录 Session/Run identity、PACK、Workflow、有效输入和 Output
+元数据，不记录来源物化 provenance。
 
 `kat query` 只接受已发布 Run，并且新建一个 fresh DataFusion Session；其中只注册该 Run
 的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。成功 Response 的
 `result` 精确返回 `format`、`path` 和 `columns`：`format` 为 `ndjson`，`path` 指向 Runtime
 直接写出的单个 NDJSON 文件，文件中每行是一个使用查询列名的 JSON object。不存在、
-未发布或损坏的 Run，以及非只读或多语句 SQL，都明确失败。
+未发布、双 ID 错配或损坏的 Run，以及非只读或多语句 SQL，都明确失败。调用形状为：
+
+```bash
+kat query --session <session-id> --run <run-id> --sql \
+  'SELECT * FROM output.main LIMIT 20'
+kat inspect workflow --session <session-id> --run <run-id>
+kat inspect session --session <session-id>
+kat session delete --session <session-id>
+```
+
+Session inspection 只返回按 Run ID 排序的已发布 Run inventory（PACK、Workflow 与 Outputs），
+不暴露 inputs、materializations、scratch 或物理路径。Session delete 是唯一删除入口，会
+永久删除该 Session 的 Runs、Outputs、materializations 与 scratch；活跃操作持有 lease 时
+删除立即失败。它不删除 Session 外的 Operation logs 或 Query Results，也不提供单 Run
+删除、Session list/current、TTL 或自动 GC。
+
+这是 `0.1` 阶段的破坏性布局切换。新版本不读取、扫描、迁移或删除旧的 Data Home 顶层
+`runs/` 与 PACK datasource roots；切换 Data Home 后，原 Session 地址在新 Data Home 中
+也无效。
 
 PACK Authoring API 向每次显式 Workflow 调用提供一个 `kat.Context`。Context 只暴露：
 
-- `ctx.datasource_root`：当前 PACK 在 KAT Data Home 下的私有 Datasource 根；
-  文件 Provider 通常在其下创建当前 Workflow 的临时 workspace。
+- `ctx.datasource_root`：当前 Analysis Session 共享的 `materializations/` 根；同一 Session
+  中的 Workflow 可以按明确 Source stem 与数据合同跨 Run、跨 PACK 复用完整物化。
+- `ctx.scratch_root`：当前候选执行私有的临时根；一次性工作只能放在这里，执行结束时清理，
+  后续 Workflow 不得把它当作输入。
 
 PACK 可在顶层 `datasources/` 中定义普通 Provider 类并由 Workflow 显式调用；
 生产 Workflow Runtime 不扫描、注册、构造或包装 Provider，只有显式的 Provider
@@ -165,10 +193,14 @@ Workflow 必须返回精确的 `dp.Table`，或返回一个非空普通 `dict`�
 名称、值均为精确的 `dp.Table`；PyArrow Table、引擎惰性值、空或混合 Mapping 都失败。
 
 需要原生 Hitrace 解码时，PACK 显式导入独立 wheel 的
-`from kat_datasource import hitrace`，并在 `ctx.datasource_root` 下的当前 Workflow 临时目录
-调用 `hitrace.decode(source, destination)`。`destination` 必须尚不存在；成功结果是一个
-只含扁平 `*.parquet` relation 的目录和一份 unsupported-content report，不是平台持久
-状态。Workflow 随后用 `dp.open(root=destination)` 打开 Catalog。需要融合另一份磁盘
+`from kat_datasource import hitrace`。一次性解码在 `ctx.scratch_root` 下使用尚不存在的
+destination；需要在同一 Session 复用时，以 `Path(source).stem` 作为
+`ctx.datasource_root` 的直接子目录名。复用命中必须先 `dp.open(root=destination)` 并校验
+所需 relation、columns、物理类型、nullability 与版本合同；Hitrace 当前要求每个实际 Parquet relation 的 Arrow
+Schema metadata 都含 `kat.materialization.version=hitrace-v1`。只有目标不存在时才 decode。已存在但打不开或合同
+不兼容的目标必须使当前执行失败，不能删除、覆盖或原位修复。成功解码得到只含扁平
+`*.parquet` relation 的目录和 unsupported-content report，不会自动成为 Run Output。
+Workflow 随后用 `dp.open(root=destination)` 打开 Catalog。需要融合另一份磁盘
 Catalog 时，先用一个 `dp.DataFusionProvider(catalog=...)` 把其中所需 relation 查询成
 eager Table，再把该 Table、来源 Provider 返回的其他内存 Table 与另一个 Catalog 显式
 交给 `dp.DataFusionProvider(tables=..., catalog=...)`。

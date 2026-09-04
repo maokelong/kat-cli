@@ -1,7 +1,10 @@
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 mod support;
@@ -11,6 +14,7 @@ use support::cargo_kat;
 mod test_home;
 
 const INSPECT_RUN_ID: &str = "019f6e00-0000-7000-8000-000000000235";
+const INSPECT_SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000234";
 
 fn stage_minimum_skill_layout(root: &Path) -> (PathBuf, PathBuf) {
     support::stage_skill(root, "movable-skill")
@@ -112,6 +116,52 @@ fn write_pack(directory: &Path, name: &str, description: &str) -> String {
     );
     fs::write(directory.join("pack.toml"), &manifest).expect("write PACK manifest");
     manifest
+}
+
+fn write_inspect_session(root: &Path) -> PathBuf {
+    let sessions = test_home::data_home(root).join("sessions");
+    let session = sessions.join(INSPECT_SESSION_ID);
+    fs::create_dir_all(sessions.join(".leases")).unwrap();
+    fs::create_dir_all(sessions.join(".deletions")).unwrap();
+    fs::write(
+        sessions
+            .join(".leases")
+            .join(format!("{INSPECT_SESSION_ID}.lock")),
+        [],
+    )
+    .unwrap();
+    fs::create_dir_all(session.join("materializations")).unwrap();
+    fs::create_dir_all(session.join("scratch")).unwrap();
+    fs::write(
+        session.join("session.json"),
+        serde_json::to_vec(&serde_json::json!({"session_id": INSPECT_SESSION_ID})).unwrap(),
+    )
+    .unwrap();
+    let run = session.join("runs").join(INSPECT_RUN_ID);
+    fs::create_dir_all(run.join("outputs")).expect("create published Run directory");
+    fs::write(run.join("outputs/main.parquet"), b"opaque").unwrap();
+    fs::write(
+        run.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "session_id": INSPECT_SESSION_ID,
+            "run_id": INSPECT_RUN_ID,
+            "pack": "alpha",
+            "workflow": "analyze",
+            "dataset": {
+                "historical": ["shape", "is", "irrelevant", "to", "inspect"]
+            },
+            "inputs": {},
+            "outputs": {
+                "main": {
+                    "columns": [{"name": "value", "type": "int64"}],
+                    "row_count": 1
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .expect("write published Run manifest");
+    session
 }
 
 fn targeted_inspect_command(binary: &Path, root: &Path, pack: &Path) -> Command {
@@ -220,30 +270,17 @@ fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
     stage_knowledge_inspection_host(&binary);
     let pack = temporary.path().join("external-checkout");
     write_pack(&pack, "alpha", "External PACK");
-    let run = test_home::data_home(temporary.path())
-        .join("runs")
-        .join(INSPECT_RUN_ID);
-    fs::create_dir_all(&run).expect("create published Run directory");
-    fs::write(
-        run.join("manifest.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "run_id": INSPECT_RUN_ID,
-            "pack": "alpha",
-            "workflow": "analyze",
-            "dataset": {
-                "historical": ["shape", "is", "irrelevant", "to", "inspect"]
-            },
-            "inputs": ["historical", "shape"],
-            "outputs": "historical shape"
-        }))
-        .unwrap(),
-    )
-    .expect("write published Run manifest");
+    write_inspect_session(temporary.path());
     let mut command = Command::new(binary);
     command
         .arg("inspect")
         .arg("workflow")
-        .args(["--run", INSPECT_RUN_ID])
+        .args([
+            "--session",
+            INSPECT_SESSION_ID,
+            "--run",
+            INSPECT_RUN_ID,
+        ])
         .arg("--pack-dir")
         .arg(&pack)
         .env("KAT_EXPECT_OPERATION", "inspect_workflow")
@@ -279,6 +316,7 @@ fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
     );
     let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
     assert!(log.contains("operation: kat inspect workflow"));
+    assert!(log.contains(&format!("session: {INSPECT_SESSION_ID}")));
     assert!(log.contains(&format!("run: {INSPECT_RUN_ID}")));
     assert!(log.contains("pack: alpha"));
     assert!(log.contains("workflow: analyze"));
@@ -319,7 +357,11 @@ fn main() {
     {
         process::exit(92);
     }
-    fs::write(&arguments[10], env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap()).unwrap();
+    let response = match env::var_os("KAT_FAKE_RUNTIME_RESPONSE_FILE") {
+        Some(path) => fs::read(path).unwrap(),
+        None => env::var("KAT_FAKE_RUNTIME_RESPONSE").unwrap().into_bytes(),
+    };
+    fs::write(&arguments[10], response).unwrap();
 }
 "###,
     )
@@ -336,6 +378,137 @@ fn main() {
         "fake knowledge inspection Host compilation failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn active_run_workflow_inspection_blocks_delete_while_its_response_is_being_written() {
+    let temporary = tempfile::tempdir().expect("create temporary directory");
+    let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
+    stage_knowledge_inspection_host(&binary);
+    let pack = temporary.path().join("external-checkout");
+    write_pack(&pack, "alpha", "External PACK");
+    let session = write_inspect_session(temporary.path());
+    let legacy_run = test_home::data_home(temporary.path())
+        .join("runs")
+        .join(INSPECT_RUN_ID)
+        .join("manifest.json");
+    let legacy_datasource =
+        test_home::data_home(temporary.path()).join("datasources/alpha/sentinel");
+    fs::create_dir_all(legacy_run.parent().unwrap()).unwrap();
+    fs::create_dir_all(legacy_datasource.parent().unwrap()).unwrap();
+    fs::write(&legacy_run, b"legacy root must not be read").unwrap();
+    fs::write(&legacy_datasource, b"legacy datasource").unwrap();
+    let runtime_response = temporary.path().join("large-runtime-response.json");
+    fs::write(
+        &runtime_response,
+        serde_json::to_vec(&serde_json::json!({
+            "status": "success",
+            "result": {
+                "workflow": {
+                    "name": "analyze",
+                    "description": "Analyze current Run facts.",
+                    "parameters": [],
+                    "guide": "g".repeat(8 * 1024 * 1024)
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut inspecting = Command::new(&binary);
+    inspecting
+        .arg("inspect")
+        .arg("workflow")
+        .args(["--session", INSPECT_SESSION_ID, "--run", INSPECT_RUN_ID])
+        .arg("--pack-dir")
+        .arg(&pack)
+        .env("KAT_EXPECT_OPERATION", "inspect_workflow")
+        .env("KAT_EXPECT_NAME_FIELD", "workflow_name")
+        .env("KAT_EXPECT_NAME", "analyze")
+        .env("KAT_FAKE_RUNTIME_RESPONSE_FILE", &runtime_response)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    test_home::configure(&mut inspecting, temporary.path());
+    let mut inspecting = inspecting.spawn().unwrap();
+    let mut stdout = inspecting.stdout.take().unwrap();
+    let mut first_byte = [0];
+    stdout.read_exact(&mut first_byte).unwrap();
+    assert_eq!(first_byte, [b'{']);
+
+    let mut deleting = Command::new(&binary);
+    deleting
+        .args(["session", "delete", "--session", INSPECT_SESSION_ID])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    test_home::configure(&mut deleting, temporary.path());
+    let mut deleting = deleting.spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let delete_completed = loop {
+        if deleting.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            deleting.kill().unwrap();
+            break false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let blocked = deleting.wait_with_output().unwrap();
+    let session_remained_while_blocked = session.is_dir();
+    let tombstone_remained_absent = !test_home::data_home(temporary.path())
+        .join("sessions/.deletions")
+        .join(INSPECT_SESSION_ID)
+        .exists();
+
+    let mut frame = Vec::with_capacity(8 * 1024 * 1024);
+    frame.extend_from_slice(&first_byte);
+    stdout.read_to_end(&mut frame).unwrap();
+    let status = inspecting.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
+    let response: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+    assert_eq!(response["result"]["workflow"]["name"], "analyze");
+
+    let mut deleting = Command::new(&binary);
+    deleting.args(["session", "delete", "--session", INSPECT_SESSION_ID]);
+    test_home::configure(&mut deleting, temporary.path());
+    let deleted = deleting.output().unwrap();
+    assert!(
+        delete_completed,
+        "Session delete did not fail immediately while inspection was active"
+    );
+    assert_eq!(blocked.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(
+        response["error"]["message"],
+        format!("Analysis Session {INSPECT_SESSION_ID} is in use")
+    );
+    assert!(session_remained_while_blocked);
+    assert!(tombstone_remained_absent);
+    assert_eq!(
+        deleted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(!session.exists());
+    assert!(
+        test_home::data_home(temporary.path())
+            .join("sessions/.leases")
+            .join(format!("{INSPECT_SESSION_ID}.lock"))
+            .is_file()
+    );
+    assert!(
+        !test_home::data_home(temporary.path())
+            .join("sessions/.deletions")
+            .join(INSPECT_SESSION_ID)
+            .exists()
+    );
+    assert_eq!(
+        fs::read(legacy_run).unwrap(),
+        b"legacy root must not be read"
+    );
+    assert_eq!(fs::read(legacy_datasource).unwrap(), b"legacy datasource");
 }
 
 #[test]

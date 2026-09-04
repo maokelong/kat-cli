@@ -21,7 +21,7 @@ def summarize_ftrace_events(
     clock_domain: str,
 ):
     """解析一份 Ftrace 文本并发布事件计数。"""
-    with TemporaryDirectory(dir=ctx.datasource_root) as workspace:
+    with TemporaryDirectory(dir=ctx.scratch_root) as workspace:
         provider = FtraceTextProvider(
             source=Path(trace_path),
             catalog_root=Path(workspace) / "catalog",

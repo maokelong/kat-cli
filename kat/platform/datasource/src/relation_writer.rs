@@ -10,17 +10,21 @@ use parquet::arrow::{
 
 use crate::relation_name::valid_relation_name;
 
+const MATERIALIZATION_VERSION_METADATA_KEY: &str = "kat.materialization.version";
+
 /// Owns the complete set of flat Parquet relations for one private staging root.
 #[derive(Clone)]
 pub(crate) struct RelationWriter {
     root: PathBuf,
+    materialization_version: &'static str,
     names: Rc<RefCell<HashSet<String>>>,
 }
 
 impl RelationWriter {
-    pub(crate) fn new(root: impl Into<PathBuf>) -> Self {
+    pub(crate) fn new(root: impl Into<PathBuf>, materialization_version: &'static str) -> Self {
         Self {
             root: root.into(),
+            materialization_version,
             names: Rc::new(RefCell::new(HashSet::new())),
         }
     }
@@ -42,6 +46,13 @@ impl RelationWriter {
                 );
             }
         }
+
+        let mut metadata = schema.metadata().clone();
+        metadata.insert(
+            MATERIALIZATION_VERSION_METADATA_KEY.to_owned(),
+            self.materialization_version.to_owned(),
+        );
+        let schema = Arc::new(schema.as_ref().clone().with_metadata(metadata));
 
         let path = self.root.join(format!("{name}.parquet"));
         let file = File::create(&path)

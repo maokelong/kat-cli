@@ -53,12 +53,13 @@ kat inspect [--pack-dir <PACK目录> ...]
 kat inspect workflow --pack <PACK名称> [--pack-dir <PACK目录> ...]
 kat inspect workflow --pack <PACK名称> --workflow <Workflow名称> \
   [--pack-dir <PACK目录> ...]
-kat inspect workflow --run <Run ID> [--pack-dir <PACK目录> ...]
+kat inspect workflow --session <Session ID> --run <Run ID> \
+  [--pack-dir <PACK目录> ...]
 ```
 
 - 第一条列出 PACK 的 Workflow。成功 `result.workflows` 按 `name` 排序；每项恰好只有 `name`、`description`。
 - 第二条返回一个精确 Workflow。成功 `result.workflow` 恰好只有 `name`、`description`、`parameters`、`guide`；未声明 guide 时 `guide` 是 JSON `null`。
-- 第三条从 Run identity 定位 Workflow，并读取当前安装或指定 PACK 中该 Workflow 的 detail；它不会读取 Run 中的 guide 快照。`--run` 与 `--pack`、`--workflow` 互斥。
+- 第三条从 `(Session ID, Run ID)` 定位 Workflow，并读取当前安装或指定 PACK 中该 Workflow 的 detail；它不会读取 Run 中的 guide 快照。`--session` 与 `--run` 必须一起提供，该定位与 `--pack`、`--workflow` 互斥。
 
 Workflow list 用于低成本筛选分析能力；只在选定一个 Workflow 后请求 detail。`guide` 是 Runtime 已读取的原始 Markdown 字符串，用于指导分析策略、结果发散和下一步方向。Agent 不自行拼接或打开 guide 路径。
 
@@ -83,26 +84,39 @@ Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL
 
 ```text
 kat run --pack <PACK名称> --workflow <Workflow名称> \
+  [--session <已有 Session ID>] \
   [--pack-dir <PACK目录> ...] -- \
   <来自 workflow detail.parameters 的参数>
 ```
 
-只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。成功后从 `result.run_id` 和 `result.outputs` 取得唯一可查询 Run 及其输出名称、columns 与行数。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
+只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。成功后从 `result.session_id`、`result.run_id` 和 `result.outputs` 取得唯一可查询 Run 及其输出名称、columns 与行数。省略 `--session` 时每次都新建 Session；只有用户目标明确属于同一次分析时，才沿用先前成功 Response 的 Session ID。显式 Session 不存在或损坏时失败，不会静默创建同名 Session。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
 
 例如，若 Workflow detail 明示 `--source-path` 和 `--limit`：
 
 ```text
 kat run --pack example --workflow analyze --pack-dir <PACK目录> -- \
   --source-path <本地来源路径> --limit 20
+
+kat run --session <Session ID> --pack example --workflow analyze \
+  --pack-dir <PACK目录> -- \
+  --source-path <本地来源路径> --limit 20
 ```
+
+## 查看一个 Session
+
+```text
+kat inspect session --session <Session ID>
+```
+
+成功 `result` 恰含 `session_id` 和按 Run ID 稳定排序的 `runs`。每个 Run 只包含 `run_id`、`pack`、`workflow` 与和 Run success 相同形状的 `outputs` inventory；不包含 inputs、materializations、scratch 或物理路径。KAT 不提供 Session list/current，也不跨 Data Home 搜索。
 
 ## 查询 Workflow 输出
 
 ```text
-kat query --run <Run ID> --sql <一条只读 SQL>
+kat query --session <Session ID> --run <Run ID> --sql <一条只读 SQL>
 ```
 
-`kat query` 每次在独立 DataFusion Session 中只注册该 Run 的 `output.*` 与 `information_schema`。优先沿用刚完成的 `kat run` 成功 Response 中的 `result.outputs`；只有 Run ID 时，先依次查询实际 relation 与 columns：
+`kat query` 每次在独立 DataFusion Session 中只注册该双 ID 定位 Run 的 `output.*` 与 `information_schema`。优先沿用刚完成的 `kat run` 成功 Response 中的 `result.outputs`；只有双 ID 时，先依次查询实际 relation 与 columns：
 
 ```sql
 SELECT table_name
@@ -121,6 +135,16 @@ ORDER BY table_name, ordinal_position
 随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Workflow inspection 提供分析策略，不替代 Output relation 发现。
 
 成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
+
+## 删除一个 Session
+
+```text
+kat session delete --session <Session ID>
+```
+
+这是唯一删除入口，会永久删除该 Session 的 Runs、Outputs、materializations 与 scratch。成功 `result` 恰含 `session_id`；删除不创建 Operation log，也不删除 Session 外的既有 Operation logs 或 Query Results。活跃 Run、Query 或 inspection 占用该 Session 时删除立即失败且不修改它。失败后若已进入内部 tombstone，可以用相同命令续删；KAT 不提供单 Run 删除、TTL 或自动 GC。
+
+只有用户明确要求永久删除这个已知 Session 时才调用；分析完成、切换问题或磁盘空间可能不足都不自动构成删除授权。
 
 ## 测试一个 PACK
 

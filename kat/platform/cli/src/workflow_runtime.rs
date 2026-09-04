@@ -116,6 +116,7 @@ pub(crate) struct RunOutputMetadata {
 }
 
 pub(crate) struct RunWorkflowInvocation {
+    pub(crate) session_id: String,
     pub(crate) pack_name: String,
     pub(crate) pack_path: String,
     pub(crate) workflow_name: String,
@@ -123,6 +124,7 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) candidate_id: String,
     pub(crate) candidate_path: String,
     pub(crate) datasource_root: String,
+    pub(crate) scratch_root: String,
 }
 
 fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowRequest<'_> {
@@ -135,6 +137,7 @@ fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowReques
         candidate_id: &invocation.candidate_id,
         candidate_path: &invocation.candidate_path,
         datasource_root: &invocation.datasource_root,
+        scratch_root: &invocation.scratch_root,
     }
 }
 
@@ -437,11 +440,14 @@ fn exposes_run_private_value(
     invocation: &RunWorkflowInvocation,
 ) -> bool {
     let values = [
+        invocation.session_id.clone(),
         invocation.candidate_id.clone(),
         invocation.candidate_path.clone(),
         invocation.candidate_path.replace('\\', "/"),
         invocation.datasource_root.clone(),
         invocation.datasource_root.replace('\\', "/"),
+        invocation.scratch_root.clone(),
+        invocation.scratch_root.replace('\\', "/"),
     ];
     values
         .iter()
@@ -522,6 +528,7 @@ fn result_violates_private_value_isolation(
         value.contains(&invocation.candidate_id)
             || contains_private_path(value, &invocation.candidate_path)
             || contains_private_path(value, &invocation.datasource_root)
+            || contains_private_path(value, &invocation.scratch_root)
     };
 
     result.effective_inputs.iter().any(|(name, value)| {
@@ -1098,8 +1105,9 @@ mod tests {
     }
 
     #[test]
-    fn run_workflow_request_serializes_the_datasource_root() {
+    fn run_workflow_request_serializes_private_roots_without_the_session_id() {
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1107,6 +1115,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
 
         let request = serde_json::to_value(run_workflow_request(&invocation)).unwrap();
@@ -1121,14 +1130,17 @@ mod tests {
                 "arguments": [],
                 "candidate_id": "019f6e00-0000-7000-8000-000000000001",
                 "candidate_path": "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001",
-                "datasource_root": "C:\\data\\datasources\\example"
+                "datasource_root": "C:\\data\\datasources\\example",
+                "scratch_root": "C:\\data\\scratch\\candidate"
             })
         );
+        assert!(request.get("session_id").is_none());
     }
 
     #[test]
     fn run_runtime_diagnostic_rejects_private_runtime_values() {
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1136,13 +1148,17 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         for private in [
+            invocation.session_id.clone(),
             invocation.candidate_id.clone(),
             invocation.candidate_path.clone(),
             invocation.candidate_path.replace('\\', "/"),
             invocation.datasource_root.clone(),
             invocation.datasource_root.replace('\\', "/"),
+            invocation.scratch_root.clone(),
+            invocation.scratch_root.replace('\\', "/"),
         ] {
             let diagnostic = serde_json::from_value::<KatDiagnostic>(serde_json::json!({
                 "message": "Workflow execution failed",
@@ -1157,6 +1173,7 @@ mod tests {
     #[test]
     fn run_success_rejects_private_runtime_values_before_the_result_becomes_trusted() {
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1164,6 +1181,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         for private in [
             invocation.candidate_id.clone(),
@@ -1171,6 +1189,8 @@ mod tests {
             invocation.candidate_path.replace('\\', "/"),
             invocation.datasource_root.clone(),
             invocation.datasource_root.replace('\\', "/"),
+            invocation.scratch_root.clone(),
+            invocation.scratch_root.replace('\\', "/"),
         ] {
             let response = serde_json::to_vec(&serde_json::json!({
                 "status": "success",
@@ -1191,12 +1211,43 @@ mod tests {
     }
 
     #[test]
+    fn run_success_accepts_the_public_session_id() {
+        let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
+            pack_name: "example".to_owned(),
+            pack_path: "C:\\pack".to_owned(),
+            workflow_name: "analyze".to_owned(),
+            arguments: Vec::new(),
+            candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
+            candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
+            datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
+        };
+        let response = serde_json::to_vec(&serde_json::json!({
+            "status": "success",
+            "result": {
+                "effective_inputs": {"session": invocation.session_id},
+                "outputs": {
+                    "main": {
+                        "columns": [{"name": "value", "type": "int64"}],
+                        "row_count": 0
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(decode_and_validate_run_workflow_response(&response, &invocation).is_ok());
+    }
+
+    #[test]
     fn run_success_accepts_named_output_without_a_second_identity() {
         let candidate = tempfile::tempdir().unwrap();
         let output_root = candidate.path().join("outputs");
         fs::create_dir(&output_root).unwrap();
         fs::write(output_root.join("main.parquet"), b"opaque output").unwrap();
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1204,6 +1255,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1214,6 +1266,7 @@ mod tests {
     fn run_success_does_not_reinspect_runtime_owned_output_files() {
         let candidate = tempfile::tempdir().unwrap();
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1221,6 +1274,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1240,6 +1294,7 @@ mod tests {
     #[test]
     fn run_success_rejects_the_removed_output_id_field() {
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1247,6 +1302,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000003".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000003".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"output_id":"0123456789abcdef0123456789abcdef","columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
@@ -1275,6 +1331,7 @@ mod tests {
         fs::create_dir(&output_root).unwrap();
         fs::write(output_root.join("main.parquet"), b"opaque output").unwrap();
         let invocation = RunWorkflowInvocation {
+            session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
@@ -1282,6 +1339,7 @@ mod tests {
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
+            scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
         assert!(validate_run_workflow_report(result(BTreeMap::new()), &invocation).is_err());
         let output = || protocol::RawRuntimeOutput {

@@ -15,6 +15,10 @@ KAT 可以发现声明，但不会构造或包装 Provider。Workflow 显式调�
 和 Data Provider Toolkit。只有 Workflow 返回的 `dp.Table` 会发布为 Run Output，
 中间 Table 和临时物化数据不会自动成为 Output。`dp.Table` 是已经完成且不可变的
 Arrow-backed 单表值；Datasource 的多 relation 构建只使用 `dp.write()` 写事务。
+两个示例本地 Parser 都只为当前 Workflow 形成一次性中间数据，因此其独占 workspace
+位于 `ctx.scratch_root`；后续 Workflow 不得把这些路径当作输入。需要跨 Run 复用的来源
+应改用经过合法性检查的 `Path(source).stem` 在 `ctx.datasource_root` 中定位，并遵守
+命中先 open/验证、缺失才 decode、无效既有目标绝不替换的 Session 物化合同。
 
 ## 目录
 
@@ -100,7 +104,7 @@ query，返回的 eager Table 不再依赖临时 Parquet。
 
 ## Trace Streamer：二进制解析与 SQLite
 
-`TraceStreamerProvider.decode()` 在 Workflow 独占的临时目录中用参数列表启动部署时
+`TraceStreamerProvider.decode()` 在 `ctx.scratch_root` 下 Workflow 独占的临时目录中用参数列表启动部署时
 批准的 Trace Streamer，不使用 shell。只有进程成功、输出是普通 SQLite 文件、
 `quick_check` 通过且存在业务 relation 时才进入 ready 状态。
 

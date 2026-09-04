@@ -5,7 +5,9 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
+
+use crate::directory_publish::{ensure_destination_absent, publish_directory_no_replace};
 
 mod event;
 mod header;
@@ -17,6 +19,7 @@ use header::{HeaderParser, is_structured_header_line};
 use relations::OutputTables;
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
+const MATERIALIZATION_VERSION: &str = "text-ftrace-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextFtraceDecodeReport {
@@ -37,8 +40,15 @@ pub fn decode_text_ftrace(
     if clock_domain.is_empty() {
         bail!("clock domain must not be empty");
     }
-    if output.exists() {
-        bail!("output already exists: {}", output.display());
+    match ensure_destination_absent(output) {
+        Ok(()) => {}
+        Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
+            bail!("output already exists: {}", output.display());
+        }
+        Err(source) => {
+            return Err(anyhow!(source))
+                .with_context(|| format!("failed to inspect output {}", output.display()));
+        }
     }
     let parent = output
         .parent()
@@ -63,8 +73,9 @@ pub fn decode_text_ftrace(
         tables.push_unsupported_event(event_name.clone())?;
     }
     tables.finish()?;
-    fs::rename(temporary.path(), output)
+    publish_directory_no_replace(temporary.path(), output)
         .with_context(|| format!("failed to publish output directory {}", output.display()))?;
+    let _published_temporary_path = temporary.keep();
     Ok(TextFtraceDecodeReport {
         unsupported_event_names: unsupported_event_names.into_iter().collect(),
     })

@@ -1,4 +1,7 @@
-use std::{fs::File, path::Path};
+use std::{
+    fs::{self, File},
+    path::Path,
+};
 
 use arrow_array::{
     Array, BinaryArray, BooleanArray, PrimitiveArray, RecordBatch, StringArray, StructArray,
@@ -7,6 +10,40 @@ use arrow_array::{
 use arrow_schema::SchemaRef;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use prost::Message;
+
+const MATERIALIZATION_VERSION_METADATA_KEY: &str = "kat.materialization.version";
+
+pub(super) fn assert_all_relations_have_materialization_version(
+    root: &Path,
+    expected_version: &str,
+) {
+    let mut relation_count = 0;
+    for entry in fs::read_dir(root).expect("relation root can be listed") {
+        let path = entry.expect("relation entry can be read").path();
+        if path
+            .extension()
+            .is_none_or(|extension| extension != "parquet")
+        {
+            continue;
+        }
+        relation_count += 1;
+        let file = File::open(&path)
+            .unwrap_or_else(|error| panic!("failed to open relation {}: {error}", path.display()));
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+            .unwrap_or_else(|error| panic!("failed to read relation {}: {error}", path.display()));
+        assert_eq!(
+            builder
+                .schema()
+                .metadata()
+                .get(MATERIALIZATION_VERSION_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_version),
+            "relation {} has the wrong materialization version metadata",
+            path.display()
+        );
+    }
+    assert!(relation_count > 0, "expected at least one Parquet relation");
+}
 
 pub(super) struct Relation {
     schema: SchemaRef,

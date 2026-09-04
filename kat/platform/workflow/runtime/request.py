@@ -44,6 +44,7 @@ class RunWorkflowRequest:
     arguments: list[str]
     candidate: RunCandidateRef
     datasource_root: Path
+    scratch_root: Path
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,7 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
         "candidate_id",
         "candidate_path",
         "datasource_root",
+        "scratch_root",
     }
     if set(request) != required:
         raise RuntimeRequestError("run_workflow Runtime Request has an invalid field set")
@@ -176,7 +178,6 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
     arguments = request["arguments"]
     if type(arguments) is not list or any(type(value) is not str for value in arguments):
         raise RuntimeRequestError("run_workflow arguments must be an array of strings")
-    pack_name = request["pack_name"]
     candidate = _read_run_candidate(
         request["candidate_id"],
         request["candidate_path"],
@@ -185,32 +186,30 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
         request["datasource_root"],
         "run_workflow Datasource root",
     )
+    scratch_root = _read_creatable_directory(
+        request["scratch_root"],
+        "run_workflow Scratch root",
+    )
+    session_root = candidate.path.parent.parent
     if (
-        datasource_root.name != pack_name
-        or datasource_root.parent.name != "datasources"
+        session_root.parent.name != "sessions"
+        or not _is_canonical_uuid7(session_root.name)
+        or candidate.path.parent.name != "runs"
+        or datasource_root.name != "materializations"
+        or datasource_root.parent != session_root
+        or scratch_root.name != candidate.identifier
+        or scratch_root.parent.name != "scratch"
+        or scratch_root.parent.parent != session_root
     ):
-        raise RuntimeRequestError(
-            "run_workflow Datasource root does not match the selected PACK"
-        )
-    data_home = datasource_root.parent.parent
-    try:
-        selected_runs_root = (data_home / "runs").resolve(strict=True)
-    except (OSError, RuntimeError):
-        _LOGGER.exception("failed to resolve the selected Data Home runs directory")
-        raise RuntimeRequestError(
-            "run_workflow Datasource root does not match the selected PACK"
-        ) from None
-    if candidate.path.parent != selected_runs_root:
-        raise RuntimeRequestError(
-            "run_workflow Datasource root does not match the selected PACK"
-        )
+        raise RuntimeRequestError("run_workflow paths do not match one Session")
     return RunWorkflowRequest(
-        pack_name=pack_name,
+        pack_name=request["pack_name"],
         pack_path=_canonical_directory(request["pack_path"], "run_workflow PACK"),
         workflow_name=request["workflow_name"],
         arguments=arguments,
         candidate=candidate,
         datasource_root=datasource_root,
+        scratch_root=scratch_root,
     )
 
 
@@ -263,13 +262,7 @@ def _read_test_pack_request(request: dict[str, object]) -> TestPackRequest:
 
 
 def _read_run_candidate(candidate_id: str, candidate_path: str) -> RunCandidateRef:
-    try:
-        identity = uuid.UUID(candidate_id)
-    except ValueError:
-        raise RuntimeRequestError(
-            "run_workflow candidate identity is invalid"
-        ) from None
-    if identity.version != 7 or str(identity) != candidate_id:
+    if not _is_canonical_uuid7(candidate_id):
         raise RuntimeRequestError("run_workflow candidate identity is invalid")
     path = _canonical_directory(candidate_path, "run_workflow candidate")
     if path.name != candidate_id or (path / "manifest.json").exists():
@@ -277,6 +270,14 @@ def _read_run_candidate(candidate_id: str, candidate_path: str) -> RunCandidateR
             "run_workflow candidate identity and directory do not match"
         )
     return RunCandidateRef(identifier=candidate_id, path=path)
+
+
+def _is_canonical_uuid7(value: str) -> bool:
+    try:
+        identity = uuid.UUID(value)
+    except ValueError:
+        return False
+    return identity.version == 7 and str(identity) == value
 
 
 def _canonical_directory(value: str, label: str) -> Path:

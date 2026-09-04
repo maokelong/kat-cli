@@ -4,7 +4,16 @@ import os
 from dataclasses import dataclass
 from typing import TypeAlias
 
-__all__ = ("decode", "DecodeReport", "DecodeError")
+__all__ = (
+    "decode",
+    "DecodeReport",
+    "DecodeError",
+    "MATERIALIZATION_VERSION_METADATA_KEY",
+    "MATERIALIZATION_VERSION",
+)
+
+MATERIALIZATION_VERSION_METADATA_KEY = b"kat.materialization.version"
+MATERIALIZATION_VERSION = "hitrace-v1"
 
 _PathLike: TypeAlias = str | os.PathLike[str]
 

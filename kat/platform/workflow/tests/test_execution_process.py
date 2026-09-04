@@ -74,9 +74,14 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         return pack.resolve()
 
     def candidate(self) -> tuple[str, Path]:
+        session_id = f"019f6d00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
         candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
-        candidate = self.root / "runs" / candidate_id
-        candidate.mkdir(parents=True)
+        session = self.root / "sessions" / session_id
+        for name in ("materializations", "scratch", "runs"):
+            (session / name).mkdir(parents=True)
+        candidate = session / "runs" / candidate_id
+        candidate.mkdir()
+        (session / "scratch" / candidate_id).mkdir()
         return candidate_id, candidate.resolve()
 
     def request(
@@ -86,6 +91,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         candidate: Path,
         arguments: list[str] | None = None,
     ) -> dict[str, object]:
+        session = candidate.parent.parent
         return {
             "operation": "run_workflow",
             "pack_name": "example",
@@ -94,23 +100,27 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             "arguments": arguments or [],
             "candidate_id": candidate_id,
             "candidate_path": str(candidate),
-            "datasource_root": str(
-                (self.root / "datasources" / "example").resolve(strict=False)
-            ),
+            "datasource_root": str((session / "materializations").resolve()),
+            "scratch_root": str((session / "scratch" / candidate_id).resolve()),
         }
 
-    def test_run_uses_only_datasource_root_and_writes_standard_table_outputs(
+    def test_run_exposes_session_roots_and_writes_standard_table_outputs(
         self,
     ) -> None:
         pack = self.pack(
             '''    import logging
     logging.getLogger("pack").info("executed")
     root = ctx.datasource_root
+    scratch = ctx.scratch_root
+    root.joinpath("shared.txt").write_text("shared", encoding="utf-8")
+    scratch.joinpath("temporary.txt").write_text("temporary", encoding="utf-8")
     selected = kat.dataprovider.Table.from_arrow(pa.table({"value": [minimum]}))
     empty = kat.dataprovider.Table.from_arrow(
         pa.table({"value": pa.array([], type=pa.int64())})
     )
-    assert root.name == "example"
+    assert root.name == "materializations"
+    assert scratch.parent.name == "scratch"
+    assert scratch.parent.parent == root.parent
     return {"selected_rows": selected, "empty_rows": empty}'''
         )
         candidate_id, candidate = self.candidate()
@@ -150,6 +160,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             {path.name for path in (candidate / "outputs").glob("*.parquet")},
             {"selected_rows.parquet", "empty_rows.parquet"},
         )
+        session = candidate.parent.parent
+        self.assertEqual(
+            (session / "materializations" / "shared.txt").read_text(encoding="utf-8"),
+            "shared",
+        )
+        self.assertFalse((session / "scratch" / candidate_id).exists())
         self.assertFalse((candidate / "manifest.json").exists())
 
     def test_run_does_not_turn_arrow_chunks_into_parquet_row_groups(self) -> None:
@@ -232,19 +248,20 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
         self.assertNotIn(candidate_id, json.dumps(response, ensure_ascii=False))
 
-    def test_run_request_rejects_unowned_datasource_roots(self) -> None:
+    def test_run_request_rejects_roots_outside_one_session_topology(self) -> None:
         pack = self.pack(
             '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
     return table'''
         )
-        for root in (
-            self.root / "datasources" / "other-pack",
-            self.root / "other-data-home" / "datasources" / "example",
+        for field, replacement in (
+            ("datasource_root", self.root / "other-session" / "materializations"),
+            ("datasource_root", self.root / "sessions" / "datasources"),
+            ("scratch_root", self.root / "other-session" / "scratch" / "candidate"),
         ):
-            with self.subTest(root=root):
+            with self.subTest(field=field, replacement=replacement):
                 candidate_id, candidate = self.candidate()
                 request = self.request(pack, candidate_id, candidate)
-                request["datasource_root"] = str(root.resolve(strict=False))
+                request[field] = str(replacement.resolve(strict=False))
 
                 completed, response = self.run_runtime(request)
 
@@ -255,10 +272,75 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
                     "Runtime Request is invalid",
                 )
 
-    def test_run_request_accepts_a_linked_runs_directory(self) -> None:
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+        request["scratch_root"] = str(
+            (candidate.parent.parent / "scratch" / "different-candidate").resolve(
+                strict=False
+            )
+        )
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+    def test_run_request_rejects_an_invalid_session_address(self) -> None:
+        pack = self.pack(
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
+    return table'''
+        )
+        session_id = f"019f6d00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
+        for session in (
+            self.root / "sessions" / "not-a-session-id",
+            self.root / "not-sessions" / session_id,
+        ):
+            with self.subTest(session=session):
+                for name in ("materializations", "scratch", "runs"):
+                    (session / name).mkdir(parents=True)
+                candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
+                candidate = session / "runs" / candidate_id
+                candidate.mkdir()
+                (session / "scratch" / candidate_id).mkdir()
+
+                completed, response = self.run_runtime(
+                    self.request(pack, candidate_id, candidate.resolve())
+                )
+
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(response["status"], "failure", response)
+                self.assertEqual(
+                    response["error"]["message"],
+                    "Runtime Request is invalid",
+                )
+
+    def test_run_request_does_not_bind_materializations_to_the_pack_name(self) -> None:
+        pack = self.pack(
+            '''    table = kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))
+    return table'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+        request["pack_name"] = "a-different-pack-name"
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr.decode(errors="replace"),
+        )
+        self.assertEqual(response["status"], "success", response)
+
+    def test_run_request_rejects_a_linked_runs_directory(self) -> None:
+        session_id = f"019f6d00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
+        session = self.root / "sessions" / session_id
+        (session / "materializations").mkdir(parents=True)
+        (session / "scratch").mkdir()
         external_runs = self.root / "external-runs"
         external_runs.mkdir()
-        runs = self.root / "runs"
+        runs = session / "runs"
         if os.name == "nt":
             created = subprocess.run(
                 [
@@ -290,16 +372,17 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
     return table'''
         )
         candidate_id = f"019f6e00-0000-7000-8000-{uuid.uuid4().hex[:12]}"
-        (runs / candidate_id).mkdir()
-        candidate = (external_runs / candidate_id).resolve()
+        (external_runs / candidate_id).mkdir()
+        (session / "scratch" / candidate_id).mkdir()
+        candidate = runs / candidate_id
 
         completed, response = self.run_runtime(
             self.request(pack, candidate_id, candidate)
         )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "success", response)
-        self.assertEqual(response["result"]["outputs"]["main"]["row_count"], 1)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
 
     def test_workflow_system_exit_is_a_runtime_failure(self) -> None:
         pack = self.pack('    raise SystemExit("Workflow requested exit")')
@@ -317,6 +400,9 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(response["status"], "failure", response)
         self.assertIn("Workflow requested exit", response["error"]["causes"])
         self.assertNotIn("result", response)
+        self.assertFalse(
+            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        )
 
     def test_output_io_failure_logs_private_cause_but_returns_public_diagnostic(
         self,
@@ -347,6 +433,9 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         operation_log = completed.stderr.decode(errors="replace")
         self.assertIn("private output path", operation_log)
         self.assertIn(str(candidate), operation_log)
+        self.assertFalse(
+            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        )
 
     def test_output_footer_failure_uses_the_shared_private_writer_boundary(
         self,
@@ -377,6 +466,152 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         operation_log = completed.stderr.decode(errors="replace")
         self.assertIn("private footer path", operation_log)
         self.assertIn(str(candidate), operation_log)
+        self.assertFalse(
+            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        )
+
+    def test_run_diagnostic_redacts_the_private_session_and_execution_roots(
+        self,
+    ) -> None:
+        pack = self.pack(
+            '''    datasource = ctx.datasource_root
+    scratch = ctx.scratch_root
+    session = datasource.parent
+    raise RuntimeError(
+        f"session={session.name} root={session} datasource={datasource} scratch={scratch}"
+    )'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+        session = candidate.parent.parent
+        datasource = Path(request["datasource_root"])
+        scratch = Path(request["scratch_root"])
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        rendered = json.dumps(response, ensure_ascii=False)
+        for private in (
+            session.name,
+            str(session),
+            session.as_posix(),
+            candidate_id,
+            str(candidate),
+            candidate.as_posix(),
+            str(datasource),
+            datasource.as_posix(),
+            str(scratch),
+            scratch.as_posix(),
+        ):
+            with self.subTest(private=private):
+                self.assertNotIn(private, rendered)
+        self.assertIn("<private>", rendered)
+        self.assertFalse(scratch.exists())
+
+    def test_scratch_cleanup_failure_prevents_a_successful_run(self) -> None:
+        pack = self.pack(
+            '''    scratch = ctx.scratch_root
+    scratch.rmdir()
+    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
+    return kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+        scratch = Path(request["scratch_root"])
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertNotIn("result", response)
+        self.assertIn(
+            "Scratch root could not be cleaned",
+            response["error"].get("causes", []),
+        )
+        self.assertTrue(scratch.is_file())
+
+    def test_execution_failure_remains_primary_when_scratch_cleanup_also_fails(
+        self,
+    ) -> None:
+        pack = self.pack(
+            '''    scratch = ctx.scratch_root
+    scratch.rmdir()
+    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
+    raise RuntimeError("primary execution failure")'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertNotIn("result", response)
+        self.assertEqual(
+            response["error"].get("causes", [])[:2],
+            ["primary execution failure", "Scratch root could not be cleaned"],
+        )
+
+    def test_output_failure_remains_primary_when_scratch_cleanup_also_fails(
+        self,
+    ) -> None:
+        pack = self.pack(
+            '''    scratch = ctx.scratch_root
+    scratch.rmdir()
+    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
+    return None'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertNotIn("result", response)
+        causes = response["error"].get("causes", [])
+        self.assertEqual(
+            causes[0],
+            "Workflow must return an exact dataprovider.Table or a non-empty exact dict",
+        )
+        self.assertEqual(causes[-1], "Scratch root could not be cleaned")
+
+    def test_broken_scratch_link_fails_the_cleanup_gate(self) -> None:
+        pack = self.pack(
+            '''    import os
+    import subprocess
+    scratch = ctx.scratch_root
+    missing = scratch.parent / "missing-target"
+    scratch.rmdir()
+    if os.name == "nt":
+        missing.mkdir()
+        created = subprocess.run(
+            ["cmd.exe", "/d", "/c", "mklink", "/J", str(scratch), str(missing)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if created.returncode != 0:
+            raise RuntimeError("test could not create a Scratch junction")
+        missing.rmdir()
+    else:
+        scratch.symlink_to(missing, target_is_directory=True)
+    assert not scratch.exists()
+    return kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))'''
+        )
+        candidate_id, candidate = self.candidate()
+        request = self.request(pack, candidate_id, candidate)
+
+        completed, response = self.run_runtime(request)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(response["status"], "failure", response)
+        self.assertNotIn("result", response)
+        self.assertIn(
+            "Scratch root could not be cleaned",
+            response["error"].get("causes", []),
+        )
 
     def test_output_names_are_portable_file_names(self) -> None:
         for reserved in (
@@ -449,6 +684,9 @@ def other(ctx: Context):
                 for cause in response["error"]["causes"]
             ),
             response,
+        )
+        self.assertFalse(
+            (candidate.parent.parent / "scratch" / candidate_id).exists()
         )
 
 

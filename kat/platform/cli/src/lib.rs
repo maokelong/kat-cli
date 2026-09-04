@@ -6,6 +6,8 @@ mod query;
 mod response;
 mod run;
 mod run_manifest;
+mod session;
+mod session_store;
 mod test;
 mod text_projection;
 mod workflow_runtime;
@@ -49,6 +51,8 @@ enum Operation {
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
     Query(query::QueryArgs),
+    /// Permanently delete one Analysis Session.
+    Session(session::SessionArgs),
     /// Run one PACK's pytest suite in the production execution plane.
     Test(test::TestArgs),
 }
@@ -64,6 +68,20 @@ struct PackResult {
     title: String,
     description: String,
     owner: String,
+}
+
+#[derive(Serialize)]
+struct InspectSessionResult {
+    session_id: String,
+    runs: Vec<InspectSessionRun>,
+}
+
+#[derive(Serialize)]
+struct InspectSessionRun {
+    run_id: String,
+    pack: String,
+    workflow: String,
+    outputs: std::collections::BTreeMap<String, workflow_runtime::RunOutputMetadata>,
 }
 
 #[derive(Serialize)]
@@ -109,8 +127,36 @@ pub fn run() -> ExitCode {
         Operation::Inspect(arguments) => inspect::execute(arguments),
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
+        Operation::Session(arguments) => response::publish(session::execute(arguments)),
         Operation::Test(arguments) => response::publish(test::execute(arguments)),
     }
+}
+
+fn inspect_session(session_id: String) -> response::PreparedResponse<InspectSessionResult> {
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
+    };
+    let opened = match session_store::SessionStore::new(&data_home).open(&session_id) {
+        Ok(opened) => opened,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
+    };
+    let prepared = match run_manifest::resolve_all(opened.layout()) {
+        Ok(runs) => response::prepare_success(InspectSessionResult {
+            session_id: opened.layout().session_id().as_str().to_owned(),
+            runs: runs
+                .into_iter()
+                .map(|run| InspectSessionRun {
+                    run_id: run.run_id,
+                    pack: run.pack,
+                    workflow: run.workflow,
+                    outputs: run.outputs,
+                })
+                .collect(),
+        }),
+        Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+    };
+    response::retain_session_lease(prepared, opened.into_lease())
 }
 
 fn inspect_target_pack(
@@ -137,6 +183,7 @@ fn inspect_target_pack(
 }
 
 fn inspect_run_workflow(
+    session_id: String,
     run_id: String,
     pack_directories: Vec<PathBuf>,
 ) -> response::PreparedResponse<InspectKnowledgeResult> {
@@ -144,14 +191,32 @@ fn inspect_run_workflow(
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let mut log = match OperationLog::create(&data_home, "inspect", |file| {
+    let log = match OperationLog::create(&data_home, "inspect", |file| {
         writeln!(file, "operation: kat inspect workflow")?;
+        writeln!(file, "session: {}", session_id.escape_debug())?;
         writeln!(file, "run: {}", run_id.escape_debug())
     }) {
         Ok(log) => log,
         Err(error) => return inspect_target_log_failure(error),
     };
-    let published_run = match run_manifest::read(&data_home, &run_id) {
+    let opened = match session_store::SessionStore::new(&data_home).open(&session_id) {
+        Ok(opened) => opened,
+        Err(error) => {
+            return finish_inspect_target_failure(log, InspectTargetPackError::SessionStore(error));
+        }
+    };
+    let prepared = inspect_opened_run_workflow(&data_home, log, run_id, pack_directories, &opened);
+    response::retain_session_lease(prepared, opened.into_lease())
+}
+
+fn inspect_opened_run_workflow(
+    data_home: &Path,
+    mut log: OperationLog,
+    run_id: String,
+    pack_directories: Vec<PathBuf>,
+    opened: &session_store::OpenedSession,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
+    let published_run = match run_manifest::resolve(opened.layout(), &run_id) {
         Ok(run) => run,
         Err(error) => {
             return finish_inspect_target_failure(log, InspectTargetPackError::PublishedRun(error));
@@ -170,7 +235,7 @@ fn inspect_run_workflow(
         return inspect_target_log_failure(error);
     }
     inspect_resolved_target(
-        &data_home,
+        data_home,
         log,
         pack_name,
         pack_directories,
@@ -438,6 +503,9 @@ enum InspectPacksError {
 enum InspectTargetPackError {
     #[error(transparent)]
     #[diagnostic(transparent)]
+    SessionStore(#[from] session_store::SessionStoreError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
     PublishedRun(#[from] run_manifest::PublishedRunError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
@@ -493,7 +561,16 @@ mod tests {
                 "--workflow",
                 "thread-time",
             ],
-            vec!["kat", "inspect", "workflow", "--run", "run-id"],
+            vec![
+                "kat",
+                "inspect",
+                "workflow",
+                "--session",
+                "session-id",
+                "--run",
+                "run-id",
+            ],
+            vec!["kat", "inspect", "session", "--session", "session-id"],
             vec!["kat", "inspect", "provider", "--pack", "cpu-pack"],
             vec![
                 "kat",
@@ -521,6 +598,8 @@ mod tests {
             vec!["kat", "inspect", "--dataset", "dataset"],
             vec!["kat", "inspect", "workflow"],
             vec!["kat", "inspect", "workflow", "--workflow", "thread-time"],
+            vec!["kat", "inspect", "workflow", "--run", "run-id"],
+            vec!["kat", "inspect", "workflow", "--session", "session-id"],
             vec![
                 "kat", "inspect", "workflow", "--pack", "cpu-pack", "--run", "run-id",
             ],
@@ -535,6 +614,15 @@ mod tests {
             ],
             vec!["kat", "inspect", "provider"],
             vec!["kat", "inspect", "provider", "--run", "run-id"],
+            vec![
+                "kat",
+                "inspect",
+                "session",
+                "--session",
+                "session-id",
+                "--pack-dir",
+                "checkout",
+            ],
         ] {
             assert!(
                 Cli::try_parse_from(&arguments).is_err(),

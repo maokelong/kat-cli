@@ -3,6 +3,41 @@ use std::{fs, fs::File};
 use arrow_array::{Array, BooleanArray, Int32Array, StringArray, UInt32Array, UInt64Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
+const MATERIALIZATION_VERSION_METADATA_KEY: &str = "kat.materialization.version";
+
+fn assert_all_relations_have_materialization_version(
+    root: &std::path::Path,
+    expected_version: &str,
+) {
+    let mut relation_count = 0;
+    for entry in fs::read_dir(root).expect("relation root can be listed") {
+        let path = entry.expect("relation entry can be read").path();
+        if path
+            .extension()
+            .is_none_or(|extension| extension != "parquet")
+        {
+            continue;
+        }
+        relation_count += 1;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(
+            File::open(&path)
+                .unwrap_or_else(|error| panic!("failed to open {}: {error}", path.display())),
+        )
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        assert_eq!(
+            builder
+                .schema()
+                .metadata()
+                .get(MATERIALIZATION_VERSION_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_version),
+            "relation {} has the wrong materialization version metadata",
+            path.display()
+        );
+    }
+    assert!(relation_count > 0, "expected at least one Parquet relation");
+}
+
 fn read_first_batch(path: &std::path::Path) -> arrow_array::RecordBatch {
     ParquetRecordBatchReaderBuilder::try_new(File::open(path).unwrap())
         .unwrap()
@@ -113,6 +148,7 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
 
     let report = kat_datasource::decode_text_ftrace(&input, &output, "monotonic").unwrap();
     assert_eq!(report.unsupported_event_names(), &["custom_event"]);
+    assert_all_relations_have_materialization_version(&output, "text-ftrace-v1");
 
     let root = ParquetRecordBatchReaderBuilder::try_new(
         File::open(output.join("text_ftrace_event.parquet")).unwrap(),
@@ -220,6 +256,88 @@ fn converts_proto_root_and_payload_tables_with_unknown_sequence_gaps() {
             .unwrap()
             .value(0)
     );
+}
+
+#[test]
+fn existing_empty_output_is_rejected_before_input_is_read() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("missing.ftrace");
+    let output = temp.path().join("parquet");
+    fs::create_dir(&output).unwrap();
+
+    let error = kat_datasource::decode_text_ftrace(&input, &output, "monotonic")
+        .expect_err("existing output must win over a missing input");
+
+    assert!(
+        error.to_string().contains("output already exists"),
+        "unexpected error: {error:#}"
+    );
+    assert!(
+        fs::read_dir(&output).unwrap().next().is_none(),
+        "empty caller-owned output must remain untouched"
+    );
+}
+
+#[test]
+fn dangling_output_link_is_rejected_before_input_is_read() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("missing.ftrace");
+    let missing_target = temp.path().join("missing-target");
+    let output = temp.path().join("parquet");
+    create_dangling_directory_link(&missing_target, &output);
+
+    let error = kat_datasource::decode_text_ftrace(&input, &output, "monotonic")
+        .expect_err("dangling destination entry must win over a missing input");
+
+    assert!(
+        error.to_string().contains("output already exists"),
+        "unexpected error: {error:#}"
+    );
+    assert!(is_link(&fs::symlink_metadata(&output).unwrap()));
+}
+
+#[cfg(unix)]
+fn create_dangling_directory_link(target: &std::path::Path, link: &std::path::Path) {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[cfg(windows)]
+fn create_dangling_directory_link(target: &std::path::Path, link: &std::path::Path) {
+    match std::os::windows::fs::symlink_dir(target, link) {
+        Ok(()) => {}
+        Err(error)
+            if error.kind() == std::io::ErrorKind::PermissionDenied
+                || error.raw_os_error() == Some(1314) =>
+        {
+            fs::create_dir(target).unwrap();
+            let output = std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/j"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "failed to create junction\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            fs::remove_dir(target).unwrap();
+        }
+        Err(error) => panic!("failed to create dangling directory symlink: {error}"),
+    }
+}
+
+#[cfg(unix)]
+fn is_link(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+#[cfg(windows)]
+fn is_link(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_attributes() & 0x400 != 0
 }
 
 #[test]

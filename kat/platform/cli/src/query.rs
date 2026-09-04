@@ -1,24 +1,28 @@
 use std::{
-    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use clap::Args;
 use miette::Diagnostic;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
     SkillRootError, locate_data_home, locate_skill_root,
     operation_log::{OperationLog, OperationLogError},
     response::{self, PendingResponseFile},
+    run_manifest,
+    session_store::{OpenedSession, SessionStore, SessionStoreError},
     text_projection::project_inline_text,
     workflow_runtime,
 };
 
 #[derive(Args)]
 pub(super) struct QueryArgs {
+    /// Select one exact published Analysis Session ID.
+    #[arg(long, value_name = "SESSION_ID")]
+    session: String,
     /// Select one exact published Run ID.
     #[arg(long, value_name = "RUN_ID")]
     run: String,
@@ -37,54 +41,47 @@ pub(super) struct QueryResult {
     columns: Vec<workflow_runtime::Column>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct QueryRunManifest {
-    run_id: String,
-    pack: String,
-    workflow: String,
-    #[serde(
-        default,
-        rename = "dataset",
-        deserialize_with = "deserialize_ignored_manifest_dataset"
-    )]
-    _dataset: (),
-    inputs: BTreeMap<String, serde_json::Value>,
-    outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
-}
-
-fn deserialize_ignored_manifest_dataset<'de, D>(deserializer: D) -> Result<(), D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde::de::IgnoredAny::deserialize(deserializer).map(drop)
-}
-
 pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryResult> {
     let data_home = match locate_data_home() {
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
     let operation_id = uuid::Uuid::now_v7().to_string();
+    let session_log = project_inline_text(&format!("{:?}", arguments.session));
     let run_log = project_inline_text(&format!("{:?}", arguments.run));
     let sql_log = project_inline_text(&format!("{:?}", arguments.sql));
-    let mut log = match OperationLog::create_query(&data_home, &operation_id, |file| {
-        writeln!(file, "operation: kat query\nrun: {run_log}\nsql: {sql_log}")
+    let log = match OperationLog::create_query(&data_home, &operation_id, |file| {
+        writeln!(
+            file,
+            "operation: kat query\nsession: {session_log}\nrun: {run_log}\nsql: {sql_log}"
+        )
     }) {
         Ok(log) => log,
         Err(error) => return log_failure(error),
     };
+    let opened = match SessionStore::new(&data_home).open(&arguments.session) {
+        Ok(opened) => opened,
+        Err(error) => return finish_failure(log, QueryOperationError::SessionStore(error)),
+    };
+    let prepared = execute_opened_query(arguments, &data_home, &opened, log, &operation_id);
+    response::retain_session_lease(prepared, opened.into_lease())
+}
+
+fn execute_opened_query(
+    arguments: QueryArgs,
+    data_home: &Path,
+    opened: &OpenedSession,
+    mut log: OperationLog,
+    operation_id: &str,
+) -> response::PreparedResponse<QueryResult> {
     if let Err(source) = locate_skill_root() {
         return finish_failure(log, QueryOperationError::SkillRoot(source));
     }
-    let (run_path, manifest) = match read_run_manifest(&data_home, &arguments.run) {
-        Ok(value) => value,
-        Err(error) => return finish_failure(log, error),
+    let published = match run_manifest::resolve(opened.layout(), &arguments.run) {
+        Ok(published) => published,
+        Err(error) => return finish_failure(log, QueryOperationError::PublishedRun(error)),
     };
-    let outputs = match resolve_outputs(&run_path, &manifest) {
-        Ok(outputs) => outputs,
-        Err(error) => return finish_failure(log, error),
-    };
+    let outputs = published.output_paths;
     let output_names = outputs.keys().cloned().collect::<Vec<_>>();
     let outputs_log = match serde_json::to_string(&output_names) {
         Ok(value) => value,
@@ -92,13 +89,10 @@ pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryR
             return finish_failure(log, QueryOperationError::EncodeLogEvidence(source));
         }
     };
-    let run_path_log = project_inline_text(&format!("{run_path:?}"));
-    if let Err(error) =
-        log.append(format!("run_path: {run_path_log}\noutputs: {outputs_log}\n").as_bytes())
-    {
+    if let Err(error) = log.append(format!("outputs: {outputs_log}\n").as_bytes()) {
         return log_failure(error);
     }
-    let result_path = match allocate_result_candidate(&data_home, &operation_id) {
+    let result_path = match allocate_result_candidate(data_home, operation_id) {
         Ok(path) => path,
         Err(error) => return finish_failure(log, error),
     };
@@ -158,132 +152,6 @@ pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryR
         }
         Err(error) => log_failure(error),
     }
-}
-
-fn read_run_manifest(
-    data_home: &Path,
-    run_id: &str,
-) -> Result<(PathBuf, QueryRunManifest), QueryOperationError> {
-    uuid::Uuid::parse_str(run_id)
-        .ok()
-        .filter(|identity| identity.get_version_num() == 7 && identity.to_string() == run_id)
-        .ok_or_else(|| QueryOperationError::RunNotFound {
-            run_id: diagnostic_safe_argument(run_id),
-        })?;
-    let runs = data_home.join("runs");
-    let candidate = runs.join(run_id);
-    let manifest_path = candidate.join("manifest.json");
-    if !manifest_path.is_file() {
-        return Err(QueryOperationError::RunNotFound {
-            run_id: run_id.to_owned(),
-        });
-    }
-    if manifest_path.is_symlink() {
-        return Err(QueryOperationError::InvalidRunLayout);
-    }
-    let run_path = dunce::canonicalize(&candidate).map_err(QueryOperationError::CorruptRunPath)?;
-    let runs_path = dunce::canonicalize(&runs).map_err(QueryOperationError::CorruptRunPath)?;
-    if run_path.parent() != Some(runs_path.as_path())
-        || run_path.file_name().and_then(|name| name.to_str()) != Some(run_id)
-        || !run_path.is_dir()
-    {
-        return Err(QueryOperationError::InvalidRunLayout);
-    }
-    let bytes =
-        fs::read(run_path.join("manifest.json")).map_err(QueryOperationError::ReadManifest)?;
-    let manifest: QueryRunManifest =
-        serde_json::from_slice(&bytes).map_err(QueryOperationError::DecodeManifest)?;
-    validate_run_manifest(&manifest, run_id)?;
-    Ok((run_path, manifest))
-}
-
-fn diagnostic_safe_argument(value: &str) -> String {
-    let mut rendered = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character.is_control() {
-            rendered.extend(character.escape_default());
-        } else {
-            rendered.push(character);
-        }
-    }
-    rendered
-}
-
-fn validate_run_manifest(
-    manifest: &QueryRunManifest,
-    run_id: &str,
-) -> Result<(), QueryOperationError> {
-    if manifest.run_id != run_id
-        || manifest.pack.trim().is_empty()
-        || manifest.workflow.trim().is_empty()
-        || manifest.outputs.is_empty()
-    {
-        return Err(QueryOperationError::InvalidManifestFacts);
-    }
-    for (name, output) in &manifest.outputs {
-        if !workflow_runtime::valid_output_name(name)
-            || output
-                .columns
-                .iter()
-                .any(|column| column.name.is_empty() || column.data_type.trim().is_empty())
-        {
-            return Err(QueryOperationError::InvalidManifestFacts);
-        }
-    }
-    if manifest.inputs.iter().any(|(name, value)| {
-        name.is_empty()
-            || !matches!(
-                value,
-                serde_json::Value::Null
-                    | serde_json::Value::Bool(_)
-                    | serde_json::Value::Number(_)
-                    | serde_json::Value::String(_)
-            )
-    }) {
-        return Err(QueryOperationError::InvalidManifestFacts);
-    }
-    Ok(())
-}
-
-fn resolve_outputs(
-    run_path: &Path,
-    manifest: &QueryRunManifest,
-) -> Result<BTreeMap<String, String>, QueryOperationError> {
-    let output_directory = run_path.join("outputs");
-    let metadata =
-        fs::symlink_metadata(&output_directory).map_err(QueryOperationError::CorruptRunPath)?;
-    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
-        return Err(QueryOperationError::InvalidRunLayout);
-    }
-    let output_directory =
-        dunce::canonicalize(&output_directory).map_err(QueryOperationError::CorruptRunPath)?;
-    if output_directory.parent() != Some(run_path)
-        || output_directory.file_name().and_then(|name| name.to_str()) != Some("outputs")
-    {
-        return Err(QueryOperationError::InvalidRunLayout);
-    }
-
-    let mut outputs = BTreeMap::new();
-    for name in manifest.outputs.keys() {
-        let candidate = output_directory.join(format!("{name}.parquet"));
-        let metadata =
-            fs::symlink_metadata(&candidate).map_err(QueryOperationError::CorruptRunPath)?;
-        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-            return Err(QueryOperationError::InvalidRunLayout);
-        }
-        let resolved =
-            dunce::canonicalize(&candidate).map_err(QueryOperationError::CorruptRunPath)?;
-        if resolved.parent() != Some(output_directory.as_path())
-            || resolved.file_name() != candidate.file_name()
-        {
-            return Err(QueryOperationError::InvalidRunLayout);
-        }
-        let Some(path) = resolved.to_str().map(str::to_owned) else {
-            return Err(QueryOperationError::NonUnicodeRunPath);
-        };
-        outputs.insert(name.clone(), path);
-    }
-    Ok(outputs)
 }
 
 fn allocate_result_candidate(
@@ -351,6 +219,12 @@ fn log_failure(error: OperationLogError) -> response::PreparedResponse<QueryResu
 
 #[derive(Debug, Error, Diagnostic)]
 enum QueryOperationError {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    SessionStore(#[from] SessionStoreError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    PublishedRun(#[from] run_manifest::PublishedRunError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
@@ -362,26 +236,6 @@ enum QueryOperationError {
         "Inspect the partial log if present, then provide writable storage and retry"
     ))]
     IncompleteOperationLog(#[source] OperationLogError),
-    #[error("Run {run_id} does not exist")]
-    #[diagnostic(help("Use the exact Run ID returned by a successful `kat run`"))]
-    RunNotFound { run_id: String },
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    CorruptRunPath(#[source] io::Error),
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    InvalidRunLayout,
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    ReadManifest(#[source] io::Error),
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    DecodeManifest(#[source] serde_json::Error),
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    InvalidManifestFacts,
-    #[error("Run path cannot be represented as native Unicode")]
-    NonUnicodeRunPath,
     #[error("Query Result storage is unavailable")]
     #[diagnostic(help("Provide writable local storage and retry the complete Query"))]
     AllocateResult(#[source] io::Error),

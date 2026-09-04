@@ -9,6 +9,54 @@ from kat.pack.datasources.ftrace import FtraceProvider
 from kat import dataprovider as dp
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
+_VERSION_METADATA_KEY = b"kat.materialization.version"
+_VERSION = b"text-ftrace-v1"
+_PAYLOAD_RELATIONS = (
+    "text_ftrace_event_sched_switch",
+    "text_ftrace_event_sched_wakeup",
+    "text_ftrace_event_sched_wakeup_new",
+    "text_ftrace_event_tracing_mark_write",
+    "text_ftrace_event_sched_blocked_reason",
+    "text_ftrace_event_mm_filemap_add_to_page_cache",
+    "text_ftrace_event_mm_filemap_delete_from_page_cache",
+    "text_ftrace_event_block_rq_issue",
+    "text_ftrace_event_block_rq_complete",
+    "text_ftrace_event_binder_transaction",
+    "text_ftrace_event_print",
+)
+_NULLABLE_FIELDS = {
+    "text_ftrace_event": frozenset({"emitter_process_id"}),
+    "text_ftrace_event_mm_filemap_add_to_page_cache": frozenset(
+        {"order", "page_address"}
+    ),
+    "text_ftrace_event_mm_filemap_delete_from_page_cache": frozenset(
+        {"order", "page_address"}
+    ),
+}
+
+
+def _write_relation(
+    root: Path,
+    name: str,
+    table: pa.Table,
+    *,
+    version: bytes | None = _VERSION,
+    nullable_fields: frozenset[str] | None = None,
+) -> None:
+    metadata = {} if version is None else {_VERSION_METADATA_KEY: version}
+    if nullable_fields is None:
+        nullable_fields = _NULLABLE_FIELDS.get(name, frozenset())
+    schema = pa.schema(
+        [
+            pa.field(field.name, field.type, field.name in nullable_fields)
+            for field in table.schema
+        ],
+        metadata=metadata,
+    )
+    pq.write_table(
+        pa.Table.from_arrays(table.columns, schema=schema),
+        root / f"{name}.parquet",
+    )
 
 
 def _write_catalog(
@@ -19,27 +67,32 @@ def _write_catalog(
     unsupported_event_names: tuple[str, ...] = (),
 ) -> None:
     root.mkdir()
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_header",
         pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
-        root / "text_ftrace_header.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_event_occurrence",
         pa.table(
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
                 "source_event_sequence": pa.array([0, 1, 3, 4], type=pa.uint64()),
             }
         ),
-        root / "text_ftrace_event_occurrence.parquet",
     )
     if unsupported_event_names:
-        pq.write_table(
+        _write_relation(
+            root,
+            "text_ftrace_unsupported_event",
             pa.table({"event_name": list(unsupported_event_names)}),
-            root / "text_ftrace_unsupported_event.parquet",
         )
     if not include_root:
         return
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_event",
         pa.table(
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
@@ -56,9 +109,10 @@ def _write_catalog(
                 "context_flags": ["d...."] * 4,
             }
         ),
-        root / "text_ftrace_event.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_event_sched_switch",
         pa.table(
             {
                 "_kat_row_id": pa.array([0], type=pa.uint64()),
@@ -72,19 +126,36 @@ def _write_catalog(
                 "next_priority": pa.array([100], type=pa.int32()),
             }
         ),
-        root / "text_ftrace_event_sched_switch.parquet",
     )
 
 
 def _write_unknown_only_catalog(root: Path) -> None:
     root.mkdir()
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_header",
         pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
-        root / "text_ftrace_header.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_unsupported_event",
         pa.table({"event_name": ["a_event", "z_event"]}),
-        root / "text_ftrace_unsupported_event.parquet",
+    )
+
+
+def _filemap_payload() -> pa.Table:
+    return pa.table(
+        {
+            "_kat_row_id": pa.array([0], type=pa.uint64()),
+            "_kat_parent_row_id": pa.array([0], type=pa.uint64()),
+            "device_major": pa.array([8], type=pa.uint32()),
+            "device_minor": pa.array([1], type=pa.uint32()),
+            "inode": pa.array([42], type=pa.uint64()),
+            "page_frame_number": pa.array([84], type=pa.uint64()),
+            "offset_bytes": pa.array([4096], type=pa.uint64()),
+            "order": pa.array([0], type=pa.uint32()),
+            "page_address": pa.array(["ffff0000"], type=pa.string()),
+        }
     )
 
 
@@ -98,14 +169,14 @@ def _arguments(workspace_root: Path, **overrides) -> dict[str, object]:
     return arguments
 
 
-def test_construction_decodes_to_workspace_root_plus_source_name(
+def test_construction_decodes_to_workspace_root_plus_source_stem(
     monkeypatch,
     tmp_path,
 ):
     def convert(source, catalog_root, clock_domain):
         assert source == _FIXTURE.resolve()
         assert clock_domain == "fixture_clock"
-        assert catalog_root == tmp_path / _FIXTURE.name
+        assert catalog_root == tmp_path / _FIXTURE.stem
         _write_catalog(catalog_root)
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
@@ -132,8 +203,8 @@ def test_construction_decodes_to_workspace_root_plus_source_name(
     ]
 
 
-def test_native_decoder_creates_and_reuses_the_file_name_catalog(tmp_path):
-    catalog_root = tmp_path / _FIXTURE.name
+def test_native_decoder_creates_and_reuses_the_source_stem_catalog(tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
     first = FtraceProvider(**_arguments(tmp_path))
     materialized_at = catalog_root.stat().st_mtime_ns
 
@@ -183,7 +254,7 @@ def test_existing_parquet_is_not_redecoded_when_validation_fails(monkeypatch, tm
         FtraceProvider(**_arguments(tmp_path))
 
     assert conversions == 1
-    assert (tmp_path / _FIXTURE.name).is_dir()
+    assert (tmp_path / _FIXTURE.stem).is_dir()
 
 
 def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_path):
@@ -200,10 +271,10 @@ def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_
     with pytest.raises(RuntimeError, match="query provider failed"):
         FtraceProvider(**_arguments(tmp_path))
 
-    assert (tmp_path / _FIXTURE.name).is_dir()
+    assert (tmp_path / _FIXTURE.stem).is_dir()
 
 
-def test_same_file_name_reuses_the_materialized_catalog(monkeypatch, tmp_path):
+def test_same_source_stem_reuses_the_materialized_catalog(monkeypatch, tmp_path):
     conversions = 0
 
     def convert(_source, catalog, _clock_domain):
@@ -223,7 +294,59 @@ def test_same_file_name_reuses_the_materialized_catalog(monkeypatch, tmp_path):
         ).to_rows() == [{"count": 4}]
 
 
-def test_same_name_in_different_source_directories_reuses_catalog(
+def test_published_source_stem_is_reused_after_the_source_is_removed(
+    monkeypatch, tmp_path
+):
+    source = tmp_path / "capture.ftrace"
+    source.write_text("first", encoding="utf-8")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    first = FtraceProvider(
+        **_arguments(workspace_root, source=source)
+    )
+    source.unlink()
+    second = FtraceProvider(
+        **_arguments(workspace_root, source=source)
+    )
+
+    assert conversions == 1
+    assert second.tables == first.tables
+
+
+def test_symlink_source_uses_the_lexical_source_stem(monkeypatch, tmp_path):
+    source = tmp_path / "physical.ftrace"
+    source.write_text("trace", encoding="utf-8")
+    link = tmp_path / "analysis-alias.trace"
+    try:
+        link.symlink_to(source)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation is unavailable: {error}")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    def convert(resolved_source, catalog, _clock_domain):
+        assert resolved_source == source.resolve()
+        assert catalog == workspace_root / link.stem
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    FtraceProvider(**_arguments(workspace_root, source=link))
+
+    assert (workspace_root / link.stem).is_dir()
+    assert not (workspace_root / source.stem).exists()
+
+
+def test_same_stem_in_different_source_directories_reuses_catalog(
     monkeypatch, tmp_path
 ):
     workspace_root = tmp_path / "workspace"
@@ -248,7 +371,7 @@ def test_same_name_in_different_source_directories_reuses_catalog(
     assert decoded_sources == [first_source.resolve()]
 
 
-def test_different_file_names_use_different_catalogs(monkeypatch, tmp_path):
+def test_different_source_stems_use_different_catalogs(monkeypatch, tmp_path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     first_source = tmp_path / "first.ftrace"
@@ -267,8 +390,8 @@ def test_different_file_names_use_different_catalogs(monkeypatch, tmp_path):
     FtraceProvider(**_arguments(workspace_root, source=second_source))
 
     assert catalogs == [
-        workspace_root / first_source.name,
-        workspace_root / second_source.name,
+        workspace_root / first_source.stem,
+        workspace_root / second_source.stem,
     ]
 
 
@@ -289,8 +412,8 @@ def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
     assert conversions == 1
 
 
-def test_empty_catalog_directory_is_decoded(monkeypatch, tmp_path):
-    catalog_root = tmp_path / _FIXTURE.name
+def test_existing_empty_catalog_is_rejected_without_decode(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
     catalog_root.mkdir()
     conversions = 0
 
@@ -301,14 +424,15 @@ def test_empty_catalog_directory_is_decoded(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
-    FtraceProvider(**_arguments(tmp_path))
+    with pytest.raises(ValueError, match="at least one relation"):
+        FtraceProvider(**_arguments(tmp_path))
 
-    assert conversions == 1
-    assert (catalog_root / "text_ftrace_header.parquet").is_file()
+    assert conversions == 0
+    assert catalog_root.is_dir()
 
 
 def test_nonempty_catalog_without_parquet_is_rejected(monkeypatch, tmp_path):
-    catalog_root = tmp_path / _FIXTURE.name
+    catalog_root = tmp_path / _FIXTURE.stem
     catalog_root.mkdir()
     marker = catalog_root / "keep.txt"
     marker.write_text("keep", encoding="utf-8")
@@ -318,7 +442,7 @@ def test_nonempty_catalog_without_parquet_is_rejected(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
-    with pytest.raises(RuntimeError, match="without Parquet must be empty"):
+    with pytest.raises(ValueError, match="at least one relation"):
         FtraceProvider(**_arguments(tmp_path))
 
     assert marker.read_text(encoding="utf-8") == "keep"
@@ -327,7 +451,7 @@ def test_nonempty_catalog_without_parquet_is_rejected(monkeypatch, tmp_path):
 def test_source_file_is_not_overwritten_when_it_matches_catalog_path(
     monkeypatch, tmp_path
 ):
-    source = tmp_path / "trace.ftrace"
+    source = tmp_path / "trace"
     source.write_text("trace", encoding="utf-8")
 
     def convert(*_arguments):
@@ -335,7 +459,7 @@ def test_source_file_is_not_overwritten_when_it_matches_catalog_path(
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
-    with pytest.raises(RuntimeError, match="directory or absent"):
+    with pytest.raises(ValueError, match="root must be an existing ordinary directory"):
         FtraceProvider(**_arguments(tmp_path, source=source))
 
     assert source.read_text(encoding="utf-8") == "trace"
@@ -361,6 +485,218 @@ def test_unknown_only_catalog_is_queryable_and_preserves_the_decode_report(
     assert first.query(
         "SELECT tracer, has_tgid_column FROM text_ftrace_header"
     ).to_rows() == [{"tracer": "nop", "has_tgid_column": True}]
+
+
+def test_header_only_catalog_is_rejected_without_decode(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    catalog_root.mkdir()
+    _write_relation(
+        catalog_root,
+        "text_ftrace_header",
+        pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
+    )
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="without event relations"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert tuple(path.name for path in catalog_root.iterdir()) == (
+        "text_ftrace_header.parquet",
+    )
+
+
+def test_publish_race_opens_and_validates_the_winning_catalog(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+
+    def lose_publish_race(_source, catalog, _clock_domain):
+        assert catalog == catalog_root
+        _write_catalog(catalog)
+        raise provider_module.text_ftrace.DecodeError("destination already exists")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", lose_publish_race)
+
+    provider = FtraceProvider(**_arguments(tmp_path))
+
+    assert provider.query(
+        "SELECT COUNT(*) AS count FROM text_ftrace_event"
+    ).to_rows() == [{"count": 4}]
+
+
+def test_existing_incompatible_columns_are_not_replaced(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    catalog_root.mkdir()
+    _write_relation(
+        catalog_root,
+        "text_ftrace_header",
+        pa.table({"wrong": ["nop"]}),
+    )
+    _write_relation(
+        catalog_root,
+        "text_ftrace_unsupported_event",
+        pa.table({"event_name": ["unknown_event"]}),
+    )
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="incompatible columns or types"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert (catalog_root / "text_ftrace_header.parquet").is_file()
+
+
+@pytest.mark.parametrize("relation", _PAYLOAD_RELATIONS)
+def test_each_incompatible_payload_schema_is_rejected_without_replace(
+    relation, monkeypatch, tmp_path
+):
+    catalog_root = tmp_path / _FIXTURE.stem
+    _write_catalog(catalog_root)
+    _write_relation(catalog_root, relation, pa.table({"wrong": ["payload"]}))
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="incompatible columns or types"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert (catalog_root / f"{relation}.parquet").is_file()
+
+
+def test_unknown_relation_is_rejected_without_replace(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    _write_catalog(catalog_root)
+    _write_relation(catalog_root, "text_ftrace_event_future", pa.table({"value": [1]}))
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="unknown relations.*future"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert (catalog_root / "text_ftrace_event_future.parquet").is_file()
+
+
+def test_payload_relation_requires_occurrence_and_event_core(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    catalog_root.mkdir()
+    _write_relation(
+        catalog_root,
+        "text_ftrace_header",
+        pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
+    )
+    _write_relation(
+        catalog_root,
+        "text_ftrace_event_sched_wakeup",
+        pa.table(
+            {
+                "_kat_row_id": pa.array([0], type=pa.uint64()),
+                "_kat_parent_row_id": pa.array([0], type=pa.uint64()),
+                "thread_name": ["worker"],
+                "thread_id": pa.array([7], type=pa.int32()),
+                "priority": pa.array([120], type=pa.int32()),
+                "target_cpu": pa.array([2], type=pa.uint32()),
+            }
+        ),
+    )
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="payload relations require both"):
+        FtraceProvider(**_arguments(tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("relation", "nullable_field"),
+    (
+        ("text_ftrace_event", "emitter_process_id"),
+        ("text_ftrace_event_mm_filemap_add_to_page_cache", "order"),
+        ("text_ftrace_event_mm_filemap_add_to_page_cache", "page_address"),
+        ("text_ftrace_event_mm_filemap_delete_from_page_cache", "order"),
+        ("text_ftrace_event_mm_filemap_delete_from_page_cache", "page_address"),
+    ),
+)
+def test_wrong_field_nullability_is_rejected_without_replace(
+    relation, nullable_field, monkeypatch, tmp_path
+):
+    catalog_root = tmp_path / _FIXTURE.stem
+    _write_catalog(catalog_root)
+    if relation == "text_ftrace_event":
+        table = pq.read_table(catalog_root / f"{relation}.parquet")
+    else:
+        table = _filemap_payload()
+    _write_relation(
+        catalog_root,
+        relation,
+        table,
+        nullable_fields=_NULLABLE_FIELDS[relation].difference({nullable_field}),
+    )
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="incompatible columns or types"):
+        FtraceProvider(**_arguments(tmp_path))
+
+
+@pytest.mark.parametrize("version", (None, b"text-ftrace-v2"))
+def test_same_schema_with_missing_or_wrong_version_is_rejected_without_replace(
+    version, monkeypatch, tmp_path
+):
+    catalog_root = tmp_path / _FIXTURE.stem
+    _write_catalog(catalog_root)
+    _write_relation(
+        catalog_root,
+        "text_ftrace_header",
+        pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
+        version=version,
+    )
+
+    def convert(*_arguments):
+        pytest.fail("an existing materialization must not be replaced")
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="materialization version"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    metadata = pq.read_schema(
+        catalog_root / "text_ftrace_header.parquet"
+    ).metadata or {}
+    assert metadata.get(_VERSION_METADATA_KEY) == version
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        Path("."),
+        Path("CON.ftrace"),
+        Path("trace..ftrace"),
+        Path("bad?.ftrace"),
+        Path("bad\x1f.ftrace"),
+    ),
+)
+def test_invalid_source_stems_are_rejected(source):
+    with pytest.raises(ValueError, match="invalid.*source stem"):
+        provider_module._source_stem(source)
+
+
+def test_source_stem_removes_only_the_last_suffix():
+    assert provider_module._source_stem(Path("capture.perf.ftrace")) == "capture.perf"
 
 
 @pytest.mark.parametrize("field", ("source", "workspace_root"))

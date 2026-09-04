@@ -10,7 +10,7 @@ KAT 是唯一面向用户的产品入口。用户用自然语言说明分析目�
 ## 能做什么
 
 - 分析问题：发现并选择 Workflow，按其分析策略执行和查询 Workflow Output。
-- 继续已有分析：读取 Run 对应的当前 Workflow 知识，并查询已有输出，不重新执行 Workflow。
+- 继续已有分析：用 Session ID 与 Run ID 读取当前 Workflow 知识并查询已有输出，或在同一 Session 中显式运行后续 Workflow。
 - 创作或维护 PACK：分别发现 Workflow 与 Provider 的公开知识，按已有能力实现、修改和测试 PACK。
 
 理解、检查、测试和解释失败默认只读。只有用户明确要求创建、修改或修复时才写入指定 PACK；无匹配 Workflow 不会自动切换为开发任务。

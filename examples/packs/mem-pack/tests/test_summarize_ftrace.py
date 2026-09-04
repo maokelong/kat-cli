@@ -5,29 +5,53 @@ import pyarrow.parquet as pq
 from kat.pack.datasources import ftrace as provider_module
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
+_VERSION_METADATA = {b"kat.materialization.version": b"text-ftrace-v1"}
+
+
+def _write_relation(root: Path, name: str, table: pa.Table) -> None:
+    nullable_fields = (
+        frozenset({"emitter_process_id"})
+        if name == "text_ftrace_event"
+        else frozenset()
+    )
+    schema = pa.schema(
+        [
+            pa.field(field.name, field.type, field.name in nullable_fields)
+            for field in table.schema
+        ],
+        metadata=_VERSION_METADATA,
+    )
+    pq.write_table(
+        pa.Table.from_arrays(table.columns, schema=schema),
+        root / f"{name}.parquet",
+    )
 
 
 def _write_summary_catalog(root: Path) -> None:
     root.mkdir()
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_header",
         pa.table(
             {
                 "tracer": ["nop"],
                 "has_tgid_column": [True],
             }
         ),
-        root / "text_ftrace_header.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_event_occurrence",
         pa.table(
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
                 "source_event_sequence": pa.array([0, 1, 3, 4], type=pa.uint64()),
             }
         ),
-        root / "text_ftrace_event_occurrence.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_event",
         pa.table(
             {
                 "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
@@ -41,50 +65,57 @@ def _write_summary_catalog(root: Path) -> None:
                 "context_flags": ["d...."] * 4,
             }
         ),
-        root / "text_ftrace_event.parquet",
     )
 
 
 def _write_unknown_summary_catalog(root: Path) -> None:
     root.mkdir()
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_header",
         pa.table(
             {
                 "tracer": ["nop"],
                 "has_tgid_column": [True],
             }
         ),
-        root / "text_ftrace_header.parquet",
     )
-    pq.write_table(
+    _write_relation(
+        root,
+        "text_ftrace_unsupported_event",
         pa.table({"event_name": ["custom_event"]}),
-        root / "text_ftrace_unsupported_event.parquet",
     )
 
 
-def test_workflow_publishes_an_eager_summary(kat_run, monkeypatch, tmp_path):
+def test_workflow_publishes_an_eager_summary(kat_run, monkeypatch):
+    conversions = 0
+
     def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
         _write_summary_catalog(catalog)
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
-    result = kat_run(
-        workflow="summarize-ftrace",
-        arguments=(
-            "--trace-path",
-            str(_FIXTURE),
-            "--clock-domain",
-            "fixture_clock",
-        ),
+    arguments = (
+        "--trace-path",
+        str(_FIXTURE),
+        "--clock-domain",
+        "fixture_clock",
     )
+    first = kat_run(workflow="summarize-ftrace", arguments=arguments)
+    second = kat_run(workflow="summarize-ftrace", arguments=arguments)
 
-    assert result["main"].to_pylist() == [
+    expected = [
         {
             "tracer": "nop",
             "supported_event_count": 4,
             "observed_cpu_count": 1,
         }
     ]
+    assert first["main"].to_pylist() == expected
+    assert second["main"].to_pylist() == expected
+    assert conversions == 1
 
 
 def test_workflow_reports_zero_supported_events(kat_run, monkeypatch):

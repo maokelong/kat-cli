@@ -12,6 +12,7 @@ use miette::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::session_store::SessionLease;
 use crate::text_projection::project_complete_text;
 
 pub(super) struct PreparedResponse<P> {
@@ -19,6 +20,7 @@ pub(super) struct PreparedResponse<P> {
     rendered_diagnostic: Option<RenderedDiagnostic>,
     exit_code: ExitCode,
     pending_file: Option<PendingResponseFile>,
+    session_lease: Option<SessionLease>,
 }
 
 pub(super) struct PendingResponseFile {
@@ -188,6 +190,7 @@ fn prepare_success_with_artifacts<P>(
         rendered_diagnostic: None,
         exit_code: ExitCode::SUCCESS,
         pending_file: None,
+        session_lease: None,
     }
 }
 
@@ -211,6 +214,7 @@ pub(super) fn prepare_cli_failure_with_log<P>(
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
         pending_file: None,
+        session_lease: None,
     }
 }
 
@@ -237,7 +241,16 @@ fn prepare_runtime_failure_with_artifacts<P>(
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
         pending_file: None,
+        session_lease: None,
     }
+}
+
+pub(super) fn retain_session_lease<P>(
+    mut prepared: PreparedResponse<P>,
+    lease: SessionLease,
+) -> PreparedResponse<P> {
+    prepared.session_lease = Some(lease);
+    prepared
 }
 
 pub(super) fn prepare_test_success<P>(
@@ -272,6 +285,7 @@ pub(super) fn prepare_test_cli_failure<P>(
         rendered_diagnostic: Some(rendered_diagnostic),
         exit_code: ExitCode::FAILURE,
         pending_file: None,
+        session_lease: None,
     }
 }
 
@@ -510,6 +524,7 @@ fn publish_to<P: Serialize>(
     if let Some(pending_file) = prepared.pending_file.take() {
         pending_file.retain();
     }
+    drop(prepared.session_lease.take());
     prepared.exit_code
 }
 
@@ -520,7 +535,11 @@ fn report_publisher_failure(stderr: &mut dyn Write, action: &str, error: &dyn st
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io, path::Path};
+    use std::{
+        fs::{self, File, OpenOptions},
+        io,
+        path::Path,
+    };
 
     use miette::{Diagnostic, NamedSource, SourceSpan, miette};
     use serde::Serializer;
@@ -533,6 +552,11 @@ mod tests {
     struct FlushFailingWriter;
 
     struct SerializationFailure;
+
+    struct LeaseFlushProbe {
+        file: File,
+        observed_shared_lease: bool,
+    }
 
     impl Serialize for SerializationFailure {
         fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
@@ -576,6 +600,31 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed output"))
+        }
+    }
+
+    impl Write for LeaseFlushProbe {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            match self.file.try_lock() {
+                Ok(()) => {
+                    self.file.unlock()?;
+                    Err(io::Error::other(
+                        "exclusive lock succeeded before Response flush completed",
+                    ))
+                }
+                Err(error) => {
+                    let error = io::Error::from(error);
+                    if error.kind() != io::ErrorKind::WouldBlock {
+                        return Err(error);
+                    }
+                    self.observed_shared_lease = true;
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -623,6 +672,36 @@ mod tests {
             ExitCode::SUCCESS
         );
         assert!(success.is_file());
+    }
+
+    #[test]
+    fn session_lease_is_retained_through_response_flush() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("session.lock");
+        let shared = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let lease = SessionLease::try_shared(shared).unwrap();
+        let mut stdout = LeaseFlushProbe {
+            file: OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap(),
+            observed_shared_lease: false,
+        };
+        let prepared = retain_session_lease(prepare_success(vec!["value"]), lease);
+
+        assert_eq!(
+            publish_to(prepared, &mut stdout, &mut Vec::new()),
+            ExitCode::SUCCESS
+        );
+        assert!(stdout.observed_shared_lease);
+        stdout.file.try_lock().unwrap();
+        stdout.file.unlock().unwrap();
     }
 
     #[test]

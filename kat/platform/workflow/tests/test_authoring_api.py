@@ -321,34 +321,50 @@ class AuthoringApiTest(unittest.TestCase):
             with self.subTest(dataprovider_name=name):
                 self.assertFalse(hasattr(kat.dataprovider, name))
 
-    def test_context_documents_and_types_the_datasource_root(self) -> None:
+    def test_context_documents_and_types_the_execution_roots(self) -> None:
         self.assertFalse(hasattr(kat.Context, "provider"))
-        self.assertIsInstance(kat.Context.datasource_root, property)
-        self.assertIsNone(kat.Context.datasource_root.fset)
-        datasource_root_getter = kat.Context.datasource_root.fget
-        self.assertIsNotNone(datasource_root_getter)
-        assert datasource_root_getter is not None
-        datasource_root_signature = inspect.signature(datasource_root_getter)
-        self.assertEqual(tuple(datasource_root_signature.parameters), ("self",))
-        self.assertEqual(datasource_root_signature.return_annotation, "Path")
+        self.assertFalse(hasattr(kat.Context, "session_id"))
+        self.assertFalse(hasattr(kat.Context, "session_root"))
+        for name in ("datasource_root", "scratch_root"):
+            with self.subTest(root=name):
+                root_property = getattr(kat.Context, name)
+                self.assertIsInstance(root_property, property)
+                self.assertIsNone(root_property.fset)
+                root_getter = root_property.fget
+                self.assertIsNotNone(root_getter)
+                assert root_getter is not None
+                signature = inspect.signature(root_getter)
+                self.assertEqual(tuple(signature.parameters), ("self",))
+                self.assertEqual(signature.return_annotation, "Path")
 
-        datasource_root_documentation = " ".join(
+        datasource_documentation = " ".join(
             (inspect.getdoc(kat.Context.datasource_root) or "").split()
         )
         for boundary in (
-            "PACK's private Datasource storage root",
-            "KAT_DATA_HOME/datasources/<pack-name>/",
-            "isolated to the current pytest test",
+            "current Analysis Session",
+            "shared Datasource materialization",
+            "across PACKs",
             "valid only for this Workflow execution",
-            "without a stable source identity",
-            "temporary per-Workflow workspace",
-            "stable source identity",
-            "deterministically rebuildable",
-            "validating existing contents",
-            "discardable cache",
+            "ordinary Path",
+            "not a filesystem sandbox",
         ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, datasource_root_documentation)
+            with self.subTest(datasource_boundary=boundary):
+                self.assertIn(boundary, datasource_documentation)
+
+        scratch_documentation = " ".join(
+            (inspect.getdoc(kat.Context.scratch_root) or "").split()
+        )
+        for boundary in (
+            "current candidate execution",
+            "temporary",
+            "cleaned when execution ends",
+            "must not be reused by later Workflows",
+            "valid only for this Workflow execution",
+            "ordinary Path",
+            "not a filesystem sandbox",
+        ):
+            with self.subTest(scratch_boundary=boundary):
+                self.assertIn(boundary, scratch_documentation)
 
     def test_context_documents_and_types_the_authoring_contract(self) -> None:
         self.assertFalse(hasattr(kat.Context, "sql"))

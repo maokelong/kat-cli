@@ -14,16 +14,29 @@ class Context:
 
     @property
     def datasource_root(self) -> Path:
-        """Return this PACK's private Datasource storage root.
+        """Return the shared Datasource materialization root for the current
+        Analysis Session.
 
-        Production executions receive
-        ``KAT_DATA_HOME/datasources/<pack-name>/``. PACK tests receive a root
-        isolated to the current pytest test. The path capability is valid only
-        for this Workflow execution. File Providers without a stable source
-        identity should create a temporary per-Workflow workspace below it. A
-        Provider with a stable source identity and deterministically rebuildable
-        results may reuse a private internal directory after validating existing
-        contents; those contents remain discardable cache, not KAT state.
+        Workflows in the same Session may reuse complete materializations by an
+        explicitly agreed source name, including across PACKs. A Provider must
+        validate a reused materialization against its own data contract and must
+        not replace an already published materialization in place.
+
+        This ordinary Path capability is valid only for this Workflow execution.
+        It narrows the normal authoring interface but is not a filesystem sandbox.
+        """
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    @property
+    def scratch_root(self) -> Path:
+        """Return the temporary root for the current candidate execution.
+
+        Use it only for discardable intermediate files. KAT ensures it is
+        cleaned when execution ends, and its contents must not be reused by
+        later Workflows.
+
+        This ordinary Path capability is valid only for this Workflow execution.
+        It narrows the normal authoring interface but is not a filesystem sandbox.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 

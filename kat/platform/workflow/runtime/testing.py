@@ -60,15 +60,18 @@ class KatPytestPlugin:
     @pytest.fixture
     def kat_run(self, tmp_path: Path, request: pytest.FixtureRequest) -> Callable[..., dict[str, pa.Table]]:
         self._temporary_roots[request.node.nodeid] = tmp_path
+        session_root = tmp_path / "session"
+        datasource_root = session_root / "materializations"
+        scratch_parent = session_root / "scratch"
+        runs_root = session_root / "runs"
+        for root in (datasource_root, scratch_parent, runs_root):
+            root.mkdir(parents=True)
 
         def run(
             *,
             workflow: str,
             arguments: Sequence[str] = (),
         ) -> dict[str, pa.Table]:
-            candidate_id = str(uuid.uuid4())
-            run_path = tmp_path / candidate_id
-            run_path.mkdir()
             try:
                 try:
                     selected_workflow = self._workflows[workflow]
@@ -76,6 +79,11 @@ class KatPytestPlugin:
                     raise WorkflowExecutionFailure() from ValueError(
                         f"Workflow {workflow!r} was not found in the selected PACK"
                     )
+                candidate_id = str(uuid.uuid7())
+                run_path = runs_root / candidate_id
+                run_path.mkdir()
+                scratch_root = scratch_parent / candidate_id
+                scratch_root.mkdir()
                 result = run_loaded_workflow(
                     selected_workflow,
                     pack_name=self._pack_name,
@@ -85,9 +93,8 @@ class KatPytestPlugin:
                         identifier=candidate_id,
                         path=run_path.resolve(strict=True),
                     ),
-                    datasource_root=(
-                        tmp_path / "datasources" / self._pack_name
-                    ).resolve(strict=False),
+                    datasource_root=datasource_root.resolve(strict=True),
+                    scratch_root=scratch_root.resolve(strict=True),
                 )
             # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
             # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。

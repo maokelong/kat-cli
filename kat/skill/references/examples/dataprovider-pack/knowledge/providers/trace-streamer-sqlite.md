@@ -9,6 +9,8 @@ Htrace 文件 -> trace_streamer <source> -e <workspace>/trace.db -> SQLite
 
 调用不经过 shell。Provider 只在进程成功、输出是普通文件、SQLite `quick_check` 通过且
 至少存在一张业务 table/view 后进入 ready 状态；失败会清理自己独占的 workspace。
+reference Workflow 把该一次性 workspace 放在当前候选执行的 `ctx.scratch_root`，它在执行
+结束后清理，不属于可供后续 Workflow 复用的 Session materialization。
 可执行文件路径属于部署配置，本示例 Workflow 从 `KAT_TRACE_STREAMER_EXECUTABLE` 读取，
 不把它当作可能进入日志的业务参数。
 

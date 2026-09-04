@@ -12,7 +12,10 @@ mod support;
 use native_hook_fixture::{
     full_native_hook_batches, full_native_hook_config, full_native_hook_relation_names,
 };
-use support::{Relation, assert_no_staging, profiler_section};
+use support::{
+    Relation, assert_all_relations_have_materialization_version, assert_no_staging,
+    profiler_section,
+};
 
 #[allow(dead_code)]
 mod proto {
@@ -66,6 +69,7 @@ fn decode_publishes_native_hook_descriptor_and_clock_relations_flat() {
                 .extension()
                 .is_some_and(|extension| extension == "parquet"))
     );
+    assert_all_relations_have_materialization_version(&destination, "hitrace-v1");
 
     let occurrences = Relation::open(&destination, "profiler_payload_occurrence");
     assert_eq!(

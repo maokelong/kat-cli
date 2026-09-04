@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::proto::ftrace2parquet::{FilemapPageCache, TextFtraceEvent, text_ftrace_event::Payload};
 use crate::relation_writer::RelationWriter;
 
-use super::{header::FtraceHeader, writer::TableWriter};
+use super::{MATERIALIZATION_VERSION, header::FtraceHeader, writer::TableWriter};
 
 #[derive(Serialize, Deserialize)]
 struct OccurrenceRow {
@@ -172,7 +172,7 @@ pub(crate) struct OutputTables {
 impl OutputTables {
     pub(crate) fn new(directory: &Path) -> Self {
         Self {
-            relations: RelationWriter::new(directory),
+            relations: RelationWriter::new(directory, MATERIALIZATION_VERSION),
             occurrence: None,
             root: None,
             sched_switch: None,

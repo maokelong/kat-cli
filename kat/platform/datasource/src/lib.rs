@@ -1,5 +1,6 @@
 //! Source decoders backing the private Datasource Python native extension.
 
+mod directory_publish;
 mod formats;
 mod hitrace_decode;
 mod mmap;

@@ -5,7 +5,8 @@
 每次先确认一个要回答的问题，以及以下一种起点：
 
 - 新分析：用户提供要分析的 Source、路径或其他业务输入；它如何进入系统由选中的 Workflow 与 Provider 决定，Agent 不预设统一中间数据模型。
-- 已有 Run：用户提供 Run ID。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；只有 Run ID 时，后续通过 Output Query 的 `information_schema` 发现实际 relation 与 columns。
+- 已有 Session：用户提供 Session ID 时，用 `kat inspect session --session <Session ID>` 查看已发布 Run inventory，再选择相关 Run 或继续同一次分析。
+- 已有 Run：用户提供 Session ID 与 Run ID。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；只有双 ID 时，后续通过 Output Query 的 `information_schema` 发现实际 relation 与 columns。
 
 缺少问题时只询问要回答什么。不要猜表名、读取 Run 内部文件，或为追问重新执行 Workflow。
 
@@ -21,19 +22,19 @@
 
 唯一明确匹配时继续。候选会导向实质不同结论时，只提出一个最小必要澄清问题并说明差异。没有匹配时以受阻状态交付已发现的能力边界；可以建议新建或扩展 PACK，但未经用户明确授权不得修改源码或切换到作者流程。
 
-已有 Run 已经选定 Workflow，不重新做全局能力筛选。调用 `kat inspect workflow --run <Run ID>` 取得当前 PACK 中该 Workflow 的 detail 和分析 guide。guide 不是 Run 快照；如果 PACK 已更新，应把它表述为当前分析策略，不声称它就是历史执行时的版本。
+已有 Run 已经选定 Workflow，不重新做全局能力筛选。调用 `kat inspect workflow --session <Session ID> --run <Run ID>` 取得当前 PACK 中该 Workflow 的 detail 和分析 guide。guide 不是 Run 快照；如果 PACK 已更新，应把它表述为当前分析策略，不声称它就是历史执行时的版本。
 
 任一 inspection 失败时停止该分支，按 KAT Response 的 Diagnostic 交付，不通过扫描 PACK 源码、导入 Provider 或静态能力清单绕过失败。
 
 ## 3. 执行选中的 Workflow
 
-新分析按 detail 的 `parameters` 构造 `kat run` 请求。Workflow 自己显式选择和调用 Provider；分析 Agent 不 inspect Provider，也不依赖 Provider guide。
+新分析按 detail 的 `parameters` 构造 `kat run` 请求。省略 `--session` 会建立新 Session；后续操作只有在用户目标属于同一次分析时，才显式用先前成功 Response 的 `session_id` 调用 `kat run --session ...`。不存在隐式 current/last Session，也不要把 Run Output 自动作为后续 Workflow 输入。Workflow 自己显式选择和调用 Provider；分析 Agent 不 inspect Provider，也不依赖 Provider guide。
 
-只有 Run Response 的 `status="success"` 时，才保留 `run_id`、输出名称、columns 与 `row_count`。它们是查询阶段的执行事实。失败时没有可发布 Run；不要把候选目录、日志或部分输出当作结果。
+只有 Run Response 的 `status="success"` 时，才同时保留 `session_id`、`run_id`、输出名称、columns 与 `row_count`。它们是查询和继续分析阶段的执行事实。失败时没有可发布身份；不要把候选目录、日志或部分输出当作结果。
 
 ## 4. 查询最少证据
 
-只使用 `kat query --run ... --sql ...` 查询 Workflow 输出。已有 `kat run` 的 `result.outputs` 时直接使用其中名称与 columns；只有 Run ID 时，先查询 `information_schema.tables` 与 `information_schema.columns`，取得实际 `output.*` relation 与列，再形成证据 SQL。不要把 Workflow guide 当作 Output Schema。
+只使用 `kat query --session ... --run ... --sql ...` 查询 Workflow 输出。已有 `kat run` 的 `result.outputs` 时直接使用其中名称与 columns；只有双 ID 时，先查询 `information_schema.tables` 与 `information_schema.columns`，取得实际 `output.*` relation 与列，再形成证据 SQL。不要把 Workflow guide 当作 Output Schema。
 
 先选择投影、过滤、聚合和排序；明细查询显式使用 `LIMIT`。KAT 不自动添加固定行数、字节数或超时限制，Agent 和用户负责查询规模、等待时间与本机资源消耗。Query 成功 Response 恰以 `result.format="ndjson"`、`result.path` 和 `result.columns` 描述结果；只读取该 Response 给出的 NDJSON 文件，并从其中保留回答当前问题所需的对象行作为证据。执行失败时根据 Diagnostic 修正或缩小 SQL，不读取 Run 文件、猜测结果路径或把失败包装成部分成功。
 
