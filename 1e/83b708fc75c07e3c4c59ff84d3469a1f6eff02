@@ -1,0 +1,138 @@
+kat/platform/cli/src/workflow_runtime.rs
+  s_2e4ee2c01499f3::t_5f37bd462e0b55 27-28,33-34,45-47,61-63,156,163-173,314,319-335,350-356,424,430-436,519,672-711,716,719-720,725-727,729,736,739,760-762,767,773,776,787,794,821,823-824,828,841-844,856,858-859,875-877,901-918,920-923,925-940,983,1528,1615,1622,1631,1641-1645,1649,1653,1670,1703,1743,1777,1796,1824,1861,1867
+kat/platform/cli/src/run/nested.rs
+  s_2e4ee2c01499f3::t_a479e75552228d 13
+  s_2e4ee2c01499f3::t_418caa316aa980 17-18,22,51,57,69,76,90,93-96,109,111,113-116,118-131,142,160,166,194-200,222-230,241,247,250,252-253,255,266,273-274,276,293-301,303,305-312,318,320-323,325,328-330,332-335,337-345,349-350,352-354,358,364-372,376,380-381,428-429,544
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_2e4ee2c01499f3::t_7260bbc526d13c 309,312,316,331,334,346,354,384-393,397,402
+  s_2e4ee2c01499f3::t_8890d5a453a6cb 514-529
+kat/platform/workflow/runtime/testing.py
+  s_2e4ee2c01499f3::t_b3455aed6d3049 17-18,21,75-76,78,127
+examples/packs/workflow-composition/knowledge/workflows/facts.md
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-5
+examples/packs/workflow-composition/knowledge/workflows/summarize.md
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-5
+kat/platform/workflow/tests/test_runtime_process.py
+  s_2e4ee2c01499f3::t_e214318f8933f0 1203
+kat/platform/cli/tests/run.rs
+  s_2e4ee2c01499f3::t_5c52a0b193fa0e 100-102,104-106,108-110
+  s_2e4ee2c01499f3::t_2f7b03d25e3547 171,520-523,742,781,797,800-801,1653
+  s_2e4ee2c01499f3::t_6a94414f903a04 1654-1713,1763-1860
+examples/packs/workflow-composition/pack.toml
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-4
+examples/packs/workflow-composition/knowledge/workflows/collect.md
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-7
+kat/skill/references/analysis-flow.md
+  s_2e4ee2c01499f3::t_6e95b4021af72a 47
+kat/skill/references/examples/dataprovider-pack/tests/trace_streamer/test_trace_streamer_summary.py
+  s_2e4ee2c01499f3::t_4defcb89f79713 4,6-7,32-40,42
+kat/platform/workflow/runtime/request.py
+  s_2e4ee2c01499f3::t_174f596b5b0304 90,163,175-182,204,206,209,212
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_2e4ee2c01499f3::t_fe553ff70aa8da 95
+kat/platform/cli/src/run_manifest.rs
+  s_2e4ee2c01499f3::t_81ffdc7d717c07 476,500,531-534
+  s_2e4ee2c01499f3::t_abd85e38d0244e 3,251-252
+kat/platform/workflow/tests/test_nested_rpc.py
+  s_2e4ee2c01499f3::t_d7b95c3234c5b2 252,255-256,259-267,270,272-280
+kat/platform/workflow/runtime/__main__.py
+  s_2e4ee2c01499f3::t_61afff8592e712 10,164
+kat/skill/references/examples/dataprovider-pack/tests/postgresql/test_postgresql_provider.py
+  s_2e4ee2c01499f3::t_0f56e8559236ad 184,199-205
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_2e4ee2c01499f3::t_a2bedee825b4b0 139-141
+  s_2e4ee2c01499f3::t_b0d95817ff856e 138
+kat/platform/cli/src/run.rs
+  s_2e4ee2c01499f3::t_db480d5f86981e 25,181,183-194
+kat/platform/cli/src/response.rs
+  s_2e4ee2c01499f3::t_c4c9fe413ea7f4 108-114
+examples/packs/workflow-composition/workflows/collect.py
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-12
+examples/packs/workflow-composition/tests/test_composition.py
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-7
+docs/adr/0080-workflows-may-publish-no-outputs.md
+  s_2e4ee2c01499f3::t_3b7e8c48fa6f10 1-15
+kat/platform/workflow/runtime/pack.py
+  s_2e4ee2c01499f3::t_32ad5153ce6bab 214-215
+examples/packs/workflow-composition/README.md
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-24
+kat/platform/workflow/tests/test_dataprovider_parquet.py
+  s_2e4ee2c01499f3::t_6b89ebdce8e3d4 326-333,335
+examples/packs/workflow-composition/workflows/facts.py
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-13
+kat/platform/workflow/tests/test_testing_process.py
+  s_2e4ee2c01499f3::t_2d7c47e062ac0f 190,206,232,235,243,257-259,262
+  s_2e4ee2c01499f3::t_ba755ab2ddde8f 622,706,708,710,712,714-715,717-719
+  s_2e4ee2c01499f3::t_67a68d608ab4b4 303-305,416-418,423,437,439-440,444,446-453,456-466,469-470
+kat/platform/workflow/tests/_test_control_peer.py
+  s_2e4ee2c01499f3::t_2a7b79932f7a32 172-182,191-193,195-196,198,201-220,223
+  s_2e4ee2c01499f3::t_8a38785d96f0ff 5-10,43,138-163,168-169,171
+examples/packs/workflow-composition/workflows/summarize.py
+  s_2e4ee2c01499f3::t_1e96f3679d7ac0 1-14
+kat/platform/cli/tests/test.rs
+  s_2e4ee2c01499f3::t_b0a2e81c998a08 484,527-538,569,659,662,664-668,670-673,675-676,678-680
+build/fixtures/verify_workflow_pack_tests.py
+  s_2e4ee2c01499f3::t_f1369e94cfd242 1-46
+kat/platform/workflow/tests/test_skill_reference_pack_process.py
+  s_2e4ee2c01499f3::t_ffb7402f75f7ef 68
+.github/workflows/payload-ci.yml
+  s_2e4ee2c01499f3::t_a5e45e12bb95c1 189-192,283-287
+CONTEXT.md
+  s_2e4ee2c01499f3::t_d2bf3e2692f8c4 51,78,108,150,156
+kat/skill/references/pack-authoring-flow.md
+  s_2e4ee2c01499f3::t_54f7a03be97a7d 66,103,111,117,120-122
+kat/platform/cli/src/run/execution.rs
+  s_2e4ee2c01499f3::t_ff856358818c3d 134-178
+  s_2e4ee2c01499f3::t_c067c2ee752e93 1-19
+  s_2e4ee2c01499f3::t_6e8ba899a51af9 20-133
+docs/adr/0079-one-run-execution-and-publication-core.md
+  s_2e4ee2c01499f3::t_3b7e8c48fa6f10 1-25
+kat/platform/workflow/runtime/rpc.py
+  s_2e4ee2c01499f3::t_30fe586837a167 324-325
+  s_2e4ee2c01499f3::t_57e51258a291db 347
+  s_2e4ee2c01499f3::t_512bd7f0672290 67-79,115,117
+kat/platform/workflow/api/dataprovider/_parquet.py
+  s_2e4ee2c01499f3::t_caff5c465db6a6 61
+kat/platform/workflow/tests/test_execution_process.py
+  s_2e4ee2c01499f3::t_ed12107ffcaba7 689-693,747,760
+  s_2e4ee2c01499f3::t_03c18e84d23bbf 102
+  s_2e4ee2c01499f3::t_e50705821b5e06 206-220,229,232
+.github/workflows/full-ci.yml
+  s_2e4ee2c01499f3::t_78d79e18f11a86 107
+kat/platform/workflow/runtime/outputs.py
+  s_2e4ee2c01499f3::t_c373aefeb61ba8 60
+  s_2e4ee2c01499f3::t_3734cb47ee42b1 48-49,56
+kat/platform/cli/Cargo.toml
+  s_2e4ee2c01499f3::t_f8f8f5930c7cc3 24-25
+kat/platform/cli/src/test.rs
+  s_2e4ee2c01499f3::t_963a95bdd7ce12 124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1e83b708fc75c07e3c4c59ff84d3469a1f6eff02",
+  "prompts": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1227,
+      "total_deletions": 2099,
+      "accepted_lines": 1219,
+      "overriden_lines": 8
+    }
+  },
+  "sessions": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
