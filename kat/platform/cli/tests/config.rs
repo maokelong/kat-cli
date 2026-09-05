@@ -6,6 +6,8 @@ use std::{
 
 use serde_json::Value;
 
+#[path = "support/process.rs"]
+mod process;
 #[allow(dead_code)]
 mod support;
 #[path = "support/test_home.rs"]
@@ -32,7 +34,7 @@ fn probe(binary: &Path, root: &Path, target: &Path, environment_home: Option<&Pa
             command.env_remove("KAT_DATA_HOME");
         }
     }
-    let output = command.output().unwrap();
+    let output = process::output(&mut command).unwrap();
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -126,10 +128,7 @@ fn valid_environment_data_home_does_not_hide_invalid_platform_configuration() {
     fs::write(configuration_path(temporary.path()), "{ not valid json").unwrap();
 
     let mut output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()));
-    let output = output
-        .env("KAT_DATA_HOME", environment_home)
-        .output()
-        .unwrap();
+    let output = process::output(output.env("KAT_DATA_HOME", environment_home)).unwrap();
     assert_invalid_configuration(output);
 }
 
@@ -150,10 +149,11 @@ fn valid_environment_data_home_does_not_hide_invalid_configuration_value_types()
             serde_json::json!({ "kat_data_home": invalid_value }),
         );
 
-        let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-            .env("KAT_DATA_HOME", environment_home)
-            .output()
-            .unwrap();
+        let output = process::output(
+            probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
+                .env("KAT_DATA_HOME", environment_home),
+        )
+        .unwrap();
         assert_invalid_configuration(output);
     }
 }
@@ -171,10 +171,11 @@ fn valid_environment_data_home_does_not_hide_invalid_configuration_encoding() {
     )
     .unwrap();
 
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .env("KAT_DATA_HOME", environment_home)
-        .output()
-        .unwrap();
+    let output = process::output(
+        probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
+            .env("KAT_DATA_HOME", environment_home),
+    )
+    .unwrap();
     assert_invalid_configuration(output);
 }
 
@@ -201,10 +202,9 @@ fn platform_configuration_is_used_when_environment_variable_is_empty_or_missing(
         )
     );
 
-    let output = probe_command(&binary, temporary.path(), &source)
-        .env("KAT_DATA_HOME", "")
-        .output()
-        .unwrap();
+    let output =
+        process::output(probe_command(&binary, temporary.path(), &source).env("KAT_DATA_HOME", ""))
+            .unwrap();
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -260,9 +260,12 @@ fn dangling_platform_configuration_link_is_invalid_instead_of_missing() {
     fs::create_dir_all(configuration.parent().unwrap()).unwrap();
     symlink(temporary.path().join("missing-config.json"), &configuration).unwrap();
 
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .output()
-        .unwrap();
+    let output = process::output(&mut probe_command(
+        &binary,
+        temporary.path(),
+        &probe_target(temporary.path()),
+    ))
+    .unwrap();
     assert_unreadable_configuration(output);
 }
 
@@ -310,9 +313,12 @@ fn invalid_platform_configuration_fails_when_environment_variable_is_missing() {
         serde_json::json!({ "kat_data_home": "relative" }),
     );
 
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .output()
-        .unwrap();
+    let output = process::output(&mut probe_command(
+        &binary,
+        temporary.path(),
+        &probe_target(temporary.path()),
+    ))
+    .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -332,9 +338,12 @@ fn non_string_platform_configuration_fails_when_environment_variable_is_missing(
         serde_json::json!({ "kat_data_home": null }),
     );
 
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .output()
-        .unwrap();
+    let output = process::output(&mut probe_command(
+        &binary,
+        temporary.path(),
+        &probe_target(temporary.path()),
+    ))
+    .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -356,10 +365,11 @@ fn invalid_kat_data_home_environment_variable_fails_before_platform_configuratio
         serde_json::json!({ "kat_data_home": configured_home }),
     );
 
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .env("KAT_DATA_HOME", "relative")
-        .output()
-        .unwrap();
+    let output = process::output(
+        probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
+            .env("KAT_DATA_HOME", "relative"),
+    )
+    .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -377,10 +387,11 @@ fn non_unicode_kat_data_home_environment_variable_is_invalid() {
 
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");
-    let output = probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
-        .env("KAT_DATA_HOME", OsString::from_vec(vec![0xff]))
-        .output()
-        .unwrap();
+    let output = process::output(
+        probe_command(&binary, temporary.path(), &probe_target(temporary.path()))
+            .env("KAT_DATA_HOME", OsString::from_vec(vec![0xff])),
+    )
+    .unwrap();
     assert!(!output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -395,9 +406,7 @@ fn non_unicode_kat_data_home_environment_variable_is_invalid() {
 fn config_subcommand_is_not_available() {
     let temporary = tempfile::tempdir().unwrap();
     let (_, binary) = support::stage_skill(temporary.path(), "skill");
-    let output = command(&binary, temporary.path())
-        .args(["config", "--help"])
-        .output()
-        .unwrap();
+    let output =
+        process::output(command(&binary, temporary.path()).args(["config", "--help"])).unwrap();
     assert!(!output.status.success());
 }
