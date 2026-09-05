@@ -109,8 +109,11 @@ fn finish_execution<T>(
 ) -> Result<(T, OperationLog), RunFailure> {
     if let Err(error) = allocation.finish_scratch() {
         let detail = project_inline_text(&format!("{error:?}"));
-        log.append(format!("scratch_cleanup: failure\nerror: {detail}\n").as_bytes())
-            .map_err(RunFailure::log_error)?;
+        let path = project_inline_text(&allocation.scratch().to_string_lossy());
+        log.append(
+            format!("scratch_cleanup: failure\nscratch_path: {path}\nerror: {detail}\n").as_bytes(),
+        )
+        .map_err(RunFailure::log_error)?;
         if result.is_ok() {
             result = Err(ExecutionFailure::Host(RunOperationError::SessionStore(
                 error,
@@ -189,7 +192,16 @@ pub(super) fn execute_and_publish(
             }
             Err(ExchangeError::Log(error)) => Err(ExecutionFailure::Log(error)),
             Err(ExchangeError::Runtime(error)) => {
-                Err(ExecutionFailure::Host(RunOperationError::Runtime(error)))
+                match log.append(
+                    format!(
+                        "runtime_failure: {}\n",
+                        project_inline_text(&error.to_string())
+                    )
+                    .as_bytes(),
+                ) {
+                    Ok(()) => Err(ExecutionFailure::Host(RunOperationError::Runtime(error))),
+                    Err(error) => Err(ExecutionFailure::Log(error)),
+                }
             }
             Err(ExchangeError::InvalidResponse(details)) => {
                 match log.append(

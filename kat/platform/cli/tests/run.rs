@@ -1072,6 +1072,15 @@ fn successful_host_cannot_publish_after_replacing_scratch_with_a_file() {
             .contains("scratch")
     );
     let request: serde_json::Value = serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
+    let scratch = request["scratch_root"].as_str().unwrap();
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains(scratch), "{log}");
+    let escaped_scratch = serde_json::to_string(scratch).unwrap();
+    assert!(
+        !response["error"]
+            .to_string()
+            .contains(&escaped_scratch[1..escaped_scratch.len() - 1])
+    );
     assert!(fs::symlink_metadata(request["scratch_root"].as_str().unwrap()).is_err());
     assert!(!Path::new(request["candidate_path"].as_str().unwrap()).exists());
 }

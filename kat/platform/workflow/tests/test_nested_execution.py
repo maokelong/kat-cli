@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 import pyarrow as pa
@@ -259,7 +260,16 @@ class NestedWorkflowContextTest(unittest.TestCase):
         candidate.mkdir(parents=True)
         scratch.mkdir(parents=True)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        closing_started = threading.Event()
+        original_close = WorkflowContext.close
+
+        def observed_close(context):
+            # 在同一把锁内通知，保证 child 的注销晚于 close 对活动调用的判定。
+            with context._condition:
+                closing_started.set()
+                return original_close(context)
+
+        with patch.object(WorkflowContext, "close", observed_close), concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             execution = pool.submit(
                 run_loaded_workflow,
                 compile_declared_workflow(_parent_with_active_call),
@@ -272,6 +282,7 @@ class NestedWorkflowContextTest(unittest.TestCase):
                 nested_runs=nested_runs,
             )
             self.assertTrue(nested_runs.started.wait(timeout=5))
+            self.assertTrue(closing_started.wait(timeout=5))
             self.assertFalse(execution.done())
             nested_runs.release.set()
             with self.assertRaises(WorkflowExecutionFailure) as raised:
