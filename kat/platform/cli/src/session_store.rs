@@ -67,11 +67,11 @@ impl SessionStore {
         }
     }
 
-    pub(super) fn create_run(
-        &self,
-        session_id: SessionId,
-        run_id: RunId,
-    ) -> Result<RunAllocation, SessionStoreError> {
+    pub(super) fn create(&self) -> Result<OpenedSession, SessionStoreError> {
+        self.create_with_id(SessionId::generate())
+    }
+
+    fn create_with_id(&self, session_id: SessionId) -> Result<OpenedSession, SessionStoreError> {
         let roots = self.create_storage_roots()?;
         let lease_path = roots.leases.join(format!("{}.lock", session_id.as_str()));
         let lease_file = OpenOptions::new()
@@ -122,19 +122,13 @@ impl SessionStore {
                 return Err(error);
             }
         };
-        match RunAllocation::create(layout, run_id, lease, lease_path, false) {
-            Ok(allocation) => Ok(allocation),
-            Err(error) => {
-                drop(error.lease);
-                let _ = remove_exact_entry(&session_root);
-                let _ = fs::remove_file(
-                    roots
-                        .leases
-                        .join(format!("{}.lock", error.session_id.as_str())),
-                );
-                Err(error.error)
-            }
+        if let Err(error) = publish_session_marker(&layout) {
+            drop(lease);
+            let _ = remove_exact_entry(&session_root);
+            let _ = fs::remove_file(&lease_path);
+            return Err(error);
         }
+        Ok(OpenedSession { layout, lease })
     }
 
     pub(super) fn open(&self, session: &str) -> Result<OpenedSession, SessionStoreError> {
@@ -178,17 +172,9 @@ impl SessionStore {
         run_id: RunId,
     ) -> Result<RunAllocation, ExistingRunAllocationError> {
         let OpenedSession { layout, lease } = self.open(session)?;
-        let lease_path = layout
-            .root
-            .parent()
-            .expect("validated Session has sessions parent")
-            .join(LEASES_DIRECTORY)
-            .join(format!("{}.lock", layout.session_id.as_str()));
-        RunAllocation::create(layout, run_id, lease, lease_path, true).map_err(|error| {
-            ExistingRunAllocationError {
-                error: error.error,
-                lease: Some(error.lease),
-            }
+        RunAllocation::create(layout, run_id, lease).map_err(|error| ExistingRunAllocationError {
+            error: error.error,
+            lease: Some(error.lease),
         })
     }
 
@@ -363,13 +349,10 @@ pub(super) struct RunAllocation {
     candidate: PathBuf,
     scratch: PathBuf,
     lease: Option<SessionLease>,
-    lease_path: PathBuf,
-    session_published: bool,
     run_published: bool,
 }
 
 struct RunAllocationCreationError {
-    session_id: SessionId,
     error: SessionStoreError,
     lease: SessionLease,
 }
@@ -390,13 +373,10 @@ impl RunAllocation {
         layout: SessionLayout,
         run_id: RunId,
         lease: SessionLease,
-        lease_path: PathBuf,
-        session_published: bool,
     ) -> Result<Self, RunAllocationCreationError> {
         let candidate = layout.runs.join(run_id.as_str());
         if let Err(source) = fs::create_dir(&candidate) {
             return Err(RunAllocationCreationError {
-                session_id: layout.session_id.clone(),
                 error: SessionStoreError::CreateRunCandidate(source),
                 lease,
             });
@@ -407,7 +387,6 @@ impl RunAllocation {
             Err(error) => {
                 let _ = remove_exact_entry(&candidate);
                 return Err(RunAllocationCreationError {
-                    session_id: layout.session_id.clone(),
                     error: SessionStoreError::PrepareRunCandidate(error),
                     lease,
                 });
@@ -417,7 +396,6 @@ impl RunAllocation {
         if let Err(error) = fs::create_dir(&scratch_path) {
             let _ = remove_private_run_entry(&layout, RUNS_DIRECTORY, run_id.as_str());
             return Err(RunAllocationCreationError {
-                session_id: layout.session_id.clone(),
                 error: SessionStoreError::PrepareRunCandidate(DirectPathError::Io(error)),
                 lease,
             });
@@ -427,7 +405,6 @@ impl RunAllocation {
             Err(error) => {
                 let _ = remove_private_run_entry(&layout, RUNS_DIRECTORY, run_id.as_str());
                 return Err(RunAllocationCreationError {
-                    session_id: layout.session_id.clone(),
                     error: SessionStoreError::PrepareRunCandidate(error),
                     lease,
                 });
@@ -439,8 +416,6 @@ impl RunAllocation {
             candidate,
             scratch,
             lease: Some(lease),
-            lease_path,
-            session_published,
             run_published: false,
         })
     }
@@ -470,19 +445,6 @@ impl RunAllocation {
         self.run_published = true;
     }
 
-    pub(super) fn publish_session(&mut self) -> Result<(), SessionStoreError> {
-        if self.session_published {
-            return Ok(());
-        }
-        publish_session_marker(&self.layout)?;
-        self.session_published = true;
-        Ok(())
-    }
-
-    pub(super) fn session_is_published(&self) -> bool {
-        self.session_published
-    }
-
     pub(super) fn into_lease(mut self) -> SessionLease {
         self.lease
             .take()
@@ -492,11 +454,7 @@ impl RunAllocation {
 
 impl Drop for RunAllocation {
     fn drop(&mut self) {
-        if !self.session_published {
-            let _ = remove_session_root(&self.layout);
-            drop(self.lease.take());
-            let _ = remove_lease_file(&self.layout, &self.lease_path);
-        } else if !self.run_published {
+        if !self.run_published {
             let _ = remove_private_run_entry(&self.layout, SCRATCH_DIRECTORY, self.run_id.as_str());
             let _ = remove_private_run_entry(&self.layout, RUNS_DIRECTORY, self.run_id.as_str());
         }
@@ -526,21 +484,6 @@ fn remove_private_run_entry(
     let root = canonical_direct_directory(&layout.root, sessions, layout.session_id.as_str())?;
     let parent = canonical_direct_directory(&root.join(parent_name), &root, parent_name)?;
     remove_exact_entry(&parent.join(entry_name)).map_err(DirectPathError::Io)
-}
-
-fn remove_session_root(layout: &SessionLayout) -> Result<(), DirectPathError> {
-    let sessions = layout.root.parent().ok_or(DirectPathError::Invalid)?;
-    canonical_direct_directory(&layout.root, sessions, layout.session_id.as_str())?;
-    remove_exact_entry(&layout.root).map_err(DirectPathError::Io)
-}
-
-fn remove_lease_file(layout: &SessionLayout, lease_path: &Path) -> Result<(), DirectPathError> {
-    let sessions = layout.root.parent().ok_or(DirectPathError::Invalid)?;
-    let leases =
-        canonical_direct_directory(&sessions.join(LEASES_DIRECTORY), sessions, LEASES_DIRECTORY)?;
-    let name = format!("{}.lock", layout.session_id.as_str());
-    validate_direct_file(lease_path, &leases, &name)?;
-    remove_exact_entry(lease_path).map_err(DirectPathError::Io)
 }
 
 /// Removes one exact entry without following a Runtime-created link or junction.
@@ -867,7 +810,7 @@ fn diagnostic_safe_argument(value: &str) -> String {
 #[derive(Debug, Error, Diagnostic)]
 pub(super) enum SessionStoreError {
     #[error("Analysis Session {session_id} does not exist")]
-    #[diagnostic(help("Use the exact Session ID returned by a successful `kat run`"))]
+    #[diagnostic(help("Use the exact Session ID returned by `kat session create`"))]
     NotFound { session_id: String },
     #[error("Analysis Session {session_id} is being deleted")]
     #[diagnostic(help("Wait for deletion to finish or start a new Analysis Session"))]
@@ -963,10 +906,7 @@ mod tests {
         .unwrap();
 
         let error = SessionStore::new(temporary.path())
-            .create_run(
-                SessionId::parse(SESSION_ID).unwrap(),
-                RunId::parse(RUN_ID).unwrap(),
-            )
+            .create_with_id(SessionId::parse(SESSION_ID).unwrap())
             .err()
             .expect("an existing root must win the no-replace creation race");
 

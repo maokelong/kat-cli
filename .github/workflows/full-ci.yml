@@ -49,13 +49,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Read locked Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          with Path("rust-toolchain.toml").open("rb") as stream:
+              toolchain = tomllib.load(stream)["toolchain"]
+
+          outputs = {
+              "channel": toolchain["channel"],
+              "components": ",".join(toolchain.get("components", [])),
+              "targets": ",".join(toolchain.get("targets", [])),
+          }
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+              for key, value in outputs.items():
+                  stream.write(f"{key}={value}\n")
+          PY
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          components: ${{ steps.rust-toolchain.outputs.components }}
+          targets: ${{ steps.rust-toolchain.outputs.targets }}
 
       - name: Build and install Workflow Host wheel
         run: |
@@ -74,8 +100,12 @@ jobs:
           RUSTFLAGS: -C linker-features=-lld
         run: cargo test --workspace --locked --jobs 1
 
-      - name: Test real Workflow Host vertical slice
-        run: cargo test --locked -p kat-cli --test inspect targeted_knowledge_inspection_runs_the_real_installed_host -- --ignored --exact
+      - name: Test real Workflow Host vertical slices
+        run: |
+          cargo test --locked -p kat-cli --test inspect targeted_knowledge_inspection_runs_the_real_installed_host -- --ignored --exact
+          cargo test --locked -p kat-cli --test run run_composes_real_installed_workflows_end_to_end -- --ignored --exact
+          cargo test --locked -p kat-cli --test run child_business_diagnostic_survives_direct_nested_and_test_execution -- --ignored --exact
+          cargo test --locked -p kat-cli --test test test_uses_real_installed_workflow_host_end_to_end -- --ignored --exact
 
       - name: Test Workflow Host
         run: python -I -B -m unittest discover -s kat/platform/workflow/tests

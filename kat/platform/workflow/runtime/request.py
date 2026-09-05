@@ -8,6 +8,8 @@ import uuid
 
 from kat._identifiers import valid_table_name
 
+from .rpc import _decode_inputs
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +43,8 @@ class RunWorkflowRequest:
     pack_name: str
     pack_path: Path
     workflow_name: str
-    arguments: list[str]
+    arguments: list[str] | None
+    inputs: dict[str, object] | None
     candidate: RunCandidateRef
     datasource_root: Path
     scratch_root: Path
@@ -156,38 +159,72 @@ def _read_inspect_provider_request(
     )
 
 
-def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest:
-    required = {
+def _read_run_workflow_request(
+    request: dict[str, object],
+) -> RunWorkflowRequest:
+    common = {
         "operation",
         "pack_name",
         "pack_path",
         "workflow_name",
-        "arguments",
         "candidate_id",
         "candidate_path",
         "datasource_root",
         "scratch_root",
     }
-    if set(request) != required:
+    if set(request) != common | {"input"}:
         raise RuntimeRequestError("run_workflow Runtime Request has an invalid field set")
-    strings = required - {"operation", "arguments"}
-    if any(type(request[name]) is not str or not request[name] for name in strings):
+    payload = request["input"]
+    if type(payload) is not dict or set(payload) != {"kind", "value"}:
+        raise RuntimeRequestError("run_workflow input requires exactly kind and value")
+    kind = payload["kind"]
+    if kind not in ("arguments", "typed_inputs"):
+        raise RuntimeRequestError("run_workflow input kind is invalid")
+    string_fields = {name: request[name] for name in common - {"operation"}}
+    if any(type(value) is not str or not value for value in string_fields.values()):
         raise RuntimeRequestError(
             "run_workflow identity and path fields must be non-empty strings"
         )
-    arguments = request["arguments"]
-    if type(arguments) is not list or any(type(value) is not str for value in arguments):
-        raise RuntimeRequestError("run_workflow arguments must be an array of strings")
+    pack_name = string_fields["pack_name"]
+    pack_path = string_fields["pack_path"]
+    workflow_name = string_fields["workflow_name"]
+    candidate_id = string_fields["candidate_id"]
+    candidate_path = string_fields["candidate_path"]
+    datasource_path = string_fields["datasource_root"]
+    scratch_path = string_fields["scratch_root"]
+    assert type(pack_name) is str
+    assert type(pack_path) is str
+    assert type(workflow_name) is str
+    assert type(candidate_id) is str
+    assert type(candidate_path) is str
+    assert type(datasource_path) is str
+    assert type(scratch_path) is str
+    arguments: list[str] | None = None
+    decoded_inputs: dict[str, object] | None = None
+    if kind == "typed_inputs":
+        try:
+            decoded_inputs = _decode_inputs(payload["value"])
+        except (TypeError, ValueError) as error:
+            raise RuntimeRequestError(
+                "run_workflow typed inputs are invalid"
+            ) from error
+    else:
+        value = payload["value"]
+        if type(value) is not list or any(type(item) is not str for item in value):
+            raise RuntimeRequestError(
+                "run_workflow arguments must be an array of strings"
+            )
+        arguments = value
     candidate = _read_run_candidate(
-        request["candidate_id"],
-        request["candidate_path"],
+        candidate_id,
+        candidate_path,
     )
     datasource_root = _read_creatable_directory(
-        request["datasource_root"],
+        datasource_path,
         "run_workflow Datasource root",
     )
     scratch_root = _read_creatable_directory(
-        request["scratch_root"],
+        scratch_path,
         "run_workflow Scratch root",
     )
     session_root = candidate.path.parent.parent
@@ -203,10 +240,11 @@ def _read_run_workflow_request(request: dict[str, object]) -> RunWorkflowRequest
     ):
         raise RuntimeRequestError("run_workflow paths do not match one Session")
     return RunWorkflowRequest(
-        pack_name=request["pack_name"],
-        pack_path=_canonical_directory(request["pack_path"], "run_workflow PACK"),
-        workflow_name=request["workflow_name"],
+        pack_name=pack_name,
+        pack_path=_canonical_directory(pack_path, "run_workflow PACK"),
+        workflow_name=workflow_name,
         arguments=arguments,
+        inputs=decoded_inputs,
         candidate=candidate,
         datasource_root=datasource_root,
         scratch_root=scratch_root,

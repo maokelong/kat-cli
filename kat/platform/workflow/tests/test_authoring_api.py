@@ -208,6 +208,34 @@ def required_string(ctx: kat.Context, query: str) -> None:
 
 
 class AuthoringApiTest(unittest.TestCase):
+    def test_context_run_and_run_error_are_the_public_nested_workflow_api(self) -> None:
+        self.assertIn("RunError", kat.__all__)
+        self.assertEqual(kat.RunError.__bases__, (Exception,))
+
+        signature = inspect.signature(kat.Context.run)
+        self.assertEqual(
+            tuple(signature.parameters),
+            ("self", "pack_name", "workflow_name", "inputs"),
+        )
+        self.assertEqual(
+            signature.parameters["pack_name"].kind,
+            inspect.Parameter.POSITIONAL_ONLY,
+        )
+        self.assertEqual(
+            signature.parameters["workflow_name"].kind,
+            inspect.Parameter.POSITIONAL_ONLY,
+        )
+        self.assertEqual(
+            signature.parameters["inputs"].kind,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+        self.assertEqual(signature.return_annotation, "dataprovider.Catalog")
+
+        with self.assertRaisesRegex(
+            RuntimeError, "Context is not bound to a Workflow execution"
+        ):
+            kat.Context().run("example", "analyze", value=1)
+
     def test_provider_is_a_metadata_only_class_decorator(self) -> None:
         class PlainProvider:
             pass
@@ -466,6 +494,61 @@ class AuthoringApiTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             required.parse_arguments([])
+
+    def test_nested_inputs_are_strict_typed_values_with_declared_defaults(self) -> None:
+        class DurationSubclass(kat.Duration):
+            pass
+
+        class WallClockTimestampSubclass(kat.WallClockTimestamp):
+            pass
+
+        compiled = compile_declared_workflow(analyze)
+
+        effective = compiled.parse_inputs(
+            {
+                "count": -9,
+                "ratio": 2.5,
+                "enabled": True,
+                "window": kat.Duration("8us"),
+                "at": kat.WallClockTimestamp("2026-07-14T08:30:00Z"),
+                "mode": "mean",
+            }
+        )
+
+        self.assertEqual(
+            effective,
+            {
+                "label": "",
+                "count": -9,
+                "ratio": 2.5,
+                "enabled": True,
+                "window": kat.Duration("8us"),
+                "at": kat.WallClockTimestamp("2026-07-14T08:30:00Z"),
+                "mode": "mean",
+                "optional_label": None,
+            },
+        )
+
+        invalid = (
+            {"count": "5"},
+            {"count": True},
+            {"ratio": 1},
+            {"enabled": 1},
+            {"window": "8us"},
+            {"at": "2026-07-14T08:30:00Z"},
+            {"window": DurationSubclass("8us")},
+            {"at": WallClockTimestampSubclass("2026-07-14T08:30:00Z")},
+            {"mode": "median"},
+            {"count": None},
+            {"unknown": "value"},
+        )
+        for inputs in invalid:
+            with self.subTest(inputs=inputs), self.assertRaises(ValueError):
+                compiled.parse_inputs(inputs)
+
+        required = compile_declared_workflow(required_string)
+        with self.assertRaises(ValueError):
+            required.parse_inputs({})
 
     def test_temporal_constructors_are_strict_immutable_values(self) -> None:
         self.assertEqual(str(kat.Duration("0.125ms")), "0.125ms")

@@ -6,6 +6,7 @@ use std::{
 
 use serde::Deserialize;
 
+#[derive(Clone)]
 pub(crate) struct PackDiscoveryPaths {
     pub(crate) skill_pack_search_directory: PathBuf,
     pub(crate) data_home_pack_search_directory: PathBuf,

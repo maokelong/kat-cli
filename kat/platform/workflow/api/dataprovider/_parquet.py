@@ -58,7 +58,7 @@ def open(
             _require_path(path, f"path for table {table_name!r}")
             paths_by_table[table_name] = _table_paths(table_name, path)
 
-    if not paths_by_table:
+    if root is not None and not paths_by_table:
         raise ValueError("a Parquet catalog must contain at least one relation")
 
     relations = {

@@ -1,0 +1,4 @@
+name = "workflow-composition"
+title = "Workflow 组合示例"
+description = "用一个 Workflow 模型演示 Catalog 汇总、无输出编排和各自 Guide。"
+owner = "KAT Contributors"

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
-from typing import Literal
+import sys
+import traceback
+from typing import Iterator, Literal
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
 from .execution import RunWorkflowRuntimeResult, run_workflow
@@ -31,6 +34,7 @@ from .request import (
     TestPackRequest,
     read_request,
 )
+from .rpc import _NestedRunClient
 from .testing import PytestExitError, TestPackRuntimeResult, test_pack
 
 
@@ -75,16 +79,24 @@ def main() -> int:
             )
         )
     else:
-        response = _execute(
-            request,
-            Path(arguments.test_report) if arguments.test_report is not None else None,
+        test_report_path = (
+            Path(arguments.test_report) if arguments.test_report is not None else None
         )
+        if isinstance(request, (RunWorkflowRequest, TestPackRequest)):
+            with _nested_run_standard_streams() as nested_runs:
+                response = _execute(request, test_report_path, nested_runs=nested_runs)
+                _write_response(response_path, response)
+            return 0
+        response = _execute(request, test_report_path)
     _write_response(response_path, response)
     return 0
 
 
 def _execute(
-    request: RuntimeRequest, test_report_path: Path | None = None
+    request: RuntimeRequest,
+    test_report_path: Path | None = None,
+    *,
+    nested_runs: _NestedRunClient | None = None,
 ) -> RuntimeResponse:
     if isinstance(request, InspectWorkflowRequest):
         try:
@@ -126,7 +138,9 @@ def _execute(
         try:
             if test_report_path is None:
                 raise RuntimeRequestError("test_pack requires a private test report path")
-            result = test_pack(request, test_report_path)
+            if nested_runs is None:
+                raise RuntimeRequestError("test_pack requires a private Host control channel")
+            result = test_pack(request, test_report_path, nested_runs)
         except (Exception, SystemExit) as error:
             if isinstance(error, PytestExitError):
                 return RuntimeFailure(error={"message": error.message(), "help": error.help()})
@@ -141,12 +155,13 @@ def _execute(
         return RuntimeSuccess(result=result)
 
     try:
-        result = run_workflow(request)
+        result = run_workflow(request, nested_runs)
     except _PackInspectionWorkerError:
         raise
     except PackInspectionError as error:
         return RuntimeFailure(error=error.diagnostic)
     except (Exception, SystemExit) as error:
+        traceback.print_exception(error, file=sys.stderr)
         return RuntimeFailure(
             error=diagnostic_from_exception(
                 error,
@@ -157,6 +172,31 @@ def _execute(
             )
         )
     return RuntimeSuccess(result=result)
+
+
+@contextmanager
+def _nested_run_standard_streams() -> Iterator[_NestedRunClient]:
+    """Reserve stdin/stdout for RPC while PACK-visible streams remain diagnostic."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    protocol_input_fd = os.dup(0)
+    protocol_output_fd = os.dup(1)
+    protocol_reader = os.fdopen(protocol_input_fd, "rb", buffering=0)
+    protocol_writer = os.fdopen(protocol_output_fd, "wb", buffering=0)
+    null_input_fd = os.open(os.devnull, os.O_RDONLY)
+    try:
+        os.dup2(null_input_fd, 0)
+    finally:
+        os.close(null_input_fd)
+    os.dup2(2, 1)
+    nested_runs = _NestedRunClient(protocol_reader, protocol_writer)
+    try:
+        yield nested_runs
+    finally:
+        reader_is_quiescent = nested_runs.close()
+        protocol_writer.close()
+        if reader_is_quiescent:
+            protocol_reader.close()
 
 
 def _private_run_values(request: RunWorkflowRequest) -> tuple[str, ...]:

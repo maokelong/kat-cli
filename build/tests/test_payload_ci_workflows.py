@@ -239,8 +239,19 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertEqual(assembly.count("--workflow summarize-hitrace-clock"), 2)
         self.assertEqual(assembly.count("--workflow reuse-hitrace-clock"), 2)
         self.assertEqual(assembly.count(" query --session "), 2)
+        self.assertEqual(assembly.count(" session create"), 2)
         self.assertEqual(
             assembly.count("verify_payload_materialization_race.py"), 2
+        )
+        self.assertIn(
+            'run --session "$session_id" --pack payload-smoke '
+            "--workflow summarize-hitrace-clock",
+            assembly,
+        )
+        self.assertIn(
+            "run --session $session.result.session_id --pack payload-smoke "
+            "--workflow summarize-hitrace-clock",
+            assembly,
         )
         self.assertIn(
             'run --session "$session_id" --pack payload-smoke-consumer',
@@ -373,6 +384,36 @@ class PayloadCiWorkflowTests(unittest.TestCase):
     def test_full_ci_unrelated_labels_do_not_cancel_active_validation(self) -> None:
         workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
+
+    def test_full_ci_installs_the_repository_locked_rust_toolchain(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            'tomllib.load(stream)["toolchain"]',
+            workflow,
+        )
+        for output, source, action_input in (
+            ("channel", 'toolchain["channel"]', "toolchain"),
+            (
+                "components",
+                '",".join(toolchain.get("components", []))',
+                "components",
+            ),
+            ("targets", '",".join(toolchain.get("targets", []))', "targets"),
+        ):
+            self.assertIn(f'"{output}": {source}', workflow)
+            self.assertIn(
+                f"          {action_input}: "
+                f"${{{{ steps.rust-toolchain.outputs.{output} }}}}\n",
+                workflow,
+            )
+        self.assertLess(
+            workflow.index("      - name: Install Python\n"),
+            workflow.index("      - name: Read locked Rust toolchain\n"),
+        )
+        self.assertLess(
+            workflow.index("      - name: Read locked Rust toolchain\n"),
+            workflow.index("      - name: Install Rust\n"),
+        )
 
     def test_payload_pr_runs_cancel_only_older_runs_for_the_same_pr(self) -> None:
         workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")

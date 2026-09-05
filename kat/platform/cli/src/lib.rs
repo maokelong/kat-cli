@@ -51,7 +51,7 @@ enum Operation {
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
     Query(query::QueryArgs),
-    /// Permanently delete one Analysis Session.
+    /// Create or permanently delete one Analysis Session.
     Session(session::SessionArgs),
     /// Run one PACK's pytest suite in the production execution plane.
     Test(test::TestArgs),
@@ -81,6 +81,7 @@ struct InspectSessionRun {
     run_id: String,
     pack: String,
     workflow: String,
+    child_runs: Vec<String>,
     outputs: std::collections::BTreeMap<String, workflow_runtime::RunOutputMetadata>,
 }
 
@@ -150,6 +151,7 @@ fn inspect_session(session_id: String) -> response::PreparedResponse<InspectSess
                     run_id: run.run_id,
                     pack: run.pack,
                     workflow: run.workflow,
+                    child_runs: run.child_runs,
                     outputs: run.outputs,
                 })
                 .collect(),

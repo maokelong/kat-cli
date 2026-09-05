@@ -41,6 +41,7 @@ def test_provider_requires_an_exact_absolute_regular_file(tmp_path: Path):
         TraceStreamerSQLiteProvider(sqlite_path=str(tmp_path / "missing.db"))
     with pytest.raises(ValueError, match="regular file"):
         TraceStreamerSQLiteProvider(sqlite_path=str(tmp_path))
+    (database.parent / "child").mkdir()
     with pytest.raises(ValueError, match="exact"):
         TraceStreamerSQLiteProvider(
             sqlite_path=str(database.parent / "child" / ".." / database.name)

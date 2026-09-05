@@ -45,17 +45,19 @@ def materialize_outputs(
 
 
 def _normalize_outputs(value: object) -> dict[str, Table]:
+    if value is None:
+        return {}
     if type(value) is Table:
         candidates = {"main": value}
     elif type(value) is dict:
         candidates = value
     else:
         raise TypeError(
-            "Workflow must return an exact dataprovider.Table or a non-empty "
+            "Workflow must return None, an exact dataprovider.Table or a non-empty "
             "exact dict"
         )
     if not candidates:
-        raise ValueError("Workflow must return at least one Table Output")
+        raise ValueError("An empty Output dict is invalid; return None for no outputs")
 
     outputs: dict[str, Table] = {}
     for name, relation in candidates.items():

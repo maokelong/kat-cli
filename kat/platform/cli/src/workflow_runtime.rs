@@ -1,9 +1,11 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
-    io::{self, Read},
+    io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex, mpsc},
+    thread,
 };
 
 use miette::Diagnostic;
@@ -21,14 +23,45 @@ mod output_spool;
 mod protocol;
 
 use output_spool::{RuntimeOutputMirror, RuntimeOutputSpool};
-pub(crate) use protocol::Column;
+pub(crate) use protocol::{
+    Column, NestedRelation, NestedRunCall, NestedRunOutcome, TestControlCall, TestControlOutcome,
+    WorkflowInputs,
+};
 use protocol::{
     InspectProviderRequest, InspectProviderResult, InspectProvidersResult, InspectWorkflowRequest,
-    InspectWorkflowResult, InspectWorkflowsResult, QueryRunRequest, RawRunWorkflowResult,
-    RunWorkflowRequest, RuntimeResponse, TestPackRequest, TestPackResult,
+    InspectWorkflowResult, InspectWorkflowsResult, NestedRunRequestFrame, NestedRunResponseFrame,
+    QueryRunRequest, RawRunWorkflowResult, RunWorkflowRequest, RuntimeResponse,
+    TestControlRequestFrame, TestPackRequest, TestPackResult,
 };
 
 const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
+
+/// Executes one nested Workflow request received from a parent Runtime.
+///
+/// The callback owns all Session, discovery, recursion, and publication policy.
+/// Its failure message must be safe to expose to PACK code as `kat.RunError`.
+pub(crate) trait NestedRunCallback: Send + Sync {
+    fn execute(&self, call: NestedRunCall) -> NestedRunOutcome;
+    fn take_logs(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+impl<F> NestedRunCallback for F
+where
+    F: Fn(NestedRunCall) -> NestedRunOutcome + Send + Sync,
+{
+    fn execute(&self, call: NestedRunCall) -> NestedRunOutcome {
+        self(call)
+    }
+}
+
+pub(crate) trait TestControlCallback: Send + Sync {
+    fn execute(&self, call: TestControlCall) -> TestControlOutcome;
+    fn take_logs(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
 
 pub(crate) enum RuntimeOutcome<T> {
     Success {
@@ -120,20 +153,20 @@ pub(crate) struct RunWorkflowInvocation {
     pub(crate) pack_name: String,
     pub(crate) pack_path: String,
     pub(crate) workflow_name: String,
-    pub(crate) arguments: Vec<String>,
+    pub(crate) input: WorkflowInputs,
     pub(crate) candidate_id: String,
     pub(crate) candidate_path: String,
     pub(crate) datasource_root: String,
     pub(crate) scratch_root: String,
 }
 
-fn run_workflow_request(invocation: &RunWorkflowInvocation) -> RunWorkflowRequest<'_> {
+fn run_workflow_runtime_request(invocation: &RunWorkflowInvocation) -> RunWorkflowRequest<'_> {
     RunWorkflowRequest {
         operation: "run_workflow",
         pack_name: &invocation.pack_name,
         pack_path: &invocation.pack_path,
         workflow_name: &invocation.workflow_name,
-        arguments: &invocation.arguments,
+        input: &invocation.input,
         candidate_id: &invocation.candidate_id,
         candidate_path: &invocation.candidate_path,
         datasource_root: &invocation.datasource_root,
@@ -152,6 +185,7 @@ pub(crate) struct TestPackInvocation<'a> {
     pub(crate) pack_path: &'a Path,
     pub(crate) tests: &'a [String],
     pub(crate) test_report_path: &'a Path,
+    pub(crate) callback: Arc<dyn TestControlCallback>,
 }
 
 pub(crate) type TestPackError = RunWorkflowError;
@@ -280,9 +314,16 @@ fn inspect_request<R: DeserializeOwned>(
 pub(crate) fn execute_workflow_runtime(
     mut log: OperationLog,
     invocation: RunWorkflowInvocation,
+    callback: Arc<dyn NestedRunCallback>,
 ) -> Result<RunWorkflowOutcome, RunWorkflowError> {
-    let request = run_workflow_request(&invocation);
-    let response = match exchange_request_bytes("kat-run-workflow-", &request, &mut log) {
+    let request = run_workflow_runtime_request(&invocation);
+    let exchanged =
+        exchange_run_workflow_bytes("kat-run-workflow-", &request, &mut log, callback.clone());
+    for note in callback.take_logs() {
+        log.append(format!("{note}\n").as_bytes())
+            .map_err(RunWorkflowError::operation_log)?;
+    }
+    let response = match exchanged {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
         Err(ExchangeError::Runtime(error)) => {
@@ -306,7 +347,13 @@ pub(crate) fn execute_workflow_runtime(
             Ok(RunWorkflowOutcome::Success { result, log })
         }
         RuntimeResponse::Failure { error } => {
-            if let Err(source) = log.append(b"runtime_status: failure\n") {
+            if let Err(source) = log.append(
+                format!(
+                    "runtime_status: failure\ndiagnostic: {}\n",
+                    project_inline_text(&error.reason())
+                )
+                .as_bytes(),
+            ) {
                 return Err(RunWorkflowError::operation_log(source));
             }
             let log_path = log.finish().map_err(RunWorkflowError::operation_log)?;
@@ -374,13 +421,19 @@ pub(crate) fn test_pack(
         pack_path,
         tests: invocation.tests,
     };
-    let response: RuntimeResponse<TestPackResult> = match exchange_test_request(
+    let exchanged = exchange_test_request(
         "kat-test-pack-",
         &request,
         &mut log,
         invocation.pack_path,
         invocation.test_report_path,
-    ) {
+        invocation.callback.clone(),
+    );
+    for note in invocation.callback.take_logs() {
+        log.append(format!("{note}\n").as_bytes())
+            .map_err(RunWorkflowError::operation_log)?;
+    }
+    let response: RuntimeResponse<TestPackResult> = match exchanged {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
         Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
@@ -463,11 +516,7 @@ fn validate_run_workflow_report(
             details: "run_workflow success exposes a private Runtime value".to_owned(),
         });
     }
-    if result.outputs.is_empty() {
-        return Err(RuntimeResponseViolation {
-            details: "run_workflow outputs must not be empty".to_owned(),
-        });
-    }
+
     for (name, value) in &result.effective_inputs {
         if name.is_empty()
             || !matches!(
@@ -566,6 +615,392 @@ fn is_windows_device_name(name: &str) -> bool {
         )
 }
 
+fn exchange_run_workflow_bytes(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+    callback: Arc<dyn NestedRunCallback>,
+) -> Result<Vec<u8>, ExchangeError> {
+    let control = prepare_runtime_control(prefix, request)?;
+    let output = RuntimeOutputSpool::create_stderr_only(&control.path)?;
+    let stderr = output.stderr_stdio()?;
+    let (mut command, python) = runtime_command(&control)?;
+    command
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(stderr);
+    let mut child = command
+        .spawn()
+        .map_err(|source| RuntimeInfrastructureError::StartHost { python, source })?;
+    drop(command);
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or(RuntimeInfrastructureError::MissingHostStdin)?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(RuntimeInfrastructureError::MissingHostStdout)?;
+    let pump_result = pump_nested_requests(
+        BufReader::new(stdout),
+        Arc::new(Mutex::new(stdin)),
+        callback,
+    );
+    let status = if pump_result.is_ok() {
+        match child.wait() {
+            Ok(status) => Some(status),
+            Err(source) => {
+                terminate_test_runtime(&mut child);
+                output.append_stderr_to(log)?;
+                return Err(RuntimeInfrastructureError::WaitHost(source).into());
+            }
+        }
+    } else {
+        terminate_test_runtime(&mut child);
+        None
+    };
+    output.append_stderr_to(log)?;
+    pump_result?;
+    let status = status.expect("a successful control pump waits for its Runtime");
+    if !status.success() {
+        return Err(RuntimeInfrastructureError::HostExit(status.code()).into());
+    }
+    read_runtime_response(&control).map_err(Into::into)
+}
+
+fn pump_nested_requests<R, W, C>(
+    reader: R,
+    writer: Arc<Mutex<W>>,
+    callback: Arc<C>,
+) -> Result<(), RuntimeInfrastructureError>
+where
+    R: BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: NestedRunCallback + ?Sized + 'static,
+{
+    pump_control_requests(
+        reader,
+        writer,
+        |bytes| {
+            let frame: NestedRunRequestFrame = serde_json::from_slice(bytes)
+                .map_err(|_| RuntimeInfrastructureError::InvalidNestedRequest)?;
+            let id = frame.call_id;
+            let call = frame.into_call();
+            if !valid_nested_call(&call) {
+                return Err(RuntimeInfrastructureError::InvalidNestedRequest);
+            }
+            Ok((id, call))
+        },
+        move |id, call| {
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback.execute(call)))
+                    .unwrap_or_else(|_| NestedRunOutcome::Failure {
+                        message: "nested Workflow Host callback failed".to_owned(),
+                    });
+            serde_json::to_value(NestedRunResponseFrame::from_outcome(
+                id,
+                validate_nested_outcome(outcome),
+            ))
+            .expect("nested response contains only JSON values")
+        },
+    )
+}
+
+enum ControlPumpEvent<T> {
+    Request((u64, T)),
+    ReaderFinished(Result<(), RuntimeInfrastructureError>),
+    WorkerFinished(Result<(), RuntimeInfrastructureError>),
+}
+
+fn pump_control_requests<R, W, T, D, F>(
+    reader: R,
+    writer: Arc<Mutex<W>>,
+    decode: D,
+    respond: F,
+) -> Result<(), RuntimeInfrastructureError>
+where
+    R: BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    T: Send + 'static,
+    D: Fn(&[u8]) -> Result<(u64, T), RuntimeInfrastructureError> + Send + 'static,
+    F: Fn(u64, T) -> serde_json::Value + Send + Sync + 'static,
+{
+    let respond = Arc::new(respond);
+    let (events, received_events) = mpsc::channel();
+    let reader_events = events.clone();
+    let reader_worker = thread::Builder::new()
+        .name("kat-nested-run-reader".to_owned())
+        .spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                read_control_requests(reader, &reader_events, decode)
+            }))
+            .unwrap_or(Err(RuntimeInfrastructureError::NestedRequestReaderPanicked));
+            let _ = reader_events.send(ControlPumpEvent::ReaderFinished(result));
+        })
+        .map_err(RuntimeInfrastructureError::StartNestedRequestReader)?;
+
+    let mut seen_call_ids = BTreeSet::new();
+    let mut workers = Vec::new();
+    let mut pump_error = None;
+    let mut reader_finished = false;
+    let mut active_workers = 0usize;
+    loop {
+        if reader_finished && active_workers == 0 {
+            break;
+        }
+        let event = match received_events.recv() {
+            Ok(event) => event,
+            Err(_) => {
+                pump_error = Some(RuntimeInfrastructureError::NestedControlPumpStopped);
+                break;
+            }
+        };
+        match event {
+            ControlPumpEvent::Request(frame) => {
+                let (call_id, call) = frame;
+                if !seen_call_ids.insert(call_id) {
+                    pump_error = Some(RuntimeInfrastructureError::InvalidNestedRequest);
+                    break;
+                }
+                let writer = Arc::clone(&writer);
+                let respond = Arc::clone(&respond);
+                let worker_events = events.clone();
+                let worker = match thread::Builder::new()
+                    .name(format!("kat-nested-run-{call_id}"))
+                    .spawn(move || {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            write_control_response(writer, respond(call_id, call))
+                        }))
+                        .unwrap_or(Err(RuntimeInfrastructureError::NestedWorkerPanicked));
+                        let _ = worker_events.send(ControlPumpEvent::WorkerFinished(result));
+                    }) {
+                    Ok(worker) => worker,
+                    Err(source) => {
+                        pump_error = Some(RuntimeInfrastructureError::StartNestedWorker(source));
+                        break;
+                    }
+                };
+                workers.push(worker);
+                active_workers += 1;
+            }
+            ControlPumpEvent::ReaderFinished(result) => {
+                reader_finished = true;
+                if let Err(error) = result {
+                    pump_error = Some(error);
+                    break;
+                }
+            }
+            ControlPumpEvent::WorkerFinished(result) => {
+                active_workers = active_workers
+                    .checked_sub(1)
+                    .expect("a nested worker completion follows its request");
+                if let Err(error) = result {
+                    pump_error = Some(error);
+                    break;
+                }
+            }
+        }
+    }
+
+    for worker in workers {
+        if worker.join().is_err() && pump_error.is_none() {
+            pump_error = Some(RuntimeInfrastructureError::NestedWorkerPanicked);
+        }
+    }
+    drop(writer);
+    if reader_finished && reader_worker.join().is_err() && pump_error.is_none() {
+        pump_error = Some(RuntimeInfrastructureError::NestedRequestReaderPanicked);
+    }
+    match pump_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+fn read_control_requests<R, T, D>(
+    mut reader: R,
+    events: &mpsc::Sender<ControlPumpEvent<T>>,
+    decode: D,
+) -> Result<(), RuntimeInfrastructureError>
+where
+    R: BufRead,
+    D: Fn(&[u8]) -> Result<(u64, T), RuntimeInfrastructureError>,
+{
+    loop {
+        let mut bytes = Vec::new();
+        let count = reader
+            .read_until(b'\n', &mut bytes)
+            .map_err(RuntimeInfrastructureError::ReadNestedRequest)?;
+        if count == 0 {
+            return Ok(());
+        }
+        if bytes.last() != Some(&b'\n') {
+            return Err(RuntimeInfrastructureError::InvalidNestedRequest);
+        }
+        if events
+            .send(ControlPumpEvent::Request(decode(&bytes)?))
+            .is_err()
+        {
+            return Ok(());
+        }
+    }
+}
+
+fn valid_nested_call(call: &NestedRunCall) -> bool {
+    !call.pack_name.is_empty()
+        && !call.workflow_name.is_empty()
+        && call.inputs.keys().all(|name| !name.is_empty())
+}
+
+fn write_control_response<W: Write>(
+    writer: Arc<Mutex<W>>,
+    response: serde_json::Value,
+) -> Result<(), RuntimeInfrastructureError> {
+    let mut frame =
+        serde_json::to_vec(&response).map_err(RuntimeInfrastructureError::EncodeNestedResponse)?;
+    frame.push(b'\n');
+    let mut writer = writer
+        .lock()
+        .map_err(|_| RuntimeInfrastructureError::NestedResponseWriterPoisoned)?;
+    writer
+        .write_all(&frame)
+        .and_then(|()| writer.flush())
+        .map_err(RuntimeInfrastructureError::WriteNestedResponse)
+}
+
+fn validate_nested_outcome(outcome: NestedRunOutcome) -> NestedRunOutcome {
+    let valid = match &outcome {
+        NestedRunOutcome::Success { relations } => {
+            relations
+                .iter()
+                .all(|relation| valid_output_name(&relation.name) && !relation.path.is_empty())
+                && relations.windows(2).all(|pair| pair[0].name < pair[1].name)
+        }
+        NestedRunOutcome::Failure { message } => !message.trim().is_empty(),
+    };
+    if valid {
+        outcome
+    } else {
+        NestedRunOutcome::Failure {
+            message: "nested Workflow Host returned an invalid result".to_owned(),
+        }
+    }
+}
+
+fn pump_test_requests<R, W, C>(
+    reader: R,
+    writer: Arc<Mutex<W>>,
+    callback: Arc<C>,
+) -> Result<(), RuntimeInfrastructureError>
+where
+    R: BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: TestControlCallback + ?Sized + 'static,
+{
+    pump_control_requests(
+        reader,
+        writer,
+        |bytes| {
+            let frame: TestControlRequestFrame = serde_json::from_slice(bytes)
+                .map_err(|_| RuntimeInfrastructureError::InvalidNestedRequest)?;
+            let (id, call) = frame.into_call();
+            let valid = match &call {
+                TestControlCall::BeginSession => true,
+                TestControlCall::RunWorkflow {
+                    test_session_id,
+                    pack_name,
+                    workflow_name,
+                    ..
+                } => {
+                    !test_session_id.is_empty()
+                        && !pack_name.is_empty()
+                        && !workflow_name.is_empty()
+                }
+                TestControlCall::EndSession { test_session_id } => !test_session_id.is_empty(),
+            };
+            if !valid {
+                return Err(RuntimeInfrastructureError::InvalidNestedRequest);
+            }
+            Ok((id, call))
+        },
+        move |id, call| {
+            let kind = match &call {
+                TestControlCall::BeginSession => TestCallKind::BeginSession,
+                TestControlCall::RunWorkflow { .. } => TestCallKind::RunWorkflow,
+                TestControlCall::EndSession { .. } => TestCallKind::EndSession,
+            };
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback.execute(call)))
+                    .unwrap_or_else(|_| TestControlOutcome::Failure {
+                        message: "PACK test Host callback failed".to_owned(),
+                    });
+            test_response_value(id, kind, outcome)
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum TestCallKind {
+    BeginSession,
+    RunWorkflow,
+    EndSession,
+}
+
+fn test_response_value(
+    call_id: u64,
+    kind: TestCallKind,
+    outcome: TestControlOutcome,
+) -> serde_json::Value {
+    match (kind, outcome) {
+        (TestCallKind::BeginSession, TestControlOutcome::SessionStarted { test_session_id })
+            if !test_session_id.is_empty() =>
+        {
+            serde_json::json!({
+                "call_id": call_id,
+                "status": "success",
+                "test_session_id": test_session_id,
+            })
+        }
+        (
+            TestCallKind::RunWorkflow,
+            TestControlOutcome::Workflow(NestedRunOutcome::Success { relations }),
+        ) => match validate_nested_outcome(NestedRunOutcome::Success { relations }) {
+            NestedRunOutcome::Success { relations } => serde_json::json!({
+                "call_id": call_id,
+                "status": "success",
+                "relations": relations,
+            }),
+            NestedRunOutcome::Failure { message } => test_failure_value(call_id, message),
+        },
+        (
+            TestCallKind::RunWorkflow,
+            TestControlOutcome::Workflow(NestedRunOutcome::Failure { message }),
+        ) => match validate_nested_outcome(NestedRunOutcome::Failure { message }) {
+            NestedRunOutcome::Failure { message } => test_failure_value(call_id, message),
+            NestedRunOutcome::Success { .. } => unreachable!(),
+        },
+        (TestCallKind::EndSession, TestControlOutcome::Complete) => {
+            serde_json::json!({"call_id": call_id, "status": "success"})
+        }
+        (_, TestControlOutcome::Failure { message }) if !message.trim().is_empty() => {
+            test_failure_value(call_id, message)
+        }
+        _ => test_failure_value(
+            call_id,
+            "PACK test Host returned an invalid result".to_owned(),
+        ),
+    }
+}
+
+fn test_failure_value(call_id: u64, message: String) -> serde_json::Value {
+    serde_json::json!({
+        "call_id": call_id,
+        "status": "failure",
+        "message": message,
+    })
+}
+
 fn exchange_request<R: DeserializeOwned>(
     prefix: &str,
     request: &impl Serialize,
@@ -615,28 +1050,73 @@ fn exchange_test_request<R: DeserializeOwned>(
     log: &mut OperationLog,
     working_directory: &Path,
     test_report_path: &Path,
+    callback: Arc<dyn TestControlCallback>,
 ) -> Result<RuntimeResponse<R>, ExchangeError> {
     let control = prepare_runtime_control(prefix, request)?;
-    let (mut output, writer) =
+    let (mut diagnostics, diagnostic_writer) =
         io::pipe().map_err(RuntimeInfrastructureError::CreateRuntimeOutputPipe)?;
-    let stderr = writer
-        .try_clone()
-        .map_err(RuntimeInfrastructureError::CloneRuntimeOutputPipe)?;
     let (mut command, python) = runtime_command(&control)?;
     command
         .arg("--test-report")
         .arg(test_report_path)
         .current_dir(working_directory)
         .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(writer)
-        .stderr(stderr);
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(diagnostic_writer);
     let mut child = command
         .spawn()
         .map_err(|source| RuntimeInfrastructureError::StartHost { python, source })?;
-    // Command 仍持有已配置的 pipe writer；先释放它们，EOF 才只取决于 Runtime。
     drop(command);
-    let status = mirror_test_runtime_output(&mut child, &mut output, log)?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or(RuntimeInfrastructureError::MissingHostStdin)?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(RuntimeInfrastructureError::MissingHostStdout)?;
+    let child = Arc::new(Mutex::new(child));
+    let pump_child = Arc::clone(&child);
+    let pump_result = thread::scope(|scope| {
+        let pump = scope.spawn(move || {
+            let result = pump_test_requests(
+                BufReader::new(stdout),
+                Arc::new(Mutex::new(stdin)),
+                callback,
+            );
+            if result.is_err()
+                && let Ok(mut child) = pump_child.lock()
+            {
+                let _ = child.kill();
+            }
+            result
+        });
+        let mirror_result = mirror_test_runtime_output(&mut diagnostics, log);
+        if mirror_result.is_err()
+            && let Ok(mut child) = child.lock()
+        {
+            let _ = child.kill();
+        }
+        let pump_result = pump
+            .join()
+            .unwrap_or(Err(RuntimeInfrastructureError::TestControlPumpPanicked));
+        (mirror_result, pump_result)
+    });
+    let status = {
+        let mut child = child
+            .lock()
+            .map_err(|_| RuntimeInfrastructureError::TestRuntimeHandlePoisoned)?;
+        match child.wait() {
+            Ok(status) => status,
+            Err(source) => {
+                terminate_test_runtime(&mut child);
+                return Err(RuntimeInfrastructureError::WaitHost(source).into());
+            }
+        }
+    };
+    pump_result.0?;
+    pump_result.1?;
     if !status.success() {
         return Err(RuntimeInfrastructureError::HostExit(status.code()).into());
     }
@@ -697,14 +1177,13 @@ fn read_runtime_response(control: &RuntimeControl) -> Result<Vec<u8>, RuntimeInf
 }
 
 fn mirror_test_runtime_output(
-    child: &mut Child,
     output: &mut impl Read,
     log: &mut OperationLog,
-) -> Result<ExitStatus, ExchangeError> {
+) -> Result<(), ExchangeError> {
     let stderr = io::stderr();
     let mut terminal = stderr.lock();
     let mut mirror = RuntimeOutputMirror::new(log, &mut terminal);
-    let mirror_result = (|| {
+    (|| {
         let mut buffer = [0_u8; 8192];
         loop {
             let count = output
@@ -716,18 +1195,7 @@ fn mirror_test_runtime_output(
             mirror.append(&buffer[..count])?;
         }
         mirror.finish()
-    })();
-    if let Err(error) = mirror_result {
-        terminate_test_runtime(child);
-        return Err(error);
-    }
-    match child.wait() {
-        Ok(status) => Ok(status),
-        Err(source) => {
-            terminate_test_runtime(child);
-            Err(RuntimeInfrastructureError::WaitHost(source).into())
-        }
-    }
+    })()
 }
 
 fn terminate_test_runtime(child: &mut Child) {
@@ -997,6 +1465,34 @@ pub(crate) enum RuntimeInfrastructureError {
         #[source]
         source: io::Error,
     },
+    #[error("Bundled Python Host stdin control pipe is unavailable")]
+    MissingHostStdin,
+    #[error("Bundled Python Host stdout control pipe is unavailable")]
+    MissingHostStdout,
+    #[error("failed to read a nested Workflow control request")]
+    ReadNestedRequest(#[source] io::Error),
+    #[error("failed to start the nested Workflow request reader")]
+    StartNestedRequestReader(#[source] io::Error),
+    #[error("nested Workflow request reader stopped unexpectedly")]
+    NestedRequestReaderPanicked,
+    #[error("nested Workflow control pump stopped unexpectedly")]
+    NestedControlPumpStopped,
+    #[error("nested Workflow control request is invalid")]
+    InvalidNestedRequest,
+    #[error("failed to start a nested Workflow worker")]
+    StartNestedWorker(#[source] io::Error),
+    #[error("nested Workflow worker stopped unexpectedly")]
+    NestedWorkerPanicked,
+    #[error("failed to encode a nested Workflow control response")]
+    EncodeNestedResponse(#[source] serde_json::Error),
+    #[error("nested Workflow response writer is unavailable")]
+    NestedResponseWriterPoisoned,
+    #[error("failed to write a nested Workflow control response")]
+    WriteNestedResponse(#[source] io::Error),
+    #[error("PACK test control pump stopped unexpectedly")]
+    TestControlPumpPanicked,
+    #[error("PACK test Runtime process handle is unavailable")]
+    TestRuntimeHandlePoisoned,
     #[error("failed to create Runtime output spool")]
     CreateOutputSpool(#[source] io::Error),
     #[error("failed to duplicate Runtime {stream} output spool")]
@@ -1013,8 +1509,6 @@ pub(crate) enum RuntimeInfrastructureError {
     },
     #[error("failed to create the Runtime diagnostic output pipe")]
     CreateRuntimeOutputPipe(#[source] io::Error),
-    #[error("failed to duplicate the Runtime diagnostic output pipe")]
-    CloneRuntimeOutputPipe(#[source] io::Error),
     #[error("failed to read piped Runtime diagnostic output")]
     ReadPipedOutput(#[source] io::Error),
     #[error("failed to mirror Runtime output to the terminal")]
@@ -1031,7 +1525,14 @@ pub(crate) enum RuntimeInfrastructureError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use super::protocol::NestedScalar;
+    use std::{
+        collections::BTreeMap,
+        io::Cursor,
+        sync::{Arc, Condvar, Mutex},
+        thread,
+        time::Duration,
+    };
 
     use super::*;
 
@@ -1105,20 +1606,20 @@ mod tests {
     }
 
     #[test]
-    fn run_workflow_request_serializes_private_roots_without_the_session_id() {
+    fn run_workflow_requests_keep_cli_arguments_and_nested_inputs_separate() {
         let invocation = RunWorkflowInvocation {
             session_id: "019f6e00-0000-7000-8000-000000000000".to_owned(),
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
             scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
 
-        let request = serde_json::to_value(run_workflow_request(&invocation)).unwrap();
+        let request = serde_json::to_value(run_workflow_runtime_request(&invocation)).unwrap();
 
         assert_eq!(
             request,
@@ -1127,7 +1628,7 @@ mod tests {
                 "pack_name": "example",
                 "pack_path": "C:\\pack",
                 "workflow_name": "analyze",
-                "arguments": [],
+                "input": {"kind": "arguments", "value": []},
                 "candidate_id": "019f6e00-0000-7000-8000-000000000001",
                 "candidate_path": "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001",
                 "datasource_root": "C:\\data\\datasources\\example",
@@ -1135,6 +1636,28 @@ mod tests {
             })
         );
         assert!(request.get("session_id").is_none());
+
+        let inputs = BTreeMap::from([("limit".to_owned(), NestedScalar::Int64("5".to_owned()))]);
+        let invocation = RunWorkflowInvocation {
+            input: WorkflowInputs::TypedInputs(inputs),
+            ..invocation
+        };
+        let request = serde_json::to_value(run_workflow_runtime_request(&invocation)).unwrap();
+        assert_eq!(
+            request,
+            serde_json::json!({
+                "operation": "run_workflow",
+                "pack_name": "example",
+                "pack_path": "C:\\pack",
+                "workflow_name": "analyze",
+                "input": {"kind": "typed_inputs", "value": {"limit": {"type": "int64", "value": "5"}}},
+                "candidate_id": "019f6e00-0000-7000-8000-000000000001",
+                "candidate_path": "C:\\data\\runs\\019f6e00-0000-7000-8000-000000000001",
+                "datasource_root": "C:\\data\\datasources\\example",
+                "scratch_root": "C:\\data\\scratch\\candidate"
+            })
+        );
+        assert!(request.get("arguments").is_none());
     }
 
     #[test]
@@ -1144,7 +1667,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1177,7 +1700,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1217,7 +1740,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000001".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000001".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1251,7 +1774,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1270,7 +1793,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1298,7 +1821,7 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000003".to_owned(),
             candidate_path: "C:\\private\\019f6e00-0000-7000-8000-000000000003".to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
@@ -1335,13 +1858,13 @@ mod tests {
             pack_name: "example".to_owned(),
             pack_path: "C:\\pack".to_owned(),
             workflow_name: "analyze".to_owned(),
-            arguments: Vec::new(),
+            input: WorkflowInputs::Arguments(Vec::new()),
             candidate_id: "019f6e00-0000-7000-8000-000000000002".to_owned(),
             candidate_path: candidate.path().to_str().unwrap().to_owned(),
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
             scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
-        assert!(validate_run_workflow_report(result(BTreeMap::new()), &invocation).is_err());
+        assert!(validate_run_workflow_report(result(BTreeMap::new()), &invocation).is_ok());
         let output = || protocol::RawRuntimeOutput {
             columns: vec![Column {
                 name: "value".to_owned(),
@@ -1450,5 +1973,186 @@ mod tests {
         assert!(!details.contains('\x1b'));
         assert!(!details.contains('\r'));
         assert_eq!(details.lines().count(), 2);
+    }
+
+    struct OrderingCallback {
+        fast_started: (Mutex<bool>, Condvar),
+    }
+
+    impl NestedRunCallback for OrderingCallback {
+        fn execute(&self, call: protocol::NestedRunCall) -> protocol::NestedRunOutcome {
+            if call.pack_name == "slow" {
+                let (lock, ready) = &self.fast_started;
+                let started = lock.lock().unwrap();
+                let (started, timeout) = ready
+                    .wait_timeout_while(started, Duration::from_secs(2), |started| !*started)
+                    .unwrap();
+                assert!(
+                    !timeout.timed_out(),
+                    "request reader blocked behind callback"
+                );
+                assert!(*started);
+                thread::sleep(Duration::from_millis(25));
+            } else {
+                let (lock, ready) = &self.fast_started;
+                *lock.lock().unwrap() = true;
+                ready.notify_all();
+            }
+            protocol::NestedRunOutcome::Success {
+                relations: vec![protocol::NestedRelation {
+                    name: "main".to_owned(),
+                    path: format!("C:\\private\\{}\\main.parquet", call.pack_name),
+                }],
+            }
+        }
+    }
+
+    #[test]
+    fn nested_request_pump_dispatches_concurrently_and_writes_whole_frames() {
+        let requests = concat!(
+            r#"{"call_id":1,"pack_name":"slow","workflow_name":"run","inputs":{}}"#,
+            "\n",
+            r#"{"call_id":2,"pack_name":"fast","workflow_name":"run","inputs":{}}"#,
+            "\n"
+        );
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let callback = Arc::new(OrderingCallback {
+            fast_started: (Mutex::new(false), Condvar::new()),
+        });
+
+        pump_nested_requests(
+            Cursor::new(requests.as_bytes()),
+            Arc::clone(&output),
+            callback,
+        )
+        .unwrap();
+
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let frames = output
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0]["call_id"], 2);
+        assert_eq!(frames[1]["call_id"], 1);
+        assert!(frames.iter().all(|frame| frame["status"] == "success"));
+    }
+
+    #[derive(Default)]
+    struct BlockingReaderState {
+        released: bool,
+        finished: bool,
+    }
+
+    struct BlockingAfterFrameReader {
+        frame: Cursor<Vec<u8>>,
+        state: Arc<(Mutex<BlockingReaderState>, Condvar)>,
+    }
+
+    impl Read for BlockingAfterFrameReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.frame.position() < self.frame.get_ref().len() as u64 {
+                return self.frame.read(buffer);
+            }
+            let (state, ready) = &*self.state;
+            let mut state = ready
+                .wait_while(state.lock().unwrap(), |state| !state.released)
+                .unwrap();
+            state.finished = true;
+            ready.notify_all();
+            Ok(0)
+        }
+    }
+
+    struct FailingResponseWriter;
+
+    impl Write for FailingResponseWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "injected response write failure",
+            ))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn nested_response_write_failure_does_not_wait_for_request_eof() {
+        let request = concat!(
+            r#"{"call_id":1,"pack_name":"child","workflow_name":"run","inputs":{}}"#,
+            "\n"
+        );
+        let reader_state = Arc::new((Mutex::new(BlockingReaderState::default()), Condvar::new()));
+        let reader = BlockingAfterFrameReader {
+            frame: Cursor::new(request.as_bytes().to_vec()),
+            state: Arc::clone(&reader_state),
+        };
+        let callback = Arc::new(OrderingCallback {
+            fast_started: (Mutex::new(true), Condvar::new()),
+        });
+        let (result_sender, result_receiver) = mpsc::channel();
+        let pump = thread::spawn(move || {
+            let result = pump_nested_requests(
+                BufReader::new(reader),
+                Arc::new(Mutex::new(FailingResponseWriter)),
+                callback,
+            );
+            let _ = result_sender.send(result);
+        });
+
+        let early_result = result_receiver.recv_timeout(Duration::from_secs(2));
+        let (state, ready) = &*reader_state;
+        {
+            let mut state = state.lock().unwrap();
+            state.released = true;
+            ready.notify_all();
+        }
+        pump.join().unwrap();
+        let (state, timeout) = ready
+            .wait_timeout_while(state.lock().unwrap(), Duration::from_secs(2), |state| {
+                !state.finished
+            })
+            .unwrap();
+
+        assert!(!timeout.timed_out(), "request reader did not stop");
+        assert!(state.finished);
+        assert!(matches!(
+            early_result.expect("response write failure waited for request EOF"),
+            Err(RuntimeInfrastructureError::WriteNestedResponse(_))
+        ));
+    }
+
+    #[test]
+    fn nested_request_pump_rejects_reused_call_ids_and_partial_frames() {
+        let duplicate = concat!(
+            r#"{"call_id":1,"pack_name":"one","workflow_name":"run","inputs":{}}"#,
+            "\n",
+            r#"{"call_id":1,"pack_name":"two","workflow_name":"run","inputs":{}}"#,
+            "\n"
+        );
+        let callback = Arc::new(OrderingCallback {
+            fast_started: (Mutex::new(true), Condvar::new()),
+        });
+        assert!(matches!(
+            pump_nested_requests(
+                Cursor::new(duplicate.as_bytes()),
+                Arc::new(Mutex::new(Vec::new())),
+                Arc::clone(&callback),
+            ),
+            Err(RuntimeInfrastructureError::InvalidNestedRequest)
+        ));
+
+        let partial = r#"{"call_id":3,"pack_name":"one","workflow_name":"run","inputs":{}}"#;
+        assert!(matches!(
+            pump_nested_requests(
+                Cursor::new(partial.as_bytes()),
+                Arc::new(Mutex::new(Vec::new())),
+                callback,
+            ),
+            Err(RuntimeInfrastructureError::InvalidNestedRequest)
+        ));
     }
 }

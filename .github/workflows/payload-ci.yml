@@ -165,9 +165,10 @@ jobs:
                 "$python" /repo/build/fixtures/create_payload_smoke_hitrace.py "$fixture"
               "$cli" inspect workflow --pack payload-smoke --pack-dir "$producer_pack" >/work/inspect.json
               "$cli" test --pack-dir "$producer_pack" >/work/test.json
-              "$cli" run --pack payload-smoke --workflow summarize-hitrace-clock --pack-dir "$producer_pack" -- --trace-path "$fixture" >/work/run-first.json
+              "$cli" session create >/work/session.json
               session_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
-                "$python" -c "import json; print(json.load(open(\"/work/run-first.json\"))[\"result\"][\"session_id\"])")
+                "$python" -c "import json; print(json.load(open(\"/work/session.json\"))[\"result\"][\"session_id\"])")
+              "$cli" run --session "$session_id" --pack payload-smoke --workflow summarize-hitrace-clock --pack-dir "$producer_pack" -- --trace-path "$fixture" >/work/run-first.json
               /bin/rm -- "$fixture"
               "$cli" run --session "$session_id" --pack payload-smoke-consumer --workflow reuse-hitrace-clock --pack-dir "$consumer_pack" -- --trace-path "$fixture" >/work/run-second.json
               run_id=$(/usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
@@ -185,6 +186,10 @@ jobs:
                 "$python" /repo/build/fixtures/verify_payload_materialization_race.py \
                 "$cli" "$producer_pack" "$race_fixture" \
                 /work/materialization-race
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" /repo/build/fixtures/verify_workflow_pack_tests.py \
+                "$cli" "$skill/assets/packs" /repo/examples/packs/workflow-composition \
+                /work/workflow-pack-tests
             '
 
   windows-smoke:
@@ -246,7 +251,11 @@ jobs:
           $testText = & $cli test --pack-dir $producerPack
           $testText | Set-Content -Path (Join-Path $work "test.json") -Encoding utf8
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $firstRunText = & $cli run --pack payload-smoke --workflow summarize-hitrace-clock --pack-dir $producerPack -- --trace-path $fixture
+          $sessionText = & $cli session create
+          $sessionText | Set-Content -Path (Join-Path $work "session.json") -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $session = $sessionText | ConvertFrom-Json
+          $firstRunText = & $cli run --session $session.result.session_id --pack payload-smoke --workflow summarize-hitrace-clock --pack-dir $producerPack -- --trace-path $fixture
           $firstRunText | Set-Content -Path (Join-Path $work "run-first.json") -Encoding utf8
           $firstRun = $firstRunText | ConvertFrom-Json
           Remove-Item -LiteralPath $fixture
@@ -270,4 +279,9 @@ jobs:
           & $python "build/fixtures/verify_payload_materialization_race.py" `
             $cli $producerPack $raceFixture `
             (Join-Path $work "materialization-race")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python "build/fixtures/verify_workflow_pack_tests.py" `
+            $cli (Join-Path $skill "assets/packs") `
+            (Resolve-Path "examples/packs/workflow-composition").Path `
+            (Join-Path $work "workflow-pack-tests")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

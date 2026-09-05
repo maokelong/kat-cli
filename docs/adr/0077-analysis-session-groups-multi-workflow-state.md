@@ -8,7 +8,7 @@ status: accepted
 
 Session 不归属于 PACK；每个 Run 精确属于一个 Session，并继续记录自己选择的 PACK 与 Workflow。同一 Session 可以包含不同 PACK 的 Runs，但 Runtime 每次仍只挂载当前 Run 选择的 PACK，不加载其他 PACK 的代码或建立 PACK dependency。
 
-`kat run` 可以通过可选的 `--session <session-id>` 继续一个已发布 Session。未提供该参数时，每次都创建新 Session；KAT 不提供隐式 current/last Session、单独的 create 命令、全局 Session registry 或跨 Data Home 查找。显式 Session 缺失、正在删除或身份标记损坏时执行失败，绝不静默创建同名 Session。
+Analysis Session 在任何生产 Workflow 执行前通过独立的 `kat session create` 显式发布；该命令不接受 Session ID，成功时精确返回新建的 `session_id`。生产 `kat run` 必须通过 `--session <session-id>` 指定一个已经发布的 Session；KAT 不提供隐式 current/last Session、全局 Session registry 或跨 Data Home 查找，也不会由 Run 创建、复用或猜测 Session。显式 Session 缺失、正在删除或身份标记损坏时执行失败，绝不静默创建同名 Session。
 
 公开存储布局为：
 
@@ -27,17 +27,15 @@ KAT_DATA_HOME/
                 └── outputs/
 ```
 
-`sessions/.leases/<session-id>.lock` 与 `sessions/.deletions/<session-id>/` 是删除协调使用的私有固定位置，不属于公开 Session 内容或发现面。前者在首次候选执行时建立；未发布 Session 失败时可以清理，已发布过的 Session 即使删除后也永久保留其空 lease 文件，因为 UUIDv7 不复用，而安全删除同名锁文件需要额外全局协调。首版接受这些小型文件累积，不把它们当成 Session registry。
+`sessions/.leases/<session-id>.lock` 与 `sessions/.deletions/<session-id>/` 是删除协调使用的私有固定位置，不属于公开 Session 内容或发现面。前者最晚在 Session 发布前建立；已发布过的 Session 即使删除后也永久保留其空 lease 文件，因为 UUIDv7 不复用，而安全删除同名锁文件需要额外全局协调。首版接受这些小型文件累积，不把它们当成 Session registry。
 
 `session.json` 精确只含 `session_id`，是 Session 的不可变身份和公开标记，不维护 Runs、materializations、PACK、Workflow、当前运行或状态。Session 解析只接受当前 Data Home 下 `sessions/<session-id>` 的规范 UUIDv7 直接普通目录、精确匹配目录名的普通标记文件和三个固定普通子目录；symlink、junction、路径逃逸、身份不一致、缺失与损坏均 fail closed。
 
-未提供 `--session` 的首次执行从一开始就在最终 `sessions/<session-id>` 路径形成未发布候选，以免目录移动破坏物化中可能存在的绝对自引用。CLI 生成彼此独立的 Session ID 与 Run candidate ID，完成 Runtime、Outputs、Operation log 和 scratch 清理后先原子发布首个 Run Manifest，最后以 no-replace 方式原子发布 `session.json`；公共读取必须先通过 Session 标记，因此只有最后一步成功后 Session 与首个 Run 才同时可见，success Response 才返回两个 ID。
+`kat session create` 生成 Session ID，建立空的固定目录布局并完成验证，再以唯一的 no-replace 原子提交点发布 `session.json`。成功 Response 的 `result` 精确只有 `{"session_id":"<session-id>"}`；任一步失败都没有部分 `result`。没有合法标记的残留不是 Session，公共操作不扫描、发现或读取它，首版也不增加自动 GC。已经发布的空 Session 是持续合法状态，可以 inspection，并一直保留到显式整体删除。
 
-首次执行任一步失败都不返回 Session ID 或 Run ID，并清理整个未发布目录。进程被强制终止或清理失败可能留下没有合法 `session.json` 的候选残留；它不是 Session，公共操作不扫描、发现或读取它，首版也不增加自动 GC。
+Session 上的每次执行使用新的 candidate ID 隔离 `scratch/<candidate-id>` 与 `runs/<candidate-id>`。只有 Runtime、Outputs、Operation log、Output 与直接 `child_runs` 验证和 scratch 清理全部成功后，CLI 才以最终 `manifest.json` 发布该 candidate，使其 ID 成为 Run ID；失败时删除本次 scratch 和未发布 Run candidate，不返回 Run ID，也不删除预先存在的 Session 或回滚已经独立发布的来源物化与子 Run。Scratch 清理是 Run 发布门，清理失败时不发布 Run。
 
-已有 Session 上的每次执行使用新的 candidate ID 隔离 `scratch/<candidate-id>` 与 `runs/<candidate-id>`。只有 Runtime、Outputs、Operation log 和 scratch 清理全部成功后，CLI 才以最终 `manifest.json` 发布该 candidate，使其 ID 成为 Run ID；失败时删除本次 scratch 和未发布 Run candidate，不返回 Run ID，也不回滚已经独立完整发布的来源物化。Scratch 清理是 Run 发布门，清理失败时不发布 Run。
-
-Run Manifest 同时记录 `session_id` 与 `run_id`，并继续记录 PACK、Workflow、有效输入和 Outputs。Run 的公共地址改为 `(session_id, run_id)`：`kat run` success Response 同时返回两者；所有读取既有 Run 的操作必须显式提供二者，例如 `kat query --session <session-id> --run <run-id> --sql ...` 与 `kat inspect workflow --session <session-id> --run <run-id>`。解析必须验证两个路径参数、Session 标记、Run 目录和 Manifest 内身份全部一致；KAT 不扫描其他 Sessions，不维护 `run_id → session_id` 索引，也不保留只凭 Run ID 的兼容寻址。
+Run Manifest 同时记录 `session_id` 与 `run_id`，并继续记录 PACK、Workflow、有效输入、按 Run ID 排序的直接 `child_runs` 和 Outputs；叶子 Run 的 `child_runs` 是空数组。Run 的公共地址是 `(session_id, run_id)`：`kat run` success Response 同时返回所给 Session ID 与新 Run ID；所有读取既有 Run 的操作必须显式提供二者，例如 `kat query --session <session-id> --run <run-id> --sql ...` 与 `kat inspect workflow --session <session-id> --run <run-id>`。解析必须验证两个路径参数、Session 标记、Run 目录和 Manifest 内身份全部一致；KAT 不扫描其他 Sessions，不维护 `run_id → session_id` 索引，也不保留只凭 Run ID 的兼容寻址。
 
 `kat inspect session --session <session-id>` 的 success result 精确为：
 
@@ -49,6 +47,7 @@ Run Manifest 同时记录 `session_id` 与 `run_id`，并继续记录 PACK、Wor
       "run_id": "...",
       "pack": "...",
       "workflow": "...",
+      "child_runs": [],
       "outputs": {
         "main": {
           "columns": [{"name": "...", "type": "..."}],
@@ -60,7 +59,7 @@ Run Manifest 同时记录 `session_id` 与 `run_id`，并继续记录 PACK、Wor
 }
 ```
 
-每个 `outputs` 精确复用 Run success 的公开 inventory 形状，Runs 按 Run ID 稳定排序；结果不包含 inputs、materializations、scratch 或物理路径，首版也不分页。Inspection 只枚举一次当前 `runs/`：当时没有 Manifest 的候选被忽略，枚举后新发布的 Run 可以不出现在本次结果中；每个已经选中的 Run 都复用 Query 的同一个 published-Run resolver，严格验证两个身份、Manifest 及每个声明 Output 的直接普通文件，任一损坏时整体失败而不返回部分 inventory。正常发布的 Session 至少包含一个有效 Run。
+每个 `outputs` 精确复用 Run success 的公开 inventory 形状，Runs 按 Run ID 稳定排序；`child_runs` 只包含该 Run 直接、成功发布的子 Run ID，同样按 Run ID 排序但语义无序，叶子固定为 `[]`。结果不递归嵌入调用树，也不包含 inputs、materializations、scratch、失败调用、执行计划或物理路径，首版不分页。Inspection 只枚举一次当前 `runs/`：当时没有 Manifest 的候选被忽略，枚举后新发布的 Run 可以不出现在本次结果中；每个已经选中的 Run 都复用 Query 的同一个 published-Run resolver，严格验证两个身份、Manifest 及每个声明 Output 的直接普通文件，任一损坏时整体失败而不返回部分 inventory。空 Session 合法并精确返回 `runs: []`。
 
 `ctx.datasource_root` 指向当前 Session 的 `materializations/`，`ctx.scratch_root` 指向当前执行的 `scratch/<candidate-id>/`；两者都是受同一调用期 Execution Lease 约束的普通 `Path`。Context 不增加 `session_id` 或 `session_root` 属性，Runtime 也不把整个根作为请求字段，但这只是收窄正常作者接口：受信任 PACK 仍可能沿父目录越界，KAT 不是 Python 文件系统沙箱，Run 文件私有性与跨 PACK 只读复用都是作者合同而非安全强制。
 
@@ -81,7 +80,7 @@ KAT 不建立 materialization registry、来源 provenance、生产者身份或�
 
 Run Manifest 中记录的来源类 effective input 只表示调用参数，不证明共享物化字节的 provenance；命中既有 source stem 时，Guide 与 Analysis Result 不得仅凭该输入声称物化来自本次传入路径。
 
-同一 Session 允许多个普通操作并发，不使用 exclusive Session 锁把 Runs 串行化。Run candidate 和 scratch 由 candidate ID 隔离；竞争同一 source stem 的生产方各自生成完整候选，再以 no-replace 决出唯一胜者。普通 Run、Query、按 Run 的 Workflow inspection 与 Session inspection 在操作及最终 Response 发布期间持有同一个 Session shared lease，只用于和整体删除协调，不妨碍彼此并发。该 lease 协调仍存活的 KAT CLI 操作，不是进程沙箱；若 CLI 被强制终止而 Runtime 子进程成为孤儿，删除对 rename 或递归删除的系统错误 fail closed，但首版不增加 parent-death 或孤儿进程控制协议。
+同一 Session 允许多个普通操作并发，不使用 exclusive Session 锁把 Runs 串行化。Run candidate 和 scratch 由 candidate ID 隔离；竞争同一 source stem 的生产方各自生成完整候选，再以 no-replace 决出唯一胜者。顶层 Run 在完整嵌套 Runtime 树、子 Catalog 使用和父级完成期间持续持有 Session shared lease；Query、按 Run 的 Workflow inspection 与 Session inspection 各自在操作及最终 Response 发布期间持有同一类 shared lease。该 lease 只用于和整体删除协调，不妨碍普通操作彼此并发；它也不是进程沙箱。若 CLI 被强制终止而 Runtime 子进程成为孤儿，删除对 rename 或递归删除的系统错误 fail closed，但首版不增加 parent-death 或孤儿进程控制协议。
 
 `kat session delete --session <session-id>` 是唯一删除入口，永久删除该 Session 的 Runs、Outputs、materializations 和 scratch；它不创建 Operation log，success result 精确只有 `{"session_id":"<session-id>"}`，failure 不含 result。删除使用固定私有 lease 文件取得 non-blocking exclusive lease；有普通操作占用时立即失败且不修改 Session。取得 lease 后再次严格验证：只有 Session 存在时，将它 no-replace 移到固定 `.deletions/<session-id>` 后递归删除；只有 tombstone 存在时继续删除；二者都不存在时报 Not Found，二者同时存在则按损坏 fail closed。递归删除失败仍返回 failure，普通操作不读取 tombstone，并把已移走的 Session 视为不存在或正在删除。
 
@@ -91,7 +90,7 @@ Run Manifest 中记录的来源类 effective input 只表示调用参数，不�
 
 `kat test` 为每个 pytest test 建立隔离的测试 Session：同一 test 中多次 `kat_run` 共享 materializations，每次调用使用独立 candidate、scratch 和 Outputs；不同 test 完全隔离。测试 Session 不发布生产 `session.json` 或生产 Run，失败现场是否由 pytest 临时目录保留不改变生产 Session 合同。
 
-Query Results 与 Operation logs 继续保留在现有 Data Home 全局目录，Run Output 也不会自动传给下一个 Workflow。多个来源必须由 Workflow 参数显式选择，不扫描或猜测；Guide 可以让后续 Workflow 复用成功 Response 中的 `session_id`，但不能因此自动形成 DAG、隐式 Workflow 串联或扩大来源授权。
+Query Results 与 Operation logs 继续保留在现有 Data Home 全局目录，Run Output 也不会自动传给下一个 Workflow。多个来源必须由 Workflow 参数显式选择，不扫描或猜测；Guide 可以建议用已知 Session ID 运行后续 Workflow，但这种解释阶段的调用形成新的独立根 Run，不会改写已有父 Manifest，也不能因此自动形成 DAG、隐式 Workflow 串联或扩大来源授权。
 
 这是一项早期破坏性变更。新版本只读取 `sessions/<session-id>/...`；既有顶层 `runs/` 与 `datasources/<pack>/` 不迁移、不扫描、不删除，也不提供兼容 locator。切换 Data Home 后，原 Session 地址在新 Data Home 中无效。
 

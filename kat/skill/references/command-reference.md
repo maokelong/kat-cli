@@ -80,23 +80,28 @@ Provider inspection 只用于 PACK 开发。它会导入所选 PACK `datasources
 
 Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL、Schema 或接入方式。Agent 直接读取 Response 字段，不自行查找文件，也不把它当作分析策略。
 
+## 创建一个 Session
+
+```text
+kat session create
+```
+
+生产分析必须在运行任何 Workflow 前显式创建 Analysis Session。该命令不接受 Session ID；成功 Response 精确为 `{"status":"success","result":{"session_id":"<Session ID>"}}`，并发布一个可以为空的 Session。失败时没有部分 `result`，也不能把候选目录当作 Session。新建后可以立即用 Session inspection 得到 `runs: []`。
+
 ## 执行 Workflow
 
 ```text
-kat run --pack <PACK名称> --workflow <Workflow名称> \
-  [--session <已有 Session ID>] \
+kat run --session <已有 Session ID> \
+  --pack <PACK名称> --workflow <Workflow名称> \
   [--pack-dir <PACK目录> ...] -- \
   <来自 workflow detail.parameters 的参数>
 ```
 
-只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。成功后从 `result.session_id`、`result.run_id` 和 `result.outputs` 取得唯一可查询 Run 及其输出名称、columns 与行数。省略 `--session` 时每次都新建 Session；只有用户目标明确属于同一次分析时，才沿用先前成功 Response 的 Session ID。显式 Session 不存在或损坏时失败，不会静默创建同名 Session。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
+只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。每次生产 Run 的 `--session` 都必填，并且必须引用已经存在的 Session；缺少、错误、不存在或损坏的 Session 都不会隐式创建、复用或猜测 Session。成功后从 `result.session_id`、`result.run_id` 和 `result.outputs` 取得本次顶层可查询 Run 及其输出名称、columns 与行数；Response 不递归展开 `child_runs`。失败时不返回本次顶层 Run 的部分 `result` 或 Run ID，已存在的 Session 及其中已经独立发布的 Run 仍可 inspection。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
 
 例如，若 Workflow detail 明示 `--source-path` 和 `--limit`：
 
 ```text
-kat run --pack example --workflow analyze --pack-dir <PACK目录> -- \
-  --source-path <本地来源路径> --limit 20
-
 kat run --session <Session ID> --pack example --workflow analyze \
   --pack-dir <PACK目录> -- \
   --source-path <本地来源路径> --limit 20
@@ -108,7 +113,7 @@ kat run --session <Session ID> --pack example --workflow analyze \
 kat inspect session --session <Session ID>
 ```
 
-成功 `result` 恰含 `session_id` 和按 Run ID 稳定排序的 `runs`。每个 Run 只包含 `run_id`、`pack`、`workflow` 与和 Run success 相同形状的 `outputs` inventory；不包含 inputs、materializations、scratch 或物理路径。KAT 不提供 Session list/current，也不跨 Data Home 搜索。
+成功 `result` 恰含 `session_id` 和按 Run ID 稳定排序的 `runs`；空 Session 返回 `runs: []`。每个 Run 只包含 `run_id`、`pack`、`workflow`、`child_runs` 与和 Run success 相同形状的 `outputs` inventory。`child_runs` 只列出该 Run 直接、成功发布的子 Run ID，按 Run ID 排序但语义无序，叶子固定为 `[]`；它不递归嵌入后代，也不表达调用顺序、分支或线程。结果不包含 inputs、materializations、scratch、失败调用、执行计划或物理路径。KAT 不提供 Session list/current，也不跨 Data Home 搜索。
 
 ## 查询 Workflow 输出
 

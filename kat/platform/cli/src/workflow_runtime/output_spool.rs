@@ -13,7 +13,7 @@ use crate::{
 use super::{ExchangeError, RuntimeInfrastructureError};
 
 pub(super) struct RuntimeOutputSpool {
-    stdout: File,
+    stdout: Option<File>,
     stderr: File,
 }
 
@@ -41,21 +41,51 @@ impl RuntimeOutputSpool {
                 .map_err(RuntimeInfrastructureError::CreateOutputSpool)
         };
         Ok(Self {
-            stdout: create("stdout.log")?,
+            stdout: Some(create("stdout.log")?),
             stderr: create("stderr.log")?,
         })
     }
 
+    pub(super) fn create_stderr_only(control: &Path) -> Result<Self, RuntimeInfrastructureError> {
+        let stderr = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(control.join("stderr.log"))
+            .map_err(RuntimeInfrastructureError::CreateOutputSpool)?;
+        Ok(Self {
+            stdout: None,
+            stderr,
+        })
+    }
+
     pub(super) fn stdio(&self) -> Result<(Stdio, Stdio), RuntimeInfrastructureError> {
+        let stdout = self
+            .stdout
+            .as_ref()
+            .expect("a complete Runtime output spool owns stdout");
         Ok((
-            self.clone_for("stdout", &self.stdout)?,
+            self.clone_for("stdout", stdout)?,
             self.clone_for("stderr", &self.stderr)?,
         ))
     }
 
+    pub(super) fn stderr_stdio(&self) -> Result<Stdio, RuntimeInfrastructureError> {
+        self.clone_for("stderr", &self.stderr)
+    }
+
     pub(super) fn append_to(mut self, log: &mut OperationLog) -> Result<(), ExchangeError> {
         let mut terminal = None;
-        append_stream(&mut self.stdout, "stdout", log, &mut terminal)?;
+        let stdout = self
+            .stdout
+            .as_mut()
+            .expect("a complete Runtime output spool owns stdout");
+        append_stream(stdout, "stdout", log, &mut terminal)?;
+        append_stream(&mut self.stderr, "stderr", log, &mut terminal)
+    }
+
+    pub(super) fn append_stderr_to(mut self, log: &mut OperationLog) -> Result<(), ExchangeError> {
+        let mut terminal = None;
         append_stream(&mut self.stderr, "stderr", log, &mut terminal)
     }
 
@@ -273,6 +303,20 @@ mod tests {
         append_stream(&mut file, "stdout", &mut log, &mut None).unwrap();
 
         assert!(log.0.is_empty());
+    }
+
+    #[test]
+    fn stderr_only_spool_leaves_stdout_available_for_control_frames() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut spool = RuntimeOutputSpool::create_stderr_only(temporary.path()).unwrap();
+
+        assert!(!temporary.path().join("stdout.log").exists());
+        spool.stderr.write_all(b"PACK output\n").unwrap();
+        let mut log = RecordingLog::default();
+        let mut terminal = None;
+        append_stream(&mut spool.stderr, "stderr", &mut log, &mut terminal).unwrap();
+
+        assert_eq!(log.0, b"PACK output\n");
     }
 
     #[test]

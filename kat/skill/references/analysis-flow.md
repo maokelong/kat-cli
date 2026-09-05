@@ -4,7 +4,7 @@
 
 每次先确认一个要回答的问题，以及以下一种起点：
 
-- 新分析：用户提供要分析的 Source、路径或其他业务输入；它如何进入系统由选中的 Workflow 与 Provider 决定，Agent 不预设统一中间数据模型。
+- 新分析：用户提供要分析的 Source、路径或其他业务输入；它如何进入系统由选中的 Workflow 与 Provider 决定，Agent 不预设统一中间数据模型。选定首个 Workflow 后、执行任何生产 Run 前，显式创建本次分析的 Session。
 - 已有 Session：用户提供 Session ID 时，用 `kat inspect session --session <Session ID>` 查看已发布 Run inventory，再选择相关 Run 或继续同一次分析。
 - 已有 Run：用户提供 Session ID 与 Run ID。刚完成的 `kat run` 可以沿用成功 Response 的 `result.outputs`；只有双 ID 时，后续通过 Output Query 的 `information_schema` 发现实际 relation 与 columns。
 
@@ -28,9 +28,11 @@
 
 ## 3. 执行选中的 Workflow
 
-新分析按 detail 的 `parameters` 构造 `kat run` 请求。省略 `--session` 会建立新 Session；后续操作只有在用户目标属于同一次分析时，才显式用先前成功 Response 的 `session_id` 调用 `kat run --session ...`。不存在隐式 current/last Session，也不要把 Run Output 自动作为后续 Workflow 输入。Workflow 自己显式选择和调用 Provider；分析 Agent 不 inspect Provider，也不依赖 Provider guide。
+新分析先调用 `kat session create`，并从成功 Response 保存 `result.session_id`；然后按 detail 的 `parameters` 构造 `kat run --session <Session ID> ...` 请求。每次生产 `kat run` 都必须显式指定一个已经存在的 Session，不存在隐式 current/last Session，也不会由 Run 创建、复用或猜测 Session。不要把 Run Output 自动作为后续 Workflow 输入。Workflow 自己显式选择和调用 Provider；分析 Agent 不 inspect Provider，也不依赖 Provider guide。
 
-只有 Run Response 的 `status="success"` 时，才同时保留 `session_id`、`run_id`、输出名称、columns 与 `row_count`。它们是查询和继续分析阶段的执行事实。失败时没有可发布身份；不要把候选目录、日志或部分输出当作结果。
+只有 Run Response 的 `status="success"` 时，才保留 `session_id`、`run_id`、输出名称、columns 与 `row_count`。它们是查询和继续分析阶段的执行事实。Run 失败时没有本次顶层 Run 的可发布身份，但预先创建的 Session 仍然存在；需要检查嵌套执行已经发布的子 Run 时，使用已知 Session ID 重新执行 Session inspection。不要把候选目录、日志或部分输出当作结果，也不要在同一 Session 存在并发根执行时把没有父 Run 的 Run 猜测为某次失败调用的后代。
+
+KAT Skill 可以为当前用户任务在同一 Session 中临时运行多个已有 Workflow，逐个查询各自证据并形成 Analysis Result。每次顶层调用都是独立根 Run；临时调用序列没有 Workflow 身份，不产生父 Run、动态 PACK、动态 Python Workflow 或其他编排对象。只有需要复用、inspection 和测试的固定组合，才由 PACK 作者写成通过 `ctx.run()` 调用子能力的普通 Python Workflow。
 
 ## 4. 查询最少证据
 
@@ -41,5 +43,11 @@
 ## 5. 使用策略形成结论
 
 结合选中 Workflow 的 analysis guide 与主动约束范围的 Query 证据形成结果。guide 用于组织分析和下一步方向，不替代实际数据证据，也不扩大用户授权。
+
+组合 Workflow 发布父 Run 后，默认先使用父 Workflow 的当前 guide 与父 Run Output。`outputs: {}` 表示该 Workflow 未生成自己的表；不要查询不存在的 `output.main`，也不能推导为没有问题。零行表同样不能单独证明没有问题。Session inventory 展示发布时元数据，内容是否仍可读以实际 query 为准。只有父 guide 明确要求汇总子结论，或父级证据不足以回答当前问题时，才调用 `kat inspect session --session ...` 取得该父 Run 的直接 `child_runs`，并按当前问题选择相关子 Run。对每个选中的子 Run，分别用它自己的双 ID 执行 Workflow inspection 和最少 Output Query；更深层证据仍按同一规则惰性展开。
+
+`child_runs` 按 Run ID 排序但语义无序，只表达直接、成功发布的子 Run。若多个直接子 Run 的 PACK 与 Workflow 相同且公开事实不足以区分，把所有匹配项视为候选并说明歧义，不根据数组位置猜测调用顺序。Guide 不自动合并、继承或替代；缺省 guide 的 Run 不要求生成独立解释。“相关”“证据不足”和“最少证据”都是模型的尽力判断，不是 Runtime 保证或新 Guide 语法。
+
+Guide 建议继续运行的 Workflow 不属于已经结束的父执行。确认候选、参数来源、授权范围和预期新增证据后，使用当前 Session 发起新的顶层 `kat run --session ...`；它形成独立根 Run，不会补写既有父 Run 的 `child_runs`。证据足够时立即停止，不自动重复相同输入或扩大来源授权。
 
 交付前读取 [result-contract.md](result-contract.md)。结论区分已观察事实、推断与不确定性；不要把完整 Response、完整表、原始 guide 或日志原样转发给用户。

@@ -211,21 +211,9 @@ class ProductionPack:
             )
         return compiled
 
-    def load_all(self) -> dict[str, CompiledWorkflow]:
+    def mount_for_tests(self) -> None:
+        # helper 单测属于 pytest；实际 Workflow 在独立 Runtime 内正式加载。
         _mount_current_pack(self.root)
-        workflows: dict[str, CompiledWorkflow] = {}
-        for entry in self.entries:
-            compiled = _load_entry(self.root, entry.source, entry.module_name)
-            if (
-                compiled.interface != entry.interface
-                or compiled.guide_ref != entry.guide_ref
-            ):
-                raise ValueError(
-                    f"Workflow entry {entry.source.relative_to(self.root).as_posix()} "
-                    "changed between inspection and execution loading"
-                )
-            workflows[compiled.interface["name"]] = compiled
-        return workflows
 
 
 def inspect_workflow(

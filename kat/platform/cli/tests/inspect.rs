@@ -10,6 +10,9 @@ use std::{
 mod support;
 use support::cargo_kat;
 
+#[path = "support/parquet.rs"]
+mod parquet_fixture;
+
 #[path = "support/test_home.rs"]
 mod test_home;
 
@@ -139,7 +142,7 @@ fn write_inspect_session(root: &Path) -> PathBuf {
     .unwrap();
     let run = session.join("runs").join(INSPECT_RUN_ID);
     fs::create_dir_all(run.join("outputs")).expect("create published Run directory");
-    fs::write(run.join("outputs/main.parquet"), b"opaque").unwrap();
+    parquet_fixture::write_i64(&run.join("outputs/main.parquet"), "value", &[]);
     fs::write(
         run.join("manifest.json"),
         serde_json::to_vec(&serde_json::json!({
@@ -147,6 +150,7 @@ fn write_inspect_session(root: &Path) -> PathBuf {
             "run_id": INSPECT_RUN_ID,
             "pack": "alpha",
             "workflow": "analyze",
+            "child_runs": [],
             "dataset": {
                 "historical": ["shape", "is", "irrelevant", "to", "inspect"]
             },
@@ -154,7 +158,7 @@ fn write_inspect_session(root: &Path) -> PathBuf {
             "outputs": {
                 "main": {
                     "columns": [{"name": "value", "type": "int64"}],
-                    "row_count": 1
+                    "row_count": 0
                 }
             }
         }))

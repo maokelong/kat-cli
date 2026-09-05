@@ -5,8 +5,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
+from . import dataprovider
+
 F = TypeVar("F", bound=Callable[..., Any])
 _REGISTRATIONS: list[Callable[..., Any]] = []
+
+
+class RunError(Exception):
+    """A nested Workflow call could not deliver a usable Output Catalog.
+
+    The message is intended only for people. Callers must not parse it or
+    assume that retrying is safe: a failed call may already have published a
+    Run or caused external side effects.
+    """
 
 
 class Context:
@@ -37,6 +48,25 @@ class Context:
 
         This ordinary Path capability is valid only for this Workflow execution.
         It narrows the normal authoring interface but is not a filesystem sandbox.
+        """
+        raise RuntimeError("Context is not bound to a Workflow execution")
+
+    def run(
+        self,
+        pack_name: str,
+        workflow_name: str,
+        /,
+        **inputs: object,
+    ) -> dataprovider.Catalog:
+        """Synchronously run another Workflow in the current Analysis Session.
+
+        ``pack_name`` and ``workflow_name`` are positional-only routing values;
+        all target Workflow inputs are keyword-only. Runtime-bound Contexts
+        support concurrent calls from ordinary Python threads. Every successful
+        call returns a read-only Catalog over the child Run's published Outputs.
+
+        Failures raise :class:`kat.RunError`. Its message is not a stable
+        programmatic interface, and retrying is never assumed to be safe.
         """
         raise RuntimeError("Context is not bound to a Workflow execution")
 

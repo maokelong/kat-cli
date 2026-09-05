@@ -7,6 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/parquet.rs"]
+mod parquet_fixture;
+
 const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000040";
 const RUN_A: &str = "019f6e00-0000-7000-8000-000000000041";
 const RUN_B: &str = "019f6e00-0000-7000-8000-000000000042";
@@ -91,11 +94,12 @@ fn write_run(
 ) {
     let run = session.join("runs").join(run_id);
     fs::create_dir_all(run.join("outputs")).unwrap();
-    fs::write(
-        run.join("outputs").join(format!("{output}.parquet")),
-        b"opaque",
-    )
-    .unwrap();
+    let values = (0..row_count).map(|value| value as i64).collect::<Vec<_>>();
+    parquet_fixture::write_i64(
+        &run.join("outputs").join(format!("{output}.parquet")),
+        "value",
+        &values,
+    );
     fs::write(
         run.join("manifest.json"),
         serde_json::to_vec(&serde_json::json!({
@@ -103,6 +107,7 @@ fn write_run(
             "run_id": run_id,
             "pack": pack,
             "workflow": workflow,
+            "child_runs": if run_id == RUN_A { vec![RUN_B] } else { vec![] },
             "inputs": {},
             "outputs": {
                 output: {
@@ -135,6 +140,102 @@ fn assert_legacy_layout_sentinels(run: &Path, datasource: &Path) {
 }
 
 #[test]
+fn session_create_publishes_an_empty_session_with_one_generated_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+
+    let output = command(temporary.path())
+        .args(["session", "create"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let session_id = response["result"]["session_id"].as_str().unwrap();
+    assert_eq!(
+        response,
+        serde_json::json!({
+            "status": "success",
+            "result": {"session_id": session_id}
+        })
+    );
+    let identity = uuid::Uuid::parse_str(session_id).unwrap();
+    assert_eq!(identity.get_version_num(), 7);
+
+    let home = data_home(temporary.path());
+    let session = home.join("sessions").join(session_id);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &fs::read(session.join("session.json")).unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"session_id": session_id})
+    );
+    assert!(session.join("materializations").is_dir());
+    assert!(session.join("scratch").is_dir());
+    assert!(session.join("runs").is_dir());
+    assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
+    assert!(
+        home.join("sessions/.leases")
+            .join(format!("{session_id}.lock"))
+            .is_file()
+    );
+}
+
+#[test]
+fn session_create_accepts_no_caller_supplied_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+
+    let output = command(temporary.path())
+        .args(["session", "create", "--session", SESSION_ID])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument '--session'"));
+    assert!(!data_home(temporary.path()).join("sessions").exists());
+}
+
+#[test]
+fn inspect_empty_created_session_returns_an_empty_run_inventory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let created = command(temporary.path())
+        .args(["session", "create"])
+        .output()
+        .unwrap();
+    assert_eq!(created.status.code(), Some(0));
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let session_id = created["result"]["session_id"].as_str().unwrap();
+
+    let output = command(temporary.path())
+        .args(["inspect", "session", "--session", session_id])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({
+            "status": "success",
+            "result": {
+                "session_id": session_id,
+                "runs": []
+            }
+        })
+    );
+}
+
+#[test]
 fn inspect_session_returns_sorted_published_run_inventory() {
     let temporary = tempfile::tempdir().unwrap();
     write_published_session(temporary.path());
@@ -164,6 +265,7 @@ fn inspect_session_returns_sorted_published_run_inventory() {
                         "run_id": RUN_A,
                         "pack": "pack-a",
                         "workflow": "workflow-a",
+                        "child_runs": [RUN_B],
                         "outputs": {
                             "main": {
                                 "columns": [{"name": "value", "type": "int64"}],
@@ -175,6 +277,7 @@ fn inspect_session_returns_sorted_published_run_inventory() {
                         "run_id": RUN_B,
                         "pack": "pack-b",
                         "workflow": "workflow-b",
+                        "child_runs": [],
                         "outputs": {
                             "summary": {
                                 "columns": [{"name": "value", "type": "int64"}],

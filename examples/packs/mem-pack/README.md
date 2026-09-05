@@ -47,7 +47,8 @@ payload；一份全部由未支持事件构成的合法 Trace 仍可查询 heade
 ## 运行
 
 ```bash
-kat run \
+kat session create
+kat run --session <session-id> \
   --pack mem-pack \
   --workflow summarize-ftrace \
   --pack-dir ./examples/packs/mem-pack \
@@ -62,8 +63,10 @@ Provider 把 Parquet 写到 `ctx.datasource_root / Path(trace_path).stem`。目�
 `kat.materialization.version=text-ftrace-v1`，不再次解析；只有目标完全不存在时才解析。
 已有目标无法打开或未通过合同检查时明确失败，绝不隐式删除、覆盖或原位重建。
 
-首个成功 Response 同时给出 Session ID 与 Run ID。要验证同一来源的跨 Run 复用，后续
-调用必须显式增加外层 `--session <session-id>`；省略该参数会建立新 Session 并重新物化。
+先从 `kat session create` 的成功 Response 取得 Session ID；每次生产 `kat run` 都必须显式
+提供这个已有 Session。Run 成功 Response 同时给出 Session ID 与 Run ID。要验证同一来源的
+跨 Run 复用，后续调用继续使用相同的 `--session <session-id>`；要分析一组独立事实时先创建
+另一个 Session，不能通过省略参数隐式创建。
 
 目录身份只由 Source basename 去掉最后一个后缀得到。同一 Analysis Session 中相同 stem
 复用首次完整发布的目录，即使原始路径或内容后来变化；调用方需要用不同 stem 或新 Session
