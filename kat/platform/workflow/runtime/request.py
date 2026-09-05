@@ -87,9 +87,7 @@ def read_request(path: Path) -> RuntimeRequest:
     if operation == "inspect_provider":
         return _read_inspect_provider_request(request)
     if operation == "run_workflow":
-        return _read_run_workflow_request(request, with_inputs=False)
-    if operation == "run_workflow_with_inputs":
-        return _read_run_workflow_request(request, with_inputs=True)
+        return _read_run_workflow_request(request)
     if operation == "query_run":
         return _read_query_run_request(request)
     if operation == "test_pack":
@@ -162,7 +160,7 @@ def _read_inspect_provider_request(
 
 
 def _read_run_workflow_request(
-    request: dict[str, object], *, with_inputs: bool
+    request: dict[str, object],
 ) -> RunWorkflowRequest:
     common = {
         "operation",
@@ -174,11 +172,14 @@ def _read_run_workflow_request(
         "datasource_root",
         "scratch_root",
     }
-    input_field = "inputs" if with_inputs else "arguments"
-    required = common | {input_field}
-    if set(request) != required:
-        operation = "run_workflow_with_inputs" if with_inputs else "run_workflow"
-        raise RuntimeRequestError(f"{operation} Runtime Request has an invalid field set")
+    if set(request) != common | {"input"}:
+        raise RuntimeRequestError("run_workflow Runtime Request has an invalid field set")
+    payload = request["input"]
+    if type(payload) is not dict or set(payload) != {"kind", "value"}:
+        raise RuntimeRequestError("run_workflow input requires exactly kind and value")
+    kind = payload["kind"]
+    if kind not in ("arguments", "typed_inputs"):
+        raise RuntimeRequestError("run_workflow input kind is invalid")
     string_fields = {name: request[name] for name in common - {"operation"}}
     if any(type(value) is not str or not value for value in string_fields.values()):
         raise RuntimeRequestError(
@@ -200,15 +201,15 @@ def _read_run_workflow_request(
     assert type(scratch_path) is str
     arguments: list[str] | None = None
     decoded_inputs: dict[str, object] | None = None
-    if with_inputs:
+    if kind == "typed_inputs":
         try:
-            decoded_inputs = _decode_inputs(request["inputs"])
+            decoded_inputs = _decode_inputs(payload["value"])
         except (TypeError, ValueError) as error:
             raise RuntimeRequestError(
-                "run_workflow_with_inputs inputs are invalid"
+                "run_workflow typed inputs are invalid"
             ) from error
     else:
-        value = request["arguments"]
+        value = payload["value"]
         if type(value) is not list or any(type(item) is not str for item in value):
             raise RuntimeRequestError(
                 "run_workflow arguments must be an array of strings"

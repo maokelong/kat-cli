@@ -186,6 +186,10 @@ jobs:
                 "$python" /repo/build/fixtures/verify_payload_materialization_race.py \
                 "$cli" "$producer_pack" "$race_fixture" \
                 /work/materialization-race
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" /repo/build/fixtures/verify_workflow_pack_tests.py \
+                "$cli" "$skill/assets/packs" /repo/examples/packs/workflow-composition \
+                /work/workflow-pack-tests
             '
 
   windows-smoke:
@@ -275,4 +279,9 @@ jobs:
           & $python "build/fixtures/verify_payload_materialization_race.py" `
             $cli $producerPack $raceFixture `
             (Join-Path $work "materialization-race")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python "build/fixtures/verify_workflow_pack_tests.py" `
+            $cli (Join-Path $skill "assets/packs") `
+            (Resolve-Path "examples/packs/workflow-composition").Path `
+            (Join-Path $work "workflow-pack-tests")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

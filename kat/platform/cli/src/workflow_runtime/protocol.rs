@@ -306,25 +306,14 @@ impl NestedRunResponseFrame {
     }
 }
 
-/// One test-only control call after transport correlation is removed.
-///
-/// A `test_pack` Runtime is long-lived across pytest cases, so its Host grants
-/// an opaque Session capability per test and a parent candidate capability per
-/// `kat_run` call. Production `run_workflow` frames deliberately remain the
-/// smaller untagged nested-Run shape above.
+/// pytest 持有每测试 Session capability；每次调用走真实 Run，不授予候选路径。
 pub(crate) enum TestControlCall {
     BeginSession,
-    BeginRun {
+    RunWorkflow {
         test_session_id: String,
         pack_name: String,
         workflow_name: String,
-    },
-    RunWorkflow {
-        test_run_id: String,
-        call: NestedRunCall,
-    },
-    EndRun {
-        test_run_id: String,
+        arguments: Vec<String>,
     },
     EndSession {
         test_session_id: String,
@@ -337,22 +326,12 @@ pub(super) enum TestControlRequestFrame {
     BeginTestSession {
         call_id: u64,
     },
-    BeginTestRun {
+    RunWorkflow {
         call_id: u64,
         test_session_id: String,
         pack_name: String,
         workflow_name: String,
-    },
-    RunWorkflow {
-        call_id: u64,
-        test_run_id: String,
-        pack_name: String,
-        workflow_name: String,
-        inputs: BTreeMap<String, NestedScalar>,
-    },
-    EndTestRun {
-        call_id: u64,
-        test_run_id: String,
+        arguments: Vec<String>,
     },
     EndTestSession {
         call_id: u64,
@@ -364,40 +343,21 @@ impl TestControlRequestFrame {
     pub(super) fn into_call(self) -> (u64, TestControlCall) {
         match self {
             Self::BeginTestSession { call_id } => (call_id, TestControlCall::BeginSession),
-            Self::BeginTestRun {
+            Self::RunWorkflow {
                 call_id,
                 test_session_id,
                 pack_name,
                 workflow_name,
-            } => (
-                call_id,
-                TestControlCall::BeginRun {
-                    test_session_id,
-                    pack_name,
-                    workflow_name,
-                },
-            ),
-            Self::RunWorkflow {
-                call_id,
-                test_run_id,
-                pack_name,
-                workflow_name,
-                inputs,
+                arguments,
             } => (
                 call_id,
                 TestControlCall::RunWorkflow {
-                    test_run_id,
-                    call: NestedRunCall {
-                        pack_name,
-                        workflow_name,
-                        inputs,
-                    },
+                    test_session_id,
+                    pack_name,
+                    workflow_name,
+                    arguments,
                 },
             ),
-            Self::EndTestRun {
-                call_id,
-                test_run_id,
-            } => (call_id, TestControlCall::EndRun { test_run_id }),
             Self::EndTestSession {
                 call_id,
                 test_session_id,
@@ -406,17 +366,8 @@ impl TestControlRequestFrame {
     }
 }
 
-pub(crate) struct TestRunCapability {
-    pub(crate) test_run_id: String,
-    pub(crate) candidate_id: String,
-    pub(crate) candidate_path: String,
-    pub(crate) datasource_root: String,
-    pub(crate) scratch_root: String,
-}
-
 pub(crate) enum TestControlOutcome {
     SessionStarted { test_session_id: String },
-    RunStarted(TestRunCapability),
     Workflow(NestedRunOutcome),
     Complete,
     Failure { message: String },
@@ -430,37 +381,29 @@ pub(crate) struct Column {
     pub(crate) data_type: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub(crate) enum WorkflowInputs {
+    Arguments(Vec<String>),
+    TypedInputs(BTreeMap<String, NestedScalar>),
+}
+
 #[derive(Serialize)]
 pub(super) struct RunWorkflowRequest<'a> {
     pub(super) operation: &'static str,
     pub(super) pack_name: &'a str,
     pub(super) pack_path: &'a str,
     pub(super) workflow_name: &'a str,
-    pub(super) arguments: &'a [String],
+    pub(super) input: &'a WorkflowInputs,
     pub(super) candidate_id: &'a str,
     pub(super) candidate_path: &'a str,
     pub(super) datasource_root: &'a str,
     pub(super) scratch_root: &'a str,
-}
-
-#[derive(Serialize)]
-pub(super) struct RunWorkflowWithInputsRequest<'a> {
-    pub(super) operation: &'static str,
-    pub(super) pack_name: &'a str,
-    pub(super) pack_path: &'a str,
-    pub(super) workflow_name: &'a str,
-    pub(super) inputs: &'a BTreeMap<String, NestedScalar>,
-    pub(super) candidate_id: &'a str,
-    pub(super) candidate_path: &'a str,
-    pub(super) datasource_root: &'a str,
-    pub(super) scratch_root: &'a str,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub(super) enum RunWorkflowRuntimeRequest<'a> {
-    Arguments(RunWorkflowRequest<'a>),
-    Inputs(RunWorkflowWithInputsRequest<'a>),
 }
 
 #[derive(Serialize)]
@@ -568,40 +511,22 @@ mod tests {
     }
 
     #[test]
-    fn workflow_execution_requests_have_distinct_exact_input_shapes() {
-        let arguments = vec!["--limit".to_owned(), "5".to_owned()];
-        let cli = RunWorkflowRequest {
-            operation: "run_workflow",
-            pack_name: "source-pack",
-            pack_path: "C:\\pack",
-            workflow_name: "summarize",
-            arguments: &arguments,
-            candidate_id: "019f6e00-0000-7000-8000-000000000001",
-            candidate_path: "C:\\session\\runs\\candidate",
-            datasource_root: "C:\\session\\materializations",
-            scratch_root: "C:\\session\\scratch\\candidate",
-        };
-        let nested_inputs =
-            BTreeMap::from([("limit".to_owned(), NestedScalar::Int64("5".to_owned()))]);
-        let nested = RunWorkflowWithInputsRequest {
-            operation: "run_workflow_with_inputs",
-            pack_name: "source-pack",
-            pack_path: "C:\\pack",
-            workflow_name: "summarize",
-            inputs: &nested_inputs,
-            candidate_id: "019f6e00-0000-7000-8000-000000000001",
-            candidate_path: "C:\\session\\runs\\candidate",
-            datasource_root: "C:\\session\\materializations",
-            scratch_root: "C:\\session\\scratch\\candidate",
-        };
-
-        let cli = serde_json::to_value(cli).unwrap();
-        let nested = serde_json::to_value(nested).unwrap();
-        assert!(cli["arguments"].is_array());
-        assert!(cli.get("inputs").is_none());
-        assert_eq!(nested["operation"], "run_workflow_with_inputs");
-        assert!(nested.get("arguments").is_none());
-        assert!(nested["inputs"].is_object());
+    fn workflow_input_variants_are_mutually_exclusive_and_strict() {
+        for input in [
+            serde_json::json!({"kind":"arguments","value":["--limit","5"]}),
+            serde_json::json!({"kind":"typed_inputs","value":{"limit":{"type":"int64","value":"5"}}}),
+        ] {
+            let decoded: WorkflowInputs = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), input);
+        }
+        for invalid in [
+            serde_json::json!({"kind":"arguments","value":{} }),
+            serde_json::json!({"kind":"typed_inputs","value":[]}),
+            serde_json::json!({"kind":"arguments","value":[],"inputs":{}}),
+            serde_json::json!({"arguments":[],"inputs":{}}),
+        ] {
+            assert!(serde_json::from_value::<WorkflowInputs>(invalid).is_err());
+        }
     }
 
     #[test]

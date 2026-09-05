@@ -1,12 +1,10 @@
 from pathlib import Path
 import sys
 
+from kat.pack.datasources import trace_streamer
 
-def test_workflow_returns_native_hook_summary(
-    kat_run,
-    monkeypatch,
-    tmp_path: Path,
-):
+
+def test_provider_returns_native_hook_summary(tmp_path: Path):
     source = tmp_path / "fixture.htrace"
     source.write_text(
         """
@@ -31,17 +29,17 @@ connection.close()
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("KAT_TRACE_STREAMER_EXECUTABLE", sys.executable)
+    provider = trace_streamer.TraceStreamerProvider(
+        source=source,
+        executable=Path(sys.executable),
+        workspace=tmp_path / "decoded",
+    ).decode()
+    result = provider.query(
+        trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
+        schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
+    )
 
-    result = kat_run(
-        workflow="summarize-native-hook",
-        arguments=[
-            "--source-path",
-            str(source),
-        ],
-    )["main"]
-
-    assert result.to_pylist() == [
+    assert result.to_rows() == [
         {
             "event_type": "AllocEvent",
             "event_count": 2,

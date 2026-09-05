@@ -181,7 +181,7 @@ def test_public_query_returns_a_table_after_closing_query_resources(monkeypatch)
     _assert_all_acquired_resources_are_closed(backend)
 
 
-def test_query_workflow_publishes_a_fake_adbc_result(monkeypatch, kat_run):
+def test_provider_preserves_observation_columns_from_adbc(monkeypatch):
     backend = _install_backend(
         monkeypatch,
         result=pa.table(
@@ -196,23 +196,13 @@ def test_query_workflow_publishes_a_fake_adbc_result(monkeypatch, kat_run):
         ),
     )
 
-    output = kat_run(
-        workflow="query-observations",
-        arguments=[
-            "--service",
-            "fixture-service",
-            "--database",
-            "telemetry",
-            "--clock-domain",
-            "fixture.observation_clock",
-            "--start-clock-value",
-            "100",
-            "--end-clock-value",
-            "200",
-        ],
-    )["main"]
+    # fake 只覆盖 Provider 与 ADBC 边界；Workflow 的真实发布由 real_fusion.py 覆盖。
+    output = PostgreSQLProvider(service="fixture-service").query(
+        "SELECT thread_id, clock_domain, clock_value, cpu_usage FROM observation",
+        database="telemetry",
+    )
 
-    assert output.to_pylist() == [
+    assert output.to_rows() == [
         {
             "thread_id": 101,
             "clock_domain": "fixture.observation_clock",

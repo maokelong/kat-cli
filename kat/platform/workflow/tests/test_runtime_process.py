@@ -1200,7 +1200,7 @@ def analyze(ctx: Context, value: str = invalid_default):
                 "pack_name": "run-worker-crash",
                 "pack_path": str(pack.resolve()),
                 "workflow_name": "analyze",
-                "arguments": [],
+                "input": {"kind": "arguments", "value": []},
                 "candidate_id": candidate_id,
                 "candidate_path": str(candidate.resolve()),
                 "datasource_root": str((session / "materializations").resolve()),

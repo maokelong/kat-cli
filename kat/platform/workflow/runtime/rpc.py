@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 import threading
 from typing import BinaryIO, Iterator
-import uuid
 
 import kat
 
@@ -42,15 +41,6 @@ class _TestSessionResponse:
 
 
 @dataclass(frozen=True)
-class _TestRunResponse:
-    identifier: str
-    candidate_id: str
-    candidate_path: Path
-    datasource_root: Path
-    scratch_root: Path
-
-
-@dataclass(frozen=True)
 class _CompleteResponse:
     pass
 
@@ -59,7 +49,6 @@ type _CallResponse = (
     _SuccessResponse
     | _FailureResponse
     | _TestSessionResponse
-    | _TestRunResponse
     | _CompleteResponse
 )
 
@@ -70,82 +59,24 @@ class _PendingCall:
     response: _CallResponse | None = None
 
 
-class _TestRunScope:
-    def __init__(
-        self,
-        client: _NestedRunClient,
-        response: _TestRunResponse,
-    ) -> None:
-        self._client = client
-        self._identifier = response.identifier
-        self.candidate_id = response.candidate_id
-        self.candidate_path = response.candidate_path
-        self.datasource_root = response.datasource_root
-        self.scratch_root = response.scratch_root
-
-    def run(
-        self,
-        pack_name: str,
-        workflow_name: str,
-        inputs: dict[str, object],
-    ) -> dict[str, Path]:
-        return self._client._run(
-            pack_name,
-            workflow_name,
-            inputs,
-            test_run_id=self._identifier,
-        )
-
-
 class _TestSessionScope:
     def __init__(self, client: _NestedRunClient, identifier: str) -> None:
         self._client = client
         self._identifier = identifier
 
-    @contextmanager
-    def workflow(
-        self,
-        pack_name: str,
-        workflow_name: str,
-    ) -> Iterator[_TestRunScope]:
-        response = self._client._exchange(
-            {
-                "operation": "begin_test_run",
-                "test_session_id": self._identifier,
-                "pack_name": pack_name,
-                "workflow_name": workflow_name,
-            }
-        )
-        if isinstance(response, _FailureResponse):
-            raise RuntimeError("PACK test Workflow scope is unavailable")
-        if not isinstance(response, _TestRunResponse):
-            self._client._invalid_response_kind()
-        assert isinstance(response, _TestRunResponse)
-        execution = _TestRunScope(self._client, response)
-        try:
-            yield execution
-        except BaseException:
-            self._close_run(execution._identifier, suppress=True)
-            raise
-        else:
-            self._close_run(execution._identifier, suppress=False)
-
-    def _close_run(self, identifier: str, *, suppress: bool) -> None:
-        try:
-            response = self._client._exchange(
-                {
-                    "operation": "end_test_run",
-                    "test_run_id": identifier,
-                }
-            )
-            if isinstance(response, _FailureResponse):
-                raise RuntimeError("PACK test Workflow scope could not be closed")
-            if not isinstance(response, _CompleteResponse):
-                self._client._invalid_response_kind()
-        except BaseException:
-            if not suppress:
-                raise
-            _LOGGER.exception("PACK test Workflow scope cleanup failed")
+    def run(self, pack_name: str, workflow_name: str, arguments: list[str]) -> dict[str, Path]:
+        if type(workflow_name) is not str or not workflow_name:
+            raise TypeError("workflow must be a non-empty string")
+        if type(arguments) is not list or any(type(item) is not str for item in arguments):
+            raise TypeError("arguments must be a sequence of strings")
+        response = self._client._exchange({
+            "operation": "run_workflow",
+            "test_session_id": self._identifier,
+            "pack_name": pack_name,
+            "workflow_name": workflow_name,
+            "arguments": arguments,
+        })
+        return self._client._relations(response)
 
 
 class _NestedRunClient:
@@ -167,16 +98,6 @@ class _NestedRunClient:
         workflow_name: str,
         inputs: dict[str, object],
     ) -> dict[str, Path]:
-        return self._run(pack_name, workflow_name, inputs, test_run_id=None)
-
-    def _run(
-        self,
-        pack_name: str,
-        workflow_name: str,
-        inputs: dict[str, object],
-        *,
-        test_run_id: str | None,
-    ) -> dict[str, Path]:
         if type(pack_name) is not str or not pack_name:
             raise kat.RunError("Nested Workflow PACK name is invalid")
         if type(workflow_name) is not str or not workflow_name:
@@ -191,13 +112,9 @@ class _NestedRunClient:
             "workflow_name": workflow_name,
             "inputs": encoded_inputs,
         }
-        if test_run_id is not None:
-            request.update(
-                operation="run_workflow",
-                test_run_id=test_run_id,
-            )
-        response = self._exchange(request)
+        return self._relations(self._exchange(request))
 
+    def _relations(self, response: _CallResponse) -> dict[str, Path]:
         if isinstance(response, _FailureResponse):
             raise kat.RunError(response.message)
         if not isinstance(response, _SuccessResponse):
@@ -399,23 +316,13 @@ def _decode_response(line: object) -> tuple[int, _CallResponse]:
         if type(identifier) is not str or not identifier:
             raise TypeError("PACK test Session capability is invalid")
         return call_id, _TestSessionResponse(identifier)
-    if set(value) == {
-        "call_id",
-        "status",
-        "test_run_id",
-        "candidate_id",
-        "candidate_path",
-        "datasource_root",
-        "scratch_root",
-    }:
-        return call_id, _decode_test_run_response(value)
     if set(value) == {"call_id", "status"}:
         return call_id, _CompleteResponse()
     if set(value) != {"call_id", "status", "relations"}:
         raise ValueError("nested Workflow success response fields are invalid")
     raw_relations = value["relations"]
-    if type(raw_relations) is not list or not raw_relations:
-        raise TypeError("nested Workflow relations must be a non-empty array")
+    if type(raw_relations) is not list:
+        raise TypeError("nested Workflow relations must be an array")
     relations: dict[str, Path] = {}
     names: list[str] = []
     for raw_relation in raw_relations:
@@ -436,55 +343,8 @@ def _decode_response(line: object) -> tuple[int, _CallResponse]:
     return call_id, _SuccessResponse(relations)
 
 
-def _decode_test_run_response(value: dict[str, object]) -> _TestRunResponse:
-    identifier = value["test_run_id"]
-    candidate_id = value["candidate_id"]
-    raw_paths = {
-        name: value[name]
-        for name in ("candidate_path", "datasource_root", "scratch_root")
-    }
-    if type(identifier) is not str or not identifier:
-        raise TypeError("PACK test Workflow capability is invalid")
-    if type(candidate_id) is not str or not _is_canonical_uuid7(candidate_id):
-        raise TypeError("PACK test candidate identity is invalid")
-    if any(
-        type(path) is not str or not Path(path).is_absolute()
-        for path in raw_paths.values()
-    ):
-        raise TypeError("PACK test capability paths are invalid")
-    candidate_path = Path(raw_paths["candidate_path"])
-    datasource_root = Path(raw_paths["datasource_root"])
-    scratch_root = Path(raw_paths["scratch_root"])
-    session_root = candidate_path.parent.parent
-    if (
-        candidate_path.name != candidate_id
-        or candidate_path.parent.name != "runs"
-        or datasource_root.name != "materializations"
-        or datasource_root.parent != session_root
-        or scratch_root.name != candidate_id
-        or scratch_root.parent.name != "scratch"
-        or scratch_root.parent.parent != session_root
-    ):
-        raise ValueError("PACK test capability paths do not match one Session")
-    return _TestRunResponse(
-        identifier=identifier,
-        candidate_id=candidate_id,
-        candidate_path=candidate_path,
-        datasource_root=datasource_root,
-        scratch_root=scratch_root,
-    )
-
-
-def _is_canonical_uuid7(value: str) -> bool:
-    try:
-        identity = uuid.UUID(value)
-    except ValueError:
-        return False
-    return identity.version == 7 and str(identity) == value
-
-
 def _reject_json_constant(value: str) -> object:
-    raise ValueError(f"invalid JSON constant: {value}")
+    raise ValueError(f"non-finite JSON constant is invalid: {value}")
 
 
 def _encode_inputs(inputs: dict[str, object]) -> dict[str, TaggedScalar]:

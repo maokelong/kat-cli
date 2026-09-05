@@ -121,6 +121,7 @@ pub(super) fn execute(arguments: TestArgs) -> response::PreparedResponse<TestPac
         },
         pack.name().to_owned(),
         pack.directory(),
+        &data_home,
     ) {
         Ok(coordinator) => Arc::new(coordinator),
         Err(source) => {

@@ -249,118 +249,35 @@ class NestedRunClientTest(unittest.TestCase):
         self.assertEqual(guarded_reader.maximum_active, 1)
         self.assertEqual(guarded_writer.maximum_active, 1)
 
-    def test_test_scope_and_parent_candidate_are_host_owned_capabilities(self) -> None:
+    def test_test_session_submits_arguments_without_parent_candidate_capabilities(self) -> None:
         client_reader, client_writer, host_reader, host_writer = self.open_channel()
         client = _NestedRunClient(client_reader, client_writer)
-        root = (Path.cwd() / "test-session").resolve()
-        candidate_id = "019f6e00-0000-7000-8000-000000000001"
-        requests: list[dict[str, object]] = []
-
-        def respond(response: dict[str, object]) -> None:
-            host_writer.write(  # type: ignore[attr-defined]
-                json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n"
-            )
-            host_writer.flush()  # type: ignore[attr-defined]
+        output = (Path.cwd() / "main.parquet").resolve()
+        requests = []
 
         def host() -> None:
-            begin_session = json.loads(host_reader.readline())  # type: ignore[attr-defined]
-            requests.append(begin_session)
-            respond(
-                {
-                    "call_id": begin_session["call_id"],
-                    "status": "success",
-                    "test_session_id": "session-capability",
-                }
-            )
-            begin_run = json.loads(host_reader.readline())  # type: ignore[attr-defined]
-            requests.append(begin_run)
-            respond(
-                {
-                    "call_id": begin_run["call_id"],
-                    "status": "success",
-                    "test_run_id": "run-capability",
-                    "candidate_id": candidate_id,
-                    "candidate_path": str(root / "runs" / candidate_id),
-                    "datasource_root": str(root / "materializations"),
-                    "scratch_root": str(root / "scratch" / candidate_id),
-                }
-            )
-            nested = json.loads(host_reader.readline())  # type: ignore[attr-defined]
-            requests.append(nested)
-            respond(
-                {
-                    "call_id": nested["call_id"],
-                    "status": "success",
-                    "relations": [
-                        {
-                            "name": "main",
-                            "path": str(root / "runs" / "child" / "outputs" / "main.parquet"),
-                        }
-                    ],
-                }
-            )
-            end_run = json.loads(host_reader.readline())  # type: ignore[attr-defined]
-            requests.append(end_run)
-            respond({"call_id": end_run["call_id"], "status": "success"})
-            end_session = json.loads(host_reader.readline())  # type: ignore[attr-defined]
-            requests.append(end_session)
-            respond({"call_id": end_session["call_id"], "status": "success"})
+            for body in (
+                {"test_session_id": "session-capability"},
+                {"relations": [{"name": "main", "path": str(output)}]},
+                {},
+            ):
+                frame = json.loads(host_reader.readline())
+                requests.append(frame)
+                host_writer.write(json.dumps({"call_id": frame["call_id"], "status": "success", **body}).encode() + b"\n")
+                host_writer.flush()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            host_future = pool.submit(host)
+            future = pool.submit(host)
             with client.test_session() as session:
-                with session.workflow("exact-pack", "parent") as execution:
-                    self.assertEqual(execution.candidate_id, candidate_id)
-                    self.assertEqual(
-                        execution.candidate_path,
-                        root / "runs" / candidate_id,
-                    )
-                    self.assertEqual(
-                        execution.datasource_root,
-                        root / "materializations",
-                    )
-                    self.assertEqual(
-                        execution.scratch_root,
-                        root / "scratch" / candidate_id,
-                    )
-                    relations = execution.run("installed-pack", "child", {"value": 5})
-            host_future.result(timeout=5)
-
-        self.assertEqual(
-            relations,
-            {"main": root / "runs" / "child" / "outputs" / "main.parquet"},
-        )
-        self.assertEqual(
-            requests,
-            [
-                {"call_id": 0, "operation": "begin_test_session"},
-                {
-                    "call_id": 1,
-                    "operation": "begin_test_run",
-                    "test_session_id": "session-capability",
-                    "pack_name": "exact-pack",
-                    "workflow_name": "parent",
-                },
-                {
-                    "call_id": 2,
-                    "operation": "run_workflow",
-                    "test_run_id": "run-capability",
-                    "pack_name": "installed-pack",
-                    "workflow_name": "child",
-                    "inputs": {"value": {"type": "int64", "value": "5"}},
-                },
-                {
-                    "call_id": 3,
-                    "operation": "end_test_run",
-                    "test_run_id": "run-capability",
-                },
-                {
-                    "call_id": 4,
-                    "operation": "end_test_session",
-                    "test_session_id": "session-capability",
-                },
-            ],
-        )
+                relations = session.run("exact-pack", "parent", ["--value", "5"])
+            future.result(timeout=5)
+        self.assertEqual(relations, {"main": output})
+        self.assertEqual(requests, [
+            {"call_id": 0, "operation": "begin_test_session"},
+            {"call_id": 1, "operation": "run_workflow", "test_session_id": "session-capability",
+             "pack_name": "exact-pack", "workflow_name": "parent", "arguments": ["--value", "5"]},
+            {"call_id": 2, "operation": "end_test_session", "test_session_id": "session-capability"},
+        ])
 
     def test_invalid_response_poisons_all_pending_and_future_calls(self) -> None:
         client_reader, client_writer, host_reader, host_writer = self.open_channel()

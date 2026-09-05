@@ -92,7 +92,7 @@ def analyze(ctx: kat.Context):
             "pack_name": "example",
             "pack_path": str(pack),
             "workflow_name": "analyze",
-            "arguments": [],
+            "input": {"kind": "arguments", "value": []},
             "candidate_id": candidate_id,
             "candidate_path": str(candidate),
             "datasource_root": str((session / "materializations").resolve()),

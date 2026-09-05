@@ -105,6 +105,13 @@ where
 }
 
 impl KatDiagnostic {
+    pub(crate) fn reason(&self) -> String {
+        std::iter::once(self.message.as_str())
+            .chain(self.causes.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(": ")
+    }
+
     pub(super) fn validate(&self) -> bool {
         !self.message.trim().is_empty()
             && self.causes.iter().all(|cause| !cause.trim().is_empty())

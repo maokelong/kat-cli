@@ -187,7 +187,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
                     "pack_name": "example",
                     "pack_path": str(pack.resolve()),
                     "workflow_name": "analyze",
-                    "arguments": [],
+                    "input": {"kind": "arguments", "value": []},
                     "candidate_id": candidate_id,
                     "candidate_path": str(candidate_path.resolve()),
                     "datasource_root": str((session / "materializations").resolve()),
@@ -203,7 +203,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
                 "pack_name",
                 "pack_path",
                 "workflow_name",
-                "arguments",
+                "input",
                 "candidate_id",
                 "candidate_path",
                 "datasource_root",
@@ -229,12 +229,10 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
 
         nested_request = json.loads(request_path.read_text(encoding="utf-8"))
         nested_request.pop("dataset")
-        nested_request["operation"] = "run_workflow_with_inputs"
-        nested_request.pop("arguments")
-        nested_request["inputs"] = {
+        nested_request["input"] = {"kind": "typed_inputs", "value": {
             "minimum": {"type": "int64", "value": "2"},
             "enabled": {"type": "boolean", "value": True},
-        }
+        }}
         self.assertEqual(
             set(nested_request),
             {
@@ -242,7 +240,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
                 "pack_name",
                 "pack_path",
                 "workflow_name",
-                "inputs",
+                "input",
                 "candidate_id",
                 "candidate_path",
                 "datasource_root",
@@ -256,14 +254,12 @@ def analyze(ctx: kat.Context, *, minimum: int = 0):
 
         for invalid in (
             {**nested_request, "arguments": []},
-            {
-                **nested_request,
-                "operation": "run_workflow",
-                "arguments": [],
-            },
+            {**nested_request, "operation": "run_workflow_with_inputs"},
+            {**nested_request, "input": {"kind": "arguments", "value": [], "inputs": {}}},
+            {**nested_request, "input": {"kind": "typed_inputs", "value": []}},
         ):
             request_path.write_text(json.dumps(invalid), encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeRequestError, "invalid field set"):
+            with self.assertRaises(RuntimeRequestError):
                 read_request(request_path)
 
     def test_native_pytest_owns_plugins_fixtures_and_pack_imports(self) -> None:
@@ -304,8 +300,9 @@ def test_workflow(kat_run, monkeypatch, plugin_value, nested_value, minimum):
     first = kat_run(workflow="analyze", arguments=["--minimum", str(minimum)])
     second = kat_run(workflow="analyze", arguments=["--minimum", str(minimum + 1)])
     assert isinstance(first["main"], pa.Table)
-    assert first["main"].to_pydict() == {"value": [42 + minimum]}
-    assert second["main"].to_pydict() == {"value": [43 + minimum]}
+    assert rules.OFFSET == 42
+    assert first["main"].to_pydict() == {"value": [1 + minimum]}
+    assert second["main"].to_pydict() == {"value": [2 + minimum]}
 ''',
         )
         (pack / "pytest.ini").write_text(
@@ -416,13 +413,14 @@ from kat.pack.datasources import provider_state
 def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
     result = kat_run(workflow="analyze")
     assert result["main"].to_pydict() == {"value": [1]}
-    provider = provider_state.providers[-1]
-    assert provider.query_count == 1
+    assert provider_state.providers == []
+    provider = provider_state.create()
+    assert provider.query_count == 0
 
     later = provider.query(2)
     assert isinstance(later, dp.Table)
     assert later["value"] == (2,)
-    assert provider.query_count == 2
+    assert provider.query_count == 1
 ''',
         )
 
@@ -436,89 +434,40 @@ def test_provider_is_not_bound_to_a_workflow_lease(kat_run):
         )
         self.assertTrue(report.is_file())
 
-    def test_kat_run_uses_one_session_per_test_and_one_scratch_per_call(
-        self,
-    ) -> None:
+    def test_kat_run_uses_one_session_per_test_and_one_scratch_per_call(self) -> None:
         pack = self.pack()
-        (pack / "helpers" / "datasource_state.py").write_text(
-            "datasource_roots = []\nscratch_roots = []\ncontexts = []\n",
-            encoding="utf-8",
-        )
-        self.replace_workflow(
-            pack,
-            '''import kat
+        self.replace_workflow(pack, '''import os
+import kat
 import pyarrow as pa
 from kat import dataprovider as dp
-from kat.pack.helpers import datasource_state
 
-
-@kat.workflow(name="analyze", description="Increment a test-scoped Datasource materialization.")
+@kat.workflow(name="analyze", description="Reuse test materializations with fresh execution state.")
 def analyze(ctx: kat.Context):
-    """Increment a test-scoped Datasource materialization."""
-    root = ctx.datasource_root
-    scratch = ctx.scratch_root
-    counter = root / "counter.txt"
-    value = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
-    counter.write_text(str(value), encoding="utf-8")
-    scratch.joinpath("temporary.txt").write_text(str(value), encoding="utf-8")
-    datasource_state.datasource_roots.append(root)
-    datasource_state.scratch_roots.append(scratch)
-    datasource_state.contexts.append(ctx)
-    return dp.Table.from_arrow(pa.table({"value": [value]}))
-''',
-        )
-        self.write_test(
-            pack,
-            "test_datasource_root.py",
-            '''import pytest
-import uuid
-from kat.pack.helpers import datasource_state
-
+    counter = ctx.datasource_root / "counter.txt"
+    value = int(counter.read_text()) + 1 if counter.exists() else 1
+    counter.write_text(str(value))
+    scratch_empty = not any(ctx.scratch_root.iterdir())
+    (ctx.scratch_root / "temporary.txt").write_text(str(value))
+    return dp.Table.from_arrow(pa.table({"value": [value], "scratch_empty": [scratch_empty], "pid": [os.getpid()]}))
+''')
+        self.write_test(pack, "test_sessions.py", '''import os
 
 def test_shared_within_one_test(kat_run):
-    first = kat_run(workflow="analyze")
-    second = kat_run(workflow="analyze")
-    assert first["main"].to_pydict() == {"value": [1]}
-    assert second["main"].to_pydict() == {"value": [2]}
-    first_root, second_root = datasource_state.datasource_roots[-2:]
-    first_scratch, second_scratch = datasource_state.scratch_roots[-2:]
-    assert first_root == second_root
-    assert first_root.name == "materializations"
-    assert first_scratch != second_scratch
-    assert first_scratch.name != second_scratch.name
-    assert uuid.UUID(first_scratch.name).version == 7
-    assert uuid.UUID(second_scratch.name).version == 7
-    assert first_scratch.parent.parent == first_root.parent
-    assert second_scratch.parent.parent == second_root.parent
-    assert not first_scratch.exists()
-    assert not second_scratch.exists()
-    for context in datasource_state.contexts[-2:]:
-        with pytest.raises(RuntimeError, match="lease is no longer active"):
-            _ = context.datasource_root
-        with pytest.raises(RuntimeError, match="lease is no longer active"):
-            _ = context.scratch_root
+    first = kat_run(workflow="analyze")["main"].to_pydict()
+    second = kat_run(workflow="analyze")["main"].to_pydict()
+    assert first["value"] == [1]
+    assert second["value"] == [2]
+    assert first["scratch_empty"] == second["scratch_empty"] == [True]
+    assert first["pid"] != [os.getpid()]
+    assert second["pid"] != [os.getpid()]
 
-
-def test_isolated_from_the_previous_test(kat_run):
-    previous_session = datasource_state.datasource_roots[0].parent
-    result = kat_run(workflow="analyze")
-    assert result["main"].to_pydict() == {"value": [1]}
-    current_root = datasource_state.datasource_roots[-1]
-    current_scratch = datasource_state.scratch_roots[-1]
-    assert current_root.parent != previous_session
-    assert current_scratch.parent.parent == current_root.parent
-    assert not current_scratch.exists()
-''',
-        )
-
+def test_isolated_from_previous_test(kat_run):
+    assert kat_run(workflow="analyze")["main"].to_pydict()["value"] == [1]
+''')
         completed, response, report = self.run_runtime(self.request(pack), pack)
-
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(
-            response,
-            {"status": "success", "result": {"summary": {"passed": 2}}},
-            completed.stderr.decode(errors="replace"),
-        )
+        self.assertEqual(response, {"status": "success", "result": {"summary": {"passed": 2}}},
+                         completed.stderr.decode(errors="replace"))
         self.assertTrue(report.is_file())
 
     def test_summary_counts_setup_skips_without_counting_lifecycle_passes(self) -> None:
@@ -670,7 +619,7 @@ pytest.skip("module is not available", allow_module_level=True)
 
         terminal = self.assert_pack_tests_failed(completed, response, report)
         self.assertIn("TypeError:", terminal)
-        self.assertIn("unhashable type: 'list'", terminal)
+        self.assertIn("TypeError: workflow must be a non-empty string", terminal)
         self.assertIn("kat_run(workflow=[])", terminal)
         self.assertIn("_kat_runtime/testing.py", terminal.replace("\\", "/"))
         self.assertNotIn("caused by: Workflow", terminal)
@@ -754,27 +703,20 @@ def analyze(ctx: kat.Context):
         self.assertNotIn("private-sentinel", terminal)
         self.assertNotIn("Traceback", terminal)
 
-    def test_unexpected_harness_error_keeps_its_traceback(self) -> None:
+    def test_pytest_monkeypatch_cannot_replace_workflow_runtime(self) -> None:
         pack = self.pack()
-        self.write_test(
-            pack,
-            "test_harness_error.py",
-            '''import _kat_runtime.execution as execution
+        self.write_test(pack, "test_runtime_isolation.py", '''import _kat_runtime.execution as execution
 
-def test_unexpected_harness_error(kat_run, monkeypatch):
+def test_isolated_workflow(kat_run, monkeypatch):
     def fail_logging(*args, **kwargs):
-        raise RuntimeError("unexpected logging setup")
+        raise RuntimeError("pytest-only logging setup")
     monkeypatch.setattr(execution, "workflow_logging", fail_logging)
-    kat_run(workflow="analyze")
-''',
-        )
-
+    assert kat_run(workflow="analyze")["main"].to_pydict() == {"value": [1]}
+''')
         completed, response, report = self.run_runtime(self.request(pack), pack)
-
-        terminal = self.assert_pack_tests_failed(completed, response, report)
-        self.assertIn("RuntimeError: unexpected logging setup", terminal)
-        self.assertIn("test_harness_error.py", terminal)
-        self.assertNotIn("KAT Workflow test execution failed", terminal)
+        self.assertEqual(response, {"status": "success", "result": {"summary": {"passed": 1}}},
+                         completed.stderr.decode(errors="replace"))
+        self.assertTrue(report.is_file())
 
     def test_unexpected_eager_output_error_keeps_its_traceback(self) -> None:
         pack = self.pack()

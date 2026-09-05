@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from contextlib import suppress
 import json
+from functools import cache
+import os
+import shutil
+import site
+import sys
+import tempfile
 from pathlib import Path
 import subprocess
 import threading
@@ -34,7 +40,7 @@ def run_runtime_with_test_control(
     stderr_chunks: list[bytes] = []
     peer = threading.Thread(
         target=_serve_test_control,
-        args=(process, data_home, peer_errors),
+        args=(process, data_home, peer_errors, cwd, environment),
         name="fake-kat-test-host",
         daemon=True,
     )
@@ -129,13 +135,51 @@ def _drain_stderr(
         errors.append(error)
 
 
+@cache
+def _real_host() -> tuple[tempfile.TemporaryDirectory, Path]:
+    # 仅布置真实 CLI/已安装 Python 依赖；不在测试替身中重建 Run 执行与发布。
+    repository = Path(__file__).resolve().parents[4]
+    binary = Path(os.environ.get("KAT_TEST_KAT", repository / "target" / "debug" / ("kat.exe" if os.name == "nt" else "kat")))
+    if not binary.is_file():
+        raise RuntimeError("kat_run integration tests require cargo build -p kat-cli or KAT_TEST_KAT")
+    temporary = tempfile.TemporaryDirectory(prefix="kat-python-tests-host-")
+    root = Path(temporary.name)
+    (root / "SKILL.md").write_text("# KAT test Host\n", encoding="utf-8")
+    payload = root / "scripts" / "targets" / ("windows-x86_64" if os.name == "nt" else "linux-x86_64")
+    environment = payload if os.name == "nt" else payload / "python"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True)
+    if os.name == "nt":
+        libraries = environment / "Lib" / "site-packages"
+        host = payload / "python" / "python.exe"
+        host.parent.mkdir()
+        shutil.copy2(environment / "Scripts" / "python.exe", host)
+    else:
+        libraries = environment / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+    (libraries / "installed-test-dependencies.pth").write_text("\n".join(site.getsitepackages()) + "\n", encoding="utf-8")
+    staged = payload / binary.name
+    shutil.copy2(binary, staged)
+    return temporary, staged
+
+
 def _serve_test_control(
     process: subprocess.Popen[bytes],
     data_home: Path,
     errors: list[BaseException],
+    pack: Path,
+    environment: dict[str, str],
 ) -> None:
-    sessions: dict[str, Path] = {}
-    runs: dict[str, str] = {}
+    sessions: dict[str, str] = {}
+    data_home.mkdir(parents=True, exist_ok=True)
+
+    def cli(*args: str) -> dict:
+        _, binary = _real_host()
+        completed = subprocess.run(
+            [str(binary), *args], cwd=pack,
+            env={**environment, "KAT_DATA_HOME": str(data_home)},
+            capture_output=True, timeout=60,
+        )
+        return json.loads(completed.stdout)
+
     try:
         assert process.stdout is not None
         assert process.stdin is not None
@@ -144,59 +188,39 @@ def _serve_test_control(
             call_id = frame["call_id"]
             operation = frame["operation"]
             if operation == "begin_test_session":
-                session_id = str(uuid.uuid7())
-                session = data_home / "sessions" / session_id
-                for name in ("materializations", "scratch", "runs"):
-                    (session / name).mkdir(parents=True)
+                result = cli("session", "create")
+                if result["status"] != "success":
+                    raise AssertionError(result)
                 capability = uuid.uuid4().hex
-                sessions[capability] = session.resolve(strict=True)
-                response = {
-                    "call_id": call_id,
-                    "status": "success",
-                    "test_session_id": capability,
-                }
-            elif operation == "begin_test_run":
-                session = sessions[frame["test_session_id"]]
-                candidate_id = str(uuid.uuid7())
-                candidate = session / "runs" / candidate_id
-                scratch = session / "scratch" / candidate_id
-                candidate.mkdir()
-                scratch.mkdir()
-                capability = uuid.uuid4().hex
-                runs[capability] = frame["test_session_id"]
-                response = {
-                    "call_id": call_id,
-                    "status": "success",
-                    "test_run_id": capability,
-                    "candidate_id": candidate_id,
-                    "candidate_path": str(candidate.resolve(strict=True)),
-                    "datasource_root": str(
-                        (session / "materializations").resolve(strict=True)
-                    ),
-                    "scratch_root": str(scratch.resolve(strict=True)),
-                }
-            elif operation == "end_test_run":
-                del runs[frame["test_run_id"]]
-                response = {"call_id": call_id, "status": "success"}
+                sessions[capability] = result["result"]["session_id"]
+                response = {"call_id": call_id, "status": "success", "test_session_id": capability}
             elif operation == "end_test_session":
-                capability = frame["test_session_id"]
-                if capability in runs.values():
-                    raise AssertionError("Session ended with an active test Run")
-                del sessions[capability]
+                del sessions[frame["test_session_id"]]
                 response = {"call_id": call_id, "status": "success"}
             elif operation == "run_workflow":
-                if frame["test_run_id"] not in runs:
-                    raise AssertionError("nested Run used an inactive test scope")
-                response = {
-                    "call_id": call_id,
-                    "status": "failure",
-                    "message": "fake Host does not execute nested Workflows",
-                }
+                session_id = sessions[frame["test_session_id"]]
+                manifest = pack / "pack.toml"
+                if not manifest.exists():
+                    manifest.write_text(
+                        f'name = {json.dumps(frame["pack_name"])}\ntitle = "Test PACK"\ndescription = "Real Host fixture"\nowner = "KAT tests"\n',
+                        encoding="utf-8",
+                    )
+                result = cli("run", "--session", session_id, "--pack", frame["pack_name"],
+                    "--workflow", frame["workflow_name"], "--pack-dir", str(pack), "--", *frame["arguments"])
+                if result["status"] == "failure":
+                    diagnostic = result["error"]
+                    message = ": ".join([diagnostic["message"], *diagnostic.get("causes", [])])
+                    response = {"call_id": call_id, "status": "failure", "message": message}
+                else:
+                    run = result["result"]
+                    outputs = data_home / "sessions" / session_id / "runs" / run["run_id"] / "outputs"
+                    response = {"call_id": call_id, "status": "success", "relations": [
+                        {"name": name, "path": str((outputs / f"{name}.parquet").resolve())}
+                        for name in sorted(run["outputs"])
+                    ]}
             else:
                 raise AssertionError(f"unexpected test control operation: {operation}")
-            process.stdin.write(
-                json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n"
-            )
+            process.stdin.write(json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n")
             process.stdin.flush()
     except BaseException as error:
         errors.append(error)

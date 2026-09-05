@@ -97,42 +97,17 @@ fn main() {
              .unwrap();
          writeln!(operations, "{operation}:{workflow_name}").unwrap();
      }
-     if operation == "inspect_workflow" {
-         if let Some(path) = env::var_os("KAT_CAPTURE_PREFLIGHT_ALLOCATIONS") {
-             let sessions = Path::new(&env::var("KAT_DATA_HOME").unwrap()).join("sessions");
-             let mut runs = 0;
-             let mut scratch = 0;
-             for session in fs::read_dir(sessions).unwrap() {
-                 let session = session.unwrap().path();
-                 let run_directory = session.join("runs");
-                 let scratch_directory = session.join("scratch");
-                 if run_directory.is_dir() && scratch_directory.is_dir() {
-                     runs += fs::read_dir(run_directory).unwrap().count();
-                     scratch += fs::read_dir(scratch_directory).unwrap().count();
-                 }
-             }
-             fs::write(path, format!("{runs},{scratch}")).unwrap();
-         }
-         let response = match env::var("KAT_FAKE_NESTED_PREFLIGHT_FAILURE") {
-             Ok(message) => format!(
+     if workflow_name == "child" {
+         if let Ok(message) = env::var("KAT_FAKE_NESTED_VALIDATION_FAILURE") {
+             fs::write(&arguments[10], format!(
                  "{{\"status\":\"failure\",\"error\":{{\"message\":\"{message}\"}}}}"
-             ),
-             Err(_) => format!(
-                 "{{\"status\":\"success\",\"result\":{{\"workflow\":{{\"name\":\"{workflow_name}\",\"description\":\"Fixture Workflow\",\"parameters\":[],\"guide\":null}}}}}}"
-             ),
-         };
-         fs::write(&arguments[10], response).unwrap();
-         return;
+             )).unwrap();
+             return;
+         }
      }
-    let valid_input_shape = match operation.as_str() {
-        "run_workflow" => {
-            request.contains("\"arguments\":") && !request.contains("\"inputs\":")
-        }
-        "run_workflow_with_inputs" => {
-            !request.contains("\"arguments\":") && request.contains("\"inputs\":")
-        }
-        _ => false,
-    };
+     let valid_input_shape = operation == "run_workflow"
+         && request.contains("\"input\":")
+         && (request.contains("\"kind\":\"arguments\"") || request.contains("\"kind\":\"typed_inputs\""));
     if !valid_input_shape
         || !request.contains("\"candidate_id\":")
         || !request.contains("\"candidate_path\":")
@@ -193,9 +168,7 @@ fn main() {
         let outputs = Path::new(&candidate_path).join("outputs");
         fs::create_dir(&outputs).unwrap();
         let output = outputs.join("main.parquet");
-        if env::var_os("KAT_FAKE_CORRUPT_OUTPUT").is_some() {
-            fs::write(output, b"not parquet").unwrap();
-        } else {
+        {
             let template = env::current_exe()
                 .unwrap()
                 .parent()
@@ -544,7 +517,10 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     .unwrap();
     assert_eq!(request["candidate_id"], run_id);
     assert_eq!(request["workflow_name"], "analyze");
-    assert_eq!(request["arguments"], serde_json::json!(["--limit", "5"]));
+    assert_eq!(
+        request["input"],
+        serde_json::json!({"kind":"arguments","value":["--limit", "5"]})
+    );
     assert!(request.get("inputs").is_none());
     assert!(request.get("dataset").is_none());
     assert_eq!(
@@ -763,7 +739,7 @@ fn nested_manifests_record_only_direct_children_and_do_not_promote_orphans() {
 }
 
 #[test]
-fn nested_target_preflight_rejects_missing_and_ambiguous_workflows_before_allocation() {
+fn nested_execution_validates_targets_without_an_extra_inspection_runtime() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
     let (_skill, binary) = stage_skill(temporary.path());
@@ -781,7 +757,6 @@ fn nested_target_preflight_rejects_missing_and_ambiguous_workflows_before_alloca
             .path()
             .join(format!("{case}-nested-response.json"));
         let operations = temporary.path().join(format!("{case}-host-operations.txt"));
-        let allocations = temporary.path().join(format!("{case}-allocations.txt"));
         let mut command = Command::new(&binary);
         command
             .arg("run")
@@ -803,8 +778,7 @@ fn nested_target_preflight_rejects_missing_and_ambiguous_workflows_before_alloca
             .env("KAT_FAKE_NESTED_WORKFLOW", "child")
             .env("KAT_CAPTURE_NESTED_RESPONSE", &nested_response)
             .env("KAT_CAPTURE_HOST_OPERATIONS", &operations)
-            .env("KAT_CAPTURE_PREFLIGHT_ALLOCATIONS", &allocations)
-            .env("KAT_FAKE_NESTED_PREFLIGHT_FAILURE", private_diagnostic)
+            .env("KAT_FAKE_NESTED_VALIDATION_FAILURE", private_diagnostic)
             .env(
                 "KAT_FAKE_RUNTIME_RESPONSE",
                 r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
@@ -820,16 +794,11 @@ fn nested_target_preflight_rejects_missing_and_ambiguous_workflows_before_alloca
         let delivered: serde_json::Value =
             serde_json::from_slice(&fs::read(&nested_response).unwrap()).unwrap();
         assert_eq!(delivered["status"], "failure");
-        assert_eq!(delivered["message"], "nested Workflow execution failed");
+        assert_eq!(delivered["message"], private_diagnostic);
         assert_eq!(
             fs::read_to_string(&operations).unwrap(),
-            "run_workflow:analyze\ninspect_workflow:child\n",
-            "{case} preflight must not start the child execution Host"
-        );
-        assert_eq!(
-            fs::read_to_string(&allocations).unwrap(),
-            "1,1",
-            "{case} preflight must run before child allocation"
+            "run_workflow:analyze\nrun_workflow:child\n",
+            "{case} uses only one execution Host for each Workflow"
         );
         let session = data_home(temporary.path())
             .join("sessions")
@@ -1449,51 +1418,6 @@ fn runtime_declared_outputs_must_exist_before_manifest_publication() {
 }
 
 #[test]
-fn runtime_declared_outputs_must_be_valid_parquet_before_manifest_publication() {
-    let temporary = tempfile::tempdir().unwrap();
-    let _data_home = PlatformDataHomeGuard::new(temporary.path());
-    let (_skill, binary) = stage_skill(temporary.path());
-    stage_fake_host(&binary);
-    let session_id = create_session(&binary, temporary.path());
-    let pack = pack(temporary.path());
-    let captured = temporary.path().join("request.json");
-    let mut command = Command::new(&binary);
-    command
-        .arg("run")
-        .args([
-            "--session",
-            &session_id,
-            "--pack",
-            "alpha",
-            "--workflow",
-            "analyze",
-        ])
-        .arg("--pack-dir")
-        .arg(pack)
-        .env("KAT_CAPTURE_REQUEST", &captured)
-        .env("KAT_FAKE_CORRUPT_OUTPUT", "1")
-        .env(
-            "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
-        );
-    configure(&mut command, temporary.path());
-
-    let output = command.output().unwrap();
-
-    assert_eq!(output.status.code(), Some(1));
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "failure");
-    assert!(response.get("result").is_none());
-    let request: serde_json::Value = serde_json::from_slice(&fs::read(&captured).unwrap()).unwrap();
-    assert!(!Path::new(request["candidate_path"].as_str().unwrap()).exists());
-    let session = data_home(temporary.path())
-        .join("sessions")
-        .join(session_id);
-    assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
-    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
-}
-
-#[test]
 fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -1726,6 +1650,67 @@ def facts(ctx: Context, base: int):
     );
     assert!(!parent_workflows.join("__pycache__").exists());
     assert!(!child_workflows.join("__pycache__").exists());
+
+    fs::write(
+        child_workflows.join("facts.py"),
+        r#"from kat import Context, workflow
+@workflow(name="facts", description="Complete with no output.")
+def facts(ctx: Context):
+    pass
+"#,
+    )
+    .unwrap();
+    fs::write(
+        parent_workflows.join("compose.py"),
+        r#"from kat import Context, workflow
+@workflow(name="compose", description="Publish a no-output parent.")
+def compose(ctx: Context):
+    child = ctx.run("beta", "facts")
+    assert child.tables == ()
+"#,
+    )
+    .unwrap();
+    let empty_output = command.output().unwrap();
+    let empty: serde_json::Value = serde_json::from_slice(&empty_output.stdout).unwrap();
+    assert_eq!(empty["status"], "success", "{empty}");
+    assert_eq!(empty["result"]["outputs"], serde_json::json!({}));
+    let parent_id = empty["result"]["run_id"].as_str().unwrap();
+    let inventory: serde_json::Value =
+        serde_json::from_slice(&inspect.output().unwrap().stdout).unwrap();
+    let runs = inventory["result"]["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 4);
+    let parent = runs.iter().find(|run| run["run_id"] == parent_id).unwrap();
+    let children = parent["child_runs"].as_array().unwrap();
+    assert_eq!(children.len(), 1);
+    let child = runs
+        .iter()
+        .find(|run| run["run_id"] == children[0])
+        .unwrap();
+    assert_eq!(child["outputs"], serde_json::json!({}));
+    assert_eq!(child["child_runs"], serde_json::json!([]));
+
+    // inventory 展示发布时元数据，不再承担 Parquet 内容可查询性证明。
+    fs::write(
+        child_run.join("outputs/facts.parquet"),
+        b"damaged after publication",
+    )
+    .unwrap();
+    let inventory: serde_json::Value =
+        serde_json::from_slice(&inspect.output().unwrap().stdout).unwrap();
+    assert_eq!(inventory["status"], "success");
+    let mut query = Command::new(&binary);
+    query.args([
+        "query",
+        "--session",
+        session_id,
+        "--run",
+        child_run_id,
+        "--sql",
+        "SELECT * FROM output.facts",
+    ]);
+    configure(&mut query, temporary.path());
+    let queried = query.output().unwrap();
+    assert_eq!(queried.status.code(), Some(1));
 }
 
 #[test]
@@ -1774,6 +1759,104 @@ fn run_log_projects_user_controlled_text() {
     assert!(!log.contains('\u{001b}'));
     assert!(!log.contains('\u{0007}'));
     assert!(!log.lines().any(|line| line == "forged: true"));
+}
+#[test]
+#[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
+fn child_business_diagnostic_survives_direct_nested_and_test_execution() {
+    const REASON: &str = "PR251_SENTINEL_CHILD_COLUMN_MISSING";
+    fn assert_retained_trace(log: &str) {
+        if let Some(line) = log.lines().find(|line| line.starts_with("ValueError: ")) {
+            assert!(line.contains(REASON), "{log}");
+            assert!(line.contains("scratch="), "{log}");
+            assert!(!line.contains("<private>"), "{log}");
+            assert!(log.contains("Traceback (most recent call last)"), "{log}");
+            return;
+        }
+        let child_path = log
+            .lines()
+            .filter(|line| line.contains("child Workflow failure:"))
+            .find_map(|line| line.rsplit_once("; log: ").map(|(_, path)| path))
+            .expect("failed child must leave a retained diagnostic log link");
+        assert_retained_trace(&fs::read_to_string(child_path).unwrap());
+    }
+    let python = PathBuf::from(std::env::var_os("KAT_TEST_PYTHON").unwrap());
+    let wheel = PathBuf::from(std::env::var_os("KAT_TEST_WORKFLOW_WHEEL").unwrap());
+    let temporary = tempfile::tempdir().unwrap();
+    let _data_home = PlatformDataHomeGuard::new(temporary.path());
+    let (_skill, binary) =
+        support::stage_real_host_skill(temporary.path(), &cargo_kat(), &python, &wheel);
+    let session = create_session(&binary, temporary.path());
+    let selected = pack(temporary.path());
+    fs::create_dir(selected.join("workflows")).unwrap();
+    fs::write(
+        selected.join("workflows/fail.py"),
+        r#"from kat import Context, workflow
+
+@workflow(name="fail", description="Fail with a business reason.")
+def fail(ctx: Context):
+    raise ValueError(f"PR251_SENTINEL_CHILD_COLUMN_MISSING; scratch={ctx.scratch_root}")
+"#,
+    )
+    .unwrap();
+    fs::write(
+        selected.join("workflows/parent.py"),
+        r#"from kat import Context, workflow
+
+@workflow(name="parent", description="Propagate a child failure.")
+def parent(ctx: Context):
+    return ctx.run("alpha", "fail")
+"#,
+    )
+    .unwrap();
+    for workflow in ["fail", "parent"] {
+        let mut command = Command::new(&binary);
+        command
+            .args([
+                "run",
+                "--session",
+                &session,
+                "--pack",
+                "alpha",
+                "--workflow",
+                workflow,
+            ])
+            .arg("--pack-dir")
+            .arg(&selected);
+        configure(&mut command, temporary.path());
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(
+            response["error"].to_string().contains(REASON),
+            "{workflow}: {response}"
+        );
+        let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+        assert!(
+            log.contains(REASON),
+            "{workflow} log lost the business diagnostic: {log}"
+        );
+        assert!(!response["error"].to_string().contains(&session));
+        assert!(response["error"].to_string().contains("<private>"));
+        assert_retained_trace(&log);
+    }
+    fs::create_dir(selected.join("tests")).unwrap();
+    fs::write(
+        selected.join("tests/test_parent.py"),
+        "def test_parent(kat_run):\n    kat_run(workflow='parent')\n",
+    )
+    .unwrap();
+    let mut command = Command::new(&binary);
+    command.args(["test", "--pack-dir"]).arg(&selected);
+    configure(&mut command, temporary.path());
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(
+        log.contains(REASON),
+        "test log lost the child diagnostic: {log}"
+    );
+    assert_retained_trace(&log);
 }
 
 #[test]

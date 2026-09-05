@@ -481,7 +481,7 @@ fn test_uses_real_installed_workflow_host_end_to_end() {
     enum ExpectedOutcome {
         Success,
         RuntimeFailure,
-        TransportFailure,
+        ChildHostExit,
     }
 
     let python = PathBuf::from(
@@ -528,6 +528,18 @@ def test_case(kat_run):
             ExpectedOutcome::Success,
         ),
         (
+            "no-output",
+            r#"from kat import Context, workflow
+@workflow(name="collect", description="Complete without a placeholder table.")
+def collect(ctx: Context):
+    return None
+"#,
+            r#"def test_case(kat_run):
+    assert kat_run(workflow="collect") == {}
+"#,
+            ExpectedOutcome::Success,
+        ),
+        (
             "runtime-failure",
             r#"import kat
 
@@ -554,7 +566,7 @@ def interrupt(ctx: kat.Context):
             r#"def test_case(kat_run):
     kat_run(workflow="interrupt")
 "#,
-            ExpectedOutcome::TransportFailure,
+            ExpectedOutcome::ChildHostExit,
         ),
     ] {
         let case_root = temporary.path().join(case);
@@ -644,16 +656,28 @@ def leaf(ctx: kat.Context):
                 assert!(stderr.contains("KAT Workflow test execution failed"));
                 assert!(stderr.contains("sentinel Workflow execution failure"));
             }
-            ExpectedOutcome::TransportFailure => {
+            ExpectedOutcome::ChildHostExit => {
                 assert_eq!(output.status.code(), Some(1));
                 assert_eq!(response["status"], "failure");
-                assert_eq!(response["error"]["message"], "Workflow Runtime failed");
+                assert_eq!(response["error"]["message"], "PACK tests failed");
                 assert!(response.get("result").is_none());
-                assert!(response.get("test_report_path").is_none());
+                assert!(Path::new(response["test_report_path"].as_str().unwrap()).is_file());
+                assert!(stderr.contains("KAT Workflow test execution failed"));
+                let child_logs = fs::read_dir(test_home::data_home(&case_root).join("logs"))
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .filter(|path| {
+                        path.file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .starts_with("run-")
+                    })
+                    .map(|path| fs::read_to_string(path).unwrap())
+                    .collect::<Vec<_>>();
                 assert!(
-                    response["error"]["causes"]
-                        .to_string()
-                        .contains("exited without completing Runtime IPC")
+                    child_logs
+                        .iter()
+                        .any(|text| text.contains("exited without completing Runtime IPC"))
                 );
             }
         }

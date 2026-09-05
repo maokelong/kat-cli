@@ -44,7 +44,7 @@ KAT Skill 可以为当前用户任务在同一 Session 中临时运行多个已�
 
 结合选中 Workflow 的 analysis guide 与主动约束范围的 Query 证据形成结果。guide 用于组织分析和下一步方向，不替代实际数据证据，也不扩大用户授权。
 
-组合 Workflow 发布父 Run 后，默认先使用父 Workflow 的当前 guide 与父 Run Output。只有父 guide 明确要求汇总子结论，或父级证据不足以回答当前问题时，才调用 `kat inspect session --session ...` 取得该父 Run 的直接 `child_runs`，并按当前问题选择相关子 Run。对每个选中的子 Run，分别用它自己的双 ID 执行 Workflow inspection 和最少 Output Query；更深层证据仍按同一规则惰性展开。
+组合 Workflow 发布父 Run 后，默认先使用父 Workflow 的当前 guide 与父 Run Output。`outputs: {}` 表示该 Workflow 未生成自己的表；不要查询不存在的 `output.main`，也不能推导为没有问题。零行表同样不能单独证明没有问题。Session inventory 展示发布时元数据，内容是否仍可读以实际 query 为准。只有父 guide 明确要求汇总子结论，或父级证据不足以回答当前问题时，才调用 `kat inspect session --session ...` 取得该父 Run 的直接 `child_runs`，并按当前问题选择相关子 Run。对每个选中的子 Run，分别用它自己的双 ID 执行 Workflow inspection 和最少 Output Query；更深层证据仍按同一规则惰性展开。
 
 `child_runs` 按 Run ID 排序但语义无序，只表达直接、成功发布的子 Run。若多个直接子 Run 的 PACK 与 Workflow 相同且公开事实不足以区分，把所有匹配项视为候选并说明歧义，不根据数组位置猜测调用顺序。Guide 不自动合并、继承或替代；缺省 guide 的 Run 不要求生成独立解释。“相关”“证据不足”和“最少证据”都是模型的尽力判断，不是 Runtime 保证或新 Guide 语法。
 

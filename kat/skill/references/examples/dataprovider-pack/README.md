@@ -135,6 +135,10 @@ kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider
 默认测试只收集 `test_*.py`：fake ADBC 合同、小型 Ftrace fixture，以及模拟 Trace
 Streamer executable/SQLite。它们不访问真实 PostgreSQL、真实大 trace 或真实二进制。
 
+`kat_run` 在独立 Workflow Runtime 中执行，不继承 pytest 进程的 monkeypatch（包括环境变量修改）。
+fake ADBC 只用于 Provider 单元测试；真实 PostgreSQL Workflow 发布由
+`real_fusion.py` 验证。部署环境变量需在启动 `kat test` 前设置。
+
 ## 显式真实测试
 
 真实文件和数据库不提交到仓库，`real_*.py` 也不被默认 pytest 规则收集。显式执行时

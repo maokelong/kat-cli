@@ -1,13 +1,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
-use arrow_schema::{DataType, Field, IntervalUnit, TimeUnit, UnionMode};
 use miette::Diagnostic;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -251,15 +248,14 @@ fn resolve_output_paths(
         return Err(PublishedRunError::InvalidLayout);
     }
     outputs
-        .iter()
-        .map(|(name, metadata)| {
+        .keys()
+        .map(|name| {
             let file_name = format!("{name}.parquet");
             let output = canonical_direct_file(
                 &output_directory.join(&file_name),
                 &output_directory,
                 &file_name,
             )?;
-            validate_output_footer(&output, metadata)?;
             let path = output
                 .to_str()
                 .map(str::to_owned)
@@ -267,158 +263,6 @@ fn resolve_output_paths(
             Ok((name.clone(), path))
         })
         .collect()
-}
-
-fn validate_output_footer(
-    path: &Path,
-    expected: &RunOutputMetadata,
-) -> Result<(), PublishedRunError> {
-    let file = File::open(path).map_err(PublishedRunError::CorruptPath)?;
-    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
-        .map_err(PublishedRunError::InvalidParquet)?;
-    let row_count = u64::try_from(reader.metadata().file_metadata().num_rows())
-        .map_err(|_| PublishedRunError::InvalidFacts)?;
-    let fields = reader.schema().fields();
-    if row_count != expected.row_count || fields.len() != expected.columns.len() {
-        return Err(PublishedRunError::InvalidFacts);
-    }
-    for (field, column) in fields.iter().zip(&expected.columns) {
-        if field.name() != &column.name {
-            return Err(PublishedRunError::InvalidFacts);
-        }
-        if !public_arrow_type_matches(field.data_type(), &column.data_type) {
-            return Err(PublishedRunError::InvalidFacts);
-        }
-    }
-    Ok(())
-}
-
-fn public_arrow_type_matches(data_type: &DataType, declared: &str) -> bool {
-    public_arrow_type(data_type)
-        .is_some_and(|actual| actual == declared.replace(", ordered=1>", ", ordered=0>"))
-}
-
-fn public_arrow_type(data_type: &DataType) -> Option<String> {
-    let rendered = match data_type {
-        DataType::Null => "null".to_owned(),
-        DataType::Boolean => "bool".to_owned(),
-        DataType::Int8 => "int8".to_owned(),
-        DataType::Int16 => "int16".to_owned(),
-        DataType::Int32 => "int32".to_owned(),
-        DataType::Int64 => "int64".to_owned(),
-        DataType::UInt8 => "uint8".to_owned(),
-        DataType::UInt16 => "uint16".to_owned(),
-        DataType::UInt32 => "uint32".to_owned(),
-        DataType::UInt64 => "uint64".to_owned(),
-        DataType::Float16 => "halffloat".to_owned(),
-        DataType::Float32 => "float".to_owned(),
-        DataType::Float64 => "double".to_owned(),
-        DataType::Timestamp(unit, timezone) => match timezone {
-            Some(timezone) => format!("timestamp[{}, tz={timezone}]", public_time_unit(*unit)),
-            None => format!("timestamp[{}]", public_time_unit(*unit)),
-        },
-        DataType::Date32 => "date32[day]".to_owned(),
-        DataType::Date64 => "date64[ms]".to_owned(),
-        DataType::Time32(unit) => format!("time32[{}]", public_time_unit(*unit)),
-        DataType::Time64(unit) => format!("time64[{}]", public_time_unit(*unit)),
-        DataType::Duration(unit) => format!("duration[{}]", public_time_unit(*unit)),
-        DataType::Interval(IntervalUnit::YearMonth) => "month_interval".to_owned(),
-        DataType::Interval(IntervalUnit::DayTime) => "day_time_interval".to_owned(),
-        DataType::Interval(IntervalUnit::MonthDayNano) => "month_day_nano_interval".to_owned(),
-        DataType::Binary => "binary".to_owned(),
-        DataType::FixedSizeBinary(size) => format!("fixed_size_binary[{size}]"),
-        DataType::LargeBinary => "large_binary".to_owned(),
-        DataType::BinaryView => "binary_view".to_owned(),
-        DataType::Utf8 => "string".to_owned(),
-        DataType::LargeUtf8 => "large_string".to_owned(),
-        DataType::Utf8View => "string_view".to_owned(),
-        DataType::List(field) => format!("list<{}>", public_arrow_field(field)?),
-        DataType::ListView(field) => format!("list_view<{}>", public_arrow_field(field)?),
-        DataType::FixedSizeList(field, size) => {
-            format!("fixed_size_list<{}>[{size}]", public_arrow_field(field)?)
-        }
-        DataType::LargeList(field) => format!("large_list<{}>", public_arrow_field(field)?),
-        DataType::LargeListView(field) => {
-            format!("large_list_view<{}>", public_arrow_field(field)?)
-        }
-        DataType::Struct(fields) => format!(
-            "struct<{}>",
-            fields
-                .iter()
-                .map(|field| public_arrow_field(field))
-                .collect::<Option<Vec<_>>>()?
-                .join(", ")
-        ),
-        DataType::Union(fields, mode) => {
-            let mode = match mode {
-                UnionMode::Sparse => "sparse_union",
-                UnionMode::Dense => "dense_union",
-            };
-            let fields = fields
-                .iter()
-                .map(|(type_id, field)| {
-                    public_arrow_field(field).map(|field| format!("{field}={type_id}"))
-                })
-                .collect::<Option<Vec<_>>>()?
-                .join(", ");
-            format!("{mode}<{fields}>")
-        }
-        // Arrow Rust 不保留 PyArrow 的 `ordered` dictionary 标志；统一渲染为
-        // 0，匹配时只规范化 PyArrow 完整类型中的该标志。
-        DataType::Dictionary(indices, values) => format!(
-            "dictionary<values={}, indices={}, ordered=0>",
-            public_arrow_type(values)?,
-            public_arrow_type(indices)?
-        ),
-        DataType::Decimal32(precision, scale) => format!("decimal32({precision}, {scale})"),
-        DataType::Decimal64(precision, scale) => format!("decimal64({precision}, {scale})"),
-        DataType::Decimal128(precision, scale) => format!("decimal128({precision}, {scale})"),
-        DataType::Decimal256(precision, scale) => format!("decimal256({precision}, {scale})"),
-        DataType::Map(entries, keys_sorted) => public_map_type(entries, *keys_sorted)?,
-        DataType::RunEndEncoded(run_ends, values) => format!(
-            "run_end_encoded<{}, {}>",
-            public_arrow_field(run_ends)?,
-            public_arrow_field(values)?
-        ),
-    };
-    Some(rendered)
-}
-
-fn public_arrow_field(field: &Field) -> Option<String> {
-    let nullable = if field.is_nullable() { "" } else { " not null" };
-    Some(format!(
-        "{}: {}{nullable}",
-        field.name(),
-        public_arrow_type(field.data_type())?
-    ))
-}
-
-fn public_map_type(entries: &Field, keys_sorted: bool) -> Option<String> {
-    let DataType::Struct(fields) = entries.data_type() else {
-        return None;
-    };
-    let [key, value] = fields.as_ref() else {
-        return None;
-    };
-    let key_name = (key.name() != "key").then(|| format!(" ('{}')", key.name()));
-    let value_name = (value.name() != "value").then(|| format!(" ('{}')", value.name()));
-    let sorted = if keys_sorted { ", keys_sorted" } else { "" };
-    Some(format!(
-        "map<{}{}, {}{}{sorted}>",
-        public_arrow_type(key.data_type())?,
-        key_name.as_deref().unwrap_or_default(),
-        public_arrow_type(value.data_type())?,
-        value_name.as_deref().unwrap_or_default(),
-    ))
-}
-
-fn public_time_unit(unit: TimeUnit) -> &'static str {
-    match unit {
-        TimeUnit::Second => "s",
-        TimeUnit::Millisecond => "ms",
-        TimeUnit::Microsecond => "us",
-        TimeUnit::Nanosecond => "ns",
-    }
 }
 
 fn canonical_direct_directory(
@@ -472,7 +316,6 @@ fn validate(
         || manifest.run_id != run_id
         || manifest.pack.trim().is_empty()
         || manifest.workflow.trim().is_empty()
-        || manifest.outputs.is_empty()
         || manifest
             .child_runs
             .iter()
@@ -541,9 +384,6 @@ pub(super) enum PublishedRunError {
     #[error("Run is corrupted")]
     #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
     InvalidFacts,
-    #[error("Run is corrupted")]
-    #[diagnostic(help("Re-run the Workflow to publish a complete Run"))]
-    InvalidParquet(#[source] parquet::errors::ParquetError),
     #[error("Run storage could not be enumerated")]
     ReadRuns(#[source] io::Error),
     #[error("Run path cannot be represented as native Unicode")]
@@ -633,166 +473,13 @@ mod tests {
     }
 
     #[test]
-    fn candidate_output_gate_accepts_matching_parquet_footer_facts() {
+    fn candidate_output_gate_accepts_the_exact_owned_file_set() {
         let (_temporary, candidate) = canonical_temporary_directory();
         let outputs = candidate.join("outputs");
         fs::create_dir(&outputs).unwrap();
         write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
 
         validate_candidate_outputs(&candidate, &typed_output("int64", 0)).unwrap();
-    }
-
-    #[test]
-    fn candidate_output_gate_accepts_temporal_and_nested_arrow_types() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        let fields = vec![
-            Field::new("day", DataType::Date32, true),
-            Field::new(
-                "recorded_at",
-                DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into())),
-                true,
-            ),
-            Field::new(
-                "items",
-                DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
-                true,
-            ),
-            Field::new(
-                "payload",
-                DataType::Struct(vec![Field::new("name", DataType::Utf8, true)].into()),
-                true,
-            ),
-        ];
-        write_empty_parquet_schema(&outputs.join("main.parquet"), fields);
-        let metadata = BTreeMap::from([(
-            "main".to_owned(),
-            RunOutputMetadata {
-                columns: vec![
-                    workflow_runtime::Column {
-                        name: "day".to_owned(),
-                        data_type: "date32[day]".to_owned(),
-                    },
-                    workflow_runtime::Column {
-                        name: "recorded_at".to_owned(),
-                        data_type: "timestamp[ns, tz=UTC]".to_owned(),
-                    },
-                    workflow_runtime::Column {
-                        name: "items".to_owned(),
-                        data_type: "list<item: int64>".to_owned(),
-                    },
-                    workflow_runtime::Column {
-                        name: "payload".to_owned(),
-                        data_type: "struct<name: string>".to_owned(),
-                    },
-                ],
-                row_count: 0,
-            },
-        )]);
-
-        validate_candidate_outputs(&candidate, &metadata).unwrap();
-    }
-
-    #[test]
-    fn candidate_output_gate_does_not_reject_an_ordered_dictionary() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        write_empty_parquet(
-            &outputs.join("main.parquet"),
-            DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
-        );
-
-        validate_candidate_outputs(
-            &candidate,
-            &typed_output("dictionary<values=string, indices=int32, ordered=1>", 0),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn candidate_output_gate_accepts_an_ordered_nested_dictionary() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        write_empty_parquet(
-            &outputs.join("main.parquet"),
-            DataType::List(Arc::new(Field::new(
-                "item",
-                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
-                true,
-            ))),
-        );
-
-        validate_candidate_outputs(
-            &candidate,
-            &typed_output(
-                "list<item: dictionary<values=string, indices=int32, ordered=1>>",
-                0,
-            ),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn candidate_output_gate_rejects_wrong_dictionary_index_or_value_types() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        write_empty_parquet(
-            &outputs.join("main.parquet"),
-            DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
-        );
-
-        for declared in [
-            "dictionary<values=string, indices=int16, ordered=0>",
-            "dictionary<values=binary, indices=int32, ordered=0>",
-        ] {
-            assert!(matches!(
-                validate_candidate_outputs(&candidate, &typed_output(declared, 0)),
-                Err(PublishedRunError::InvalidFacts)
-            ));
-        }
-    }
-
-    #[test]
-    fn candidate_output_gate_rejects_a_corrupt_parquet_footer() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        fs::write(outputs.join("main.parquet"), b"not parquet").unwrap();
-
-        assert!(matches!(
-            validate_candidate_outputs(&candidate, &typed_output("int64", 0)),
-            Err(PublishedRunError::InvalidParquet(_))
-        ));
-    }
-
-    #[test]
-    fn candidate_output_gate_rejects_a_schema_fact_mismatch() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
-
-        assert!(matches!(
-            validate_candidate_outputs(&candidate, &typed_output("string", 0)),
-            Err(PublishedRunError::InvalidFacts)
-        ));
-    }
-
-    #[test]
-    fn candidate_output_gate_rejects_a_row_count_fact_mismatch() {
-        let (_temporary, candidate) = canonical_temporary_directory();
-        let outputs = candidate.join("outputs");
-        fs::create_dir(&outputs).unwrap();
-        write_empty_parquet(&outputs.join("main.parquet"), DataType::Int64);
-
-        assert!(matches!(
-            validate_candidate_outputs(&candidate, &typed_output("int64", 1)),
-            Err(PublishedRunError::InvalidFacts)
-        ));
     }
 
     #[test]
@@ -810,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn published_resolve_rechecks_the_parquet_footer() {
+    fn published_inventory_uses_manifest_facts_without_reading_parquet_content() {
         let temporary = tempfile::tempdir().unwrap();
         let store = crate::session_store::SessionStore::new(temporary.path());
         let opened = store.create().unwrap();
@@ -841,10 +528,10 @@ mod tests {
         allocation.mark_run_published();
         fs::write(outputs.join("main.parquet"), b"not parquet").unwrap();
 
-        assert!(matches!(
-            resolve(allocation.layout(), run_id.as_str()),
-            Err(PublishedRunError::InvalidParquet(_))
-        ));
+        let published = resolve(allocation.layout(), run_id.as_str()).unwrap();
+        assert_eq!(published.outputs["main"].row_count, 0);
+        assert_eq!(published.outputs["main"].columns[0].data_type, "int64");
+        assert!(published.output_paths.contains_key("main"));
     }
 
     #[test]

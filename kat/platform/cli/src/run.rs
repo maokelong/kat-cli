@@ -22,6 +22,7 @@ use crate::{
     workflow_runtime,
 };
 
+mod execution;
 mod nested;
 
 use nested::NestedRunCoordinator;
@@ -162,29 +163,6 @@ fn execute_allocated_run(
             },
         );
     };
-    let Some(pack_path) = pack.directory().to_str().map(str::to_owned) else {
-        return finish_failure(
-            log,
-            RunOperationError::NonUnicodePath {
-                label: "PACK",
-                path: pack.directory().to_path_buf(),
-            },
-        );
-    };
-    let Some(candidate_path) = allocation.candidate().to_str().map(str::to_owned) else {
-        return finish_failure(log, RunOperationError::PrivateCandidatePath);
-    };
-    let Some(datasource_root) = allocation
-        .layout()
-        .materializations()
-        .to_str()
-        .map(str::to_owned)
-    else {
-        return finish_failure(log, RunOperationError::PrivateDatasourceRootPath);
-    };
-    let Some(scratch_root) = allocation.scratch().to_str().map(str::to_owned) else {
-        return finish_failure(log, RunOperationError::PrivateScratchRootPath);
-    };
     let pack_path_log = project_inline_text(&format!("{:?}", pack.directory()));
     let arguments_log = project_inline_text(&format!("{:?}", arguments.workflow_arguments));
     if let Err(error) =
@@ -200,70 +178,21 @@ fn execute_allocated_run(
         pack.name().to_owned(),
         arguments.workflow.clone(),
     ));
-    let outcome = workflow_runtime::execute_workflow_runtime_with_nested(
+    match execution::execute_and_publish(
         log,
-        workflow_runtime::RunWorkflowInvocation {
-            session_id: allocation.layout().session_id().as_str().to_owned(),
-            pack_name: pack.name().to_owned(),
-            pack_path,
-            workflow_name: arguments.workflow.clone(),
-            arguments: arguments.workflow_arguments,
-            candidate_id: allocation.run_id().as_str().to_owned(),
-            candidate_path,
-            datasource_root,
-            scratch_root,
-        },
-        coordinator.clone(),
-    );
-    let (runtime, mut log) = match outcome {
-        Ok(workflow_runtime::RunWorkflowOutcome::Success { result, log }) => (result, log),
-        Ok(workflow_runtime::RunWorkflowOutcome::Failure {
-            diagnostic,
-            log_path,
-        }) => return response::prepare_runtime_failure(diagnostic, log_path),
-        Err(error) => {
-            let log_path = error.log_path();
-            return response::prepare_cli_failure_with_log(miette::Report::new(error), log_path);
-        }
-    };
-
-    if let Err(error) = allocation.clean_scratch() {
-        return finish_failure(log, RunOperationError::SessionStore(error));
+        allocation,
+        pack.name(),
+        pack.directory(),
+        &arguments.workflow,
+        workflow_runtime::WorkflowInputs::Arguments(arguments.workflow_arguments),
+        coordinator,
+    ) {
+        Ok(completed) => response::prepare_success_with_log(
+            public_result(&completed.manifest),
+            Some(completed.log_path),
+        ),
+        Err(error) => error.into_response(),
     }
-    if let Err(source) =
-        run_manifest::validate_candidate_outputs(allocation.candidate(), &runtime.outputs)
-    {
-        return finish_failure(log, RunOperationError::InvalidOutputLayout { source });
-    }
-
-    let child_runs = match coordinator.child_runs() {
-        Ok(child_runs) => child_runs,
-        Err(source) => {
-            return finish_failure(log, RunOperationError::ChildRunLedger { source });
-        }
-    };
-    let manifest = RunManifest::new(
-        allocation.layout().session_id().as_str().to_owned(),
-        allocation.run_id().as_str().to_owned(),
-        pack.name().to_owned(),
-        arguments.workflow,
-        child_runs,
-        runtime.effective_inputs,
-        runtime.outputs,
-    );
-    let result = public_result(&manifest);
-    if let Err(error) = log.append(b"publication_gate: ready\n") {
-        return log_failure(error);
-    }
-    let log_path = match log.finish() {
-        Ok(log_path) => log_path,
-        Err(error) => return log_failure(error),
-    };
-    if let Err(error) = publish_run_manifest(allocation.candidate(), &manifest) {
-        return response::prepare_cli_failure_with_log(miette::Report::new(error), Some(log_path));
-    }
-    allocation.mark_run_published();
-    response::prepare_success_with_log(result, Some(log_path))
 }
 
 fn publish_run_manifest(candidate: &Path, manifest: &RunManifest) -> Result<(), RunOperationError> {

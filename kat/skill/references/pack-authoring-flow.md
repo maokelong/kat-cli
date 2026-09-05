@@ -63,7 +63,7 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 
 两个 wheel 随同一 KAT 版本原子安装，但 PACK 必须分别显式 import 所需模块，不能假设一个 distribution 会传递另一个。
 
-Workflow 的 Run Output 只能是精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
+Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
 ## 4. 通过 `ctx.run()` 组合 Workflow
 
@@ -100,7 +100,7 @@ def analyze_thread(ctx: kat.Context, *, trace_path: str):
     )
 ```
 
-`ctx.run()` 只在子 Run 完整发布后返回只读 `dp.Catalog`。子 Workflow 返回单个 Table 时 relation name 固定为 `main`；返回字典时 relation name 保留各 Output key，实际的 `catalog.tables` 是调用方可依赖的名称合同。Catalog 直接引用已经发布的 Parquet，不 eagerly 复制整个子 Output；只有交给 `dp.DataFusionProvider(catalog=...)` 查询时才读取所需数据。`dp.Catalog` 不能作为下一次 `ctx.run()` 的输入，也不能成为父 Workflow 的 Run Output。
+`ctx.run()` 只在子 Run 完整发布后返回只读 `dp.Catalog`；无输出时 `catalog.tables == ()`。子 Workflow 返回单个 Table 时 relation name 固定为 `main`；返回字典时 relation name 保留各 Output key，实际的 `catalog.tables` 是调用方可依赖的名称合同。Catalog 直接引用已经发布的 Parquet，不 eagerly 复制整个子 Output；只有交给 `dp.DataFusionProvider(catalog=...)` 查询时才读取所需数据。`dp.Catalog` 不能作为下一次 `ctx.run()` 的输入，也不能成为父 Workflow 的 Run Output。
 
 嵌套输入必须是与目标标注严格对应的精确 `str`、有符号 64 位 `int`、有限 `float`、`bool`、允许的字符串 `Literal`、`kat.Duration`、`kat.WallClockTimestamp`，或仅供 Optional 参数使用的 `None`。不执行 CLI 字符串转换，不把 `bool` 当作 `int` 或把 `int` 当作 `float`；省略的输入由目标 Input Compiler 应用默认值。`dp.Table` 与 `dp.Catalog` 都不是 Workflow input value。
 
@@ -108,21 +108,18 @@ def analyze_thread(ctx: kat.Context, *, trace_path: str):
 
 活动调用链中再次出现相同 `(PACK, Workflow)` 会抛出 `kat.RunError`，已经完成后的顺序重复调用合法并形成新的子 Run。`kat.RunError` 只有异常类型稳定，消息不能解析，也不提供 phase、Session ID、Run ID、路径或是否已发布字段；即使父级捕获并降级，调用也可能已经留下成功 Run 或成功后代，因此主动重试始终按可能产生重复 Run 的全新执行处理。
 
-组合 Workflow 最终仍必须返回自己的 `dp.Table | dict[str, dp.Table]`。如果它只需固化调用关系、把解释留给父 Guide，可以返回具有显式非空 Schema 的零行 Table，而不是发明无 Output Run 或特殊编排结果：
+组合 Workflow 若只固化调用与 Guide 汇总，可以返回 `None`（含隐式 return）。仍发布普通 Run Manifest，`outputs: {}` 和实际直接 `child_runs`；空 dict 返回不合法，零行 Table 仍保留自己的 Schema：
 
 ```python
-import pyarrow as pa
-
-EMPTY_SCHEMA = pa.schema([pa.field("completed", pa.bool_(), nullable=False)])
-
-
 def collect_evidence(ctx: kat.Context, *, trace_path: str):
     ctx.run("cpu-pack", "analyze", trace_path=trace_path)
     ctx.run("io-pack", "analyze", trace_path=trace_path)
-    return dp.Table.from_rows([], schema=EMPTY_SCHEMA)
+    # 隐式 None，无需占位表。
 ```
 
-`kat test` 中的 `kat_run` 使用测试命令自己的临时 Session，并继续只向测试返回顶层 `dict[str, pyarrow.Table]`。Workflow 内部的 `ctx.run()` 才返回 Catalog；被测 PACK 来自精确 `--pack-dir`，跨 PACK 子调用只从正常默认或已安装 roots 发现，不增加 sibling checkout 路径参数。
+`kat_run` 在每测试独立临时 Session 内通过真实独立 Runtime 与生产执行/发布核心运行 Workflow。同测试多次调用共享来源物化、使用不同 scratch；返回便利的 `dict[str, pyarrow.Table]`，无输出时为 `{}`。pytest 的模块 monkeypatch 不会影响 Workflow；普通 helper 单测仍可 monkeypatch。被测 PACK 固定来自 `--pack-dir`，跨 PACK 子调用只从正常默认或已安装 roots 发现，不增加 sibling checkout 参数。
+
+仓库中的 `examples/packs/workflow-composition` 是无外部依赖的可运行示例，包含 Catalog 查询、无输出编排、各 Workflow Guide 和 `kat_run` 测试。
 
 ## 5. 组织和引用 guide
 

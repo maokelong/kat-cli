@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 from typing import Iterator, Literal
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
@@ -160,6 +161,7 @@ def _execute(
     except PackInspectionError as error:
         return RuntimeFailure(error=error.diagnostic)
     except (Exception, SystemExit) as error:
+        traceback.print_exception(error, file=sys.stderr)
         return RuntimeFailure(
             error=diagnostic_from_exception(
                 error,

@@ -48,7 +48,7 @@ _Avoid_: `kat.stdlib`
 ## Workflow 与测试
 
 **Workflow**:
-PACK 中回答一个具体分析问题的显式可调用入口，定义用户输入并产生一个或多个 Run Output。它可以直接形成证据，也可以用普通程序控制流显式调用其他 Workflow、按需查询这些子 Run 的只读 Catalog 并组装自己的输出；需要固化但只负责调用与 Guide 汇总的组合 Workflow 可以返回具有明确非空 Schema 的零行 Table。Workflow declaration 不重复声明 Output name 或 Schema，已发布 Catalog 与 Parquet footer 是消费方的唯一运行时合同。执行期间不接受 AI 解释或改写，PACK 仍是所有权与发布边界。
+PACK 中回答一个具体分析问题的显式可调用入口，定义用户输入并产生零个或多个 Run Output。它可以直接形成证据，也可以用普通程序控制流显式调用其他 Workflow、按需查询这些子 Run 的只读 Catalog 并组装自己的输出；只负责调用与 Guide 汇总时返回 `None`，不制造占位表；有明确 Schema 的零行 Table 仍是独立的正常 Output。Workflow declaration 不重复声明 Output name 或 Schema，已发布 Catalog 与 Parquet footer 是消费方的唯一运行时合同。执行期间不接受 AI 解释或改写，PACK 仍是所有权与发布边界。
 
 **Workflow guide**:
 Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，只指导 AI 解释该 Workflow 对应的 Run Output、向哪些方向继续取证。组合调用默认先读取父 Guide 与父 Run Output inventory；只有父 Guide 要求汇总子结论或父级证据不足时，才沿 `child_runs` 按需读取相关子 Run，并分别用各自 Guide 解释。Guide 建议 AI 后续调用的 Workflow 会在同一 Analysis Session 中形成新的独立根 Run，不会事后加入或修改已经发布的父 Run。Guide 不自动继承或合并，缺省 Guide 表示该 Run 不要求独立的 AI 解释。Guide 不能脱离具有 Python 入口的 Workflow 独立执行，也不是 Output Schema、可执行计划或 Run 快照；inspection 每次读取当前 PACK 版本。
@@ -75,7 +75,7 @@ KAT 在一次 Workflow 调用内提供的窄能力对象，通过 `datasource_ro
 Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类型且包含默认值的实际控制值。`ctx.run()` 使用与目标标注对应的精确 Python 值：`str`、有符号 64 位 `int`、有限 `float`、`bool`、允许的字符串 `Literal`、`kat.Duration` 或 `kat.WallClockTimestamp`；只有 Optional 接受 `None`，省略参数仍由目标 Input Compiler 应用默认值。嵌套调用不执行 CLI 字符串 coercion，也不把 `bool` 当作 `int` 或把 `int` 当作 `float`。输入可以选择 Workflow 已准入的非敏感来源位置或来源生态 selector；凭据、任意 Provider 代码和另一个 Workflow 的 `dp.Catalog` 不是 Workflow input values。组合父 Workflow 可以查询 Catalog 后，从结果中提取目标 Input Compiler 已支持的普通值再调用下一个 Workflow，但不形成第二套仅供嵌套调用的 Catalog 或 Table 输入合同。
 
 **PACK test**:
-针对 PACK 生产 Interface 的 KAT 集成测试。测试用普通 fixture 构造来源文件、配置、Datasource Provider 和临时路径，再通过 `kat_run` 执行真实 Workflow；组合 Workflow 的 `ctx.run()` 复用生产环境的发现、输入校验、独立子 Runtime、异常和子 Run Catalog 返回路径。被测 PACK 固定来自 `kat test --pack-dir` 的精确目录，嵌套调用还可以发现正常默认或已安装 PACK roots；首版不接受额外 dependency checkout 目录，未安装 sibling PACK 必须先进入正常发现范围。测试命令使用自己的临时 Analysis Session 与工作空间，不发布生产 Session 或 Run；`kat_run` 保持现有合同，向测试返回按 Output name 索引的 `dict[str, pyarrow.Table]`。
+针对 PACK 生产 Interface 的 KAT 集成测试。测试用普通 fixture 构造来源文件、配置、Datasource Provider 和临时路径，再通过 `kat_run` 执行真实 Workflow；组合 Workflow 的 `ctx.run()` 复用生产环境的发现、输入校验、独立子 Runtime、异常和子 Run Catalog 返回路径。被测 PACK 固定来自 `kat test --pack-dir` 的精确目录，嵌套调用还可以发现正常默认或已安装 PACK roots；首版不接受额外 dependency checkout 目录，未安装 sibling PACK 必须先进入正常发现范围。每个测试使用独立临时 Analysis Session；同测试多次 `kat_run` 共享来源物化，每次都通过与 CLI 相同的执行/发布核心，在独立 Runtime 中产生测试 Run。测试 Session 不进入生产 Data Home，日志则保留。`kat_run` 向测试返回按 Output name 索引的 `dict[str, pyarrow.Table]`，无输出时为 `{}`。pytest monkeypatch 不影响 Workflow 进程，但普通 helper 单测仍可使用它。
 
 **Provider fixture**:
 随 PACK 一起版本化、供测试用普通配置与临时路径创建 Datasource Provider 的受控输入与非敏感配置。它不是平台持久状态，也不规定 Provider 的存储格式。
@@ -105,7 +105,7 @@ PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组�
 Datasource Provider 私有的来源 relation 集合及名称映射，只供该 Provider 的 Source query 使用。KAT 不规定其发现或布局，也不把其中关系自动传给 DataFusion Provider。
 
 **Parquet catalog**:
-以 Parquet 文件承载多张具名 relation 的只读集合，可以由以 Datasource Schema 约束的 `dp.write()` 流式写事务产生、接入已有 Parser 产物，或由 KAT 为一次成功 `ctx.run()` 的已发布子 Run Output 构造。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合；`dp.open(tables=...)` 显式绑定调用方列出的 relation 路径。它们从 Parquet footer 取得物理结构。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，本身不创建 Session、执行 SQL 或持有查询结果；它只能显式交给 DataFusion Provider 扫描。子 Run Catalog 的受支持公共表面同样只暴露实际 relation 名称，列与类型在 DataFusion SQL planning 时从 footer 取得；它不能作为 Workflow Input 或 Run Output。
+以 Parquet 文件承载多张具名 relation 的只读集合，可以由以 Datasource Schema 约束的 `dp.write()` 流式写事务产生、接入已有 Parser 产物，或由 KAT 为一次成功 `ctx.run()` 的已发布子 Run Output 构造。`dp.open(root=...)` 发现目录当前已有的非空 relation 集合；`dp.open(tables=...)` 显式绑定调用方列出的 relation 路径，允许空映射；无输出子 Run 的 Catalog 同样满足 `tables == ()`。它们从 Parquet footer 取得物理结构。Catalog 只通过 `catalog.tables` 暴露稳定 relation 名称，本身不创建 Session、执行 SQL 或持有查询结果；它只能显式交给 DataFusion Provider 扫描。子 Run Catalog 的受支持公共表面同样只暴露实际 relation 名称，列与类型在 DataFusion SQL planning 时从 footer 取得；它不能作为 Workflow Input 或 Run Output。
 
 **Source query**:
 Workflow 显式交给 Datasource Provider、由该 Provider 在一个来源内解释的查询。其方言、参数和来源内关系组合属于 Datasource；KAT 不把它解析或拆分成跨来源计划。它不同于 DataFusion Provider 执行的 Fusion query。
@@ -147,13 +147,13 @@ Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多�
 一次可以跨 PACK 的多 Workflow 分析边界，归集其中相互独立的 Run、可复用来源物化与临时工作数据。它具有独立于其中各 Run 和 PACK 的身份，统一这些内容的分析归属和生命周期，但不把不可变 Run Output、可重建 Datasource materialization 与临时数据变成同一种事实。Session 在任何生产 Workflow 执行前显式创建并允许为空；成功或失败的 `kat run` 都不会自动删除它，只有用户显式删除才结束其生命周期。最外层 `kat run` 执行在整个嵌套执行、Catalog 查询和完成收拢期间持有 Session 共享租约；显式删除必须取得独占租约，遇到活动执行时快速失败，不等待也不取消 Workflow。Session inspection 以平坦 Run inventory 返回每个 Run 的直接 `child_runs`，供调用方按需遍历，不递归嵌入整棵树。父 Workflow 失败不会使其中已经发布的子 Run 失效，也不保证能把没有已发布父级的 Run 精确归因到某次失败调用。
 
 **Run**:
-Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest 和至少一个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
+Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest 和零个或多个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
 
 **Run Manifest**:
 一个 Run 的唯一持久清单，记录其 Session 与 Run 身份，以及 PACK、Workflow、有效输入和 Run Output 元数据。组合 Workflow 的 Manifest 还以按 Run ID 稳定排序、但语义无序的集合记录执行期间实际成功发布的直接子 Run；子 Run 发布成功后即属于该集合，即使随后向父 Runtime 交付或构造 Catalog 失败。失败调用没有 Run Manifest，因此其已发布后代只保留在 Session inventory 中，既不记录失败父级，也不提升为更高祖先的直接子 Run。Manifest 不记录 Datasource materialization provenance，也不表达调用先后、分支、线程关系、计划、未来分支、失败尝试或执行状态，不承载 Analysis Result。
 
 **Session inspection**:
-一个 Analysis Session 的平坦已发布 Run inventory。每个 Run 精确投影 `run_id`、`pack`、`workflow`、按 Run ID 排序的直接 `child_runs` 和公开 Output inventory；叶子 Run 的 `child_runs` 是空数组。它不递归嵌入子 Run，也不公开 effective inputs、物理路径、执行计划或失败调用。调用方用选中 Run 的双 ID 继续执行 Workflow Guide inspection 和 Output Query。
+一个 Analysis Session 的平坦已发布 Run inventory。每个 Run 精确投影 `run_id`、`pack`、`workflow`、按 Run ID 排序的直接 `child_runs` 和公开 Output inventory；叶子 Run 的 `child_runs` 是空数组。它验证 Manifest 身份、文件存在和布局，展示发布时元数据，不遍历 Parquet footer 承诺此刻可查询；内容损坏由实际 PyArrow/DataFusion 读取拒绝。它不递归嵌入子 Run，也不公开 effective inputs、物理路径、执行计划或失败调用。调用方用选中 Run 的双 ID 继续执行 Workflow Guide inspection 和 Output Query。
 
 **Run Output**:
 随 Run 持久发布的具名不可变表格事实，只能来源于 Workflow 返回的精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 中的精确 Table；单值命名为 `main`，多值由 dict key 显式命名，并完整写为该 Run 自己的 Parquet。子 Run Catalog、物理文件、任意 Python 对象、裸路径、Markdown 或 JSON 都不是 Run Output；它也不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。

@@ -14,11 +14,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from kat import RunError
+
 from .diagnostic import _exception_chain
-from .execution import WorkflowExecutionFailure, run_loaded_workflow
-from .inspection import CompiledWorkflow
 from .pack import ProductionPack
-from .request import RunCandidateRef, TestPackRequest
+from .request import TestPackRequest
 from .rpc import _NestedRunClient
 
 
@@ -45,11 +45,9 @@ class KatPytestPlugin:
         self,
         *,
         pack_name: str,
-        workflows: dict[str, CompiledWorkflow],
         nested_runs: _NestedRunClient,
     ) -> None:
         self._pack_name = pack_name
-        self._workflows = workflows
         self._nested_runs = nested_runs
         self._summary: Counter[str] = Counter()
         self._config: pytest.Config | None = None
@@ -74,38 +72,10 @@ class KatPytestPlugin:
                 arguments: Sequence[str] = (),
             ) -> dict[str, pa.Table]:
                 try:
-                    try:
-                        selected_workflow = self._workflows[workflow]
-                    except KeyError:
-                        raise WorkflowExecutionFailure() from ValueError(
-                            f"Workflow {workflow!r} was not found in the selected PACK"
-                        )
-                    with test_session.workflow(self._pack_name, workflow) as execution:
-                        result = run_loaded_workflow(
-                            selected_workflow,
-                            pack_name=self._pack_name,
-                            workflow_name=workflow,
-                            arguments=list(arguments),
-                            candidate=RunCandidateRef(
-                                identifier=execution.candidate_id,
-                                path=execution.candidate_path,
-                            ),
-                            datasource_root=execution.datasource_root,
-                            scratch_root=execution.scratch_root,
-                            nested_runs=execution,
-                        )
-                        return {
-                            name: pq.read_table(
-                                execution.candidate_path
-                                / "outputs"
-                                / f"{name}.parquet"
-                            )
-                            for name in result.outputs
-                        }
-                # 仅名称查找未命中和生产 Workflow 已知解析/执行失败归属 pytest call phase；
-                # 非法 fixture 实参及 harness 异常保留 pytest 原始 traceback。
-                except WorkflowExecutionFailure as error:
+                    relations = test_session.run(self._pack_name, workflow, list(arguments))
+                except RunError as error:
                     pytest.fail(_test_workflow_diagnostic(error), pytrace=False)
+                return {name: pq.read_table(path) for name, path in relations.items()}
 
             yield run
 
@@ -154,10 +124,9 @@ def test_pack(
     test_report_path: Path,
     nested_runs: _NestedRunClient,
 ) -> TestPackRuntimeResult:
-    workflows = ProductionPack.open(request.pack_name, request.pack_path).load_all()
+    ProductionPack.open(request.pack_name, request.pack_path).mount_for_tests()
     plugin = KatPytestPlugin(
         pack_name=request.pack_name,
-        workflows=workflows,
         nested_runs=nested_runs,
     )
     with tempfile.TemporaryDirectory(prefix="kat-pytest-config-") as temporary:

@@ -65,7 +65,7 @@ class SkillReferencePackProcessTest(unittest.TestCase):
             terminal = completed.stderr.decode(errors="replace")
             self.assertEqual(completed.returncode, 0, terminal)
             response = json.loads(response_path.read_text(encoding="utf-8"))
-            self.assertEqual(response["status"], "success")
+            self.assertEqual(response["status"], "success", terminal + "\n" + str(response))
             summary = response["result"]["summary"]
             self.assertGreater(summary.get("passed", 0), 0)
             self.assertNotIn("failed", summary)

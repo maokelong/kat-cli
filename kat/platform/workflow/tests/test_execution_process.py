@@ -99,7 +99,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             "pack_name": "example",
             "pack_path": str(pack),
             "workflow_name": "analyze",
-            "arguments": arguments or [],
+            "input": {"kind": "arguments", "value": arguments or []},
             "candidate_id": candidate_id,
             "candidate_path": str(candidate),
             "datasource_root": str((session / "materializations").resolve()),
@@ -203,6 +203,21 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertIn("atexit stdout diagnostic", diagnostic)
         self.assertIn("native atexit stdout diagnostic", diagnostic)
 
+    def test_none_return_has_no_outputs_but_zero_row_table_is_an_output(self) -> None:
+        for body, expected in (
+            ("    return None", {}),
+            ('    return kat.dataprovider.Table.from_arrow(pa.table({"value": pa.array([], type=pa.int64())}))',
+             {"main": {"columns": [{"name": "value", "type": "int64"}], "row_count": 0}}),
+        ):
+            with self.subTest(body=body):
+                pack = self.pack(body)
+                identifier, candidate = self.candidate()
+                completed, response = self.run_runtime(self.request(pack, identifier, candidate))
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(response["status"], "success", response)
+                self.assertEqual(response["result"]["outputs"], expected)
+                self.assertTrue((candidate / "outputs").is_dir())
+
     def test_run_accepts_typed_inputs_without_cli_string_coercion(self) -> None:
         pack = self.pack(
             '''    return kat.dataprovider.Table.from_arrow(
@@ -211,12 +226,10 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         candidate_id, candidate = self.candidate()
         request = self.request(pack, candidate_id, candidate)
-        request["operation"] = "run_workflow_with_inputs"
-        request.pop("arguments")
-        request["inputs"] = {
+        request["input"] = {"kind": "typed_inputs", "value": {
             "minimum": {"type": "int64", "value": "2"},
             "window": {"type": "duration", "value": "8us"},
-        }
+        }}
 
         completed, response = self.run_runtime(request)
 
@@ -673,6 +686,11 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             with self.subTest(private=private):
                 self.assertNotIn(private, rendered)
         self.assertIn("<private>", rendered)
+        operation_log = completed.stderr.decode(errors="replace")
+        self.assertIn("Traceback (most recent call last)", operation_log)
+        self.assertIn("RuntimeError:", operation_log)
+        self.assertIn(str(scratch), operation_log)
+        self.assertIn(str(datasource), operation_log)
         self.assertFalse(scratch.exists())
 
     def test_scratch_cleanup_failure_prevents_a_successful_run(self) -> None:
@@ -726,7 +744,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             '''    scratch = ctx.scratch_root
     scratch.rmdir()
     scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
-    return None'''
+    return {}'''
         )
         candidate_id, candidate = self.candidate()
         request = self.request(pack, candidate_id, candidate)
@@ -739,7 +757,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         causes = response["error"].get("causes", [])
         self.assertEqual(
             causes[0],
-            "Workflow must return an exact dataprovider.Table or a non-empty exact dict",
+            "An empty Output dict is invalid; return None for no outputs",
         )
         self.assertEqual(causes[-1], "Scratch root could not be cleaned")
 

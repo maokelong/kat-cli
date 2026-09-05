@@ -323,8 +323,16 @@ class DataProviderParquetTest(unittest.TestCase):
             dp.open()
         with self.assertRaisesRegex(TypeError, "exactly one"):
             dp.open(root=root, tables={"events": root / "events.parquet"})
+        catalog = dp.open(tables={})
+        self.assertEqual(catalog.tables, ())
+        fusion = dp.DataFusionProvider(catalog=catalog)
+        self.assertEqual(fusion.query("SELECT 42 AS answer")["answer"], (42,))
+        with self.assertRaises(Exception):
+            fusion.query("SELECT * FROM missing")
+        empty_root = self.root / "not-materialized"
+        empty_root.mkdir()
         with self.assertRaisesRegex(ValueError, "at least one"):
-            dp.open(tables={})
+            dp.open(root=empty_root)
         with self.assertRaisesRegex(TypeError, "Path"):
             dp.open(tables={"events": str(root / "events.parquet")})
 
