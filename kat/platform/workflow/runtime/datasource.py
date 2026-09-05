@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-import shutil
 
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class WorkflowOperation:
-    """Own the path capabilities and lease for one Workflow run."""
+    """Keep path capabilities valid only during one Workflow call."""
 
     def __init__(
         self,
@@ -26,18 +25,19 @@ class WorkflowOperation:
 
     @property
     def datasource_root(self) -> Path:
-        return self._prepare_root(self._datasource_root, "Datasource")
+        return self._prepare_root(self._datasource_root, "Datasource", create=True)
 
     @property
     def scratch_root(self) -> Path:
         return self._prepare_root(self._scratch_root, "Scratch")
 
-    def _prepare_root(self, root: Path, label: str) -> Path:
+    def _prepare_root(self, root: Path, label: str, *, create: bool = False) -> Path:
         self.require_active()
         try:
             if root.is_symlink() or _is_junction(root):
                 raise OSError(f"{label} root must not be a link")
-            root.mkdir(parents=True, exist_ok=True)
+            if create:
+                root.mkdir(parents=True, exist_ok=True)
             resolved = root.resolve(strict=True)
             parent = root.parent.resolve(strict=True)
         except (OSError, RuntimeError):
@@ -46,28 +46,6 @@ class WorkflowOperation:
         if resolved != root or resolved.parent != parent or not resolved.is_dir():
             raise RuntimeError(f"{label} root is not a canonical directory")
         return resolved
-
-    def cleanup_scratch(self) -> None:
-        root = self._scratch_root
-        try:
-            if root.is_symlink() or _is_junction(root):
-                raise OSError("Scratch root must remain an ordinary directory")
-            if not root.exists():
-                return
-            if not root.is_dir():
-                raise OSError("Scratch root must remain an ordinary directory")
-            resolved = root.resolve(strict=True)
-            parent = root.parent.resolve(strict=True)
-            if resolved != root or resolved.parent != parent:
-                raise OSError("Scratch root must remain canonical")
-            shutil.rmtree(root)
-            if root.exists() or root.is_symlink():
-                raise OSError("Scratch root still exists after cleanup")
-        except FileNotFoundError:
-            return
-        except (OSError, RuntimeError):
-            _LOGGER.exception("failed to clean the private Scratch root")
-            raise RuntimeError("Scratch root could not be cleaned") from None
 
     def expire(self) -> None:
         self._active = False

@@ -26,6 +26,18 @@ from _kat_runtime.inspection import compile_declared_workflow
 from _kat_runtime.request import RunCandidateRef
 
 
+_CAPTURED_CONTEXTS: list[kat.Context] = []
+_CAPTURE_CONTEXT_FAIL = False
+
+
+@kat.workflow(name="capture", description="Capture the Context for expiry checks.")
+def _capture_context(ctx: kat.Context):
+    _CAPTURED_CONTEXTS.append(ctx)
+    if _CAPTURE_CONTEXT_FAIL:
+        raise ValueError("expected failure")
+    return None
+
+
 class _BlockingNestedRuns:
     def __init__(self, relation: Path) -> None:
         self.relation = relation
@@ -182,6 +194,23 @@ class NestedWorkflowContextTest(unittest.TestCase):
             nested_runs.calls,
             [("child-pack", "analyze", {"value": 7})],
         )
+
+    def test_completed_workflow_expires_both_paths_and_nested_calls(self) -> None:
+        global _CAPTURE_CONTEXT_FAIL
+        for fail in (False, True):
+            _CAPTURE_CONTEXT_FAIL = fail
+            _CAPTURED_CONTEXTS.clear()
+            if fail:
+                with self.assertRaises(WorkflowExecutionFailure):
+                    self._run_declared_workflow(_capture_context, _FailingNestedRuns())
+            else:
+                self._run_declared_workflow(_capture_context, _FailingNestedRuns())
+            context = _CAPTURED_CONTEXTS.pop()
+            for name in ("datasource_root", "scratch_root"):
+                with self.assertRaisesRegex(RuntimeError, "no longer active"):
+                    getattr(context, name)
+            with self.assertRaisesRegex(kat.RunError, "closed"):
+                context.run("child-pack", "late")
 
     def test_catalog_construction_failure_is_a_sanitized_run_error(self) -> None:
         missing = self.root / "private-missing-output.parquet"

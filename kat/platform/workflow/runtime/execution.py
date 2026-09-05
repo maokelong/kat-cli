@@ -235,40 +235,8 @@ def _workflow_operation(
     operation = WorkflowOperation(datasource_root, scratch_root)
     try:
         yield operation
-    except BaseException as execution_error:
+    finally:
         operation.expire()
-        try:
-            operation.cleanup_scratch()
-        except BaseException as cleanup_error:
-            _append_cleanup_error(execution_error, cleanup_error)
-        raise
-    else:
-        operation.expire()
-        operation.cleanup_scratch()
-
-
-def _append_cleanup_error(
-    execution_error: BaseException, cleanup_error: BaseException
-) -> None:
-    # 清理是发布门，但不是已经发生的执行失败的根因；把它追加到现有异常链末端。
-    seen: set[int] = set()
-    current = execution_error
-    while id(current) not in seen:
-        seen.add(id(current))
-        cause = BaseException.__cause__.__get__(current, BaseException)
-        if cause is not None:
-            next_error = cause
-        elif BaseException.__suppress_context__.__get__(current, BaseException):
-            break
-        else:
-            next_error = BaseException.__context__.__get__(current, BaseException)
-            if next_error is None:
-                break
-        if id(next_error) in seen:
-            break
-        current = next_error
-    current.__cause__ = cleanup_error
-    current.__suppress_context__ = True
 
 
 def _project_effective_input(value: object) -> object:

@@ -167,7 +167,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             (session / "materializations" / "shared.txt").read_text(encoding="utf-8"),
             "shared",
         )
-        self.assertFalse((session / "scratch" / candidate_id).exists())
+        self.assertTrue((session / "scratch" / candidate_id).is_dir())
         self.assertFalse((candidate / "manifest.json").exists())
 
     def test_run_reserves_standard_streams_for_rpc_before_importing_pack(self) -> None:
@@ -579,8 +579,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertEqual(response["status"], "failure", response)
         self.assertIn("Workflow requested exit", response["error"]["causes"])
         self.assertNotIn("result", response)
-        self.assertFalse(
-            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        self.assertTrue(
+            (candidate.parent.parent / "scratch" / candidate_id).is_dir()
         )
 
     def test_output_io_failure_logs_private_cause_but_returns_public_diagnostic(
@@ -612,8 +612,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         operation_log = completed.stderr.decode(errors="replace")
         self.assertIn("private output path", operation_log)
         self.assertIn(str(candidate), operation_log)
-        self.assertFalse(
-            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        self.assertTrue(
+            (candidate.parent.parent / "scratch" / candidate_id).is_dir()
         )
 
     def test_output_footer_failure_uses_the_shared_private_writer_boundary(
@@ -645,8 +645,8 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         operation_log = completed.stderr.decode(errors="replace")
         self.assertIn("private footer path", operation_log)
         self.assertIn(str(candidate), operation_log)
-        self.assertFalse(
-            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        self.assertTrue(
+            (candidate.parent.parent / "scratch" / candidate_id).is_dir()
         )
 
     def test_run_diagnostic_redacts_the_private_session_and_execution_roots(
@@ -691,111 +691,19 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         self.assertIn("RuntimeError:", operation_log)
         self.assertIn(str(scratch), operation_log)
         self.assertIn(str(datasource), operation_log)
-        self.assertFalse(scratch.exists())
+        self.assertTrue(scratch.is_dir())
 
-    def test_scratch_cleanup_failure_prevents_a_successful_run(self) -> None:
-        pack = self.pack(
-            '''    scratch = ctx.scratch_root
-    scratch.rmdir()
-    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
-    return kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))'''
-        )
+    def test_scratch_getter_does_not_recreate_a_removed_root(self) -> None:
+        pack = self.pack('''    ctx.scratch_root.rmdir()
+    ctx.scratch_root
+    return None''')
         candidate_id, candidate = self.candidate()
         request = self.request(pack, candidate_id, candidate)
-        scratch = Path(request["scratch_root"])
-
         completed, response = self.run_runtime(request)
-
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
-        self.assertIn(
-            "Scratch root could not be cleaned",
-            response["error"].get("causes", []),
-        )
-        self.assertTrue(scratch.is_file())
-
-    def test_execution_failure_remains_primary_when_scratch_cleanup_also_fails(
-        self,
-    ) -> None:
-        pack = self.pack(
-            '''    scratch = ctx.scratch_root
-    scratch.rmdir()
-    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
-    raise RuntimeError("primary execution failure")'''
-        )
-        candidate_id, candidate = self.candidate()
-        request = self.request(pack, candidate_id, candidate)
-
-        completed, response = self.run_runtime(request)
-
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
-        self.assertEqual(
-            response["error"].get("causes", [])[:2],
-            ["primary execution failure", "Scratch root could not be cleaned"],
-        )
-
-    def test_output_failure_remains_primary_when_scratch_cleanup_also_fails(
-        self,
-    ) -> None:
-        pack = self.pack(
-            '''    scratch = ctx.scratch_root
-    scratch.rmdir()
-    scratch.write_text("cannot remove a file as a directory", encoding="utf-8")
-    return {}'''
-        )
-        candidate_id, candidate = self.candidate()
-        request = self.request(pack, candidate_id, candidate)
-
-        completed, response = self.run_runtime(request)
-
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
-        causes = response["error"].get("causes", [])
-        self.assertEqual(
-            causes[0],
-            "An empty Output dict is invalid; return None for no outputs",
-        )
-        self.assertEqual(causes[-1], "Scratch root could not be cleaned")
-
-    def test_broken_scratch_link_fails_the_cleanup_gate(self) -> None:
-        pack = self.pack(
-            '''    import os
-    import subprocess
-    scratch = ctx.scratch_root
-    missing = scratch.parent / "missing-target"
-    scratch.rmdir()
-    if os.name == "nt":
-        missing.mkdir()
-        created = subprocess.run(
-            ["cmd.exe", "/d", "/c", "mklink", "/J", str(scratch), str(missing)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if created.returncode != 0:
-            raise RuntimeError("test could not create a Scratch junction")
-        missing.rmdir()
-    else:
-        scratch.symlink_to(missing, target_is_directory=True)
-    assert not scratch.exists()
-    return kat.dataprovider.Table.from_arrow(pa.table({"value": [1]}))'''
-        )
-        candidate_id, candidate = self.candidate()
-        request = self.request(pack, candidate_id, candidate)
-
-        completed, response = self.run_runtime(request)
-
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(response["status"], "failure", response)
-        self.assertNotIn("result", response)
-        self.assertIn(
-            "Scratch root could not be cleaned",
-            response["error"].get("causes", []),
-        )
+        self.assertIn("Scratch root could not be prepared", response["error"]["causes"])
+        self.assertFalse(Path(request["scratch_root"]).exists())
 
     def test_output_names_are_portable_file_names(self) -> None:
         for reserved in (
@@ -869,8 +777,8 @@ def other(ctx: Context):
             ),
             response,
         )
-        self.assertFalse(
-            (candidate.parent.parent / "scratch" / candidate_id).exists()
+        self.assertTrue(
+            (candidate.parent.parent / "scratch" / candidate_id).is_dir()
         )
 
 

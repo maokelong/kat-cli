@@ -125,7 +125,7 @@ pub(super) fn execute(arguments: RunArgs) -> response::PreparedResponse<RunResul
     let session_log =
         project_inline_text(&format!("{:?}", allocation.layout().session_id().as_str()));
     if let Err(error) = log.append(format!("session: {session_log}\n").as_bytes()) {
-        let prepared = log_failure(error);
+        let prepared = execution::RunFailure::failed_log(log, &allocation, error).into_response();
         return response::retain_session_lease(prepared, allocation.into_lease());
     }
     let prepared = execute_allocated_run(&data_home, log, arguments, &mut allocation);
@@ -141,7 +141,12 @@ fn execute_allocated_run(
     let skill_root = match locate_skill_root() {
         Ok(path) => path,
         Err(source) => {
-            return finish_failure(log, RunOperationError::SkillRoot(source));
+            return execution::RunFailure::before_runtime(
+                log,
+                allocation,
+                RunOperationError::SkillRoot(source),
+            )
+            .into_response();
         }
     };
     let discovery_paths = PackDiscoveryPaths {
@@ -152,23 +157,30 @@ fn execute_allocated_run(
     let discovered = match pack_discovery::discover(discovery_paths.clone()) {
         Ok(discovered) => discovered,
         Err(source) => {
-            return finish_failure(log, RunOperationError::Discovery { source });
+            return execution::RunFailure::before_runtime(
+                log,
+                allocation,
+                RunOperationError::Discovery { source },
+            )
+            .into_response();
         }
     };
     let Some(pack) = discovered.get(&arguments.pack) else {
-        return finish_failure(
+        return execution::RunFailure::before_runtime(
             log,
+            allocation,
             RunOperationError::UnknownPack {
                 name: arguments.pack,
             },
-        );
+        )
+        .into_response();
     };
     let pack_path_log = project_inline_text(&format!("{:?}", pack.directory()));
     let arguments_log = project_inline_text(&format!("{:?}", arguments.workflow_arguments));
     if let Err(error) =
         log.append(format!("pack_path: {pack_path_log}\narguments: {arguments_log}\n").as_bytes())
     {
-        return log_failure(error);
+        return execution::RunFailure::failed_log(log, allocation, error).into_response();
     }
 
     let coordinator = Arc::new(NestedRunCoordinator::for_root(
@@ -255,6 +267,9 @@ fn log_failure(error: OperationLogError) -> response::PreparedResponse<RunResult
 
 #[derive(Debug, Error, Diagnostic)]
 enum RunOperationError {
+    #[error("Workflow Runtime failed")]
+    #[diagnostic(help("Inspect the Operation log, correct the inputs or deployment, and retry"))]
+    Runtime(#[source] workflow_runtime::RuntimeInfrastructureError),
     #[error(transparent)]
     #[diagnostic(transparent)]
     SessionStore(#[from] SessionStoreError),

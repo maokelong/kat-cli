@@ -187,6 +187,9 @@ fn main() {
         fs::remove_dir(&scratch_root).unwrap();
         fs::write(scratch_root, b"runtime replacement").unwrap();
     }
+    if env::var_os("KAT_FAKE_EXIT_AFTER_SCRATCH").is_some() {
+        process::exit(94);
+    }
     if env::var_os("KAT_FAKE_REPLACE_CANDIDATE_WITH_FILE").is_some() {
         let candidate_path = json_string(&request, "candidate_path");
         fs::remove_dir(&candidate_path).unwrap();
@@ -1039,6 +1042,136 @@ fn explicit_missing_session_fails_without_starting_runtime_or_creating_it() {
 }
 
 #[test]
+fn successful_host_cannot_publish_after_replacing_scratch_with_a_file() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (_skill, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let session_id = create_session(&binary, temporary.path());
+    let pack = pack(temporary.path());
+    let capture = temporary.path().join("request.json");
+    let mut command = Command::new(&binary);
+    command
+        .args(["run", "--session", &session_id, "--pack", "alpha", "--workflow", "analyze"])
+        .arg("--pack-dir").arg(pack)
+        .env("KAT_CAPTURE_REQUEST", &capture)
+        .env("KAT_FAKE_REPLACE_SCRATCH_WITH_FILE", "1")
+        .env("KAT_FAKE_RUNTIME_RESPONSE", r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#);
+    configure(&mut command, temporary.path());
+    let output = command.output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("scratch")
+    );
+    let request: serde_json::Value = serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
+    assert!(fs::symlink_metadata(request["scratch_root"].as_str().unwrap()).is_err());
+    assert!(!Path::new(request["candidate_path"].as_str().unwrap()).exists());
+}
+
+#[test]
+fn host_failures_finalize_scratch_without_replacing_the_primary_diagnostic() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let session = create_session(&binary, temporary.path());
+    let pack = pack(temporary.path());
+    for exit in [false, true] {
+        let mut primary = None;
+        for replace in [false, true] {
+            let capture = temporary.path().join("request.json");
+            let mut command = Command::new(&binary);
+            command
+                .args([
+                    "run",
+                    "--session",
+                    &session,
+                    "--pack",
+                    "alpha",
+                    "--workflow",
+                    "analyze",
+                ])
+                .arg("--pack-dir")
+                .arg(&pack)
+                .env("KAT_CAPTURE_REQUEST", &capture)
+                .env("KAT_FAKE_RUNTIME_RESPONSE", "malformed response");
+            if exit {
+                command.env("KAT_FAKE_EXIT_AFTER_SCRATCH", "1");
+            }
+            if replace {
+                command.env("KAT_FAKE_REPLACE_SCRATCH_WITH_FILE", "1");
+            }
+            configure(&mut command, temporary.path());
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(response["error"]["message"], "Workflow Runtime failed");
+            if let Some(primary) = &primary {
+                assert_eq!(&response["error"], primary);
+            }
+            primary = Some(response["error"].clone());
+            let request: serde_json::Value =
+                serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
+            assert!(fs::symlink_metadata(request["scratch_root"].as_str().unwrap()).is_err());
+            assert!(!Path::new(request["candidate_path"].as_str().unwrap()).exists());
+            let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+            assert!(
+                log.contains(if replace {
+                    "scratch_cleanup: failure"
+                } else {
+                    "scratch_cleanup: success"
+                }),
+                "{log}"
+            );
+        }
+    }
+}
+
+#[test]
+fn pack_preparation_failure_finalizes_allocated_scratch_without_starting_host() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, binary) = stage_skill(temporary.path());
+    stage_fake_host(&binary);
+    let session = create_session(&binary, temporary.path());
+    let capture = temporary.path().join("unexpected-request.json");
+    let mut command = Command::new(&binary);
+    command
+        .args([
+            "run",
+            "--session",
+            &session,
+            "--pack",
+            "missing",
+            "--workflow",
+            "analyze",
+        ])
+        .env("KAT_CAPTURE_REQUEST", &capture);
+    configure(&mut command, temporary.path());
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("was not discovered")
+    );
+    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+    assert!(log.contains("scratch_cleanup: success"), "{log}");
+    assert!(!capture.exists());
+    let session = data_home(temporary.path()).join("sessions").join(session);
+    assert_eq!(fs::read_dir(session.join("scratch")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(session.join("runs")).unwrap().count(), 0);
+}
+
+#[test]
 fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
     let temporary = tempfile::tempdir().unwrap();
     let _data_home = PlatformDataHomeGuard::new(temporary.path());
@@ -1118,6 +1251,16 @@ fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
         let failed = failed.output().unwrap();
 
         assert_eq!(failed.status.code(), Some(1), "{case}");
+        let response: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+        assert_eq!(
+            response["error"],
+            serde_json::json!({"message": "expected failure"})
+        );
+        if case == "scratch-file" {
+            let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
+            assert!(log.contains("scratch_cleanup: failure"), "{log}");
+            assert!(log.contains("Invalid"), "{log}");
+        }
         let request: serde_json::Value =
             serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
         assert!(
