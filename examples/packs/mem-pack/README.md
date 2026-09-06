@@ -36,6 +36,14 @@ payload；一份全部由未支持事件构成的合法 Trace 仍可查询 heade
 `clock_domain + clock_value`；调用方必须根据采集配置提供 domain，Provider 不从文件名
 或数值猜测时间语义。
 
+`summarize-ftrace` 还可通过可选的 `--html-path` 把内存中的汇总 `dp.Table` 渲染为
+HTML 报告。实现位于 `helpers/html_chart.py`：`HtmlReport` 管理页面内的多个 Tab，
+`LineChartUnit`、`PieChartUnit`、`BarChartUnit` 和 `TableUnit` 分别把 Table 转换为
+独立单元，Tab 只负责加入这些
+单元。它直接读取
+`Table.to_arrow()`，不会再次读取 Run Output Parquet。页面使用 Apache ECharts 6 CDN，
+因此打开 HTML 时需要网络；省略 `--html-path` 时 Workflow 只发布原有 Table Output。
+
 解析合同以 `TASK-PID / TGID / CPU# / TIMESTAMP / FUNCTION` 事件列头为准。
 `entries-in-buffer/entries-written` 与 `#P` 只是展示性统计，不进入关系模型，也不参与事件
 数量或 CPU 范围校验；数字形式、OpenHarmony 转换器保留的格式占位符以及缺失形式均可接受。
