@@ -141,3 +141,27 @@ def test_workflow_reports_zero_supported_events(kat_run, monkeypatch):
             "observed_cpu_count": 0,
         }
     ]
+
+
+def test_workflow_can_write_summary_html(kat_run, monkeypatch, tmp_path):
+    def convert(_source, catalog, _clock_domain):
+        _write_summary_catalog(catalog)
+
+    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    html_path = tmp_path / "summary.html"
+
+    kat_run(
+        workflow="summarize-ftrace",
+        arguments=(
+            "--trace-path",
+            str(_FIXTURE),
+            "--clock-domain",
+            "fixture_clock",
+            "--html-path",
+            str(html_path),
+        ),
+    )
+
+    html = html_path.read_text(encoding="utf-8")
+    assert '"type": "pie"' in html
+    assert '{"name": "nop", "value": 4}' in html
