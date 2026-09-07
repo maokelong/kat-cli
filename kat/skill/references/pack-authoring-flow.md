@@ -19,6 +19,27 @@ python scripts/scaffold_pack.py \
 
 创建后先执行 `kat inspect --pack-dir <pack-directory>` 验证 manifest 和发现结果，再分别执行该 PACK 的 Workflow 与 Provider list inspection。两个列表为空是预期事实，只表示骨架可被识别；只有用户同时要求具体分析能力时，才继续添加对应声明、guide 和测试。
 
+用户可以直接用自然语言触发该流程，例如：
+
+```text
+/kat 请在 packs 目录下创建一个内存分析领域的 PACK。
+
+PACK 名称：memory-analysis
+标题：内存分析
+用途：分析进程内存占用、变化趋势和异常增长
+维护方：性能团队
+
+创建完成后，请展示目录结构并说明每个目录和文件的作用。
+```
+
+也可以使用紧凑形式：
+
+```text
+/kat 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
+```
+
+提示中至少需要明确领域或用途和真实维护方。名称缺失时可以根据领域生成合法的 kebab-case 名称；目标目录已由当前仓库约定明确时可以沿用。仍无法确定清单必填信息时，只询问缺失项。
+
 ## 2. 先定位已有 PACK，再按对象检查知识
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
