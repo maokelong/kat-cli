@@ -93,7 +93,7 @@ Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。R
 
 PACK 自有来源在顶层 `datasources/` 中使用普通 Python 模块和 Provider 类；复用公共 FtraceProvider 时可以省略这一层。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
 
-Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格以及大小写不敏感的 Windows device name。目标存在时先用 `dp.open()` 打开，并校验允许的 relation 集合、每个实际 relation 的完整 columns/物理类型/nullability 与显式版本合同，只有目标不存在时才 decode 或 `dp.write()`。原生 decoder 使用每张 Parquet relation 的 Arrow Schema metadata `kat.materialization.version` 保存版本；Provider 应与对应 `kat_datasource` 模块导出的 `MATERIALIZATION_VERSION_METADATA_KEY` 和 `MATERIALIZATION_VERSION` 比较，不把目录存在或 Schema 恰好相同当成版本兼容。自定义物化也必须定义并验证等价的稳定版本事实。
+Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格以及大小写不敏感的 Windows device name。PACK 自有且自行维护物化合同的 Provider 在目标存在时先用 `dp.open()` 打开，并校验允许的 relation 集合、每个实际 relation 的完整 columns/物理类型/nullability 与显式版本合同，只有目标不存在时才 decode 或 `dp.write()`。原生 decoder 使用每张 Parquet relation 的 Arrow Schema metadata `kat.materialization.version` 保存版本；这类 Provider 应与对应 `kat_datasource` 模块导出的 `MATERIALIZATION_VERSION_METADATA_KEY` 和 `MATERIALIZATION_VERSION` 比较，不把目录存在或 Schema 恰好相同当成版本兼容。自定义物化也必须定义并验证等价的稳定版本事实。
 
 已经发布的同名物化打不开或合同不兼容时当前执行失败，不能删除、覆盖或原位修复；原始来源后来变化也不刷新当前 Session 的槽位。并发生产方各自完成 staging 后以 no-replace 发布，loser 打开并验证 winner，兼容则复用，否则失败且保留 winner。Session 内名称唯一性和大小写碰撞由调用方保证。
 
@@ -120,6 +120,8 @@ result = provider.query("SELECT * FROM text_ftrace_header")
 ```
 
 公共类自身携带 `@kat.provider(...)` 声明与平台维护的来源 guide，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。`--pack` 只查询 PACK 自有 Provider；两个范围允许同名，不合并或自动回退。首版公共 inspection 只收录文本 FtraceProvider。
+
+复用公共 FtraceProvider 时，来源约束以其公共 guide 为准。它默认信任 datasource 输出，直接使用实际关系和报告，不重复校验关系白名单、Schema 或物化版本；消费 PACK 无需补充准入包装。Source stem 合法性、显式 clock domain 和物化目录复用约束继续生效。
 
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
