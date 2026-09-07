@@ -5,9 +5,9 @@ import importlib.metadata
 import importlib.util
 import pathlib
 import struct
+import sys
 import tempfile
 import threading
-import time
 import tomllib
 import unittest
 
@@ -144,6 +144,8 @@ class HitraceApiContractTests(unittest.TestCase):
     def test_native_decode_releases_the_gil(self) -> None:
         from kat_datasource import hitrace
 
+        # 扩展模块的冷导入也可能释放 GIL，先在观察窗口外完成加载。
+        importlib.import_module("kat_datasource._native")
         frame = _profiler_frame("future-plugin")
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = pathlib.Path(temporary_directory)
@@ -151,31 +153,30 @@ class HitraceApiContractTests(unittest.TestCase):
             destination = root / "relations"
             source.write_bytes(_profiler_section_body(frame * 500_000, data_type=0))
 
-            stop = threading.Event()
-            progress = [0]
+            start = threading.Event()
+            progressed = threading.Event()
 
             def advance() -> None:
-                while not stop.is_set():
-                    progress[0] += 1
+                start.wait()
+                progressed.set()
 
             worker = threading.Thread(target=advance)
-            worker.start()
-            time.sleep(0.05)
-            baseline_rate = progress[0] / 0.05
-            before = progress[0]
-            started = time.perf_counter()
+            interval = sys.getswitchinterval()
+            # 排除调用前后的解释器周期切换；工作线程只有在原生调用释放 GIL 时才有机会前进。
+            sys.setswitchinterval(60.0)
             try:
+                worker.start()
+                start.set()
                 hitrace.decode(source, destination)
+                advanced_during_decode = progressed.is_set()
             finally:
-                elapsed = time.perf_counter() - started
-                after = progress[0]
-                stop.set()
-                worker.join()
+                sys.setswitchinterval(interval)
+                start.set()
+                worker.join(timeout=5)
 
-            self.assertGreater(elapsed, 0.03)
-            self.assertGreater(
-                after - before,
-                baseline_rate * elapsed * 0.05,
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(
+                advanced_during_decode,
                 "background Python thread did not advance during native decode",
             )
 
