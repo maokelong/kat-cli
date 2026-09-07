@@ -65,16 +65,18 @@ Run Manifest 同时记录 `session_id` 与 `run_id`，并继续记录 PACK、Wor
 
 需要复用来源的 Provider 从 Workflow 明确传入的来源路径取得 `Path(source).stem`，只去掉最后一个后缀，并以其作为 `materializations/<source-stem>`；Workflow 不扫描目录来猜测来源。Provider 作者合同要求拒绝空名称、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格及大小写不敏感的 Windows device name，不自动清洗、归一化或消歧；Runtime 无法知道哪个参数是来源，因此不代替 Provider 执行这项校验，首方与 reference Provider 必须示范并测试相同规则。同一分析中的名称唯一性和大小写碰撞由用户保证。
 
-同一 Session 内，某个 source stem 首次以 staging、完整关闭与校验、no-replace 方式成功发布后，绑定该 Session 的首次物化且不可原位替换。每次复用都由 Provider 自己 `dp.open()` 并校验所需 relations、columns 与版本合同；目录存在本身不是命中证明。交给 `dp.open(root=...)` 的 materialization 根必须是 `materializations/` 下的直接普通目录，每个 relation 必须是该根下的直接普通 Parquet 文件；根或 relation 是 symlink、junction、任何 Windows reparse point，或解析后逃出该根时均拒绝且不跟随，避免把 Session 外的可变文件误作当前 Session 已固定的来源事实。已有物化打不开、损坏或合同不兼容时当前执行失败，只能换 source stem 或新建 Session 后重建；任何 PACK 都不得删除、覆盖或修复原槽位。原始来源文件随后变化也不会刷新同一 Session 的物化，分析新内容必须使用新 stem 或新 Session。这里有意让 Session 内事实固定优先于旧 cache 的原位修复：没有来源 hash、snapshot 或 provenance 时，重新 decode 无法证明仍对应首次事实。
+同一 Session 内，某个 source stem 首次以 staging、完整关闭与校验、no-replace 方式成功发布后，绑定该 Session 的首次物化且不可原位替换。每次复用都由 Provider 自己 `dp.open()` 并检查与本次请求相关的来源约束（如 `clock_domain`）；目录存在本身不是命中证明。交给 `dp.open(root=...)` 的 materialization 根必须是 `materializations/` 下的直接普通目录，每个 relation 必须是该根下的直接普通 Parquet 文件；根或 relation 是 symlink、junction、任何 Windows reparse point，或解析后逃出该根时均拒绝且不跟随，避免把 Session 外的可变文件误作当前 Session 已固定的来源事实。已有物化打不开、损坏或合同不兼容时当前执行失败，只能换 source stem 或新建 Session 后重建；任何 PACK 都不得删除、覆盖或修复原槽位。原始来源文件随后变化也不会刷新同一 Session 的物化，分析新内容必须使用新 stem 或新 Session。这里有意让 Session 内事实固定优先于旧 cache 的原位修复：没有来源 hash、snapshot 或 provenance 时，重新 decode 无法证明仍对应首次事实。
 
 原生 decoder 在每个已发布 Parquet relation 的 Arrow Schema metadata 中写入 bytes key
 `kat.materialization.version`；文本 Ftrace 当前值为 `text-ftrace-v1`，Hitrace 当前值为
 `hitrace-v1`。对应 Python wrapper 以
 `MATERIALIZATION_VERSION_METADATA_KEY` 与 `MATERIALIZATION_VERSION` 导出合同常量。
-Provider 命中时必须拒绝未知 relation，验证每个实际 relation 的完整列、物理类型与
-nullability，并逐一
-检查该 metadata；缺失、未知值或仅 Schema 相同都不构成兼容。版本只表达 decoder
-materialization 合同，不是来源 provenance、内容 hash 或 Session registry。
+PACK 默认信任 datasource 的输出合同，不要求在 Provider 中重复声明 schema 或逐表
+校验关系白名单、拓扑、列、nullability 和该 metadata。文本 Ftrace Provider 通过
+`dp.open()` 取得实际 Catalog，保留与本次请求相关的 `clock_domain` 检查，直接读取
+未支持事件报告；Parquet 与查询错误由 `dp.open()` 和 DataFusion 上报。版本 metadata
+仍由 decoder 写入，只表达 decoder materialization 合同，不是来源 provenance、内容
+hash 或 Session registry。
 
 KAT 不建立 materialization registry、来源 provenance、生产者身份或强制只读 API。首次发布者只定义该槽位的字节事实，不取得以后原位重建的特殊权限；跨 PACK 共享依赖受信任作者之间的显式数据合同和集成测试。`dp.write()` 或具体 decoder 只提供候选事务与 no-replace 发布；竞争失败的 Provider 自行打开并校验胜者，兼容则采用，不兼容则使当前执行失败且不破坏胜者。自定义 Provider 不采用这一发布协议时，KAT 不承诺并发安全。
 
