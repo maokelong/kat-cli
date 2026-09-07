@@ -144,6 +144,8 @@ class HitraceApiContractTests(unittest.TestCase):
     def test_native_decode_releases_the_gil(self) -> None:
         from kat_datasource import hitrace
 
+        # 扩展模块的冷导入也可能释放 GIL，先在观察窗口外完成加载。
+        importlib.import_module("kat_datasource._native")
         frame = _profiler_frame("future-plugin")
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = pathlib.Path(temporary_directory)
