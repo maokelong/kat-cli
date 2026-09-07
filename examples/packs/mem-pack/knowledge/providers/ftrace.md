@@ -7,11 +7,12 @@
 ## 内部物化
 
 物化目录固定为 `workspace_root / Path(source).stem`。目标存在时，Provider 必须先通过
-`dp.open(root=...)` 打开，拒绝白名单外的 relation，并对每个实际 relation 执行完整列/
-物理类型/nullability、`clock_domain` 与物化版本合同检查，不再次解析。每个 Parquet relation 的 Arrow
-Schema metadata 必须包含 `kat.materialization.version=text-ftrace-v1`；缺失或其他值都不兼容。
-只有目标完全不存在时才调用转换器。既有空目录、非 Parquet 内容、损坏 Parquet 或不兼容
-合同都会明确失败，绝不隐式删除、覆盖或原位重建。
+`dp.open(root=...)` 打开，并检查事件表的 `clock_domain` 与本次请求一致，不再次解析。
+Provider 默认信任 datasource 的输出合同，直接使用实际关系和未支持事件报告，不重复
+声明 schema，也不校验关系白名单、拓扑、列类型、nullability、物化版本或报告排序去重。
+只有目标完全不存在时才调用转换器。既有空目录、非 Parquet 内容或 `clock_domain`
+不匹配会明确失败，绝不隐式删除、覆盖或原位重建；Parquet 与查询错误由 `dp.open()`
+和 DataFusion 正常上报。
 
 目录身份只由 basename 去掉最后一个后缀后的 Source stem 决定。同一 Session 的
 `workspace_root` 下，相同 stem 会复用首次发布的目录，即使来源路径或内容后来不同；调用方
@@ -112,10 +113,10 @@ domain 的数值可直接比较。
 
 ## 按需生成的 payload 关系
 
-下列清单也是 Provider 接受的完整 relation 白名单；每张实际出现的 payload relation 都按
-本节列出的完整列顺序、物理类型与 `?` 标注的 nullability 验证，不能用未知或仅部分兼容的
-relation 扩张查询面。任一 payload relation 存在时，`text_ftrace_event_occurrence` 与
-`text_ftrace_event` 必须同时存在；只有 header 与 unsupported relation 的全未知事件输入仍合法。
+下列清单说明当前 decoder 产出的 payload 关系，`?` 表示字段可空。实际可查询的关系以
+`provider.tables` 为准，列结构可通过 `DESCRIBE` 查看。Decoder 在生成 payload relation 时
+同时生成 `text_ftrace_event_occurrence` 与 `text_ftrace_event`；全未知事件输入只生成
+header 与 unsupported relation。
 
 每张 payload 表都包含：
 

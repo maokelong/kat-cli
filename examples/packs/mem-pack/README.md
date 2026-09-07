@@ -13,7 +13,7 @@ UTF-8 text Ftrace
 Provider 构造成功后即可查询；调用方不需要知道转换器、Catalog 路径或物理存储格式。
 实现内部由 `kat-datasource` 原生扩展拥有文本语法、Proto 类型合同、有限批次写入和原子
 发布，Python Provider 直接调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
-必需关系校验和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
+`clock_domain` 检查和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
 
 `text_ftrace_header` 固定存在。只要来源中至少有一个已支持事件，
 `text_ftrace_event_occurrence` 和 `text_ftrace_event` 就同时存在。类型化载荷关系
@@ -58,10 +58,11 @@ kat run --session <session-id> \
 ```
 
 Provider 把 Parquet 写到 `ctx.datasource_root / Path(trace_path).stem`。目标存在时先通过
-`dp.open(root=...)` 打开，拒绝未知 relation，并校验每个实际 relation 的完整列/物理类型/nullability、
-`clock_domain` 以及 Arrow Schema metadata
-`kat.materialization.version=text-ftrace-v1`，不再次解析；只有目标完全不存在时才解析。
-已有目标无法打开或未通过合同检查时明确失败，绝不隐式删除、覆盖或原位重建。
+`dp.open(root=...)` 打开，并检查 `clock_domain` 与本次请求一致，不再次解析；只有目标
+完全不存在时才解析。Provider 默认信任 datasource 的输出合同，直接使用 Catalog 中的
+实际关系，不重复声明 schema 或校验关系拓扑、列、物化版本及报告的排序去重。
+已有目标无法打开或 `clock_domain` 不匹配时明确失败，绝不隐式删除、覆盖或原位重建。
+Parquet 与查询错误由 `dp.open()` 和 DataFusion 正常上报。
 
 先从 `kat session create` 的成功 Response 取得 Session ID；每次生产 `kat run` 都必须显式
 提供这个已有 Session。Run 成功 Response 同时给出 Session ID 与 Run ID。要验证同一来源的
