@@ -1,6 +1,6 @@
 import pyarrow as pa
 from kat import Context, dataprovider as dp, workflow
-from kat.pack.scratch_helpers import record, replace_with_file
+from kat.pack.run_finalization_helpers import record, replace_with_file
 
 
 @workflow(name="child", description="Exercise Scratch finalization.",

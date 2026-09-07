@@ -1,5 +1,5 @@
 from kat import Context, RunError, workflow
-from kat.pack.scratch_helpers import record, replace_with_file
+from kat.pack.run_finalization_helpers import record, replace_with_file
 
 
 @workflow(name="parent", description="Use the same gate for nested calls.",

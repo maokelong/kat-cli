@@ -39,17 +39,17 @@ fn scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs() {
     fs::write(pack.join("pack.toml"), "name = 'scratch'\ntitle = 'Scratch'\ndescription = 'Scratch verification'\nowner = 'Test'\n").unwrap();
     fs::write(
         pack.join("workflows/child.py"),
-        include_str!("fixtures/scratch_workflows.py"),
+        include_str!("fixtures/run_finalization_workflows.py"),
     )
     .unwrap();
     fs::write(
         pack.join("workflows/parent.py"),
-        include_str!("fixtures/scratch_parent.py"),
+        include_str!("fixtures/run_finalization_parent.py"),
     )
     .unwrap();
     fs::write(
-        pack.join("scratch_helpers.py"),
-        include_str!("fixtures/scratch_helpers.py"),
+        pack.join("run_finalization_helpers.py"),
+        include_str!("fixtures/run_finalization_helpers.py"),
     )
     .unwrap();
     let evidence = root.join("evidence");
@@ -187,7 +187,7 @@ fn scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs() {
     fs::create_dir(pack.join("tests")).unwrap();
     fs::write(
         pack.join("tests/test_scratch.py"),
-        include_str!("fixtures/scratch_pack_test.py"),
+        include_str!("fixtures/run_finalization_pack_test.py"),
     )
     .unwrap();
     let response = invoke(
