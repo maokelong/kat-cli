@@ -1,0 +1,32 @@
+build/tests/test_scaffold_pack.py
+  s_a6029b30712ae1::t_473aa31366fffc 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6a28a91b2fd6b8eed69ed0a3c4e995d3105bce46",
+  "prompts": {
+    "s_a6029b30712ae1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07bc2-9ed8-7713-8705-ab1a23296e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_a6029b30712ae1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07bc2-9ed8-7713-8705-ab1a23296e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
