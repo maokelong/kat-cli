@@ -1,0 +1,36 @@
+Cargo.toml
+  s_21c56a0a80f764::t_fc7361aaffdf64 10
+release/kat/dist.toml
+  s_21c56a0a80f764::t_fc7361aaffdf64 3
+kat/platform/workflow/pyproject.toml
+  s_21c56a0a80f764::t_fc7361aaffdf64 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3b3a67011f073fedfced19dfa33d0ccb0273ba65",
+  "prompts": {
+    "s_21c56a0a80f764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07192-8bb7-7a10-9198-e5cfb9a7f8d3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_21c56a0a80f764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07192-8bb7-7a10-9198-e5cfb9a7f8d3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
