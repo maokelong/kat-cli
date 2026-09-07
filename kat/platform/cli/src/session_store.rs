@@ -436,9 +436,44 @@ impl RunAllocation {
         &self.scratch
     }
 
-    pub(super) fn clean_scratch(&self) -> Result<(), SessionStoreError> {
-        remove_private_run_entry(&self.layout, SCRATCH_DIRECTORY, self.run_id.as_str())
-            .map_err(SessionStoreError::CleanScratch)
+    pub(super) fn finish_scratch(&self) -> Result<(), SessionStoreError> {
+        self.finish_scratch_with(remove_exact_entry)
+    }
+
+    fn finish_scratch_with(
+        &self,
+        remove: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), SessionStoreError> {
+        (|| {
+            let parent = private_run_parent(&self.layout, SCRATCH_DIRECTORY)?;
+            if self.scratch != parent.join(self.run_id.as_str()) {
+                return Err(DirectPathError::Invalid);
+            }
+            let metadata = match fs::symlink_metadata(&self.scratch) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(DirectPathError::Io(error)),
+            };
+            let ordinary = metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && !metadata_is_reparse_point(&metadata);
+            if ordinary {
+                canonical_direct_directory(&self.scratch, &parent, self.run_id.as_str())?;
+            }
+            // 安全回收替换项不等于允许发布；保留收尾时观察到的归属违约。
+            remove(&self.scratch).map_err(DirectPathError::Io)?;
+            match fs::symlink_metadata(&self.scratch) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(DirectPathError::Io(error)),
+                Ok(_) => return Err(DirectPathError::Invalid),
+            }
+            if ordinary {
+                Ok(())
+            } else {
+                Err(DirectPathError::Invalid)
+            }
+        })()
+        .map_err(SessionStoreError::CleanScratch)
     }
 
     pub(super) fn mark_run_published(&mut self) {
@@ -480,10 +515,17 @@ fn remove_private_run_entry(
     parent_name: &str,
     entry_name: &str,
 ) -> Result<(), DirectPathError> {
+    let parent = private_run_parent(layout, parent_name)?;
+    remove_exact_entry(&parent.join(entry_name)).map_err(DirectPathError::Io)
+}
+
+fn private_run_parent(
+    layout: &SessionLayout,
+    parent_name: &str,
+) -> Result<PathBuf, DirectPathError> {
     let sessions = layout.root.parent().ok_or(DirectPathError::Invalid)?;
     let root = canonical_direct_directory(&layout.root, sessions, layout.session_id.as_str())?;
-    let parent = canonical_direct_directory(&root.join(parent_name), &root, parent_name)?;
-    remove_exact_entry(&parent.join(entry_name)).map_err(DirectPathError::Io)
+    canonical_direct_directory(&root.join(parent_name), &root, parent_name)
 }
 
 /// Removes one exact entry without following a Runtime-created link or junction.
@@ -890,6 +932,160 @@ mod tests {
 
     const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000060";
     const RUN_ID: &str = "019f6e00-0000-7000-8000-000000000061";
+
+    fn allocate(store: &SessionStore, session_id: &str) -> RunAllocation {
+        store
+            .create_run_in(session_id, RunId::generate())
+            .unwrap_or_else(|error| panic!("{}", error.error))
+    }
+
+    fn directory_link(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    fn scratch_finalization_does_not_follow_live_broken_or_internal_links() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(temporary.path());
+        let session = store.create().unwrap();
+        let id = session.layout().session_id().as_str();
+        let outside = temporary.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("sentinel"), b"retained").unwrap();
+        for mode in ["ordinary", "missing", "file", "live", "broken", "internal"] {
+            let run = allocate(&store, id);
+            match mode {
+                "ordinary" => fs::write(run.scratch().join("temporary"), b"discard").unwrap(),
+                "missing" => fs::remove_dir(run.scratch()).unwrap(),
+                "file" => {
+                    fs::remove_dir(run.scratch()).unwrap();
+                    fs::write(run.scratch(), b"replacement").unwrap();
+                }
+                "live" | "broken" => {
+                    fs::remove_dir(run.scratch()).unwrap();
+                    let target = if mode == "live" {
+                        outside.clone()
+                    } else {
+                        temporary.path().join("missing-target")
+                    };
+                    directory_link(&target, run.scratch());
+                }
+                "internal" => directory_link(&outside, &run.scratch().join("link")),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                run.finish_scratch().is_ok(),
+                ["ordinary", "missing", "internal"].contains(&mode),
+                "{mode}"
+            );
+            assert!(fs::symlink_metadata(run.scratch()).is_err(), "{mode}");
+            assert!(run.finish_scratch().is_ok(), "idempotent fallback: {mode}");
+            assert_eq!(
+                fs::read(outside.join("sentinel")).unwrap(),
+                b"retained",
+                "{mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn scratch_finalization_refuses_a_replaced_parent_even_when_the_entry_is_missing() {
+        for missing in [false, true] {
+            let temporary = tempfile::tempdir().unwrap();
+            let store = SessionStore::new(temporary.path());
+            let session = store.create().unwrap();
+            let run = allocate(&store, session.layout().session_id().as_str());
+            let parent = run.scratch().parent().unwrap();
+            let original = parent.with_file_name("original-scratch");
+            fs::rename(parent, &original).unwrap();
+            let outside = temporary.path().join("outside");
+            fs::create_dir(&outside).unwrap();
+            let target = outside.join(run.run_id().as_str());
+            if !missing {
+                fs::create_dir(&target).unwrap();
+                fs::write(target.join("sentinel"), b"external").unwrap();
+            }
+            directory_link(&outside, parent);
+            assert!(run.finish_scratch().is_err());
+            drop(run);
+            if !missing {
+                assert_eq!(fs::read(target.join("sentinel")).unwrap(), b"external");
+            }
+            assert!(original.is_dir());
+        }
+    }
+
+    #[test]
+    fn scratch_finalization_reports_delete_and_post_delete_failures() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(temporary.path());
+        let session = store.create().unwrap();
+        let run = allocate(&store, session.layout().session_id().as_str());
+        let error = run
+            .finish_scratch_with(|_| Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            SessionStoreError::CleanScratch(DirectPathError::Io(_))
+        ));
+        let error = run.finish_scratch_with(|_| Ok(())).unwrap_err();
+        assert!(matches!(
+            error,
+            SessionStoreError::CleanScratch(DirectPathError::Invalid)
+        ));
+        assert!(run.scratch().is_dir());
+        run.finish_scratch().unwrap();
+    }
+
+    #[test]
+    fn scratch_finalization_holds_the_lease_and_preserves_concurrent_allocations() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(temporary.path());
+        let session = store.create().unwrap();
+        let id = session.layout().session_id().as_str().to_owned();
+        let run = allocate(&store, &id);
+        let other = allocate(&store, &id);
+        fs::write(other.scratch().join("sentinel"), b"other").unwrap();
+        let other_candidate = other.candidate().to_path_buf();
+        drop(session);
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            run.finish_scratch_with(|path| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                remove_exact_entry(path)
+            })
+            .unwrap();
+            run
+        });
+        entered_rx.recv().unwrap();
+        assert!(other_candidate.is_dir());
+        assert_eq!(
+            fs::read(other.scratch().join("sentinel")).unwrap(),
+            b"other"
+        );
+        drop(other);
+        assert!(store.delete(&id).is_err());
+        release_tx.send(()).unwrap();
+        drop(worker.join().unwrap());
+        store.delete(&id).unwrap();
+    }
 
     #[test]
     fn new_session_collision_never_removes_a_root_it_did_not_create() {

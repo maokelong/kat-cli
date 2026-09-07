@@ -1,6 +1,6 @@
 # ADR-0079：所有 Workflow 调用共用执行与发布核心
 
-状态：接受。关联：[#252](https://github.com/maokelong/kat-cli/issues/252)、PR #251。
+状态：接受。关联：[#252](https://github.com/maokelong/kat-cli/issues/252)、PR #251、[#254](https://github.com/maokelong/kat-cli/issues/254)。
 
 ## 问题与边界
 
@@ -15,6 +15,14 @@ CLI、`ctx.run`、`kat_run` 共用 Rust 的执行/发布核心。Rust 管 Sessio
 `kat_run` 在每测试独立临时 Session 中运行真实独立 Runtime；同测试多次调用共享来源物化。它读取已发布 Catalog，继续返回 `dict[str, pyarrow.Table]`。固定被测 PACK，依赖从既有 roots 发现。删除进程内测试父 Workflow 的 Run scope 协议。pytest monkeypatch 不再影响实际 Workflow；普通 helper 单测仍可 monkeypatch。
 
 安全业务诊断传给 `RunError`，详细诊断留在命令退出后可访问的日志；不增加稳定 phase、ID、path 或 retry 字段。
+
+Scratch 收尾与发布判定只由 Rust 的 Run allocation 和执行核心负责。成功、业务失败、Host/协议失败以及已分配目录后的准备失败，都在受控退出时显式收尾；Runtime 及受管理子调用结束后才能开始清理。日志由执行核心持有到收尾完成，成功路径继续经过 Output/child ledger 检查、日志交付和唯一 Manifest 提交门。`Drop` 仅负责未发布项的幂等尽力回收，不产生业务诊断，也不能把它当作成功发布的验证证据。
+
+收尾只接受当前 allocation 保存的精确 Scratch 路径，重新验证 Session 根和直接父目录；不跟随 symlink、junction 或 reparse point。普通目录删除后必须确认条目已不存在，原本缺失仍须验证父目录归属。文件或链接替换即使被安全回收也阻止发布；父目录归属无效则停止回收，不能删除外部目标。该边界不检测已恢复的替换历史或同路径普通目录重建，不增加 inode 快照、恢复状态或进程沙箱。
+
+Python 只负责 Context 的调用期有效性、子调用收拢和失效，不再删除 Scratch 或向异常链追加清理失败。Scratch getter 只读取已分配的目录，删除后再次访问不能自动重建；Datasource getter 的既有行为不变。
+
+成功执行的 Scratch 收尾失败由 Rust 清理诊断阻止发布。已有 Workflow/Output 或 Host/协议失败时，收尾是失败回收，保留原主诊断，独立的清理失败仅写入 Operation log，不合并为虚假的因果链。日志写入或最终交付失败仍按 [ADR-0037](0037-one-diagnostic-model-drives-json-and-terminal-output.md) 接管最终诊断，可读的部分日志保留路径。这局部取代 Python 将清理错误追加到公开 `causes` 的行为；[ADR-0077](0077-analysis-session-groups-multi-workflow-state.md) 的 Session lease 持续覆盖收尾，失败父级不影响成功子 Run 和共享物化。
 
 Python writer 在首次发布前验证 footer/Schema/行数。Rust 不重建 PyArrow 类型展示器。Session inventory 校验 Manifest 身份、文件存在和布局，展示发布时元数据；不承诺此刻内容可查询。内容损坏在 PyArrow/DataFusion 实际读取时失败。
 

@@ -119,14 +119,8 @@ pub(crate) enum QueryRunOutcome {
 
 /// Runtime execution outcome before the CLI performs the Run publication gate.
 pub(crate) enum RunWorkflowOutcome {
-    Success {
-        result: RunWorkflowReport,
-        log: OperationLog,
-    },
-    Failure {
-        diagnostic: KatDiagnostic,
-        log_path: String,
-    },
+    Success { result: RunWorkflowReport },
+    Failure { diagnostic: KatDiagnostic },
 }
 
 /// Runtime-reported facts that passed the control protocol.
@@ -312,39 +306,30 @@ fn inspect_request<R: DeserializeOwned>(
 }
 
 pub(crate) fn execute_workflow_runtime(
-    mut log: OperationLog,
+    log: &mut OperationLog,
     invocation: RunWorkflowInvocation,
     callback: Arc<dyn NestedRunCallback>,
-) -> Result<RunWorkflowOutcome, RunWorkflowError> {
+) -> Result<RunWorkflowOutcome, ExchangeError> {
     let request = run_workflow_runtime_request(&invocation);
     let exchanged =
-        exchange_run_workflow_bytes("kat-run-workflow-", &request, &mut log, callback.clone());
+        exchange_run_workflow_bytes("kat-run-workflow-", &request, log, callback.clone());
     for note in callback.take_logs() {
         log.append(format!("{note}\n").as_bytes())
-            .map_err(RunWorkflowError::operation_log)?;
+            .map_err(ExchangeError::Log)?;
     }
-    let response = match exchanged {
-        Ok(response) => response,
-        Err(ExchangeError::Log(error)) => return Err(RunWorkflowError::operation_log(error)),
-        Err(ExchangeError::Runtime(error)) => {
-            return Err(finish_runtime_error(log, error));
-        }
-        Err(ExchangeError::InvalidResponse(details)) => {
-            return Err(finish_invalid_runtime_response(log, &details));
-        }
-    };
+    let response = exchanged?;
     let response = match decode_and_validate_run_workflow_response(&response, &invocation) {
         Ok(response) => response,
         Err(violation) => {
-            return Err(finish_invalid_runtime_response(log, &violation.details));
+            return Err(ExchangeError::InvalidResponse(violation.details));
         }
     };
     match response {
         RuntimeResponse::Success { result } => {
             if let Err(source) = log.append(b"runtime_status: success\n") {
-                return Err(RunWorkflowError::operation_log(source));
+                return Err(ExchangeError::Log(source));
             }
-            Ok(RunWorkflowOutcome::Success { result, log })
+            Ok(RunWorkflowOutcome::Success { result })
         }
         RuntimeResponse::Failure { error } => {
             if let Err(source) = log.append(
@@ -354,13 +339,9 @@ pub(crate) fn execute_workflow_runtime(
                 )
                 .as_bytes(),
             ) {
-                return Err(RunWorkflowError::operation_log(source));
+                return Err(ExchangeError::Log(source));
             }
-            let log_path = log.finish().map_err(RunWorkflowError::operation_log)?;
-            Ok(RunWorkflowOutcome::Failure {
-                diagnostic: error,
-                log_path,
-            })
+            Ok(RunWorkflowOutcome::Failure { diagnostic: error })
         }
     }
 }
@@ -1256,7 +1237,7 @@ fn runtime_failure_log_details(details: &str) -> String {
 }
 
 #[derive(Debug)]
-enum ExchangeError {
+pub(crate) enum ExchangeError {
     Log(OperationLogError),
     Runtime(RuntimeInfrastructureError),
     InvalidResponse(String),

@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 import pyarrow as pa
@@ -24,6 +25,18 @@ from _kat_runtime.execution import (
 )
 from _kat_runtime.inspection import compile_declared_workflow
 from _kat_runtime.request import RunCandidateRef
+
+
+_CAPTURED_CONTEXTS: list[kat.Context] = []
+_CAPTURE_CONTEXT_FAIL = False
+
+
+@kat.workflow(name="capture", description="Capture the Context for expiry checks.")
+def _capture_context(ctx: kat.Context):
+    _CAPTURED_CONTEXTS.append(ctx)
+    if _CAPTURE_CONTEXT_FAIL:
+        raise ValueError("expected failure")
+    return None
 
 
 class _BlockingNestedRuns:
@@ -183,6 +196,23 @@ class NestedWorkflowContextTest(unittest.TestCase):
             [("child-pack", "analyze", {"value": 7})],
         )
 
+    def test_completed_workflow_expires_both_paths_and_nested_calls(self) -> None:
+        global _CAPTURE_CONTEXT_FAIL
+        for fail in (False, True):
+            _CAPTURE_CONTEXT_FAIL = fail
+            _CAPTURED_CONTEXTS.clear()
+            if fail:
+                with self.assertRaises(WorkflowExecutionFailure):
+                    self._run_declared_workflow(_capture_context, _FailingNestedRuns())
+            else:
+                self._run_declared_workflow(_capture_context, _FailingNestedRuns())
+            context = _CAPTURED_CONTEXTS.pop()
+            for name in ("datasource_root", "scratch_root"):
+                with self.assertRaisesRegex(RuntimeError, "no longer active"):
+                    getattr(context, name)
+            with self.assertRaisesRegex(kat.RunError, "closed"):
+                context.run("child-pack", "late")
+
     def test_catalog_construction_failure_is_a_sanitized_run_error(self) -> None:
         missing = self.root / "private-missing-output.parquet"
         nested_runs = _BlockingNestedRuns(missing)
@@ -230,7 +260,16 @@ class NestedWorkflowContextTest(unittest.TestCase):
         candidate.mkdir(parents=True)
         scratch.mkdir(parents=True)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        closing_started = threading.Event()
+        original_close = WorkflowContext.close
+
+        def observed_close(context):
+            # 在同一把锁内通知，保证 child 的注销晚于 close 对活动调用的判定。
+            with context._condition:
+                closing_started.set()
+                return original_close(context)
+
+        with patch.object(WorkflowContext, "close", observed_close), concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             execution = pool.submit(
                 run_loaded_workflow,
                 compile_declared_workflow(_parent_with_active_call),
@@ -243,6 +282,7 @@ class NestedWorkflowContextTest(unittest.TestCase):
                 nested_runs=nested_runs,
             )
             self.assertTrue(nested_runs.started.wait(timeout=5))
+            self.assertTrue(closing_started.wait(timeout=5))
             self.assertFalse(execution.done())
             nested_runs.release.set()
             with self.assertRaises(WorkflowExecutionFailure) as raised:
