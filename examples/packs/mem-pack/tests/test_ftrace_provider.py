@@ -3,8 +3,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from kat.pack.datasources import ftrace as provider_module
-from kat.pack.datasources.ftrace import FtraceProvider
+from kat.dataprovider import ftrace as provider_module
+from kat.dataprovider.ftrace import FtraceProvider
 
 from kat import dataprovider as dp
 
@@ -204,7 +204,7 @@ def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_
         raise RuntimeError("query provider failed")
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
-    monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
+    monkeypatch.setattr(provider_module._fusion, "DataFusionProvider", reject_catalog)
 
     with pytest.raises(RuntimeError, match="query provider failed"):
         FtraceProvider(**_arguments(tmp_path))
@@ -248,13 +248,9 @@ def test_published_source_stem_is_reused_after_the_source_is_removed(
 
     monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
 
-    first = FtraceProvider(
-        **_arguments(workspace_root, source=source)
-    )
+    first = FtraceProvider(**_arguments(workspace_root, source=source))
     source.unlink()
-    second = FtraceProvider(
-        **_arguments(workspace_root, source=source)
-    )
+    second = FtraceProvider(**_arguments(workspace_root, source=source))
 
     assert conversions == 1
     assert second.tables == first.tables

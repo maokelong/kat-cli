@@ -93,7 +93,7 @@ _Avoid_: Source executor、KAT Provider facade
 Provider declaration 必须引用的 PACK 自有 Markdown 来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。它服务 PACK 开发，不是 Workflow 分析策略，也不规定 Provider 固定方法。
 
 **Data Provider Toolkit**:
-`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它提供 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力，但不是 Database facade，不拥有 Datasource Provider 的来源定位、decode、query 或生命周期，也不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
+`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它提供 Datasource Schema、单表数据、Parquet Catalog、本地 Fusion query 能力，以及已经证明需要跨 PACK 复用的具名来源 Provider；当前公共来源实现只有 `kat.dataprovider.ftrace.FtraceProvider`。Toolkit 不是 Database facade，不定义通用 Datasource Provider 基类、registry 或生命周期，也不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
 
 **Datasource Schema**:
 PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的多表事实结构。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Provider 产出事实的逻辑合同，也是 `dp.write()` 创建一次 Datasource 流式写事务时唯一需要的结构声明，但不是 Database 定义或打开既有 Parquet 时必须提供的持久化 Schema。

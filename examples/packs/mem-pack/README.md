@@ -1,6 +1,6 @@
 # Memory Analysis PACK
 
-这个 External PACK 展示如何把 Rust 来源解码能力接入 PACK 自有 Provider：
+这个 External PACK 展示如何复用 Pack Authoring API 公共提供的文本 Ftrace Provider，并用 PACK 自有薄声明绑定领域 guide：
 
 ```text
 UTF-8 text Ftrace
@@ -12,7 +12,7 @@ UTF-8 text Ftrace
 
 Provider 构造成功后即可查询；调用方不需要知道转换器、Catalog 路径或物理存储格式。
 实现内部由 `kat-datasource` 原生扩展拥有文本语法、Proto 类型合同、有限批次写入和原子
-发布，Python Provider 直接调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
+发布，公共 Python Provider `kat.dataprovider.ftrace.FtraceProvider` 调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
 `clock_domain` 检查和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
 
 `text_ftrace_header` 固定存在。只要来源中至少有一个已支持事件，

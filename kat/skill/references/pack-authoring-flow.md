@@ -103,6 +103,23 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 
 两个 wheel 随同一 KAT 版本原子安装，但 PACK 必须分别显式 import 所需模块，不能假设一个 distribution 会传递另一个。
 
+文本 Ftrace 的来源选择、物化复用、准入和查询已有公共具体实现，所有 PACK 都可以直接复用，不要复制到自己的 `datasources/`：
+
+```python
+from pathlib import Path
+
+from kat.dataprovider.ftrace import FtraceProvider
+
+provider = FtraceProvider(
+    source=Path(trace_path),
+    clock_domain=clock_domain,
+    workspace_root=ctx.datasource_root,
+)
+result = provider.query("SELECT * FROM text_ftrace_header")
+```
+
+如果该 Provider 还需要被当前 PACK 的 Provider inspection 发现，在 PACK `datasources/` 中用继承或包装的薄声明类添加 `@kat.provider(...)` 和 PACK 自有 guide；公共实现不替任何 PACK 声明领域知识。
+
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
 ## 5. 通过 `ctx.run()` 组合 Workflow
