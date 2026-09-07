@@ -1,14 +1,19 @@
+"""Reusable text Ftrace datasource Provider for KAT PACKs."""
+
 from __future__ import annotations
 
 import unicodedata
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from kat_datasource import text_ftrace
+from .._provider import provider
 
-import kat
-from kat import dataprovider as dp
+if TYPE_CHECKING:
+    from kat_datasource import text_ftrace
 
+from . import _fusion, _parquet
+from ._table import Table
 
 _WINDOWS_DEVICE_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
@@ -18,25 +23,20 @@ _WINDOWS_DEVICE_NAMES = frozenset(
 _WINDOWS_FORBIDDEN_CHARACTERS = frozenset('<>:"/\\|?*')
 
 
-@kat.provider(
+@provider(
     name="ftrace-text",
     description="将 tracefs 文本解码为可重复查询的类型化关系。",
     guide="providers/ftrace.md",
 )
 class FtraceProvider:
-    """查询一份文本 Ftrace 所提供的类型化关系。"""
+    """Decode and query one text Ftrace through a reusable Parquet catalog."""
 
     def __init__(
-        self,
-        *,
-        source: Path,
-        clock_domain: str,
-        workspace_root: Path,
+        self, *, source: Path, clock_domain: str, workspace_root: Path
     ) -> None:
-        for field, value in (
-            ("source", source),
-            ("workspace_root", workspace_root),
-        ):
+        from kat_datasource import text_ftrace
+
+        for field, value in (("source", source), ("workspace_root", workspace_root)):
             if not isinstance(value, Path):
                 raise TypeError(f"Ftrace Provider {field} must be a Path")
         if type(clock_domain) is not str:
@@ -48,13 +48,10 @@ class FtraceProvider:
             raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
         self._clock_domain = clock_domain
-        self._query_provider: dp.DataFusionProvider
+        self._query_provider: _fusion.DataFusionProvider
         self._decode_report = text_ftrace.DecodeReport(unsupported_event_names=())
         self._tables: tuple[str, ...] = ()
-
-        self._catalog_root = (
-            workspace_root.resolve(strict=True) / _source_stem(source)
-        )
+        self._catalog_root = workspace_root.resolve(strict=True) / _source_stem(source)
         if _path_exists(self._catalog_root):
             self._open_catalog()
             return
@@ -71,19 +68,20 @@ class FtraceProvider:
         self._open_catalog()
 
     def _decode(self, source: Path) -> None:
-        """把来源转换到按 Source stem 确定的 Parquet Catalog。"""
+        from kat_datasource import text_ftrace
+
         text_ftrace.decode(source, self._catalog_root, self._clock_domain)
         if not self._catalog_root.is_dir() or self._catalog_root.is_symlink():
             raise RuntimeError(
                 "Ftrace Provider did not produce a regular catalog directory"
             )
 
-    def _open_catalog(
-        self,
-    ) -> None:
-        catalog = dp.open(root=self._catalog_root)
+    def _open_catalog(self) -> None:
+        from kat_datasource import text_ftrace
+
+        catalog = _parquet.open(root=self._catalog_root)
         relations = catalog.tables
-        query_provider = dp.DataFusionProvider(catalog=catalog)
+        query_provider = _fusion.DataFusionProvider(catalog=catalog)
         if text_ftrace.EVENT_RELATION in relations:
             domains = {
                 row["clock_domain"]
@@ -105,11 +103,10 @@ class FtraceProvider:
                     "ORDER BY event_name"
                 ).to_rows()
             )
-        decode_report = text_ftrace.DecodeReport(
+        self._query_provider = query_provider
+        self._decode_report = text_ftrace.DecodeReport(
             unsupported_event_names=unsupported_event_names
         )
-        self._query_provider = query_provider
-        self._decode_report = decode_report
         self._tables = relations
 
     @property
@@ -120,12 +117,7 @@ class FtraceProvider:
     def tables(self) -> tuple[str, ...]:
         return self._tables
 
-    def query(
-        self,
-        sql: str,
-        *,
-        params: Mapping[str, object] | None = None,
-    ) -> dp.Table:
+    def query(self, sql: str, *, params: Mapping[str, object] | None = None) -> Table:
         return self._query_provider.query(sql, params=params)
 
 

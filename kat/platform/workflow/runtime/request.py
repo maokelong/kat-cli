@@ -27,8 +27,8 @@ class InspectWorkflowRequest:
 
 @dataclass(frozen=True)
 class InspectProviderRequest:
-    pack_name: str
-    pack_path: Path
+    pack_name: str | None
+    pack_path: Path | None
     provider_name: str | None
 
 
@@ -138,19 +138,21 @@ def _read_inspect_provider_request(
     pack_name = request["pack_name"]
     pack_path = request["pack_path"]
     provider_name = request["provider_name"]
-    if type(pack_name) is not str or type(pack_path) is not str:
-        raise RuntimeRequestError(
-            "inspect_provider PACK name and path fields must be strings"
-        )
-    if not pack_name:
-        raise RuntimeRequestError(
-            "inspect_provider Runtime Request PACK name must not be empty"
-        )
     if provider_name is not None and (
         type(provider_name) is not str or not provider_name
     ):
         raise RuntimeRequestError(
             "inspect_provider provider_name must be null or a non-empty string"
+        )
+    if pack_name is None and pack_path is None:
+        return InspectProviderRequest(None, None, provider_name)
+    if type(pack_name) is not str or type(pack_path) is not str:
+        raise RuntimeRequestError(
+            "inspect_provider PACK name and path must both be null or strings"
+        )
+    if not pack_name:
+        raise RuntimeRequestError(
+            "inspect_provider Runtime Request PACK name must not be empty"
         )
     return InspectProviderRequest(
         pack_name=pack_name,

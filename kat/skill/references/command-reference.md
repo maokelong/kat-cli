@@ -68,15 +68,18 @@ Workflow list 仍会校验所有声明的 guide。任一 Workflow 导入、声�
 ## 发现和读取 Provider 知识
 
 ```text
+kat inspect provider
+kat inspect provider --provider ftrace-text
 kat inspect provider --pack <PACK名称> [--pack-dir <PACK目录> ...]
 kat inspect provider --pack <PACK名称> --provider <Provider名称> \
   [--pack-dir <PACK目录> ...]
 ```
 
-- 第一条列出 PACK 的 Provider。成功 `result.providers` 按 `name` 排序；每项恰好只有 `name`、`description`。
-- 第二条返回一个精确 Provider。成功 `result.provider` 恰好只有 `name`、`description`、`module`、`qualname`、`guide`；`guide` 始终是非空 Markdown 字符串。
+- 第一条列出平台公共 Provider，第二条返回公共 `ftrace-text` 的详情。
+- 第三条只列出所选 PACK 自有的 Provider，第四条返回该范围内一个精确 Provider。
+- 列表的成功 `result.providers` 按 `name` 排序；每项恰好只有 `name`、`description`。详情的成功 `result.provider` 恰好只有 `name`、`description`、`module`、`qualname`、`guide`；`guide` 始终是非空 Markdown 字符串。
 
-Provider inspection 只用于 PACK 开发。它会导入所选 PACK `datasources/` 下的普通 Python 模块以发现声明，因此这些模块必须 import-safe；inspection 不实例化 Provider，也不连接服务、读取凭据或启动外部进程。一次扫描会校验全部 Provider 的导入、声明、名称唯一性和 guide，任何失败都不会返回部分结果。
+Provider inspection 只用于 PACK 开发。公共范围直接读取平台声明与随包安装的 guide；PACK 范围会导入所选 PACK `datasources/` 下的普通 Python 模块以发现声明，因此这些模块必须 import-safe。inspection 不实例化 Provider，也不连接服务、读取凭据或启动外部进程。所选范围内的声明、名称唯一性或 guide 任一无效，都会使本次 inspection 失败，不返回部分结果。
 
 Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL、Schema 或接入方式。Agent 直接读取 Response 字段，不自行查找文件，也不把它当作分析策略。
 
@@ -159,3 +162,5 @@ kat test --pack-dir <PACK目录> --test <pytest node ID> [--test <pytest node ID
 ```
 
 在生产执行平面运行该 PACK 的 pytest。`--pack-dir` 是一个直接包含 `pack.toml` 的精确目录，不使用 PACK 名称。测试 fixture 用普通来源文件、配置和临时路径构造 Provider；`kat_run` 只接收 Workflow 和 arguments。成功 `result.summary` 是测试结论；失败时引用 Response 的 Diagnostic，以及存在时的 `test_report_path` 和 `log_path`。测试或诊断失败不授权修改 PACK。
+
+Provider inspection 不带 `--pack` 时只查询平台公共 Provider（首版为 `ftrace-text`）；带 `--pack` 时只查询该 PACK 自有声明。两个范围允许同名，未找到时不自动切换。`--pack-dir` 必须与 `--pack` 一起使用。

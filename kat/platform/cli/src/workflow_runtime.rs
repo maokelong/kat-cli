@@ -232,20 +232,25 @@ pub(crate) fn inspect_workflow(
 
 pub(crate) fn inspect_provider(
     log: OperationLog,
-    pack_name: &str,
-    pack_path: &Path,
+    pack: Option<(&str, &Path)>,
     provider_name: Option<&str>,
 ) -> Result<RuntimeOutcome<ProviderInspectionResult>, InspectPackInfrastructureError> {
-    let Some(pack_path_text) = pack_path.to_str() else {
-        return Err(finish_runtime_error(
-            log,
-            RuntimeInfrastructureError::NonUnicodePackPath(pack_path.to_path_buf()),
-        ));
+    let (pack_name, pack_path) = match pack {
+        Some((name, path)) => {
+            let Some(path_text) = path.to_str() else {
+                return Err(finish_runtime_error(
+                    log,
+                    RuntimeInfrastructureError::NonUnicodePackPath(path.to_path_buf()),
+                ));
+            };
+            (Some(name), Some(path_text))
+        }
+        None => (None, None),
     };
     let request = InspectProviderRequest {
         operation: "inspect_provider",
         pack_name,
-        pack_path: pack_path_text,
+        pack_path,
         provider_name,
     };
     if provider_name.is_some() {

@@ -184,6 +184,29 @@ fn inspect_target_pack(
     inspect_resolved_target(&data_home, log, pack_name, pack_directories, target)
 }
 
+fn inspect_public_provider(
+    provider_name: Option<String>,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
+    let data_home = match locate_data_home() {
+        Ok(data_home) => data_home,
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
+    };
+    let log = match OperationLog::create(&data_home, "inspect", |file| {
+        writeln!(file, "operation: kat inspect provider")?;
+        writeln!(file, "scope: public")?;
+        if let Some(name) = &provider_name {
+            writeln!(file, "provider: {}", name.escape_debug())?;
+        }
+        Ok(())
+    }) {
+        Ok(log) => log,
+        Err(error) => return inspect_target_log_failure(error),
+    };
+    let outcome = workflow_runtime::inspect_provider(log, None, provider_name.as_deref())
+        .map(|outcome| outcome.map(InspectKnowledgeResult::Provider));
+    finish_knowledge_inspection(outcome)
+}
+
 fn inspect_run_workflow(
     session_id: String,
     run_id: String,
@@ -291,12 +314,20 @@ fn inspect_resolved_target(
         .map(|outcome| outcome.map(InspectKnowledgeResult::Workflow)),
         InspectKnowledgeTarget::Provider(provider_name) => workflow_runtime::inspect_provider(
             log,
-            pack.name(),
-            pack.directory(),
+            Some((pack.name(), pack.directory())),
             provider_name.as_deref(),
         )
         .map(|outcome| outcome.map(InspectKnowledgeResult::Provider)),
     };
+    finish_knowledge_inspection(outcome)
+}
+
+fn finish_knowledge_inspection(
+    outcome: Result<
+        workflow_runtime::RuntimeOutcome<InspectKnowledgeResult>,
+        workflow_runtime::InspectPackInfrastructureError,
+    >,
+) -> response::PreparedResponse<InspectKnowledgeResult> {
     match outcome {
         Ok(workflow_runtime::RuntimeOutcome::Success { result, log_path }) => {
             response::prepare_success_with_log(result, Some(log_path))
@@ -573,6 +604,7 @@ mod tests {
                 "run-id",
             ],
             vec!["kat", "inspect", "session", "--session", "session-id"],
+            vec!["kat", "inspect", "provider"],
             vec!["kat", "inspect", "provider", "--pack", "cpu-pack"],
             vec![
                 "kat",
@@ -614,7 +646,6 @@ mod tests {
                 "--workflow",
                 "thread-time",
             ],
-            vec!["kat", "inspect", "provider"],
             vec!["kat", "inspect", "provider", "--run", "run-id"],
             vec![
                 "kat",

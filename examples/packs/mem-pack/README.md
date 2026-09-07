@@ -1,6 +1,6 @@
 # Memory Analysis PACK
 
-这个 External PACK 展示如何把 Rust 来源解码能力接入 PACK 自有 Provider：
+这个 External PACK 展示如何复用 Pack Authoring API 公共提供的文本 Ftrace Provider，无需本地 Provider 声明即可读取公共来源 guide：
 
 ```text
 UTF-8 text Ftrace
@@ -12,7 +12,7 @@ UTF-8 text Ftrace
 
 Provider 构造成功后即可查询；调用方不需要知道转换器、Catalog 路径或物理存储格式。
 实现内部由 `kat-datasource` 原生扩展拥有文本语法、Proto 类型合同、有限批次写入和原子
-发布，Python Provider 直接调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
+发布，公共 Python Provider `kat.dataprovider.ftrace.FtraceProvider` 调用 `kat_datasource.text_ftrace.decode()`，并负责内部物化复用、
 `clock_domain` 检查和本地查询。Workflow 不感知 Rust、Parquet 或物化位置。
 
 `text_ftrace_header` 固定存在。只要来源中至少有一个已支持事件，
@@ -41,7 +41,7 @@ payload；一份全部由未支持事件构成的合法 Trace 仍可查询 heade
 数量或 CPU 范围校验；数字形式、OpenHarmony 转换器保留的格式占位符以及缺失形式均可接受。
 
 完整的表、字段、关联关系和查询示例见 Provider 的同名文档
-[knowledge/providers/ftrace.md](./knowledge/providers/ftrace.md)。运行时也可以使用
+`kat inspect provider --provider ftrace-text` 返回的公共 guide。运行时也可以使用
 `SHOW TABLES` 和 `DESCRIBE <table>` 查看当前 Trace 实际产生的关系及其物理字段。
 
 ## 运行
@@ -82,7 +82,7 @@ Rust 合同测试负责解析、类型化 oneof 关系、来源序号间隙、�
 cargo test --locked -p kat-datasource
 ```
 
-PACK pytest 负责 Provider 原生调用边界、Catalog、查询拓扑、复用规则和 Workflow Output：
+PACK pytest 验证 Workflow Output 与跨调用物化复用；Provider 行为测试由平台维护：
 
 ```bash
 kat test --pack-dir ./examples/packs/mem-pack
@@ -90,3 +90,5 @@ kat test --pack-dir ./examples/packs/mem-pack
 
 真实 OpenHarmony 设备纵向用例还会执行 HDC 采集、拉取、转换、查询和第二次目录复用。
 它要求显式设置 `KAT_HDC_TARGET`；普通 CI 没有设备时跳过，不会猜测或默认选择连接目标。
+
+本 PACK 不声明自有 Provider，`kat inspect provider --pack mem-pack` 返回空列表。来源知识通过 `kat inspect provider --provider ftrace-text` 读取；旧的 PACK 范围详情入口不再保留。

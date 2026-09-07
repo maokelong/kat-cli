@@ -11,7 +11,7 @@ Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看
 KAT 面向用户的唯一公共入口和原子发布单元，承接数据分析与 PACK 开发任务。用户表达目标，Skill 可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
 
 **KAT Agent Knowledge**:
-由 KAT Skill 公共 reference、PACK 自有 declaration 与 guide、Runtime 结构化事实共同组成的渐进知识面。各内容随其所有者版本化；KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
+由 KAT Skill 公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、Runtime 结构化事实共同组成的渐进知识面。各内容随其所有者版本化；KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
 
 **KAT Response**:
 一次已经形成的操作交付给 KAT Skill 的结构化成功或失败事实。它是短命产品视图，不是 Run 的持久事实源，也不是 Analysis Result。
@@ -83,17 +83,20 @@ Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类
 ## 数据与事实
 
 **Datasource**:
-由 Workflow 明确选择的 PACK Python 来源边界，拥有外部事实的定位、配置解释、来源内查询和来源特定物化。它通常由 PACK 顶层 `datasources/` 中的普通模块和类表达，没有独立平台身份、注册或发现机制；跨 Datasource 组合由 Workflow 显式使用 DataFusion Provider 完成。
+由 Workflow 明确选择的来源边界，拥有外部事实的定位、配置解释、来源内查询和来源特定物化。它可以由 PACK 自有实现或公共 Datasource Provider 承载；跨 Datasource 组合由 Workflow 显式使用 DataFusion Provider 完成。
 
 **Datasource Provider**:
-PACK 拥有并直接暴露给 Workflow 的来源能力对象，以来源自己的词汇提供定位、解码、查询、物化等显式操作，并按普通 Python 规则拥有所使用的来源资源。它不是 KAT 创建或包装的统一 facade，也不是平台托管的持久状态；独立 Provider inspection 只发现其 metadata declaration，不改变生产 Workflow 显式 import、构造和调用它的方式。
+由 PACK 或 KAT 平台拥有、直接提供给 Workflow 的来源能力对象，以来源自己的词汇提供定位、解码、查询、物化等显式操作，并拥有所使用的来源资源。独立 Provider inspection 只发现其声明与来源知识，不改变 Workflow 显式选择和使用来源的边界，也不使 Provider 成为平台托管的持久状态。
 _Avoid_: Source executor、KAT Provider facade
 
+**Public Datasource Provider**:
+由 KAT 平台统一维护实现、声明和公共来源知识，供所有 PACK 直接使用的 Datasource Provider。它的发现与使用不依附于某个 PACK 的来源声明，消费方无需重复维护公共来源知识。
+
 **Provider guide**:
-Provider declaration 必须引用的 PACK 自有 Markdown 来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。它服务 PACK 开发，不是 Workflow 分析策略，也不规定 Provider 固定方法。
+Provider declaration 必须引用、由该 Provider 所有者维护的来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。公共 Datasource Provider 的 guide 由平台维护，PACK 自有 Provider 的 guide 由 PACK 维护；它服务 PACK 开发，不是 Workflow 分析策略。
 
 **Data Provider Toolkit**:
-`kat-workflow` 通过公共模块 `kat.dataprovider` 提供的标准表数据工具，推荐以 `from kat import dataprovider as dp` 使用。它提供 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力，但不是 Database facade，不拥有 Datasource Provider 的来源定位、decode、query 或生命周期，也不发现、注册、构造或包装 PACK 的 `datasources/` 来源实现。
+KAT 通过 `kat.dataprovider` 向 PACK 作者提供的标准表数据工具与公共 Datasource Provider，涵盖 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力。它不统一接管 PACK 自有 Provider 的来源语义或生命周期。
 
 **Datasource Schema**:
 PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的多表事实结构。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Provider 产出事实的逻辑合同，也是 `dp.write()` 创建一次 Datasource 流式写事务时唯一需要的结构声明，但不是 Database 定义或打开既有 Parquet 时必须提供的持久化 Schema。

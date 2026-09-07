@@ -3,12 +3,13 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from kat.pack.datasources import ftrace as provider_module
-from kat.pack.datasources.ftrace import FtraceProvider
+from kat.dataprovider import ftrace as provider_module
+from kat.dataprovider.ftrace import FtraceProvider
+from kat_datasource import text_ftrace
 
 from kat import dataprovider as dp
 
-_FIXTURE = Path(__file__).parent / "fixtures" / "typed.ftrace"
+_FIXTURE = Path(__file__).parents[1] / "fixtures" / "typed.ftrace"
 
 
 def _write_relation(root: Path, name: str, table: pa.Table) -> None:
@@ -116,7 +117,7 @@ def test_construction_decodes_to_workspace_root_plus_source_stem(
         assert catalog_root == tmp_path / _FIXTURE.stem
         _write_catalog(catalog_root)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
     provider = FtraceProvider(**_arguments(tmp_path))
 
     topology = provider.query(
@@ -161,10 +162,10 @@ def test_decode_failure_can_retry_when_no_catalog_was_written(monkeypatch, tmp_p
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            raise provider_module.text_ftrace.DecodeError("fixture failure")
+            raise text_ftrace.DecodeError("fixture failure")
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     with pytest.raises(RuntimeError, match="decode failed"):
         FtraceProvider(**_arguments(tmp_path))
@@ -184,7 +185,7 @@ def test_unreadable_parquet_is_not_redecoded(monkeypatch, tmp_path):
         catalog.mkdir()
         (catalog / "text_ftrace_event.parquet").write_bytes(b"invalid parquet")
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     with pytest.raises(pa.ArrowInvalid, match="Parquet"):
         FtraceProvider(**_arguments(tmp_path))
@@ -203,8 +204,8 @@ def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_
         assert catalog.tables
         raise RuntimeError("query provider failed")
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
-    monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+    monkeypatch.setattr(provider_module._fusion, "DataFusionProvider", reject_catalog)
 
     with pytest.raises(RuntimeError, match="query provider failed"):
         FtraceProvider(**_arguments(tmp_path))
@@ -220,7 +221,7 @@ def test_same_source_stem_reuses_the_materialized_catalog(monkeypatch, tmp_path)
         conversions += 1
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     first = FtraceProvider(**_arguments(tmp_path))
     second = FtraceProvider(**_arguments(tmp_path))
@@ -246,15 +247,11 @@ def test_published_source_stem_is_reused_after_the_source_is_removed(
         conversions += 1
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
-    first = FtraceProvider(
-        **_arguments(workspace_root, source=source)
-    )
+    first = FtraceProvider(**_arguments(workspace_root, source=source))
     source.unlink()
-    second = FtraceProvider(
-        **_arguments(workspace_root, source=source)
-    )
+    second = FtraceProvider(**_arguments(workspace_root, source=source))
 
     assert conversions == 1
     assert second.tables == first.tables
@@ -276,7 +273,7 @@ def test_symlink_source_uses_the_lexical_source_stem(monkeypatch, tmp_path):
         assert catalog == workspace_root / link.stem
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     FtraceProvider(**_arguments(workspace_root, source=link))
 
@@ -301,7 +298,7 @@ def test_same_stem_in_different_source_directories_reuses_catalog(
         decoded_sources.append(source)
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     FtraceProvider(**_arguments(workspace_root, source=first_source))
     FtraceProvider(**_arguments(workspace_root, source=second_source))
@@ -322,7 +319,7 @@ def test_different_source_stems_use_different_catalogs(monkeypatch, tmp_path):
         catalogs.append(catalog)
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     FtraceProvider(**_arguments(workspace_root, source=first_source))
     FtraceProvider(**_arguments(workspace_root, source=second_source))
@@ -341,7 +338,7 @@ def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
         conversions += 1
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
     FtraceProvider(**_arguments(tmp_path))
 
     with pytest.raises(RuntimeError, match="clock_domain"):
@@ -360,7 +357,7 @@ def test_existing_empty_catalog_is_rejected_without_decode(monkeypatch, tmp_path
         conversions += 1
         _write_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     with pytest.raises(ValueError, match="at least one relation"):
         FtraceProvider(**_arguments(tmp_path))
@@ -378,7 +375,7 @@ def test_nonempty_catalog_without_parquet_is_rejected(monkeypatch, tmp_path):
     def convert(*_arguments):
         pytest.fail("nonempty catalog must not be overwritten")
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     with pytest.raises(ValueError, match="at least one relation"):
         FtraceProvider(**_arguments(tmp_path))
@@ -395,7 +392,7 @@ def test_source_file_is_not_overwritten_when_it_matches_catalog_path(
     def convert(*_arguments):
         pytest.fail("source path must not be used as a catalog")
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     with pytest.raises(ValueError, match="root must be an existing ordinary directory"):
         FtraceProvider(**_arguments(tmp_path, source=source))
@@ -409,7 +406,7 @@ def test_unknown_only_catalog_is_queryable_and_preserves_the_decode_report(
     def convert(_source, catalog, _clock_domain):
         _write_unknown_only_catalog(catalog)
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", convert)
+    monkeypatch.setattr(text_ftrace, "decode", convert)
 
     first = FtraceProvider(**_arguments(tmp_path))
     second = FtraceProvider(**_arguments(tmp_path))
@@ -431,9 +428,9 @@ def test_publish_race_reuses_the_winning_catalog(monkeypatch, tmp_path):
     def lose_publish_race(_source, catalog, _clock_domain):
         assert catalog == catalog_root
         _write_catalog(catalog)
-        raise provider_module.text_ftrace.DecodeError("destination already exists")
+        raise text_ftrace.DecodeError("destination already exists")
 
-    monkeypatch.setattr(provider_module.text_ftrace, "decode", lose_publish_race)
+    monkeypatch.setattr(text_ftrace, "decode", lose_publish_race)
 
     provider = FtraceProvider(**_arguments(tmp_path))
 
