@@ -1,6 +1,46 @@
 # PACK 创作与维护流程
 
-## 1. 先定位 PACK，再按对象检查知识
+## 1. 从零创建 PACK
+
+当用户明确要求创建 PACK 时，先确定四项静态清单信息：小写 ASCII kebab-case `name`、面向用户的 `title`、说明领域边界的 `description`，以及承担维护责任的 `owner`。目标必须是用户指定或当前任务已明确的 PACK 集合目录，最终路径固定为 `<packs-dir>/<name>`。不能可靠推断 owner 或目标目录时先询问，不用 `unknown`、`TODO` 或虚构团队补位。
+
+使用 Skill 自带脚本生成骨架，不手工拼接模板：
+
+```text
+python scripts/scaffold_pack.py \
+  --packs-dir <packs-directory> \
+  --name <pack-name> \
+  --title <display-title> \
+  --description <domain-description> \
+  --owner <responsible-owner>
+```
+
+脚本只创建合法 manifest、README 和标准创作目录，不生成虚假的 Workflow、Provider 或测试实现；目标已存在时拒绝覆盖。成功 JSON 中的 `pack_directory` 是实际创建位置，`entries` 给出每个文件或目录的用途，必须据此向用户展示完整目录树和作用。
+
+创建后先执行 `kat inspect --pack-dir <pack-directory>` 验证 manifest 和发现结果，再分别执行该 PACK 的 Workflow 与 Provider list inspection。两个列表为空是预期事实，只表示骨架可被识别；只有用户同时要求具体分析能力时，才继续添加对应声明、guide 和测试。
+
+用户可以直接用自然语言触发该流程，例如：
+
+```text
+/kat 请在 packs 目录下创建一个内存分析领域的 PACK。
+
+PACK 名称：memory-analysis
+标题：内存分析
+用途：分析进程内存占用、变化趋势和异常增长
+维护方：性能团队
+
+创建完成后，请展示目录结构并说明每个目录和文件的作用。
+```
+
+也可以使用紧凑形式：
+
+```text
+/kat 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
+```
+
+提示中至少需要明确领域或用途和真实维护方。名称缺失时可以根据领域生成合法的 kebab-case 名称；目标目录已由当前仓库约定明确时可以沿用。仍无法确定清单必填信息时，只询问缺失项。
+
+## 2. 先定位已有 PACK，再按对象检查知识
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
 
@@ -13,7 +53,7 @@ Workflow 和 Provider 是两个独立知识入口。开发 Workflow 时只在需
 
 新建 PACK 没有 KAT 任务契约内的 Issue 或 SDD 前置门；执行所在仓库的协作规范仍独立适用。
 
-## 2. 声明可发现知识
+## 3. 声明可发现知识
 
 Workflow 与 Provider 都用显式元数据供 Agent 索引：
 
@@ -46,7 +86,7 @@ class PostgreSQLProvider:
 - Provider `guide` 必填，用于说明数据库、可用 SQL、表与关系、Schema、解析或物化方式。它是作者知识，不是分析策略。
 - Provider detail 的 `module` 与 `qualname` 由声明类机械取得，不能在 decorator 中覆盖。
 
-## 3. 使用当前作者与数据合同
+## 4. 使用当前作者与数据合同
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 提供当前 Session 共享的 `ctx.datasource_root`、当前候选执行私有的 `ctx.scratch_root`，以及线程安全的同步 `ctx.run(pack_name, workflow_name, /, **inputs)`；不提供 Session identity 或整个 Session 根。PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
@@ -65,7 +105,7 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
-## 4. 通过 `ctx.run()` 组合 Workflow
+## 5. 通过 `ctx.run()` 组合 Workflow
 
 需要复用、inspection 和测试的固定组合仍写成普通 Python Workflow。每次调用必须显式提供完整 PACK name 与 Workflow name，即使目标位于当前 PACK；两个路由参数仅限位置，目标 Workflow 的输入全部使用关键字。Context 只从顶层 `kat run` 或 `kat test` 已确定的 discovery roots 中寻找目标，不能用路径参数增加搜索目录，也不能绕过执行边界直接调用另一个 Workflow 函数。Workflow declaration 不静态重复声明潜在子 Workflow、Output name 或 Output Schema；实际调用和子 Run 已发布的 Parquet 是唯一事实源。
 
@@ -121,7 +161,7 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 
 仓库中的 `examples/packs/workflow-composition` 是无外部依赖的可运行示例，包含 Catalog 查询、无输出编排、各 Workflow Guide 和 `kat_run` 测试。
 
-## 5. 组织和引用 guide
+## 6. 组织和引用 guide
 
 一个 PACK 的作者知识统一放在顶层 `knowledge/`：Workflow guide 位于 `knowledge/workflows/`，Provider guide 位于 `knowledge/providers/`。框架不限制 Markdown 的章节和写法。
 
@@ -133,7 +173,7 @@ Workflow guide 只解释声明它的 Workflow 所发布的 Run，不自动继承
 
 Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Session 中形成新的独立根 Run，不会事后加入或修改已经发布的父 `child_runs`。若某个子调用是父结果成立所必需的确定性步骤，必须把它写入父 Workflow 的 Python 控制流，不能依赖 Guide 追认调用关系。
 
-## 6. Provider inspection 的执行边界
+## 7. Provider inspection 的执行边界
 
 Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
 
@@ -141,7 +181,7 @@ Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普�
 
 这是运行时 Python 发现，不是静态 AST 扫描。只有 Provider inspection 扫描完整 `datasources/`；Workflow inspection 不触发它。
 
-## 7. 显式来源解码与融合
+## 8. 显式来源解码与融合
 
 原生 Hitrace 解码由 PACK 显式调用：
 
@@ -240,7 +280,7 @@ result = dp.DataFusionProvider(
 
 DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Provider、不触发远端查询，也不会自动取得同一 Analysis Session 的其他内容。完整可执行写法见随 Skill 发布的 [Data Provider reference PACK](examples/dataprovider-pack/README.md)。
 
-## 8. 实施并验证已授权变更
+## 9. 实施并验证已授权变更
 
 理解、检查和测试默认只读。只有用户明确要求创建、修改或修复时才写入指定 PACK，并保持最小切片。编写 Provider 时优先复用 KAT 已公开的数据表、物化和查询能力；具体用法以已选 Provider guide、公共库接口和 reference PACK 为准，不发明框架约束。
 
