@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import heapq
 import importlib
 import inspect
 import keyword
 import os
-from pathlib import Path
 import re
 import stat
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 from typing import TypedDict
 
 from kat._provider import _ProviderDeclaration
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
-from .knowledge import read_guide
+from .knowledge import read_guide, read_public_provider_guide
 from .pack import _mount_current_pack
-
 
 _PROVIDER_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _MISSING = object()
@@ -80,16 +80,24 @@ class _InspectedProvider:
 
 
 def inspect_provider(
-    selected_pack_name: str,
-    pack_path: Path,
+    selected_pack_name: str | None,
+    pack_path: Path | None,
     provider_name: str | None = None,
 ) -> InspectProviderRuntimeResult:
-    """Inspect Provider declarations and their knowledge guides in one PACK."""
+    """Inspect public Providers or declarations owned by one selected PACK."""
+    public = selected_pack_name is None and pack_path is None
     try:
-        if not selected_pack_name:
+        if not public and (not selected_pack_name or pack_path is None):
             raise ValueError("PACK name must be a non-empty string")
-        modules = _provider_modules(pack_path)
-        providers = _load_providers(pack_path, modules)
+        if public:
+            module = importlib.import_module("kat.dataprovider.ftrace")
+            providers = _inspect_module(module, read_public_provider_guide)
+            if not providers:
+                raise ValueError("Public FtraceProvider declaration is missing")
+        else:
+            assert pack_path is not None
+            modules = _provider_modules(pack_path)
+            providers = _load_providers(pack_path, modules)
         providers.sort(key=lambda provider: provider.name)
         names: set[str] = set()
         for provider in providers:
@@ -111,9 +119,8 @@ def inspect_provider(
             None,
         )
         if selected is None:
-            raise ValueError(
-                f"Provider {provider_name!r} was not found in the selected PACK"
-            )
+            scope = "public Providers" if public else "the selected PACK"
+            raise ValueError(f"Provider {provider_name!r} was not found in {scope}")
         return InspectProviderDetailRuntimeResult(
             provider={
                 "name": selected.name,
@@ -131,7 +138,11 @@ def inspect_provider(
                 error,
                 pack_path,
                 message="Provider inspection failed",
-                help="Correct the PACK Provider declarations and guides, then retry inspection",
+                help=(
+                    "Repair the installed KAT public Provider declarations and guides"
+                    if public
+                    else "Correct the PACK Provider declarations and guides, then retry inspection"
+                ),
             )
         ) from error
 
@@ -143,70 +154,73 @@ def _load_providers(
         return []
     _mount_current_pack(root)
     providers: list[_InspectedProvider] = []
-    seen_classes: set[int] = set()
     for entry in modules:
         module = importlib.import_module(entry.module_name)
         _verify_module_source(root, module, entry)
-        for value in vars(module).values():
-            if not inspect.isclass(value) or id(value) in seen_classes:
-                continue
-            class_module = type.__getattribute__(value, "__module__")
-            if type(class_module) is not str or class_module != entry.module_name:
-                continue
-            declaration = type.__getattribute__(value, "__dict__").get(
-                "__kat_provider__"
+        providers.extend(
+            _inspect_module(
+                module,
+                lambda reference: read_guide(
+                    root, reference, declaration="Provider", category="providers"
+                ),
             )
-            if declaration is None:
-                continue
-            if type(declaration) is not _ProviderDeclaration:
-                raise ValueError(
-                    f"Provider class {class_module}.{type.__getattribute__(value, '__qualname__')} "
-                    "has invalid @kat.provider(...) metadata"
-                )
-            seen_classes.add(id(value))
-            qualname = type.__getattribute__(value, "__qualname__")
-            if type(qualname) is not str or not qualname:
-                raise ValueError(
-                    f"Provider {declaration.name!r} has an invalid class qualname"
-                )
-            if not _qualname_resolves_to(module, qualname, value):
-                raise ValueError(
-                    f"Provider class {class_module}.{qualname} cannot be imported "
-                    "by its module and qualname"
-                )
-            if (
-                type(declaration.name) is not str
-                or _PROVIDER_NAME.fullmatch(declaration.name) is None
-            ):
-                raise ValueError(f"invalid Provider name: {declaration.name!r}")
-            if (
-                type(declaration.description) is not str
-                or not declaration.description.strip()
-            ):
-                raise ValueError(
-                    f"Provider {declaration.name!r} description must not be empty"
-                )
-            if (
-                type(declaration.guide) is not str
-                or not declaration.guide.strip()
-            ):
-                raise ValueError(
-                    f"Provider {declaration.name!r} guide must not be empty"
-                )
-            providers.append(
-                _InspectedProvider(
-                    name=declaration.name,
-                    description=declaration.description,
-                    module=class_module,
-                    qualname=qualname,
-                    guide=read_guide(
-                        root,
-                        declaration.guide,
-                        declaration="Provider",
-                        category="providers",
-                    ),
-                )
+        )
+    return providers
+
+
+def _inspect_module(
+    module: ModuleType, guide_reader: Callable[[str], str]
+) -> list[_InspectedProvider]:
+    providers: list[_InspectedProvider] = []
+    seen_classes: set[int] = set()
+    for value in vars(module).values():
+        if not inspect.isclass(value) or id(value) in seen_classes:
+            continue
+        class_module = type.__getattribute__(value, "__module__")
+        if type(class_module) is not str or class_module != module.__name__:
+            continue
+        declaration = type.__getattribute__(value, "__dict__").get("__kat_provider__")
+        if declaration is None:
+            continue
+        if type(declaration) is not _ProviderDeclaration:
+            raise ValueError(
+                f"Provider class {class_module}.{type.__getattribute__(value, '__qualname__')} "
+                "has invalid @kat.provider(...) metadata"
             )
+        seen_classes.add(id(value))
+        qualname = type.__getattribute__(value, "__qualname__")
+        if type(qualname) is not str or not qualname:
+            raise ValueError(
+                f"Provider {declaration.name!r} has an invalid class qualname"
+            )
+        if not _qualname_resolves_to(module, qualname, value):
+            raise ValueError(
+                f"Provider class {class_module}.{qualname} cannot be imported "
+                "by its module and qualname"
+            )
+        if (
+            type(declaration.name) is not str
+            or _PROVIDER_NAME.fullmatch(declaration.name) is None
+        ):
+            raise ValueError(f"invalid Provider name: {declaration.name!r}")
+        if (
+            type(declaration.description) is not str
+            or not declaration.description.strip()
+        ):
+            raise ValueError(
+                f"Provider {declaration.name!r} description must not be empty"
+            )
+        if type(declaration.guide) is not str or not declaration.guide.strip():
+            raise ValueError(f"Provider {declaration.name!r} guide must not be empty")
+        providers.append(
+            _InspectedProvider(
+                name=declaration.name,
+                description=declaration.description,
+                module=class_module,
+                qualname=qualname,
+                guide=guide_reader(declaration.guide),
+            )
+        )
     return providers
 
 
@@ -215,8 +229,7 @@ def _qualname_resolves_to(
 ) -> bool:
     segments = qualname.split(".")
     if any(
-        not segment.isidentifier() or keyword.iskeyword(segment)
-        for segment in segments
+        not segment.isidentifier() or keyword.iskeyword(segment) for segment in segments
     ):
         return False
     module_namespace = ModuleType.__getattribute__(module, "__dict__")
@@ -288,7 +301,9 @@ def _provider_modules(root: Path) -> list[_ProviderModule]:
                 )
             )
     except OSError as error:
-        raise OSError(f"failed to scan PACK datasources directory {directory}") from error
+        raise OSError(
+            f"failed to scan PACK datasources directory {directory}"
+        ) from error
     modules.sort(key=lambda entry: entry.source.relative_to(root).as_posix())
     _validate_module_conflicts(modules)
     return modules

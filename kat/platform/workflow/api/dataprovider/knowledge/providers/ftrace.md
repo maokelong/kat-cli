@@ -4,6 +4,27 @@
 构造成功后即可调用 `query()`；返回值是 eager `dp.Table`。转换器、Catalog 路径和物理
 存储格式不属于使用者合同。
 
+公共入口可直接通过 `kat inspect provider --provider ftrace-text` 发现；PACK 无需声明
+本地 Provider 或复制本 guide。Workflow 显式提供来源路径、采集时钟域和 Session 来源
+物化根目录：
+
+```python
+from pathlib import Path
+
+from kat.dataprovider.ftrace import FtraceProvider
+
+provider = FtraceProvider(
+    source=Path(trace_path),
+    clock_domain=clock_domain,
+    workspace_root=ctx.datasource_root,
+)
+table = provider.query("SELECT * FROM text_ftrace_header")
+```
+
+`source` 和 `workspace_root` 必须是 `Path`，后者必须是已存在的目录；`clock_domain`
+必须是由调用方明确提供的非空字符串。`query(sql, *, params=None)` 使用 DataFusion SQL
+和可选的具名参数 Mapping，返回可重复读取的 `dp.Table`；它不会自动成为 Run Output。
+
 ## 内部物化
 
 物化目录固定为 `workspace_root / Path(source).stem`。目标存在时，Provider 必须先通过

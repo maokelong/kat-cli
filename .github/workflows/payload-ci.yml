@@ -159,6 +159,8 @@ jobs:
               cli=$payload/kat
               python=$payload/python/bin/python3
               producer_pack=/repo/build/fixtures/payload-smoke-pack
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -I -B /repo/build/fixtures/verify_public_ftrace.py "$cli"
               consumer_pack=/repo/build/fixtures/payload-smoke-consumer-pack
               fixture=/work/payload-smoke.htrace
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
@@ -266,6 +268,8 @@ jobs:
           $queryText | Set-Content -Path (Join-Path $work "query.json") -Encoding utf8
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Remove-Item Env:PYTHONHOME, Env:PYTHONPATH, Env:PYTHONUSERBASE -ErrorAction SilentlyContinue
+          & $python -I -B "build/fixtures/verify_public_ftrace.py" $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $python "build/fixtures/verify_payload_smoke.py" `
             (Join-Path $work "inspect.json") `
             (Join-Path $work "test.json") `

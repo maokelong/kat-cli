@@ -1,7 +1,32 @@
 from __future__ import annotations
 
-from pathlib import Path
 import stat
+from importlib.resources import files
+from pathlib import Path
+
+
+def read_public_provider_guide(reference: str) -> str:
+    relative = Path(reference)
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or not relative.parts
+        or relative.parts[0] != "providers"
+        or relative.suffix != ".md"
+    ):
+        raise ValueError(
+            "Public Provider guide must be relative to knowledge/providers/"
+        )
+    target = files("kat.dataprovider").joinpath("knowledge", *relative.parts)
+    if not target.is_file():
+        raise ValueError(
+            f"Public Provider guide is missing from the installation: {reference}"
+        )
+    with target.open("r", encoding="utf-8", newline="") as stream:
+        contents = stream.read()
+    if not contents:
+        raise ValueError("Public Provider guide must not be empty")
+    return contents
 
 
 def read_guide(

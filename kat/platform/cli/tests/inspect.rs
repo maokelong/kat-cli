@@ -655,6 +655,44 @@ fn targeted_knowledge_inspection_runs_the_real_installed_host() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) =
         support::stage_real_host_skill(temporary.path(), &cargo_kat(), &python, &workflow_wheel);
+    for broken_pack in [false, true] {
+        if broken_pack {
+            let broken = test_home::data_home(temporary.path()).join("packs/broken");
+            fs::create_dir_all(&broken).unwrap();
+            fs::write(broken.join("pack.toml"), "not valid TOML = [").unwrap();
+        }
+        for selected in [None, Some("ftrace-text")] {
+            let mut public = Command::new(&binary);
+            public.args(["inspect", "provider"]);
+            if let Some(name) = selected {
+                public.args(["--provider", name]);
+            }
+            prepare_platform_data_home(&mut public, temporary.path());
+            let output = public.output().expect("inspect installed public Provider");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            if selected.is_some() {
+                let provider = &response["result"]["provider"];
+                assert_eq!(provider["module"], "kat.dataprovider.ftrace");
+                assert_eq!(provider["qualname"], "FtraceProvider");
+                assert!(
+                    provider["guide"]
+                        .as_str()
+                        .unwrap()
+                        .contains("text_ftrace_event_sched_switch")
+                );
+            } else {
+                assert_eq!(response["result"]["providers"].as_array().unwrap().len(), 1);
+                assert_eq!(response["result"]["providers"][0]["name"], "ftrace-text");
+            }
+        }
+    }
+    fs::remove_file(test_home::data_home(temporary.path()).join("packs/broken/pack.toml")).unwrap();
+    fs::remove_dir(test_home::data_home(temporary.path()).join("packs/broken")).unwrap();
     let pack = temporary.path().join("external-checkout");
     write_pack(&pack, "alpha", "External PACK");
     let workflows = pack.join("workflows");

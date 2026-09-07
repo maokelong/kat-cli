@@ -20,7 +20,7 @@ pub(super) struct InspectArgs {
 enum InspectTarget {
     /// Inspect the Workflows declared by one PACK or the Workflow used by one Run.
     Workflow(InspectWorkflowArgs),
-    /// Inspect the Providers declared by one PACK.
+    /// Inspect public Providers or the Providers declared by one PACK.
     Provider(InspectProviderArgs),
     /// Inspect the published Run inventory of one Analysis Session.
     Session(InspectSessionArgs),
@@ -66,10 +66,10 @@ struct InspectWorkflowArgs {
 
 #[derive(Args)]
 struct InspectProviderArgs {
-    /// Select one exact PACK by manifest name.
+    /// Select only this PACK's Providers; omit to inspect public Providers.
     #[arg(long, value_name = "NAME")]
-    pack: String,
-    /// Select one exact Provider from --pack.
+    pack: Option<String>,
+    /// Select one exact Provider within the chosen scope.
     #[arg(long, value_name = "NAME")]
     provider: Option<String>,
     #[arg(
@@ -111,7 +111,7 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             super::InspectKnowledgeTarget::Workflow(workflow),
         )),
         Some(InspectTarget::Provider(InspectProviderArgs {
-            pack,
+            pack: Some(pack),
             provider,
             pack_directories,
         })) => response::publish(super::inspect_target_pack(
@@ -119,6 +119,11 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             joined_pack_directories(arguments.pack_directories, pack_directories),
             super::InspectKnowledgeTarget::Provider(provider),
         )),
+        Some(InspectTarget::Provider(InspectProviderArgs {
+            pack: None,
+            provider,
+            ..
+        })) => response::publish(super::inspect_public_provider(provider)),
         Some(InspectTarget::Session(InspectSessionArgs { session })) => {
             response::publish(super::inspect_session(session))
         }
@@ -148,6 +153,17 @@ fn joined_pack_directories(
 }
 
 fn validate_arguments(arguments: &InspectArgs) -> Result<(), miette::Report> {
+    if let Some(InspectTarget::Provider(InspectProviderArgs {
+        pack: None,
+        pack_directories,
+        ..
+    })) = &arguments.target
+        && (!arguments.pack_directories.is_empty() || !pack_directories.is_empty())
+    {
+        return Err(miette::miette!(
+            "--pack-dir requires --pack for Provider inspection"
+        ));
+    }
     if matches!(&arguments.target, Some(InspectTarget::Session(_)))
         && !arguments.pack_directories.is_empty()
     {
@@ -166,6 +182,26 @@ mod tests {
     use crate::{Cli, Operation};
 
     const SESSION_ID: &str = "019f6e00-0000-7000-8000-000000000060";
+
+    #[test]
+    fn public_provider_inspection_requires_no_pack_or_pack_directories() {
+        for args in [
+            vec!["kat", "inspect", "provider"],
+            vec!["kat", "inspect", "provider", "--provider", "ftrace-text"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+        for args in [
+            vec!["kat", "inspect", "--pack-dir", "unused", "provider"],
+            vec!["kat", "inspect", "provider", "--pack-dir", "unused"],
+        ] {
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let Operation::Inspect(arguments) = parsed.operation else {
+                unreachable!()
+            };
+            assert!(validate_arguments(&arguments).is_err());
+        }
+    }
 
     #[test]
     fn pack_directories_remain_accepted_before_and_after_pack_targets() {

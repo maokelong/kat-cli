@@ -5,8 +5,12 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from kat_datasource import text_ftrace
+from .._provider import provider
+
+if TYPE_CHECKING:
+    from kat_datasource import text_ftrace
 
 from . import _fusion, _parquet
 from ._table import Table
@@ -19,12 +23,19 @@ _WINDOWS_DEVICE_NAMES = frozenset(
 _WINDOWS_FORBIDDEN_CHARACTERS = frozenset('<>:"/\\|?*')
 
 
+@provider(
+    name="ftrace-text",
+    description="将 tracefs 文本解码为可重复查询的类型化关系。",
+    guide="providers/ftrace.md",
+)
 class FtraceProvider:
     """Decode and query one text Ftrace through a reusable Parquet catalog."""
 
     def __init__(
         self, *, source: Path, clock_domain: str, workspace_root: Path
     ) -> None:
+        from kat_datasource import text_ftrace
+
         for field, value in (("source", source), ("workspace_root", workspace_root)):
             if not isinstance(value, Path):
                 raise TypeError(f"Ftrace Provider {field} must be a Path")
@@ -57,6 +68,8 @@ class FtraceProvider:
         self._open_catalog()
 
     def _decode(self, source: Path) -> None:
+        from kat_datasource import text_ftrace
+
         text_ftrace.decode(source, self._catalog_root, self._clock_domain)
         if not self._catalog_root.is_dir() or self._catalog_root.is_symlink():
             raise RuntimeError(
@@ -64,6 +77,8 @@ class FtraceProvider:
             )
 
     def _open_catalog(self) -> None:
+        from kat_datasource import text_ftrace
+
         catalog = _parquet.open(root=self._catalog_root)
         relations = catalog.tables
         query_provider = _fusion.DataFusionProvider(catalog=catalog)

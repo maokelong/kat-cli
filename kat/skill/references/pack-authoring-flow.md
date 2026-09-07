@@ -47,6 +47,7 @@ PACK 名称：memory-analysis
 根据开发目标分别调用：
 
 - `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取参数合同和 analysis guide。
+- `kat inspect provider`：发现平台公共来源能力；追加 `--provider ftrace-text` 读取公共文本 FtraceProvider 的导入位置和来源 guide，无需先选择 PACK。
 - `kat inspect provider --pack <名称>`：了解 PACK 已有的 Provider；选中一个后追加 `--provider <名称>` 读取代码位置和数据库、SQL、Schema 或接入 guide。
 
 Workflow 和 Provider 是两个独立知识入口。开发 Workflow 时只在需要复用或修改数据能力时 inspect Provider；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
@@ -90,7 +91,7 @@ class PostgreSQLProvider:
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 提供当前 Session 共享的 `ctx.datasource_root`、当前候选执行私有的 `ctx.scratch_root`，以及线程安全的同步 `ctx.run(pack_name, workflow_name, /, **inputs)`；不提供 Session identity 或整个 Session 根。PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
-PACK 在顶层 `datasources/` 中拥有普通 Python 模块和 Provider 类。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
+PACK 自有来源在顶层 `datasources/` 中使用普通 Python 模块和 Provider 类；复用公共 FtraceProvider 时可以省略这一层。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
 
 Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格以及大小写不敏感的 Windows device name。目标存在时先用 `dp.open()` 打开，并校验允许的 relation 集合、每个实际 relation 的完整 columns/物理类型/nullability 与显式版本合同，只有目标不存在时才 decode 或 `dp.write()`。原生 decoder 使用每张 Parquet relation 的 Arrow Schema metadata `kat.materialization.version` 保存版本；Provider 应与对应 `kat_datasource` 模块导出的 `MATERIALIZATION_VERSION_METADATA_KEY` 和 `MATERIALIZATION_VERSION` 比较，不把目录存在或 Schema 恰好相同当成版本兼容。自定义物化也必须定义并验证等价的稳定版本事实。
 
@@ -118,7 +119,7 @@ provider = FtraceProvider(
 result = provider.query("SELECT * FROM text_ftrace_header")
 ```
 
-如果该 Provider 还需要被当前 PACK 的 Provider inspection 发现，在 PACK `datasources/` 中用继承或包装的薄声明类添加 `@kat.provider(...)` 和 PACK 自有 guide；公共实现不替任何 PACK 声明领域知识。
+公共类自身携带 `@kat.provider(...)` 声明与平台维护的来源 guide，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。`--pack` 只查询 PACK 自有 Provider；两个范围允许同名，不合并或自动回退。首版公共 inspection 只收录文本 FtraceProvider。
 
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
@@ -192,7 +193,7 @@ Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Sessio
 
 ## 7. Provider inspection 的执行边界
 
-Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
+不带 `--pack` 的 Provider inspection 直接读取平台公共声明与随 wheel 安装的 guide，不扫描或导入 PACK，也不构造 Provider。带 `--pack` 的 Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
 
 因此 `datasources/` 必须 import-safe：模块导入可以定义类和纯元数据，但不应建立数据库连接、读取凭据、解析输入、启动进程或执行查询。KAT inspection 也不会实例化 Provider 或调用其业务方法。任一导入错误、非法声明、重名或 guide 错误会使本次 inspection 原子失败，不返回部分 Provider 列表。
 

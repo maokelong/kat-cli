@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kat-workflow"
-version = "0.1.1-rc.6"
+version = "0.1.1-rc.7"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "adbc-driver-manager==1.11.0",
@@ -16,5 +16,9 @@ dependencies = [
 ]
 
 [tool.setuptools]
+include-package-data = false
 packages = ["kat", "kat.dataprovider", "_kat_runtime"]
 package-dir = { kat = "api", "_kat_runtime" = "runtime" }
+
+[tool.setuptools.package-data]
+"kat.dataprovider" = ["knowledge/providers/*.md"]

@@ -547,6 +547,32 @@ def analyze(ctx: Context, *, limit: int = 10):
         self.assertEqual(response["status"], "failure")
         self.assertFalse(marker.exists())
 
+    def test_public_provider_inspection_needs_no_pack(self) -> None:
+        request = {
+            "operation": "inspect_provider",
+            "pack_name": None,
+            "pack_path": None,
+            "provider_name": None,
+        }
+        completed, response = self.run_runtime(request)
+        self.assertEqual(
+            completed.returncode, 0, completed.stderr.decode(errors="replace")
+        )
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            [entry["name"] for entry in response["result"]["providers"]],
+            ["ftrace-text"],
+        )
+        completed, response = self.run_runtime(
+            {**request, "provider_name": "ftrace-text"}
+        )
+        self.assertEqual(response["status"], "success", response)
+        provider = response["result"]["provider"]
+        self.assertEqual(provider["module"], "kat.dataprovider.ftrace")
+        self.assertEqual(provider["qualname"], "FtraceProvider")
+        self.assertIn("text_ftrace_event_sched_switch", provider["guide"])
+        self.assertIn("clock_domain", provider["guide"])
+
     def test_inspect_provider_request_is_strict(self) -> None:
         for request in (
             {
@@ -592,6 +618,104 @@ def analyze(ctx: Context, *, limit: int = 10):
             response,
             {"status": "success", "result": {"providers": []}},
         )
+
+    def test_provider_scopes_do_not_shadow_or_fall_back(self) -> None:
+        pack = self.root / "same-name-pack"
+        (pack / "datasources").mkdir(parents=True)
+        (pack / "knowledge" / "providers").mkdir(parents=True)
+        (pack / "knowledge" / "providers" / "custom.md").write_text(
+            "# PACK-owned source\n", encoding="utf-8", newline=""
+        )
+        (pack / "datasources" / "custom.py").write_text(
+            "from kat import provider\n"
+            "from kat.dataprovider.ftrace import FtraceProvider\n"
+            "@provider(name='ftrace-text', description='PACK source', guide='providers/custom.md')\n"
+            "class CustomProvider:\n"
+            "    def __init__(self):\n"
+            "        raise AssertionError('inspection must not construct')\n",
+            encoding="utf-8",
+        )
+        request = {
+            "operation": "inspect_provider",
+            "pack_name": "custom",
+            "pack_path": str(pack.resolve()),
+            "provider_name": "ftrace-text",
+        }
+        _, response = self.run_runtime(request)
+        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(response["result"]["provider"]["qualname"], "CustomProvider")
+        self.assertEqual(
+            response["result"]["provider"]["guide"], "# PACK-owned source\n"
+        )
+        (pack / "datasources" / "custom.py").write_text(
+            "from kat.dataprovider.ftrace import FtraceProvider\n", encoding="utf-8"
+        )
+        _, response = self.run_runtime({**request, "provider_name": None})
+        self.assertEqual(response["result"], {"providers": []})
+        _, response = self.run_runtime(request)
+        self.assertEqual(response["status"], "failure")
+        self.assertIn("selected PACK", str(response["error"]))
+        _, response = self.run_runtime(
+            {**request, "pack_name": None, "pack_path": None}
+        )
+        self.assertEqual(response["result"]["provider"]["qualname"], "FtraceProvider")
+        _, response = self.run_runtime(
+            {
+                **request,
+                "pack_name": None,
+                "pack_path": None,
+                "provider_name": "missing",
+            }
+        )
+        self.assertEqual(response["status"], "failure")
+        self.assertIn("public Providers", str(response["error"]))
+
+    def test_public_provider_request_rejects_partial_pack_scope(self) -> None:
+        for name, path in ((None, str(self.root)), ("pack", None), (False, None)):
+            _, response = self.run_runtime(
+                {
+                    "operation": "inspect_provider",
+                    "pack_name": name,
+                    "pack_path": path,
+                    "provider_name": None,
+                }
+            )
+            self.assertEqual(response["status"], "failure", response)
+            self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
+
+    def test_public_inspection_reads_knowledge_without_constructing(self) -> None:
+        from _kat_runtime.provider_inspection import (
+            ProviderInspectionError,
+            inspect_provider,
+        )
+        from kat.dataprovider.ftrace import FtraceProvider
+
+        with mock.patch.object(
+            FtraceProvider, "__init__", side_effect=AssertionError("constructed")
+        ):
+            self.assertEqual(
+                inspect_provider(None, None).providers[0]["name"], "ftrace-text"
+            )
+            self.assertEqual(
+                inspect_provider(None, None, "ftrace-text").provider["qualname"],
+                "FtraceProvider",
+            )
+        with mock.patch.object(Path, "is_file", return_value=False):
+            with self.assertRaises(ProviderInspectionError) as failure:
+                inspect_provider(None, None)
+            self.assertIn("installed KAT", failure.exception.diagnostic["help"])
+        import io
+
+        with (
+            mock.patch.object(Path, "open", return_value=io.StringIO("")),
+            self.assertRaises(ProviderInspectionError),
+        ):
+            inspect_provider(None, None)
+        with (
+            mock.patch.object(Path, "open", side_effect=UnicodeError("invalid UTF-8")),
+            self.assertRaises(ProviderInspectionError),
+        ):
+            inspect_provider(None, None)
 
     def test_workflow_directory_state_errors_are_not_treated_as_absence(self) -> None:
         missing = self.root / "missing-workflows"

@@ -425,8 +425,8 @@ pub(super) struct InspectWorkflowRequest<'a> {
 #[derive(Serialize)]
 pub(super) struct InspectProviderRequest<'a> {
     pub(super) operation: &'static str,
-    pub(super) pack_name: &'a str,
-    pub(super) pack_path: &'a str,
+    pub(super) pack_name: Option<&'a str>,
+    pub(super) pack_path: Option<&'a str>,
     pub(super) provider_name: Option<&'a str>,
 }
 
