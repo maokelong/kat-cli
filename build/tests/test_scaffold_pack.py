@@ -27,7 +27,7 @@ class ScaffoldPackTests(unittest.TestCase):
             )
 
             pack = packs / "memory-analysis"
-            self.assertEqual(Path(result["pack_directory"]), pack)
+            self.assertEqual(Path(result["pack_directory"]), pack.resolve())
             self.assertEqual(
                 (pack / "pack.toml").read_text(encoding="utf-8"),
                 'name = "memory-analysis"\n'
