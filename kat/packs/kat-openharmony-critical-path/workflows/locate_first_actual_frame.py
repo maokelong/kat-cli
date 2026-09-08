@@ -11,6 +11,7 @@ from kat.pack.helpers.critical_path import TraceStreamerFacts, locate_first_actu
         "sqlite_path": "Absolute path to a Trace Streamer SQLite database.",
         "process_name": "Exact process name to locate.",
     },
+    guide="workflows/locate-first-actual-frame.md",
 )
 def locate_first_actual_frame_workflow(
     ctx: kat.Context,
