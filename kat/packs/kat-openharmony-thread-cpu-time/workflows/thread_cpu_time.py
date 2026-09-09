@@ -1,7 +1,7 @@
 import kat
 import pyarrow as pa
 
-from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
 
 
 THREAD_CPU_TIME_SCHEMA = pa.schema(
@@ -53,7 +53,7 @@ ORDER BY
 def thread_cpu_time(ctx: kat.Context, sqlite_path: str):
     """仅统计可观测完整区间，避免把 Trace 首尾的未知 CPU 时间补入结果。"""
     del ctx
-    provider = TraceStreamerSQLiteProvider(sqlite_path=sqlite_path)
+    provider = TraceStreamerProvider(sqlite_path=sqlite_path)
     return {
         "thread_cpu_time_by_cpu": provider.query(
             THREAD_CPU_TIME_SQL,

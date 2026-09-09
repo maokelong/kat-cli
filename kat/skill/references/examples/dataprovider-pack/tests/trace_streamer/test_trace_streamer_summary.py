@@ -1,7 +1,8 @@
 from pathlib import Path
 import sys
 
-from kat.pack.datasources import trace_streamer
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat.pack.workflows import summarize_native_hook as summary
 
 
 def test_provider_returns_native_hook_summary(tmp_path: Path):
@@ -29,14 +30,14 @@ connection.close()
 """.strip(),
         encoding="utf-8",
     )
-    provider = trace_streamer.TraceStreamerProvider(
+    provider = TraceStreamerProvider(
         source=source,
         executable=Path(sys.executable),
-        workspace=tmp_path / "decoded",
-    ).decode()
+        workspace_root=tmp_path,
+    )
     result = provider.query(
-        trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
-        schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
+        summary.NATIVE_HOOK_SUMMARY_SQL,
+        schema=summary.NATIVE_HOOK_SUMMARY_SCHEMA,
     )
 
     assert result.to_rows() == [

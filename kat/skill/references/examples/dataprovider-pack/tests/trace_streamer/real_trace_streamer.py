@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 import subprocess
 
-from kat.pack.datasources import trace_streamer
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat.pack.workflows import summarize_native_hook as summary
 
 
 def _required_file(name: str) -> Path:
@@ -29,15 +30,15 @@ def test_real_trace_streamer_native_hook_summary(tmp_path: Path):
     assert version.stdout == ""
     assert version.stderr.strip() == "version 4.3.7"
 
-    provider = trace_streamer.TraceStreamerProvider(
+    provider = TraceStreamerProvider(
         source=_required_file("KAT_TEST_HTRACE_PATH"),
         executable=executable,
-        workspace=tmp_path / "workspace",
-    ).decode()
+        workspace_root=tmp_path,
+    )
 
     result = provider.query(
-        trace_streamer.NATIVE_HOOK_SUMMARY_SQL,
-        schema=trace_streamer.NATIVE_HOOK_SUMMARY_SCHEMA,
+        summary.NATIVE_HOOK_SUMMARY_SQL,
+        schema=summary.NATIVE_HOOK_SUMMARY_SCHEMA,
     )
 
     assert result.to_rows() == [

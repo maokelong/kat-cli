@@ -115,7 +115,7 @@ class SkillReferencePackProcessTest(unittest.TestCase):
             providers = provider_response["result"]["providers"]
             self.assertEqual(
                 [provider["name"] for provider in providers],
-                ["ftrace-text", "postgresql", "trace-streamer-sqlite"],
+                ["ftrace-text", "postgresql"],
             )
             self.assertTrue(
                 all(set(provider) == {"name", "description"} for provider in providers)

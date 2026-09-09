@@ -1,6 +1,6 @@
 import kat
 
-from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
 from kat.pack.helpers.critical_path import TraceStreamerFacts, extract_critical_path
 
 
@@ -27,5 +27,5 @@ def extract_critical_path_workflow(
 ):
     """为一个线程窗口提取有界调度关键路径及调用栈证据。"""
     del ctx
-    provider = TraceStreamerSQLiteProvider(sqlite_path=sqlite_path)
+    provider = TraceStreamerProvider(sqlite_path=sqlite_path)
     return extract_critical_path(TraceStreamerFacts(provider), root_itid, start_ts, end_ts, max_depth, min_segment_ms)

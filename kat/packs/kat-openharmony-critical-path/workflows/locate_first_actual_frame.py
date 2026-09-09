@@ -1,6 +1,6 @@
 import kat
 
-from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
 from kat.pack.helpers.critical_path import TraceStreamerFacts, locate_first_actual_frame
 
 
@@ -19,5 +19,5 @@ def locate_first_actual_frame_workflow(
 ):
     """定位指定进程最早完成且持续时间为正的实际帧。"""
     del ctx
-    provider = TraceStreamerSQLiteProvider(sqlite_path=sqlite_path)
+    provider = TraceStreamerProvider(sqlite_path=sqlite_path)
     return {"frame_window": locate_first_actual_frame(TraceStreamerFacts(provider), process_name)}
