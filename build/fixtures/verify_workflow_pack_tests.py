@@ -22,8 +22,6 @@ def main() -> None:
     data_home.mkdir()
     environment = {**os.environ, "KAT_DATA_HOME": str(data_home)}
     packs = sorted(path.parent for path in args.bundled_packs.glob("*/pack.toml"))
-    if not packs:
-        raise RuntimeError("No Bundled PACKs found")
     for pack in [*packs, args.composition_pack]:
         completed = subprocess.run(
             [str(args.cli.resolve()), "test", "--pack-dir", str(pack.resolve())],
