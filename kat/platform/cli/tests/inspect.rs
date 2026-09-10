@@ -686,8 +686,13 @@ fn targeted_knowledge_inspection_runs_the_real_installed_host() {
                         .contains("text_ftrace_event_sched_switch")
                 );
             } else {
-                assert_eq!(response["result"]["providers"].as_array().unwrap().len(), 1);
-                assert_eq!(response["result"]["providers"][0]["name"], "ftrace-text");
+                let names = response["result"]["providers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|provider| provider["name"].as_str().unwrap())
+                    .collect::<Vec<_>>();
+                assert_eq!(names, ["ftrace-text", "trace-streamer-sqlite"]);
             }
         }
     }
