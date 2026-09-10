@@ -1,0 +1,32 @@
+kat/platform/cli/tests/inspect.rs
+  s_cf92f831b82cfc::t_ff2ce9804b3bae 13-15,1127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "89338ed12815ad114f2a01968f63756c1673ba5d",
+  "prompts": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 1,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
