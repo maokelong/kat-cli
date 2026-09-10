@@ -119,7 +119,7 @@ provider = FtraceProvider(
 result = provider.query("SELECT * FROM text_ftrace_header")
 ```
 
-公共类自身携带 `@kat.provider(...)` 声明与平台维护的来源 guide，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。`--pack` 只查询 PACK 自有 Provider；两个范围允许同名，不合并或自动回退。首版公共 inspection 只收录文本 FtraceProvider。
+公共类自身携带 `@kat.provider(...)` 声明与平台维护的来源 guide，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。`--pack` 只查询 PACK 自有 Provider；两个范围允许同名，不合并或自动回退。公共 inspection 提供 `ftrace-text` 和 `trace-streamer-sqlite`。
 
 复用公共 FtraceProvider 时，来源约束以其公共 guide 为准。它默认信任 datasource 输出，直接使用实际关系和报告，不重复校验关系白名单、Schema 或物化版本；消费 PACK 无需补充准入包装。Source stem 合法性、显式 clock domain 和物化目录复用约束继续生效。
 
@@ -312,3 +312,24 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。
+
+
+### 公共 Trace Streamer Provider
+
+`from kat.dataprovider.trace_streamer import TraceStreamerProvider` 提供两个互斥入口：
+
+```python
+provider = TraceStreamerProvider(
+    source=Path(source_path), executable=Path(parser_path),
+    workspace_root=ctx.datasource_root,
+)
+# 或直接打开现有数据库：
+provider = TraceStreamerProvider(sqlite_path=sqlite_path)
+result = provider.query(sql, schema=result_schema, params={"minimum": 1})
+```
+
+解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。
+构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。
+解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。
+物化沿用 ADR-0077 的 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
+公共 Provider 的声明与 SQL guide 由平台交付，消费 PACK 无需复制来源声明或 guide。

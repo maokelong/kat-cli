@@ -90,10 +90,13 @@ def inspect_provider(
         if not public and (not selected_pack_name or pack_path is None):
             raise ValueError("PACK name must be a non-empty string")
         if public:
-            module = importlib.import_module("kat.dataprovider.ftrace")
-            providers = _inspect_module(module, read_public_provider_guide)
-            if not providers:
-                raise ValueError("Public FtraceProvider declaration is missing")
+            providers = []
+            for module_name in ("kat.dataprovider.ftrace", "kat.dataprovider.trace_streamer"):
+                module = importlib.import_module(module_name)
+                declared = _inspect_module(module, read_public_provider_guide)
+                if not declared:
+                    raise ValueError(f"Public Provider declaration is missing: {module_name}")
+                providers.extend(declared)
         else:
             assert pack_path is not None
             modules = _provider_modules(pack_path)

@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from kat.pack.datasources.trace_streamer import TraceStreamerSQLiteProvider
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
 from kat.pack.helpers import critical_path
 from kat.pack.helpers.critical_path import (
     CriticalPathError,
@@ -103,7 +103,7 @@ def trace_streamer_facts(tmp_path, frames, *, root_thread_ipid=10):
     finally:
         connection.close()
     return TraceStreamerFacts(
-        TraceStreamerSQLiteProvider(sqlite_path=str(database.resolve()))
+        TraceStreamerProvider(sqlite_path=str(database.resolve()))
     )
 
 

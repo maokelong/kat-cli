@@ -163,4 +163,4 @@ kat test --pack-dir <PACK目录> --test <pytest node ID> [--test <pytest node ID
 
 在生产执行平面运行该 PACK 的 pytest。`--pack-dir` 是一个直接包含 `pack.toml` 的精确目录，不使用 PACK 名称。测试 fixture 用普通来源文件、配置和临时路径构造 Provider；`kat_run` 只接收 Workflow 和 arguments。成功 `result.summary` 是测试结论；失败时引用 Response 的 Diagnostic，以及存在时的 `test_report_path` 和 `log_path`。测试或诊断失败不授权修改 PACK。
 
-Provider inspection 不带 `--pack` 时只查询平台公共 Provider（首版为 `ftrace-text`）；带 `--pack` 时只查询该 PACK 自有声明。两个范围允许同名，未找到时不自动切换。`--pack-dir` 必须与 `--pack` 一起使用。
+Provider inspection 不带 `--pack` 时只查询平台公共 Provider（`ftrace-text`、`trace-streamer-sqlite`）；带 `--pack` 时只查询该 PACK 自有声明。两个范围允许同名，未找到时不自动切换。`--pack-dir` 必须与 `--pack` 一起使用。

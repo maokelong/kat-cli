@@ -220,6 +220,29 @@ def analyze(ctx: Context, *, limit: int = 10):
                 self.assertEqual(response["status"], "failure")
                 self.assertNotIn("result", response)
 
+    def test_public_trace_streamer_inspection_needs_no_pack(self) -> None:
+        request = {
+            "operation": "inspect_provider", "pack_name": None,
+            "pack_path": None, "provider_name": "trace-streamer-sqlite",
+        }
+        completed, response = self.run_runtime(request)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(response["status"], "success", response)
+        provider = response["result"]["provider"]
+        self.assertEqual(provider["module"], "kat.dataprovider.trace_streamer")
+        self.assertEqual(provider["qualname"], "TraceStreamerProvider")
+        self.assertIn("sched_slice", provider["guide"])
+        self.assertNotIn("TraceStreamerProvider(", provider["guide"])
+        request["provider_name"] = None
+        _, listed = self.run_runtime(request)
+        self.assertEqual(
+            [item["name"] for item in listed["result"]["providers"]],
+            ["ftrace-text", "trace-streamer-sqlite"],
+        )
+        request["provider_name"] = "missing"
+        _, missing = self.run_runtime(request)
+        self.assertEqual(missing["status"], "failure")
+
     def test_inspect_provider_lists_and_selects_recursive_declarations(self) -> None:
         pack = self.root / "provider-pack"
         (pack / "datasources" / "nested").mkdir(parents=True)
@@ -561,7 +584,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         self.assertEqual(response["status"], "success", response)
         self.assertEqual(
             [entry["name"] for entry in response["result"]["providers"]],
-            ["ftrace-text"],
+            ["ftrace-text", "trace-streamer-sqlite"],
         )
         completed, response = self.run_runtime(
             {**request, "provider_name": "ftrace-text"}

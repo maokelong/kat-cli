@@ -8,7 +8,7 @@
 |---|---|---|---|
 | `PostgreSQLProvider` | ADBC 直接读取远端结果 | PostgreSQL SQL | `query-observations`、`fuse-observations` |
 | `FtraceTextProvider` | Python 解析 tracefs 文本并写入两张 Parquet 表 | DataFusion SQL | `summarize-ftrace-events` |
-| `TraceStreamerProvider` | Trace Streamer 将 Htrace 物化为临时 SQLite | SQLite SQL | `summarize-native-hook` |
+| `TraceStreamerProvider` | 公共 Provider 将 Htrace 物化为 Session 内可复用 SQLite | SQLite SQL | `summarize-native-hook` |
 
 Provider 都是 PACK 自有的普通 Python 类。`@kat.provider` 只附加 inspection 元数据；
 KAT 可以发现声明，但不会构造或包装 Provider。Workflow 显式调用 `decode()`、`query()`
@@ -28,7 +28,6 @@ dataprovider-pack/
 ├─ datasources/
 │  ├─ postgresql.py
 │  ├─ ftrace.py
-│  └─ trace_streamer.py
 ├─ knowledge/
 │  ├─ providers/
 │  └─ workflows/
@@ -104,9 +103,12 @@ query，返回的 eager Table 不再依赖临时 Parquet。
 
 ## Trace Streamer：二进制解析与 SQLite
 
-`TraceStreamerProvider.decode()` 在 `ctx.scratch_root` 下 Workflow 独占的临时目录中用参数列表启动部署时
-批准的 Trace Streamer，不使用 shell。只有进程成功、输出是普通 SQLite 文件、
-`quick_check` 通过且存在业务 relation 时才进入 ready 状态。
+Workflow 直接导入 `kat.dataprovider.trace_streamer.TraceStreamerProvider`，在构造时传入
+`source`、`executable` 和 `workspace_root=ctx.datasource_root`。初始化在 Session 专用物化路径
+准备 SQLite，已有完整结果直接复用；损坏物化报错，不覆盖重解码。
+
+通过 `kat inspect provider --provider trace-streamer-sqlite` 读取公共 SQL guide；
+该 Provider 不再列入示例 PACK 的自有 Provider 列表。
 
 `query()` 用 `mode=ro`、`PRAGMA query_only` 和 authorizer 限制为只读 SQLite 查询。
 调用方用 `pyarrow.Schema` 声明结果的精确物理列类型、nullability 与投影顺序；列名和顺序
