@@ -10,6 +10,9 @@ use std::{
 mod support;
 use support::cargo_kat;
 
+#[path = "support/process.rs"]
+mod process;
+
 #[path = "support/parquet.rs"]
 mod parquet_fixture;
 
@@ -1121,7 +1124,7 @@ fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
         .current_dir(&cwd)
         .args(["inspect", "--pack-dir", "relative-pack"]);
     prepare_platform_data_home(&mut command, temporary.path());
-    let output = command.output().expect("run staged kat inspect");
+    let output = process::output(&mut command).expect("run staged kat inspect");
 
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
