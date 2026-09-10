@@ -1,0 +1,36 @@
+kat/platform/workflow/pyproject.toml
+  s_cf92f831b82cfc::t_2cb197fecae0ae 7
+Cargo.toml
+  s_cf92f831b82cfc::t_2cb197fecae0ae 10
+release/kat/dist.toml
+  s_cf92f831b82cfc::t_2cb197fecae0ae 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c418c6feac3be72773967421242241695071f0f6",
+  "prompts": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
