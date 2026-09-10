@@ -27,7 +27,10 @@ def main() -> None:
         return response
 
     listing = invoke("inspect", "provider")["result"]["providers"]
-    assert [item["name"] for item in listing] == ["ftrace-text"], listing
+    assert [item["name"] for item in listing] == [
+        "ftrace-text",
+        "trace-streamer-sqlite",
+    ], listing
     detail = invoke("inspect", "provider", "--provider", "ftrace-text")["result"][
         "provider"
     ]
