@@ -16,4 +16,4 @@ status: accepted
 
 `kat-review` 重查前遵循对应部署的命令合同和 Data Home，缺少可用部署时仍可复核已提供的材料，并明确没有重新查询输出。
 
-首版不新增 Analysis Record、完整历史采集、记录执行入口、CLI 操作、Guide 历史快照、交付完成门禁或跨机器复现能力，也不在每次原分析交付前自动调用第二个 AI。需求与验收见 [事后复核规格](../specs/analysis-audit.md) 和 [Issue #278](https://github.com/maokelong/kat-cli/issues/278)。
+首版不新增 Analysis Record、完整历史采集、记录执行入口、CLI 操作、Guide 历史快照、交付完成门禁或跨机器复现能力，也不在每次原分析交付前自动调用第二个 AI。需求与验收见 [Issue #278](https://github.com/maokelong/kat-cli/issues/278)。
