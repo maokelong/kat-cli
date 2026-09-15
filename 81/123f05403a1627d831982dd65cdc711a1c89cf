@@ -1,0 +1,33 @@
+build/tests/test_skill_collection.py
+  s_9807c18c839059::t_d4b9f2f2340a1d 34,117-123
+build/verify_skill_collection.py
+  s_9807c18c839059::t_d4b9f2f2340a1d 87-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "81123f05403a1627d831982dd65cdc711a1c89cf",
+  "prompts": {},
+  "sessions": {
+    "s_9807c18c839059": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a2f6-2a1e-7af3-9b20-2404a491f951",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 10,
+      "total_deletions": 6,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_d4b9f2f2340a1d": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 10,
+          "deletions": 6
+        }
+      }
+    }
+  }
+}
