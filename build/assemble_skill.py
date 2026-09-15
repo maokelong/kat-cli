@@ -1,4 +1,4 @@
-"""把四个黑盒输入装配到调用方独占的全新 deployment view。"""
+"""把 KAT Skills 集合及三个黑盒输入装配到全新 deployment view。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,9 @@ import argparse
 import shutil
 import tempfile
 from pathlib import Path
+
+
+SKILL_NAMES = ("kat", "kat-analyze", "kat-author", "kat-review")
 
 
 class AssemblyError(ValueError):
@@ -42,26 +45,43 @@ def _validate_symlink_closure(root: Path, label: str) -> None:
             )
 
 
+def _validate_skills_source(root: Path) -> None:
+    # 顶层只接受本次成套发布的四个入口，避免把旁路文件意外装入归档。
+    unexpected = {path.name for path in root.iterdir()} - set(SKILL_NAMES)
+    if unexpected:
+        raise AssemblyError(f"unexpected entries in Skills source: {sorted(unexpected)}")
+    for name in SKILL_NAMES:
+        skill = _directory(root / name, f"Skill {name}")
+        entry = skill / "SKILL.md"
+        if not entry.is_file():
+            raise AssemblyError(f"Skill {name} SKILL.md file is missing: {entry}")
+        try:
+            content = entry.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            raise AssemblyError(f"Skill {name} SKILL.md must be UTF-8: {entry}") from error
+        if not content.strip():
+            raise AssemblyError(f"Skill {name} SKILL.md is empty: {entry}")
+
+
 def _validated_inputs(
-    skill_source: Path,
+    skills_source: Path,
     packs: Path,
     linux_payload: Path,
     windows_payload: Path,
     output: Path,
 ) -> tuple[Path, Path, Path, Path, Path]:
-    skill_source = _directory(skill_source, "Skill source")
+    skills_source = _directory(skills_source, "Skills source")
     packs = _directory(packs, "Bundled PACK source")
     linux_payload = _directory(linux_payload, "Linux Platform Payload")
     windows_payload = _directory(windows_payload, "Windows Platform Payload")
-    output = output.resolve()
-
     if output.exists() or output.is_symlink():
         raise AssemblyError(
             f"output already exists; refusing to merge deployment views: {output}"
         )
+    output = output.resolve()
 
     sources = (
-        ("Skill source", skill_source),
+        ("Skills source", skills_source),
         ("Bundled PACK source", packs),
         ("Linux Platform Payload", linux_payload),
         ("Windows Platform Payload", windows_payload),
@@ -77,20 +97,21 @@ def _validated_inputs(
                     f"assembly inputs overlap: {left_label} {left} and {right_label} {right}"
                 )
 
-    return skill_source, packs, linux_payload, windows_payload, output
+    _validate_skills_source(skills_source)
+    return skills_source, packs, linux_payload, windows_payload, output
 
 
 def assemble_skill(
     *,
-    skill_source: Path,
+    skills_source: Path,
     packs: Path,
     linux_payload: Path,
     windows_payload: Path,
     output: Path,
 ) -> Path:
-    """在同目录 staging 后发布到装配期间由调用方独占的缺席路径。"""
-    skill_source, packs, linux_payload, windows_payload, output = _validated_inputs(
-        skill_source,
+    """把四个同级 Skill 发布到集合根；调用方须独占缺席的 output 路径。"""
+    skills_source, packs, linux_payload, windows_payload, output = _validated_inputs(
+        skills_source,
         packs,
         linux_payload,
         windows_payload,
@@ -102,16 +123,17 @@ def assemble_skill(
         tempfile.mkdtemp(prefix=f".{output.name}-assembly-", dir=output.parent)
     )
     try:
-        shutil.copytree(skill_source, staging, dirs_exist_ok=True, symlinks=True)
-        shutil.copytree(packs, staging / "assets" / "packs", symlinks=True)
+        shutil.copytree(skills_source, staging, dirs_exist_ok=True, symlinks=True)
+        shared = staging / "kat"
+        shutil.copytree(packs, shared / "assets" / "packs", symlinks=True)
         shutil.copytree(
             linux_payload,
-            staging / "scripts" / "targets" / "linux-x86_64",
+            shared / "scripts" / "targets" / "linux-x86_64",
             symlinks=True,
         )
         shutil.copytree(
             windows_payload,
-            staging / "scripts" / "targets" / "windows-x86_64",
+            shared / "scripts" / "targets" / "windows-x86_64",
             symlinks=True,
         )
         # 同目录 rename 是单写入者流程的提交点；调用方负责在装配期间独占 output。
@@ -125,9 +147,9 @@ def assemble_skill(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Assemble KAT Skill source, bundled PACKs, and both platform payloads."
+        description="Assemble four KAT Skills, bundled PACKs, and both platform payloads."
     )
-    parser.add_argument("--skill-source", required=True, type=Path)
+    parser.add_argument("--skills-source", required=True, type=Path)
     parser.add_argument("--packs", required=True, type=Path)
     parser.add_argument("--linux-payload", required=True, type=Path)
     parser.add_argument("--windows-payload", required=True, type=Path)
@@ -138,7 +160,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     arguments = _parser().parse_args()
     assemble_skill(
-        skill_source=arguments.skill_source,
+        skills_source=arguments.skills_source,
         packs=arguments.packs,
         linux_payload=arguments.linux_payload,
         windows_payload=arguments.windows_payload,

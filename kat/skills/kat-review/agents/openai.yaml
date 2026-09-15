@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT Review"
+  short_description: "总结 KAT 分析问题，逐条核对报告结论与现存证据并说明缺口"
+  default_prompt: "使用 $kat-review 总结这份 KAT 分析，并依据现存证据逐条复核其结论。"

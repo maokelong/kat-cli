@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT"
+  short_description: "将 KAT 任务路由到问题分析、PACK 创作维护或分析结论复核"
+  default_prompt: "使用 $kat 根据我的目标选择问题分析、PACK 创作维护或分析复核流程。"

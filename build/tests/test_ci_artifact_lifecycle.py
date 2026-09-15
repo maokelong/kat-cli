@@ -251,7 +251,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
             REPOSITORY
             / "docs/adr/0004-supported-execution-requires-the-bundled-python-host.md",
             REPOSITORY / "docs/adr/0011-skill-directly-selects-the-platform-payload.md",
-            REPOSITORY / "kat/skill/SKILL.md",
+            REPOSITORY / "kat/skills/kat/SKILL.md",
         )
         for path in canonical_files:
             with self.subTest(path=path):

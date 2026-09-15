@@ -16,9 +16,9 @@ description: 在 KAT 性能分析完成后，按需总结原问题、检查报�
 
 ## 需要查询 KAT 时
 
-先从当前环境的已安装 Skill 位置或用户提供的完整 deployment 根定位 KAT Skill 根目录及其中的 `SKILL.md`。读取该版本 `references/command-reference.md`，复用平台载荷选择、Data Home 和 Response 合同；只读取相关合同，不触发原 KAT 分析流程，也不修改原 Skill。
+从本 `SKILL.md` 的绝对位置解析相邻 `../kat/`，确认其中的 `SKILL.md`，读取 [公共命令合同](../kat/references/command-reference.md)。该 `kat/SKILL.md` 的父目录才是合同中的 `<kat-root>`；不依赖当前工作目录，也不先触发总路由或分析流程。四个 Skill 成套安装并随同一版本升级。
 
-使用部署中选出的载荷绝对路径，不猜测 `PATH`，不以仓库 Cargo 产物、系统 Python 或系统 `kat` 代替完整部署。找不到可用部署时，仍可复核用户已提供的材料并说明无法重新查询；需要补齐该依赖时只询问完整部署路径，不要求安装或现场构建。
+按公共合同复用平台载荷选择、Data Home 和 Response 规则，使用选中 CLI 的绝对路径，不以仓库 Cargo 产物、系统 Python、`PATH` 中的 `kat` 或其他版本的载荷拼装部署。相邻共享目录或载荷不可用时，仍可复核用户已提供的材料并说明无法重新查询；需要补齐该依赖时只询问完整集合的部署路径，从其中同级 `kat-review/SKILL.md` 与 `kat/` 继续，不要求现场构建。
 
 只对已有数据使用以下能力，命令格式和字段以该版本命令合同为准：
 

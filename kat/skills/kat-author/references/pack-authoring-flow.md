@@ -4,10 +4,10 @@
 
 当用户明确要求创建 PACK 时，先确定四项静态清单信息：小写 ASCII kebab-case `name`、面向用户的 `title`、说明领域边界的 `description`，以及承担维护责任的 `owner`。目标必须是用户指定或当前任务已明确的 PACK 集合目录，最终路径固定为 `<packs-dir>/<name>`。不能可靠推断 owner 或目标目录时先询问，不用 `unknown`、`TODO` 或虚构团队补位。
 
-使用 Skill 自带脚本生成骨架，不手工拼接模板：
+使用本 Skill 自带的纯标准库脚本生成骨架，不手工拼接模板。`<author-root>` 是 `kat-author/SKILL.md` 的绝对父目录；用可用的宿主 Python 执行该脚本，KAT 命令仍使用相邻 `kat/` 中的 CLI 与其管理的私有 Host：
 
 ```text
-python scripts/scaffold_pack.py \
+python <author-root>/scripts/scaffold_pack.py \
   --packs-dir <packs-directory> \
   --name <pack-name> \
   --title <display-title> \
@@ -22,7 +22,7 @@ python scripts/scaffold_pack.py \
 用户可以直接用自然语言触发该流程，例如：
 
 ```text
-/kat 请在 packs 目录下创建一个内存分析领域的 PACK。
+/kat-author 请在 packs 目录下创建一个内存分析领域的 PACK。
 
 PACK 名称：memory-analysis
 标题：内存分析
@@ -35,7 +35,7 @@ PACK 名称：memory-analysis
 也可以使用紧凑形式：
 
 ```text
-/kat 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
+/kat-author 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
 ```
 
 提示中至少需要明确领域或用途和真实维护方。名称缺失时可以根据领域生成合法的 kebab-case 名称；目标目录已由当前仓库约定明确时可以沿用。仍无法确定清单必填信息时，只询问缺失项。

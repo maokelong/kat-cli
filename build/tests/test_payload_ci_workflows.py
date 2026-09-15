@@ -38,6 +38,26 @@ SCCACHE_ACTION = (
 
 
 class PayloadCiWorkflowTests(unittest.TestCase):
+    def test_final_archive_and_relocated_smokes_check_the_complete_collection(
+        self,
+    ) -> None:
+        workflow = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--skills-source kat/skills", workflow)
+        self.assertIn("--output target/kat/release/skills", workflow)
+        self.assertIn(
+            '-C target/kat/release/skills -czf "target/distrib/release/${artifact}"',
+            workflow,
+        )
+        self.assertIn("            kat kat-analyze kat-author kat-review\n", workflow)
+        self.assertEqual(workflow.count("build/verify_skill_collection.py"), 3)
+        self.assertIn('tar -xzf "$ARTIFACT_NAME" -C ../verified-skills', workflow)
+        self.assertIn("mv target/kat/smoke-input target/kat/smoke-relocated", workflow)
+        self.assertIn("skills=/repo/target/kat/smoke-relocated", workflow)
+        self.assertIn("skill=$skills/kat", workflow)
+        self.assertIn("Move-Item -LiteralPath $smokeInput -Destination $skills", workflow)
+        self.assertIn('$skill = Join-Path $skills "kat"', workflow)
+        self.assertNotIn("--skill-source ", workflow)
+
     def test_payload_smoke_hitrace_fixture_is_small_and_deterministic(self) -> None:
         generator = REPOSITORY / "build/fixtures/create_payload_smoke_hitrace.py"
         with tempfile.TemporaryDirectory() as directory:

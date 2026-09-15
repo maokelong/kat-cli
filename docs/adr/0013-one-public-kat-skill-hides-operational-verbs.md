@@ -4,7 +4,7 @@ status: accepted
 
 # 单一 KAT Skill 隐藏内部操作动词
 
-本 ADR 关于唯一 Skill 入口的约束由 [ADR-0082](0082-kat-review-rechecks-existing-evidence.md) 局部替代：用户可通过独立 `kat-review` Skill 事后复核已有分析。原 `kat` Skill 的分析与 PACK 开发流程、内部操作边界继续有效。
+本 ADR 关于唯一 Skill 入口的约束由 [ADR-0082](0082-kat-review-rechecks-existing-evidence.md) 局部替代：保留 `kat` 总路由，以 `kat-analyze`、`kat-author`、`kat-review` 分别承接问题分析、PACK 创作与维护、分析复核，四个入口随同一集合发布。内部操作不作为独立产品面的边界继续有效。
 
 KAT 第一版只向用户发布一个 `$kat` Skill。用户用自然语言表达数据分析或 PACK 开发目标；Skill 内部路由到 KAT analysis flow 或 KAT PACK authoring flow。单一 `kat` 可执行文件以 `kat import`、`kat inspect`、`kat test`、`kat run` 和 `kat query` 这些顶层私有动词表达内部操作。KAT 始终是命令主语，PACK、Workflow 和 Run 只是动作目标；不使用 `kat workflow run` 或 `kat run query` 这样的名词命令组。这些操作不是用户需要辨别和选择的 Skills，也不合并成一个泛化执行命令。
 
