@@ -1,13 +1,13 @@
-# Query Observations 分析策略
+# Query Observations 结果解释
 
-先确认查询窗口满足 `start_clock_value < end_clock_value`，并把 `clock_domain` 当作结果
-时间列不可分割的语义。结果按 `clock_value, thread_id` 排序，包含线程、时钟值和
-`cpu_usage`，适合检查一个远端 Database 内的原始观测变化。
+每行是一条窗口 `[start_clock_value, end_clock_value)` 内的原始线程观测，未聚合或
+去重。`cpu_usage` 沿用来源值；本示例未定义其单位、归一化范围或采样周期，不能仅凭
+列名按百分比解释。NULL 表示缺失，零值不能单独证明线程空闲。
 
-分析时先按线程聚合 `cpu_usage` 的数量、均值、峰值，再检查峰值附近的连续观测。若只有
-少数线程异常，下一步收窄时间窗口并关联线程/进程元数据；若所有线程同步变化，优先检查
-采集窗口、时钟 domain 和系统级负载证据。空结果先核对 Database、窗口边界和来源是否
-使用同一 clock domain，不把空表解释为“没有性能问题”。
+`clock_value` 沿用来源时钟值，`clock_domain` 是调用方提供的标签，不代表已验证来源
+时钟或完成转换。比较时间差、跨来源对齐前，需要确认单位与时钟关系。
 
-需要进程名或本地 CPU placement 时，改用 `fuse-observations`，不要在分析层自行建立
-远端连接或猜测跨源关联键。
+可按线程比较同口径观测的分布与峰值附近变化；采样不均时，样本均值不能直接当作
+时间加权负载。空结果只说明所选 Database 与窗口没有匹配观测，不证明没有性能问题。
+需要进程名或部署 CPU 标签时可用 `fuse-observations`；解释异常成因仍需相应的时序或
+调用证据，当前可用 Workflow 不提供时应明确证据缺口。

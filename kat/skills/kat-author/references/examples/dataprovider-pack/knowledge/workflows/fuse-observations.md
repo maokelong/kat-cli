@@ -1,13 +1,18 @@
-# Fuse Observations 分析策略
+# Fuse Observations 结果解释
 
-这个 Workflow 已把 telemetry Database 的线程观测、control Database 的进程名和本地
-`thread_placement.parquet` 按业务键融合。先按 `process_name`、`thread_id` 和 `cpu`
-汇总 `cpu_usage`，再沿 `clock_value` 检查热点是否持续、迁核或集中在单个 CPU。
+结果覆盖窗口 `[start_clock_value, end_clock_value)` 内、同时匹配线程登记、进程登记与
+部署信息的观测。`cpu_usage` 是同一线程、进程、时钟值下非 NULL 观测的算术均值；全为
+NULL 时仍为 NULL。它不是整个窗口的平均负载；本示例未定义来源的单位与归一化范围，
+不能假定为百分比。
 
-结果发散时区分三类信号：单线程持续升高通常需要查看该线程的调用或调度证据；同进程
-多线程同时升高应进一步看进程级工作负载；同一 CPU 上跨进程同时升高则优先补充调度、
-中断或频率证据。`clock_value` 只有配合 `clock_domain` 才能和其他 trace 对齐。
+`process_name` 和 `cpu` 是登记与部署标签。部署信息只按线程关联，没有按事件时间
+匹配，因此 `cpu` 不能证明观测时刻的实际运行 CPU，也不能据此判断迁核。
+`clock_value` 是来源时钟值；`clock_domain` 只是调用方标签，跨来源比较仍需单位与
+时钟关系的证据。
 
-结果为空时依次检查远端窗口是否有 observation、两个 Database 的 registry 键是否完整、
-本地 placement 是否包含相同 `thread_id`。不要把 INNER JOIN 后的空结果直接解释为来源
-都没有数据；可分别运行单源 Workflow 或 Provider 查询定位是哪条关联边缺失。
+INNER JOIN 会过滤关联缺失的观测；关联键不唯一还可能放大输出行数和后续汇总，不能
+直接把行数视为原始观测数。空结果不代表各来源都无数据，可用 `query-observations`
+检查同一观测来源与窗口是否有记录；它不能验证其余关联的完整性。
+
+同口径的持续升高可用于选择重点线程或进程，不能单独解释原因。要判断调度、频率或
+调用开销，应使用提供相应证据的可用 Workflow；缺少此类能力时明确限制。

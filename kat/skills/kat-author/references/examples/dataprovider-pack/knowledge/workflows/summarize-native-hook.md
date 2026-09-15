@@ -1,13 +1,16 @@
-# Summarize Native Hook 分析策略
+# Summarize Native Hook 结果解释
 
-结果按 `event_type` 汇总 `event_count` 和 `total_heap_size`。先区分分配、释放等事件类型，
-比较事件数与总大小是否同步变化；总大小高但事件数低通常意味着少量大对象，事件数高但
-总大小有限通常意味着高频小对象。
+结果覆盖整份输入解码后的 Native Hook 记录，仅排除 `event_type` 为 NULL 的行。
+`event_count` 是每类记录数，包括 `heap_size` 为 NULL 的记录；`total_heap_size` 是该类
+非 NULL `heap_size` 的累加值，全为 NULL 时也输出零。因此零值不能区分真实的零总量与
+大小全部缺失，二者相除也不一定是有效大小的均值。
 
-这份汇总不能单独证明泄漏，因为它没有对象生命周期配对和时间趋势。发现可疑类别后，
-下一步应在同一 Trace Streamer SQLite 中增加带时间、调用栈或对象标识的只读查询，再按
-来源 schema 验证分配/释放关系。结果为空时先确认 Trace Streamer 产出的数据库包含
-`native_hook` 且输入 trace 开启了对应采集能力；不要把成功解码等同于一定含有该表数据。
+`AllocEvent`、`FreeEvent`、`MmapEvent`、`MunmapEvent` 分别表示分配、释放、映射和
+解除映射；`heap_size` 是事件涉及的内存大小。其他类别的含义与大小单位需补充来源
+依据，不能自行当作字节数或将所有类别都解释为分配。此累计值不是当前存活内存；
+记录数不是对象数，也不能在缺少持续时间时解释为事件频率。空结果仅说明没有事件
+类型为非 NULL 的记录，不证明采集完整。
 
-若要和 Ftrace 或 PostgreSQL 观测融合，先确认共同 clock domain，再让 Provider 返回
-边界明确的 eager Table，最后在 DataFusion 中联合查询。
+可疑类别的数量或大小只用于确定后续取证重点。判断泄漏需要对象生命周期配对与时间
+趋势；判断来源间关联还需要共同时间语义。本结果不提供这些证据，应选择提供相应
+输出的可用 Workflow；能力不足时说明缺口，不能仅凭这份汇总断言泄漏或其原因。

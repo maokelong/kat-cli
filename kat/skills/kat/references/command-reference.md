@@ -15,22 +15,11 @@
 
 拒绝其他系统、架构、libc 或版本；载荷缺失时也拒绝，Linux 还需确认可执行位。始终使用上述绝对路径，不搜索 `PATH`，不回退到系统 Python 或系统 `kat`。
 
-## 首次状态写入前确认 Data Home
+## 沿用当前 Data Home
 
-Data Home 的默认配置文件位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`（未设置时为 `$HOME/.local/share/kat/config.json`），或 Windows 的 `%APPDATA%\KAT\data\config.json`。它是用户维护的 KAT 私有配置；KAT CLI 和本集合的 Skill 都不创建或写入它。
+直接调用 KAT，由 CLI 选择当前 Data Home；不预先询问是否更换目录或展示配置教程。选择优先级、校验与失败语义由 CLI 决定，不把平台默认路径当作实际选中路径。不得替用户读取或修改配置、设置或清空 `KAT_DATA_HOME`、创建覆盖目录，或改用其他目录自动重试。
 
-本次对话首次将要写入 KAT 状态时，展示当前平台的默认 Data Home 和配置路径，并询问是否更换：
-
-- 不更换：直接调用 KAT，不编辑配置，也不设置、清空或猜测 `KAT_DATA_HOME`。
-- 更换：取得一个已存在、可访问、可规范化的绝对目录，展示配置文件的绝对路径和以下只增加或更新 `kat_data_home` 的 JSON。保留其他字段，不展开 `~`、`%USERPROFILE%` 或 `$HOME`；等待用户确认已经手工修改后再调用 KAT。
-
-```json
-{
-  "kat_data_home": "<已存在、可访问的绝对目录>"
-}
-```
-
-Data Home 的优先级、校验与失败语义只由 KAT CLI 决定。损坏配置或无效的已选路径会失败；不得替用户读取或修改配置、设置或清空环境变量、创建目标目录，或改用其他目录自动重试。
+仅在用户明确要求更换时说明配置方式：配置文件固定位于 Linux 的 `$XDG_DATA_HOME/kat/config.json`（未设置时为 `$HOME/.local/share/kat/config.json`），或 Windows 的 `%APPDATA%\KAT\data\config.json`，由用户维护。取得已存在、可访问的绝对目录后，指导用户仅更新字符串字段 `kat_data_home` 并保留其他字段；不展开 `~`、`%USERPROFILE%` 或 `$HOME`。说明非空 `KAT_DATA_HOME` 的优先级更高，等待用户完成手工调整后再调用 KAT，依据实际 Response 验证。
 
 ## 失败与缺项的交付
 
@@ -38,7 +27,7 @@ Data Home 的优先级、校验与失败语义只由 KAT CLI 决定。损坏配�
 
 仅在缺少继续任务的关键事实，或选择会改变实质结论时补问，说明已确认事实和缺项，一次只询问一个最小必要问题，不要求用户选择内部命令。
 
-Data Home 失败时说明停在目标路径、等待用户手工修改，还是 KAT 选择阶段。路径无效或尚未确认手工修改完成时，准确说明尚未发生的配置、环境与 KAT 操作。用户确认手工更换后，仍以 KAT Response 和 Diagnostic 验证实际配置与目录，不把确认本身当作验证成功。
+Data Home 失败时引用实际 Diagnostic，说明尚未完成的操作；沿用当前配置停止，不把配置失败改成目录选择问卷。用户正在手工调整时说明等待事项，不把用户确认当作 KAT 验证成功。
 
 ## 查看帮助
 
