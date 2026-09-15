@@ -84,8 +84,8 @@ def verify_skill_collection(root: Path) -> None:
         "kat-author/references/examples/dataprovider-pack/pack.toml",
     ):
         _file(root / relative)
-    if not any((root / "kat/assets/packs").glob("*/pack.toml")):
-        raise ValueError("Shared kat deployment is missing its Bundled PACKs")
+    if not (root / "kat/assets/packs").is_dir():
+        raise ValueError("Shared kat deployment is missing its Bundled PACK directory")
 
 
 def main() -> int:

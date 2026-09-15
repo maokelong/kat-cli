@@ -27,11 +27,11 @@ class SkillCollectionTests(unittest.TestCase):
             "kat/scripts/targets/linux-x86_64/python/bin/python3",
             "kat/scripts/targets/windows-x86_64/kat.exe",
             "kat/scripts/targets/windows-x86_64/python/python.exe",
-            "kat/assets/packs/example/pack.toml",
         ):
             path = self.skills / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("path fixture; not executable\n", encoding="utf-8")
+        (self.skills / "kat/assets/packs").mkdir(parents=True)
 
     def _archive(self, names: tuple[str, ...]) -> Path:
         archive = self.work / "kat-skill-test.tar.gz"
@@ -114,9 +114,13 @@ class SkillCollectionTests(unittest.TestCase):
                     verify_skill_collection(self.skills)
                 path.write_bytes(original)
 
-    def test_bundled_packs_are_required(self) -> None:
-        (self.skills / "kat/assets/packs/example/pack.toml").unlink()
-        with self.assertRaisesRegex(ValueError, "missing its Bundled PACKs"):
+    def test_empty_bundled_pack_directory_is_valid(self) -> None:
+        self.assertEqual(list((self.skills / "kat/assets/packs").iterdir()), [])
+        verify_skill_collection(self.skills)
+
+    def test_bundled_pack_directory_is_required(self) -> None:
+        (self.skills / "kat/assets/packs").rmdir()
+        with self.assertRaisesRegex(ValueError, "missing its Bundled PACK directory"):
             verify_skill_collection(self.skills)
 
     def test_missing_and_external_local_references_are_rejected(self) -> None:
