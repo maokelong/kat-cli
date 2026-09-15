@@ -1,0 +1,40 @@
+CONTEXT.md
+  s_9807c18c839059::t_8b54f1386492a3 11,173-175
+docs/adr/0082-kat-review-rechecks-existing-evidence.md
+  s_9807c18c839059::t_8b54f1386492a3 1-15
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_9807c18c839059::t_8b54f1386492a3 7
+  s_9807c18c839059::t_36540361d70643 8
+docs/specs/analysis-audit.md
+  s_9807c18c839059::t_8b54f1386492a3 1-38
+.agents/skills/kat-review/SKILL.md
+  s_9807c18c839059::t_68c666c83a5d88 1-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "10e8247eaf8e8ed582acb740de377354f859b3fa",
+  "prompts": {},
+  "sessions": {
+    "s_9807c18c839059": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a2f6-2a1e-7af3-9b20-2404a491f951",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 59,
+      "total_deletions": 1,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_8b54f1386492a3": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 59,
+          "deletions": 1
+        }
+      }
+    }
+  }
+}
