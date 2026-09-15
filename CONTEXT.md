@@ -8,7 +8,7 @@ KAT 是面向性能分析的可扩展平台。本文只收录名称不足以表�
 Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看护责任的性能分析平台。Kernel 表达项目起源而非产品范围；平台维护者也不会因此让自己拥有的 PACK 获得特权。
 
 **KAT Skill**:
-KAT 面向用户的唯一公共入口和原子发布单元，承接数据分析与 PACK 开发任务。用户表达目标，Skill 可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
+KAT 面向用户的公共入口和原子发布单元，承接数据分析与 PACK 开发任务。用户表达目标，Skill 可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
 
 **KAT Agent Knowledge**:
 由 KAT Skill 公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、Runtime 结构化事实共同组成的渐进知识面。各内容随其所有者版本化；KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
@@ -170,3 +170,6 @@ _Avoid_: Artifact、Result
 
 **Analysis Result**:
 模型基于 Run Output 和必要的 Query Result 形成的面向用户判断、报告或结论。组合调用结束后，KAT Skill 先依据父 Guide 分析父 Run；只有父 Guide 要求或父级证据不足时，才按各子 Run 自己的 Guide 形成所需解释，再回到父级汇总。这些中间解释仍只是模型工作上下文，不是新的持久对象。Analysis Result 不由 Workflow 生成，也不写入 Run Manifest。
+
+**Analysis review**:
+用户在分析完成后按需通过独立 `kat-review` Skill，对原问题、Analysis Result 与现存证据进行总结和复核。它可对已有 Run Output 补充只读查询，区分证据支持、证据不足、与证据矛盾和无法验证；复核产生的查询与说明不是原分析历史。现存材料不保证覆盖全部调用或当时的 Guide，复核明确证据缺口，不补造历史过程，也不改变原分析的完成状态。
