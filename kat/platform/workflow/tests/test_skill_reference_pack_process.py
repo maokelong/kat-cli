@@ -17,7 +17,8 @@ class SkillReferencePackProcessTest(unittest.TestCase):
         pack = (
             repository
             / "kat"
-            / "skill"
+            / "skills"
+            / "kat-author"
             / "references"
             / "examples"
             / "dataprovider-pack"

@@ -4,10 +4,10 @@
 
 当用户明确要求创建 PACK 时，先确定四项静态清单信息：小写 ASCII kebab-case `name`、面向用户的 `title`、说明领域边界的 `description`，以及承担维护责任的 `owner`。目标必须是用户指定或当前任务已明确的 PACK 集合目录，最终路径固定为 `<packs-dir>/<name>`。不能可靠推断 owner 或目标目录时先询问，不用 `unknown`、`TODO` 或虚构团队补位。
 
-使用 Skill 自带脚本生成骨架，不手工拼接模板：
+使用本 Skill 自带的纯标准库脚本生成骨架，不手工拼接模板。`<author-root>` 是 `kat-author/SKILL.md` 的绝对父目录；用可用的宿主 Python 执行该脚本，KAT 命令仍使用相邻 `kat/` 中的 CLI 与其管理的私有 Host：
 
 ```text
-python scripts/scaffold_pack.py \
+python <author-root>/scripts/scaffold_pack.py \
   --packs-dir <packs-directory> \
   --name <pack-name> \
   --title <display-title> \
@@ -22,7 +22,7 @@ python scripts/scaffold_pack.py \
 用户可以直接用自然语言触发该流程，例如：
 
 ```text
-/kat 请在 packs 目录下创建一个内存分析领域的 PACK。
+/kat-author 请在 packs 目录下创建一个内存分析领域的 PACK。
 
 PACK 名称：memory-analysis
 标题：内存分析
@@ -35,7 +35,7 @@ PACK 名称：memory-analysis
 也可以使用紧凑形式：
 
 ```text
-/kat 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
+/kat-author 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
 ```
 
 提示中至少需要明确领域或用途和真实维护方。名称缺失时可以根据领域生成合法的 kebab-case 名称；目标目录已由当前仓库约定明确时可以沿用。仍无法确定清单必填信息时，只询问缺失项。
@@ -82,7 +82,7 @@ class PostgreSQLProvider:
 ```
 
 - `name` 是稳定索引；`description` 是列表筛选所需的明确用途。两者都必须显式声明，不使用 `title`，也不从 docstring 推导 description。
-- Workflow `parameters` 是运行输入合同；`guide` 可选，内容指导结果解释、分析发散与下一步方向。
+- Workflow `parameters` 是运行输入合同；`guide` 可选，解释关键输出的业务含义、统计口径、推理依据与下一步取证方向。
 - Provider decorator 只附加 `name`、`description`、`guide` 元数据。它不要求基类、Protocol、注册表、固定方法或生命周期；Provider 类可以按数据源需要定义 `decode`、`query` 或其他能力，Workflow 显式调用它们。
 - Provider `guide` 必填，用于说明数据库、可用 SQL、表与关系、Schema、解析或物化方式。它是作者知识，不是分析策略。
 - Provider detail 的 `module` 与 `qualname` 由声明类机械取得，不能在 decorator 中覆盖。
@@ -182,6 +182,14 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 仓库中的 `examples/packs/workflow-composition` 是无外部依赖的可运行示例，包含 Catalog 查询、无输出编排、各 Workflow Guide 和 `kat_run` 测试。
 
 ## 6. 组织和引用 guide
+
+面向 AI 的知识只保留当前任务判断必需的信息，按以下归属编写和核对：
+
+- 脚本完成可重复验证的输入校验、采集、转换、计算及必要子调用；固定步骤不能交给 AI 按 Guide 补做。输出提供所需结构化事实与可追溯证据，明细按需查询，不将完整日志或执行叙述作为分析上下文。
+- Workflow Guide 解释容易误读或影响结论的输出：指标含义、单位、统计口径、适用范围，以及零值、空结果和缺失值的含义。计算定义、聚合或关联对证据范围的影响属于结果语义；不复述函数调用、数据搬运和脚本执行顺序。
+- 逐项对照实现核准输出解释；没有来源依据时不编造单位、阈值或覆盖范围。实际表与列以 Runtime inventory 为准，Guide 不复制完整 Schema、参数清单或源码。
+- 推理知识保留判断依据、替代解释、结论局限及由证据触发的下一步。仅使用已发布 Output 或适用 Workflow 补证据；缺少能力时说明缺口，不引导分析 AI 直接访问 Provider、中间数据库或私有文件。
+- Provider Guide 面向作者，保留必要的接入、SQL、Schema 和来源语义；复用公共 Provider 时使用其已有 Guide，不另建重复的接入教程。无额外输出解释或推理知识的 Workflow 可以不写 Guide，不强制章节或凑齐模板。
 
 一个 PACK 的作者知识统一放在顶层 `knowledge/`：Workflow guide 位于 `knowledge/workflows/`，Provider guide 位于 `knowledge/providers/`。框架不限制 Markdown 的章节和写法。
 
@@ -307,7 +315,7 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 写入后按变更面验证：
 
 1. 重新执行对应 Workflow 或 Provider list inspection，确认所有声明与 guide 都能完整校验。
-2. 对新增或修改的声明执行 detail inspection，核对精确公开字段和 guide 内容。
+2. 对新增或修改的声明执行 detail inspection，核对精确公开字段和 guide 内容；对照脚本检查关键输出的含义与口径，确认仅凭公开输出和 Guide 即可理解结果及局限，无需阅读实现。单位或范围仍缺依据时明确记录缺口。
 3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
 4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制。
 

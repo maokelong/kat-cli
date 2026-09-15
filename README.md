@@ -1,11 +1,29 @@
 # KAT
 
-KAT 是面向性能分析的可扩展平台。KAT Skill 是唯一面向用户的交付物；其中包含 Skill
+KAT 是面向性能分析的可扩展平台。面向用户交付同版本的 KAT Skills 集合：`kat` 总路由，
+以及 `kat-analyze`、`kat-author`、`kat-review` 三个任务入口。集合包含 Skill
 约束、Bundled PACK、短命的 `kat` CLI、Linux x86_64 私有 Workflow Runtime，以及
 Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、daemon、REST API
 或独立的服务端发布面。
 
 项目仍处于 `0.1` 预发布阶段，公共接口和本地布局尚未承诺跨版本兼容。
+
+## 安装、升级与使用
+
+1. 从同一 Release 下载 `kat-skill-<version>.tar.gz` 与 `kat-skill-<version>.tar.gz.sha256` 校验文件，验证压缩包的 SHA-256。
+2. 解压到一个独立目录，将其中的 `kat/`、`kat-analyze/`、`kat-author/`、`kat-review/` 四目录一起安装到目标 Agent 的 skills 目录，保持同级。
+3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。其他 Skill 和 KAT Data Home 保持不动。
+
+首版由用户管理安装和替换，不提供安装器，也不承诺四目录替换是一个文件系统原子事务。
+归档中的 Linux 载荷含符号链接，解压环境需要支持保留这些链接；Windows 仍按下述候选平台边界验收。
+`kat/` 保存公共命令合同、双平台载荷和 Bundled PACK；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
+
+| 入口 | 用法 |
+|---|---|
+| [`$kat`](kat/skills/kat/SKILL.md) | 描述目标，由总路由选择任务入口 |
+| [`$kat-analyze`](kat/skills/kat-analyze/SKILL.md) | 使用已有 Workflow 分析问题并形成结论 |
+| [`$kat-author`](kat/skills/kat-author/SKILL.md) | 理解、创建、修改、诊断和验证 PACK、Provider、Workflow |
+| [`$kat-review`](kat/skills/kat-review/SKILL.md) | 提供原问题、报告及 Session/Run，按需总结并复核结论 |
 
 ## 源码开发边界
 
@@ -23,7 +41,7 @@ cargo build --release -p kat-cli
 
 ## 运行前提
 
-`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skill
+`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
@@ -33,7 +51,7 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 `kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
 可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
 
-完整的 Skill 装配和 Platform Payload 发布拓扑遵循
+完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
 私有输入，不是可单独下载或兼容的产品。
 
@@ -52,7 +70,7 @@ workflow 上发布新的 canonical prerelease，完成真实 host → announce �
 重跑。PR 门禁只决定 RC 能否进入 `main`；演练和证据评审通过后才能关闭交付 Issue 或进入
 stable promotion。
 符合合同的 stable 或
-prerelease tag 会触发 Linux/Windows payload 构建、唯一 Skill 装配、SHA-256 校验和与
+prerelease tag 会触发 Linux/Windows payload 构建、Skills 集合装配、SHA-256 校验和与
 GitHub Release；prerelease 不得成为 Latest。Release 的用户可安装资产只有
 `kat-skill-<version>.tar.gz` 及其校验文件。固定的 `dist 0.32` 不能在发布计划中登记自定义
 global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公开的原生 payload
@@ -78,7 +96,7 @@ dist plan
 PR 中生成的 Release workflow 同样会运行固定版本的 `dist plan`；`dist 0.32` 会在该命令
 开始时拒绝过期或被手改的生成 workflow，不另建一套 YAML 同步门禁。
 
-仓库不提交 payload、完整 Skill、wheel 或其他构建产物。
+仓库不提交 payload、完整 Skills 部署、wheel 或其他构建产物。
 
 ## Data Home 配置
 
@@ -102,7 +120,7 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 ## 完整部署中的 `kat` 当前操作
 
-以下命令只适用于满足上述拓扑的完整 KAT Skill deployment：
+以下命令只适用于满足上述拓扑的完整 KAT Skills deployment：
 
 - `kat inspect`：只读取 manifest，发现 PACK。
 - `kat inspect workflow`：发现或读取 Workflow 分析知识。

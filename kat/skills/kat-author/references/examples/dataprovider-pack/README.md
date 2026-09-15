@@ -126,12 +126,12 @@ import 阶段不会连接数据库、读取 trace 或检查外部 executable，�
 ```bash
 kat inspect workflow \
   --pack dataprovider-pack \
-  --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
+  --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack
 kat inspect provider \
   --pack dataprovider-pack \
-  --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
+  --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack
 
-kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack
+kat test --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack
 ```
 
 默认测试只收集 `test_*.py`：fake ADBC 合同、小型 Ftrace fixture，以及模拟 Trace
@@ -157,9 +157,9 @@ export KAT_TEST_POSTGRES_WRITER_PROFILE=writer_fixture_service
 export KAT_TEST_POSTGRES_TELEMETRY_DATABASE=telemetry
 export KAT_TEST_POSTGRES_CONTROL_DATABASE=control
 
-kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
+kat test --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack \
   --test tests/postgresql/real_postgresql.py
-kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
+kat test --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack \
   --test tests/postgresql/real_fusion.py
 ```
 
@@ -167,7 +167,7 @@ Ftrace 真实合同：
 
 ```bash
 export KAT_TEST_FTRACE_PATH=/absolute/path/to/kat_complex_20260818.ftrace
-kat test --pack-dir /absolute/path/to/kat-skill/references/examples/dataprovider-pack \
+kat test --pack-dir /absolute/path/to/skills/kat-author/references/examples/dataprovider-pack \
   --test tests/ftrace/real_ftrace.py
 ```
 
@@ -177,6 +177,6 @@ Trace Streamer 真实合同：
 $env:KAT_TEST_TRACE_STREAMER_EXE = "C:\absolute\path\to\trace_streamer.exe"
 $env:KAT_TEST_HTRACE_PATH = "C:\absolute\path\to\trace.htrace"
 kat test `
-  --pack-dir "C:\absolute\path\to\kat-skill\references\examples\dataprovider-pack" `
+  --pack-dir "C:\absolute\path\to\skills\kat-author\references\examples\dataprovider-pack" `
   --test tests/trace_streamer/real_trace_streamer.py
 ```

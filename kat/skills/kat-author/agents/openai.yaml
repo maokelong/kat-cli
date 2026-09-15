@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT Author"
+  short_description: "理解、创作和维护 KAT PACK、Provider 与 Workflow"
+  default_prompt: "使用 $kat-author 完成我指定的 PACK 创作或维护任务，并提供实际验证结果。"

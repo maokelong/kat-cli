@@ -1,5 +1,5 @@
 # Global artifact adapter called by dist after both native payload jobs complete.
-name: Assemble and verify KAT Skill
+name: Assemble and verify KAT Skills
 
 on:
   workflow_call:
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   assemble:
-    name: Assemble the release Skill
+    name: Assemble the release Skills
     runs-on: ubuntu-24.04
     env:
       PLAN: ${{ inputs.plan }}
@@ -60,15 +60,16 @@ jobs:
           tar -xzf target/distrib/.payload-inputs/linux-x86_64.tar.gz -C target/kat/payloads
           tar -xzf target/distrib/.payload-inputs/windows-x86_64.tar.gz -C target/kat/payloads
           python build/assemble_skill.py \
-            --skill-source kat/skill \
+            --skills-source kat/skills \
             --packs kat/packs \
             --linux-payload target/kat/payloads/linux-x86_64 \
             --windows-payload target/kat/payloads/windows-x86_64 \
-            --output target/kat/release/kat
+            --output target/kat/release/skills
           artifact="kat-skill-${version}.tar.gz"
           tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
             --format=posix --pax-option=delete=atime,delete=ctime \
-            -C target/kat/release -czf "target/distrib/release/${artifact}" kat
+            -C target/kat/release/skills -czf "target/distrib/release/${artifact}" \
+            kat kat-analyze kat-author kat-review
           (
             cd target/distrib/release
             sha256sum "$artifact" > "${artifact}.sha256"
@@ -94,6 +95,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
       - name: Download assembled Skill
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -111,6 +117,9 @@ jobs:
           actual=$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test "$actual" = "$expected"
           sha256sum -c "${ARTIFACT_NAME}.sha256"
+          mkdir ../verified-skills
+          tar -xzf "$ARTIFACT_NAME" -C ../verified-skills
+          python "$GITHUB_WORKSPACE/build/verify_skill_collection.py" ../verified-skills
 
   linux-smoke:
     name: Linux release Skill full-loop smoke
@@ -137,6 +146,7 @@ jobs:
           set -euo pipefail
           mkdir -p target/kat/smoke-input
           tar -xzf "target/kat/artifact/${ARTIFACT_NAME}" -C target/kat/smoke-input
+          mv target/kat/smoke-input target/kat/smoke-relocated
           image='almalinux@sha256:dd9015a46bf86d46801080d9f37990528b2072b1d4a3f3851c6a5a79088adf82'
           docker pull "$image"
           docker run --rm --network none \
@@ -154,10 +164,13 @@ jobs:
               export PYTHONUSERBASE=/work/poison-user
               export TMPDIR=/work/tmp
               unset KAT_DATA_HOME
-              skill=/repo/target/kat/smoke-input/kat
+              skills=/repo/target/kat/smoke-relocated
+              skill=$skills/kat
               payload=$skill/scripts/targets/linux-x86_64
               cli=$payload/kat
               python=$payload/python/bin/python3
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -I -B /repo/build/verify_skill_collection.py "$skills"
               producer_pack=/repo/build/fixtures/payload-smoke-pack
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" -I -B /repo/build/fixtures/verify_public_ftrace.py "$cli"
@@ -230,10 +243,20 @@ jobs:
           New-Item -ItemType Directory -Force "target/kat/smoke-input" | Out-Null
           tar -xzf "target/kat/artifact/$env:ARTIFACT_NAME" -C "target/kat/smoke-input"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $skill = (Resolve-Path "target/kat/smoke-input/kat").Path
+          $smokeInput = (Resolve-Path "target/kat/smoke-input").Path
+          $smokeParent = (Resolve-Path "target/kat").Path
+          $skills = Join-Path $smokeParent "smoke-relocated"
+          if ((Split-Path -Parent $smokeInput) -ne $smokeParent -or (Split-Path -Parent $skills) -ne $smokeParent) {
+            throw "Smoke relocation must stay inside target/kat"
+          }
+          if (Test-Path -LiteralPath $skills) { throw "Smoke relocation destination already exists" }
+          Move-Item -LiteralPath $smokeInput -Destination $skills
+          $skill = Join-Path $skills "kat"
           $payload = Join-Path $skill "scripts/targets/windows-x86_64"
           $cli = Join-Path $payload "kat.exe"
           $python = Join-Path $payload "python/python.exe"
+          & $python -I -B "build/verify_skill_collection.py" $skills
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $producerPack = (Resolve-Path "build/fixtures/payload-smoke-pack").Path
           $consumerPack = (Resolve-Path "build/fixtures/payload-smoke-consumer-pack").Path
           $work = Join-Path $env:RUNNER_TEMP "kat-release-smoke"

@@ -4,6 +4,8 @@ status: accepted
 
 # Skill 与运行时原子发布
 
+本 ADR 将单个 Skill 作为发布单元的约束由 [ADR-0082](0082-kat-review-rechecks-existing-evidence.md) 局部替代为包含 `kat`、`kat-analyze`、`kat-author`、`kat-review` 四个同级目录的 KAT Skills 集合。集合与载荷保持同版本原子发布，共享载荷继续位于 `kat` 目录。装配 staging 的发布不承诺用户安装时四目录替换的文件系统原子事务。私有运行时、候选平台、RC 发布流程和用户状态隔离的约束继续有效。
+
 KAT 只把 Skill constraints 作为稳定产品面，并将 Skill 定义、`SKILL.md` 中的平台选择逻辑、KAT CLI、Bundled Python Host 与所支持平台的二进制载荷按同一版本原子发布。这一选择不为底层 CLI 参数承诺独立兼容性，以避免 Skill 与二进制独立升级造成的协议错配，代价是普通终端用户不获得一个单独承诺稳定的 CLI 产品面。
 
 发布采用两阶段构建：`kat/platform/workflow` 先通过成熟 PEP 517 backend 构建一个私有纯 Python Workflow Host wheel，同时包含 PACK 使用的 `import kat` 与 CLI 启动的私有 Runtime module。Linux 与 Windows 的 Platform Payload Builder 在原生平台使用 Cargo 构建 KAT CLI，并以固定版本的 `uv` 获取 `python-build-standalone` 提供的 CPython 3.14 standard-GIL 可重定位目录、把这一个 KAT wheel 与锁文件中的平台第三方预编译 wheels 安装进 Host，生成包含完整标准库、Workflow Runtime、Pack Authoring API、Click、PyArrow、DataFusion 与测试依赖的私有 Python Host。每个 KAT 版本精确锁定 CPython `3.14.z`、PBS release 与 wheel hashes，构建时不浮动选择 latest；不同时携带 CPython 3.13 或 3.14 free-threaded 变体。它不创建 venv，不冻结 Python 应用，不手工复制 site-packages，也不在用户机器解包、下载或解析依赖。一个只理解标准 Skill 路径映射的 Skill Assembly Adapter 再把两个完整载荷、Skill source 和 Bundled PACK 组合为唯一的 `dist/kat`。调用方必须在整个装配期间独占一个预先不存在的输出路径；Adapter 在同目录 staging 中完成装配后 rename 到该路径，入口时已有输出直接拒绝，不合并也不清理已有内容。这里的原子发布只承诺单写入者流程不会暴露部分 deployment view，不提供跨进程 no-replace 或 compare-and-swap；多个 Assembly 竞争同一输出不在本决策范围内。重复构建必须使用新输出路径，或由外层发布生命周期先管理旧产物。该 Adapter 是 deployment view 的唯一写入者，但不替代 Cargo、Python 依赖工具、平台打包器或发布系统，也不在第一版向 Payload 或 Skill 内部增加版本矩阵、签名、自有哈希协议或复杂发布一致性机制；依赖锁定所需 hashes 与最终公开 Skill 的外置 SHA-256 校验文件，分别由依赖工具和下一段所述 `dist 0.32` 外层发布适配负责。
