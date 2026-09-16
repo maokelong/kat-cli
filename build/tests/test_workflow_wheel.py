@@ -35,11 +35,10 @@ def write_wheel(
     dist_info = f"kat_workflow-{version}.dist-info"
     metadata_version = version if metadata_version is None else metadata_version
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("kat/__init__.py", "")
         archive.writestr("_kat_runtime/__main__.py", "")
         archive.writestr(
             f"{dist_info}/METADATA",
-            f"Metadata-Version: 2.4\nName: {distribution}\nVersion: {metadata_version}\n",
+            f"Metadata-Version: 2.4\nName: {distribution}\nVersion: {metadata_version}\nRequires-Dist: kat-sdk==0.1.0\n",
         )
         archive.writestr(
             f"{dist_info}/WHEEL",

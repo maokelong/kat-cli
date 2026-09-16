@@ -8,6 +8,10 @@ on:
         required: true
         type: string
     outputs:
+      sdk-wheel-sha256:
+        value: ${{ jobs.workflow-wheel.outputs.sdk-sha256 }}
+      sdk-wheel-version:
+        value: ${{ jobs.workflow-wheel.outputs.sdk-version }}
       workflow-wheel-sha256:
         description: SHA-256 of the exact Workflow Host wheel artifact.
         value: ${{ jobs.workflow-wheel.outputs.sha256 }}
@@ -21,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       sha256: ${{ steps.artifact.outputs.sha256 }}
+      sdk-sha256: ${{ steps.sdk.outputs.sha256 }}
+      sdk-version: ${{ steps.sdk.outputs.version }}
 
     steps:
       - name: Checkout
@@ -35,6 +41,25 @@ jobs:
 
       - name: Verify atomic release versions
         run: python -I -B build/verify_release_versions.py
+
+      - name: Build the locked independent SDK
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python build/build_sdk_wheel.py --output target/kat/sdk-wheel
+          wheel=$(find target/kat/sdk-wheel -maxdepth 1 -name "*.whl" -type f)
+          echo "sha256=$(sha256sum "$wheel" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          python -c 'import json, os; d=json.load(open("build/sdk-source.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + d["version"] + "\n")'
+
+      - name: Upload SDK wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kat-sdk-wheel
+          path: target/kat/sdk-wheel/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Build and hash the private wheel once
         id: artifact
@@ -59,6 +84,7 @@ jobs:
           if-no-files-found: error
 
   requirements-locks:
+    needs: workflow-wheel
     name: Verify generated platform requirement locks
     runs-on: ubuntu-24.04
 
@@ -74,6 +100,12 @@ jobs:
           version: "0.11.28"
           enable-cache: false
 
+      - name: Download SDK wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kat-sdk-wheel
+          path: target/kat/sdk-wheel
+
       - name: Regenerate both platform locks
         shell: bash
         run: |
@@ -82,7 +114,9 @@ jobs:
             python -c 'import json; d=json.load(open("build/runtime-inputs.json")); print(d["python"]["version"], d["uv"]["version"])'
           )
           test "$(uv --version | cut -d ' ' -f 2)" = "$uv_version"
+          python -c 'from pathlib import Path; p=Path("target/kat/sdk-wheel"); w=next(p.glob("kat_sdk-*.whl")); (p / "constraints.txt").write_text("kat-sdk @ " + w.resolve().as_uri() + "\n", encoding="utf-8")'
           uv pip compile kat/platform/workflow/pyproject.toml \
+            --constraint target/kat/sdk-wheel/constraints.txt --no-emit-package kat-sdk \
             --python-version "$python_version" \
             --python-platform x86_64-unknown-linux-gnu \
             --only-binary :all: \
@@ -91,6 +125,7 @@ jobs:
             --no-progress \
             --output-file build/requirements-linux.lock.txt
           uv pip compile kat/platform/workflow/pyproject.toml \
+            --constraint target/kat/sdk-wheel/constraints.txt --no-emit-package kat-sdk \
             --python-version "$python_version" \
             --python-platform x86_64-pc-windows-msvc \
             --only-binary :all: \

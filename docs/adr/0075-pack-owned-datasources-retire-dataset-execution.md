@@ -4,6 +4,8 @@ status: accepted
 
 # PACK 自有 Datasource 取代 Dataset 执行面
 
+> ADR-0083 替代本文中公共 API 与 Runtime 共用 `kat-workflow` wheel 的部分；公共 API 已归属独立 `kat-sdk`，其余职责边界继续有效。
+
 KAT 不再把来源接入统一收敛为平台 Dataset、Data Import 和 Workflow Runtime
 中的隐式数据执行面。Datasource 是 PACK 顶层 `datasources/` 下的普通 Python
 module，Datasource Provider 由 PACK owner 直接维护，Workflow 显式 import、构造和

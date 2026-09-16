@@ -23,13 +23,13 @@ def write_workflow_wheel(
 ) -> None:
     dist_info = f"kat_workflow-{version}.dist-info"
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("kat/__init__.py", "")
         archive.writestr("_kat_runtime/__main__.py", "")
         archive.writestr(
             f"{dist_info}/METADATA",
             "Metadata-Version: 2.4\n"
             "Name: kat-workflow\n"
             f"Version: {version}\n"
+            "Requires-Dist: kat-sdk==0.1.0\n"
             f"Requires-Dist: {requires}\n",
         )
         archive.writestr(
@@ -73,7 +73,51 @@ def write_datasource_wheel(
         )
 
 
+def write_sdk_wheel(path: Path, *, runtime: bool = False) -> None:
+    dist_info = "kat_sdk-0.1.0.dist-info"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name in ("kat/__init__.py", "kat/_workflow.py", "kat/dataprovider/__init__.py"):
+            archive.writestr(name, "")
+        if runtime:
+            archive.writestr("_kat_runtime/__main__.py", "")
+        archive.writestr(
+            f"{dist_info}/METADATA",
+            "Metadata-Version: 2.4\nName: kat-sdk\nVersion: 0.1.0\n",
+        )
+        archive.writestr(
+            f"{dist_info}/WHEEL",
+            "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+
+
 class WheelArtifactTests(unittest.TestCase):
+    def test_sdk_artifact_rejects_runtime_and_incorrect_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = Path(directory) / "kat_sdk-0.1.0-py3-none-any.whl"
+            write_sdk_wheel(wheel)
+            artifact = payload_builder.WheelArtifactInput(
+                wheel, "0.1.0", payload_builder.file_sha256(wheel)
+            )
+            self.assertEqual(payload_builder.validated_sdk_wheel(artifact), wheel.resolve())
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                payload_builder.validated_sdk_wheel(
+                    payload_builder.WheelArtifactInput(wheel, "0.1.0", "0" * 64)
+                )
+            with self.assertRaisesRegex(ValueError, "expected version"):
+                payload_builder.validate_sdk_wheel_archive(wheel, expected_version="9.0.0")
+            write_sdk_wheel(wheel, runtime=True)
+            with self.assertRaisesRegex(ValueError, "Runtime"):
+                payload_builder.validate_sdk_wheel_archive(wheel, expected_version="0.1.0")
+
+    def test_runtime_wheel_cannot_repackage_sdk(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = Path(directory) / "kat_workflow-0.1.1rc1-py3-none-any.whl"
+            write_workflow_wheel(wheel)
+            with zipfile.ZipFile(wheel, "a") as archive:
+                archive.writestr("kat/__init__.py", "")
+            with self.assertRaisesRegex(ValueError, "must not contain"):
+                payload_builder.validate_workflow_wheel_archive(wheel)
+
     def test_wheel_validation_has_no_implicit_path_or_sidecar_fallback(self) -> None:
         with self.assertRaisesRegex(TypeError, "WheelArtifactInput"):
             payload_builder.validated_workflow_wheel(Path("workflow.whl"))
@@ -214,22 +258,23 @@ class WheelArtifactTests(unittest.TestCase):
                     platform="windows-x86_64",
                 )
 
-    def test_payload_installs_both_local_wheels_without_dependency_resolution(
+    def test_payload_installs_three_local_wheels_without_dependency_resolution(
         self,
     ) -> None:
+        sdk = Path("sdk.whl")
         workflow = Path("workflow.whl")
         datasource = Path("datasource.whl")
         with mock.patch.object(payload_builder.subprocess, "run") as run:
             payload_builder.install_kat_wheels(
                 Path("uv"),
                 Path("python"),
-                (workflow, datasource),
+                (sdk, workflow, datasource),
                 Path("cache"),
                 copy_links=False,
             )
 
-        self.assertEqual(run.call_count, 2)
-        for call, wheel in zip(run.call_args_list, (workflow, datasource), strict=True):
+        self.assertEqual(run.call_count, 3)
+        for call, wheel in zip(run.call_args_list, (sdk, workflow, datasource), strict=True):
             command = call.args[0]
             self.assertEqual(command[:3], ["uv", "pip", "install"])
             self.assertIn("--no-deps", command)
@@ -254,12 +299,15 @@ class WheelArtifactTests(unittest.TestCase):
         self.assertIn("version('kat-workflow')", script)
         self.assertIn("find_spec('kat_datasource')", script)
 
-    def test_platform_builders_require_two_explicit_wheel_artifacts(self) -> None:
+    def test_platform_builders_require_three_explicit_wheel_artifacts(self) -> None:
         digest = "a" * 64
         for module in (build_linux_payload, build_windows_payload):
             with self.subTest(platform=module.PLATFORM):
                 options = module.parse_args(
                     [
+                        "--sdk-wheel", "sdk.whl",
+                        "--sdk-wheel-version", "0.1.0",
+                        "--sdk-wheel-sha256", digest,
                         "--workflow-wheel",
                         "workflow.whl",
                         "--workflow-wheel-version",
@@ -275,6 +323,10 @@ class WheelArtifactTests(unittest.TestCase):
                     ]
                 )
 
+                self.assertEqual(
+                    options.sdk_wheel,
+                    payload_builder.WheelArtifactInput(Path("sdk.whl"), "0.1.0", digest),
+                )
                 self.assertEqual(
                     options.workflow_wheel,
                     payload_builder.WheelArtifactInput(
@@ -296,6 +348,8 @@ class WheelArtifactTests(unittest.TestCase):
                 root
                 / "kat_datasource-0.1.1rc1-cp314-cp314-win_amd64.whl"
             )
+            sdk = root / "kat_sdk-0.1.0-py3-none-any.whl"
+            write_sdk_wheel(sdk)
             write_workflow_wheel(workflow)
             write_datasource_wheel(datasource)
             repository = root / "repository"
@@ -304,6 +358,9 @@ class WheelArtifactTests(unittest.TestCase):
                 repository=repository,
                 output=root / "payload",
                 download_cache=root / "downloads",
+                sdk_wheel=payload_builder.WheelArtifactInput(
+                    sdk, "0.1.0", payload_builder.file_sha256(sdk),
+                ),
                 workflow_wheel=payload_builder.WheelArtifactInput(
                     workflow,
                     "0.1.1rc1",

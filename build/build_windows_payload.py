@@ -90,6 +90,7 @@ class BuildOptions:
     vc_redist_archive: Path | None
     cargo: str
     offline: bool
+    sdk_wheel: payload_builder.WheelArtifactInput
     workflow_wheel: payload_builder.WheelArtifactInput
     datasource_wheel: payload_builder.WheelArtifactInput
 
@@ -511,6 +512,9 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
     parser.add_argument("--python-archive", type=Path)
     parser.add_argument("--uv-archive", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
+    parser.add_argument("--sdk-wheel", type=Path, required=True)
+    parser.add_argument("--sdk-wheel-version", required=True)
+    parser.add_argument("--sdk-wheel-sha256", required=True)
     parser.add_argument("--workflow-wheel", type=Path, required=True)
     parser.add_argument("--workflow-wheel-version", required=True)
     parser.add_argument("--workflow-wheel-sha256", required=True)
@@ -538,6 +542,9 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
         vc_redist_archive=args.vc_redist_archive,
         cargo=args.cargo,
         offline=args.offline,
+        sdk_wheel=payload_builder.WheelArtifactInput(
+            args.sdk_wheel, args.sdk_wheel_version, args.sdk_wheel_sha256,
+        ),
         workflow_wheel=payload_builder.WheelArtifactInput(
             args.workflow_wheel,
             args.workflow_wheel_version,

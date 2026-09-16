@@ -12,6 +12,12 @@ on:
         description: Expected normalized version of both private wheels.
         required: true
         type: string
+      sdk-wheel-sha256:
+        required: true
+        type: string
+      sdk-wheel-version:
+        required: true
+        type: string
       workflow-wheel-sha256:
         description: SHA-256 of the downloaded Workflow Host wheel.
         required: true
@@ -62,6 +68,12 @@ jobs:
           echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> "$GITHUB_ENV"
           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
+      - name: Download SDK wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kat-sdk-wheel
+          path: target/kat/sdk-wheel
+
       - name: Download the single Workflow Host wheel
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -82,11 +94,15 @@ jobs:
         shell: bash
         env:
           EXPECTED_VERSION: ${{ inputs['expected-version'] }}
+          SDK_WHEEL_SHA256: ${{ inputs['sdk-wheel-sha256'] }}
+          SDK_WHEEL_VERSION: ${{ inputs['sdk-wheel-version'] }}
           WORKFLOW_WHEEL_SHA256: ${{ inputs['workflow-wheel-sha256'] }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           test -x /opt/python/cp314-cp314/bin/python
+          sdk_wheel=$(find target/kat/sdk-wheel -maxdepth 1 -type f -name '*.whl' -print)
+          test "$(printf '%s\n' "$sdk_wheel" | sed '/^$/d' | wc -l)" -eq 1
           workflow_wheel=$(find target/kat/workflow-wheel -maxdepth 1 -type f -name '*.whl' -print)
           test "$(printf '%s\n' "$workflow_wheel" | sed '/^$/d' | wc -l)" -eq 1
           /opt/python/cp314-cp314/bin/python build/build_datasource_wheel.py \
@@ -104,6 +120,9 @@ jobs:
           "$test_python" -I -B kat/platform/datasource/tests/python/test_text_ftrace_api.py -v
           /opt/python/cp314-cp314/bin/python build/build_linux_payload.py \
             --output target/kat/payloads/linux-x86_64 \
+            --sdk-wheel "$sdk_wheel" \
+            --sdk-wheel-version "$SDK_WHEEL_VERSION" \
+            --sdk-wheel-sha256 "$SDK_WHEEL_SHA256" \
             --workflow-wheel "$workflow_wheel" \
             --workflow-wheel-version "$EXPECTED_VERSION" \
             --workflow-wheel-sha256 "$WORKFLOW_WHEEL_SHA256" \

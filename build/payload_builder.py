@@ -141,6 +141,7 @@ class CommonBuildOptions(Protocol):
     wheelhouse: Path | None
     cargo: str
     offline: bool
+    sdk_wheel: WheelArtifactInput
     workflow_wheel: WheelArtifactInput
     datasource_wheel: WheelArtifactInput
 
@@ -608,7 +609,6 @@ def validate_workflow_wheel_archive(
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         required = {
-            "kat/__init__.py",
             "_kat_runtime/__main__.py",
             f"{dist_info}/METADATA",
             f"{dist_info}/WHEEL",
@@ -624,6 +624,10 @@ def validate_workflow_wheel_archive(
             raise ValueError("Workflow Host wheel has an unexpected distribution")
         if metadata.get("Version") != version:
             raise ValueError("Workflow Host wheel version does not match its filename")
+        if any(name.startswith("kat/") for name in names):
+            raise ValueError("Workflow Host wheel must not contain the SDK kat package")
+        if not _metadata_requires(metadata, "kat-sdk"):
+            raise ValueError("Workflow Host wheel must depend on kat-sdk")
         if _metadata_requires(metadata, "kat-datasource"):
             raise ValueError("Workflow Host wheel must not depend on kat-datasource")
 
@@ -635,6 +639,51 @@ def validate_workflow_wheel_archive(
         if wheel_metadata.get_all("Tag", []) != ["py3-none-any"]:
             raise ValueError("Workflow Host wheel must use the py3-none-any tag")
     return version
+
+
+def validated_sdk_wheel(artifact: WheelArtifactInput) -> Path:
+    if not isinstance(artifact, WheelArtifactInput):
+        raise TypeError("SDK wheel must be a WheelArtifactInput")
+    wheel = artifact.path.resolve(strict=True)
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
+        raise ValueError("SDK wheel has an invalid expected SHA-256")
+    verify_sha256(wheel, artifact.sha256)
+    validate_sdk_wheel_archive(wheel, expected_version=artifact.expected_version)
+    return wheel
+
+
+def validate_sdk_wheel_archive(path: Path, *, expected_version: str) -> None:
+    if path.name != f"kat_sdk-{expected_version}-py3-none-any.whl":
+        raise ValueError("SDK wheel filename does not match its expected version")
+    dist_info = f"kat_sdk-{expected_version}.dist-info"
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        required = {
+            "kat/__init__.py",
+            "kat/_workflow.py",
+            "kat/dataprovider/__init__.py",
+            f"{dist_info}/METADATA",
+            f"{dist_info}/WHEEL",
+        }
+        if not required <= names:
+            raise ValueError("SDK wheel is incomplete")
+        if any(name.startswith("_kat_runtime/") for name in names):
+            raise ValueError("SDK wheel must not contain the CLI Runtime")
+        metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/METADATA")
+        )
+        if metadata.get("Name") != "kat-sdk" or metadata.get("Version") != expected_version:
+            raise ValueError("SDK wheel metadata does not match its expected identity")
+        if _metadata_requires(metadata, "kat-workflow"):
+            raise ValueError("SDK wheel must not depend on the CLI Runtime")
+        wheel_metadata = BytesParser(policy=policy.default).parsebytes(
+            archive.read(f"{dist_info}/WHEEL")
+        )
+        if (
+            wheel_metadata.get("Root-Is-Purelib", "").lower() != "true"
+            or wheel_metadata.get_all("Tag", []) != ["py3-none-any"]
+        ):
+            raise ValueError("SDK wheel must be pure Python with the py3-none-any tag")
 
 
 def validated_workflow_wheel(artifact: WheelArtifactInput) -> Path:
@@ -896,6 +945,7 @@ def _prepare_private_host(
     python_archive: Path,
     uv_archive: Path,
     inputs: CommonInputs,
+    sdk_wheel: Path,
     workflow_wheel: Path,
     workflow_version: str,
     datasource_wheel: Path,
@@ -937,12 +987,11 @@ def _prepare_private_host(
     install_kat_wheels(
         uv,
         python,
-        (workflow_wheel,),
+        (sdk_wheel, workflow_wheel),
         kat_wheel_cache,
         copy_links=copy_links,
     )
-    # Datasource 尚未出现时验证 Workflow wheel 可独立 import，避免两个
-    # distribution 通过未声明的安装顺序形成隐式 wrapper 关系。
+    # Datasource 尚未出现时验证 SDK / Runtime 可 import，保持原生来源边界独立。
     check_isolated_workflow_install(
         python,
         workflow_version,
@@ -1021,6 +1070,7 @@ def build_payload(
     common_inputs = [
         ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
+        ("SDK wheel", options.sdk_wheel.path),
         ("Workflow Host wheel", options.workflow_wheel.path),
         ("Datasource wheel", options.datasource_wheel.path),
         ("wheelhouse", options.wheelhouse),
@@ -1038,6 +1088,7 @@ def build_payload(
         )
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
+    sdk_wheel = validated_sdk_wheel(options.sdk_wheel)
     workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
     datasource_wheel = validated_datasource_wheel(
         options.datasource_wheel,
@@ -1070,6 +1121,7 @@ def build_payload(
             python_archive=python_archive,
             uv_archive=uv_archive,
             inputs=inputs,
+            sdk_wheel=sdk_wheel,
             workflow_wheel=workflow_wheel,
             workflow_version=options.workflow_wheel.expected_version,
             datasource_wheel=datasource_wheel,

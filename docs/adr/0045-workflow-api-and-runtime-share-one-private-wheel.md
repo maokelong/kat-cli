@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0083
 ---
 
 # Workflow API 与 Runtime 共用一个私有 wheel

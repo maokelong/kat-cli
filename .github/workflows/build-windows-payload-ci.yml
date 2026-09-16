@@ -12,6 +12,12 @@ on:
         description: Expected normalized version of both private wheels.
         required: true
         type: string
+      sdk-wheel-sha256:
+        required: true
+        type: string
+      sdk-wheel-version:
+        required: true
+        type: string
       workflow-wheel-sha256:
         description: SHA-256 of the downloaded Workflow Host wheel.
         required: true
@@ -84,6 +90,12 @@ jobs:
           --require-hashes
           -r build/requirements-builder.lock.txt
 
+      - name: Download SDK wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kat-sdk-wheel
+          path: target/kat/sdk-wheel
+
       - name: Download the single Workflow Host wheel
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -94,9 +106,13 @@ jobs:
         shell: pwsh
         env:
           EXPECTED_VERSION: ${{ inputs['expected-version'] }}
+          SDK_WHEEL_SHA256: ${{ inputs['sdk-wheel-sha256'] }}
+          SDK_WHEEL_VERSION: ${{ inputs['sdk-wheel-version'] }}
           WORKFLOW_WHEEL_SHA256: ${{ inputs['workflow-wheel-sha256'] }}
         run: |
           $ErrorActionPreference = "Stop"
+          $sdkWheels = @(Get-ChildItem "target/kat/sdk-wheel" -Filter "*.whl" -File)
+          if ($sdkWheels.Count -ne 1) { throw "expected exactly one SDK wheel" }
           $workflowWheels = @(Get-ChildItem "target/kat/workflow-wheel" -Filter "*.whl" -File)
           if ($workflowWheels.Count -ne 1) { throw "expected exactly one Workflow Host wheel" }
           python build/build_datasource_wheel.py `
@@ -118,6 +134,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python build/build_windows_payload.py `
             --output "target/kat/payloads/windows-x86_64" `
+            --sdk-wheel $sdkWheels[0].FullName `
+            --sdk-wheel-version $env:SDK_WHEEL_VERSION `
+            --sdk-wheel-sha256 $env:SDK_WHEEL_SHA256 `
             --workflow-wheel $workflowWheels[0].FullName `
             --workflow-wheel-version $env:EXPECTED_VERSION `
             --workflow-wheel-sha256 $env:WORKFLOW_WHEEL_SHA256 `

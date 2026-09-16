@@ -36,7 +36,7 @@ container 与平台工具链的唯一修改入口。`dist` 计划中未执行的
 发布计划字段。
 
 生成的 host job 会收集 `artifacts-*`。因此最终 Skill artifact 保留此前缀；只服务装配的
-`kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
+`kat-sdk-wheel`、`kat-workflow-wheel`、`kat-linux-payload` 与 `kat-windows-payload` 必须避开此前缀。
 `checksum = "false"` 只阻止 `dist` 为私有原生 payload 规划公开校验文件，不改变最终 Skill
 与 SHA-256 必须由同一个 global job 产出的合同。
 

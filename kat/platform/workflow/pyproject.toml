@@ -7,18 +7,14 @@ name = "kat-workflow"
 version = "0.1.1-rc.10"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "kat-sdk==0.1.0",
     "adbc-driver-manager==1.11.0",
     "adbc-driver-postgresql==1.11.0",
     "click==8.4.2",
-    "datafusion==54.0.0",
-    "pyarrow==24.0.0",
     "pytest==9.1.1",
 ]
 
 [tool.setuptools]
 include-package-data = false
-packages = ["kat", "kat.dataprovider", "_kat_runtime"]
-package-dir = { kat = "api", "_kat_runtime" = "runtime" }
-
-[tool.setuptools.package-data]
-"kat.dataprovider" = ["knowledge/providers/*.md"]
+packages = ["_kat_runtime"]
+package-dir = { "_kat_runtime" = "runtime" }

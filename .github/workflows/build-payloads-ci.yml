@@ -135,6 +135,8 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
       expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
+      sdk-wheel-sha256: ${{ needs.prepare.outputs['sdk-wheel-sha256'] }}
+      sdk-wheel-version: ${{ needs.prepare.outputs['sdk-wheel-version'] }}
       workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   build-windows:
@@ -146,6 +148,8 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
       expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
+      sdk-wheel-sha256: ${{ needs.prepare.outputs['sdk-wheel-sha256'] }}
+      sdk-wheel-version: ${{ needs.prepare.outputs['sdk-wheel-version'] }}
       workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   assemble-and-smoke:

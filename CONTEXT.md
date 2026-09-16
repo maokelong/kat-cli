@@ -38,8 +38,11 @@ _Avoid_: Built-in PACK、System PACK
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **Pack Authoring API**:
-KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。
-_Avoid_: Python SDK、Pack API
+KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。该界面由独立 KAT SDK 提供，Workflow 的正式执行与结果发布由 CLI Runtime 承担。
+_Avoid_: Pack API
+
+**KAT SDK**:
+可独立安装和版本化的 PACK 作者基础库，提供 Pack Authoring API 与数据工具；CLI Runtime 是它的消费者，执行调度与 Run 生命周期不属于 SDK。
 
 **Datasource wheel**:
 平台原生私有 distribution `kat-datasource`，提供窄的 `kat_datasource` 来源 API。它与 `kat-workflow` 使用同一 KAT 版本，但二者互不依赖；Payload 同时安装它们，PACK 必须按所需边界显式 import。它不是 CLI 插件、公共 SDK 或可独立升级的产品。

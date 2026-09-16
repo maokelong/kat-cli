@@ -46,10 +46,16 @@ deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 
-私有 Python Host 同时安装两个边界独立、版本一致的 wheel：纯 Python
-`kat-workflow` 提供顶层 `kat` Pack Authoring API 和 `_kat_runtime`，平台原生
-`kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
-可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
+私有 Python Host 安装三个 wheel：独立仓库 [kat-sdk](https://github.com/qiqingzhixin/kat-sdk)
+提供顶层 `kat` Pack Authoring API 与数据工具；`kat-workflow` 只提供私有
+`_kat_runtime`，依赖固定版本的 SDK；平台原生 `kat-datasource` 提供来源解码。
+SDK 可通过 pip 独立安装，版本不必与 CLI 相等；Runtime 与 Datasource 仍跟随 CLI
+版本。Payload 构建期完成安装，运行期无需联网。
+
+SDK 来源提交与版本固定在 `build/sdk-source.json`。开发验证先用
+`python build/build_sdk_wheel.py --output target/sdk-wheel` 构建 SDK，再用
+`python -m pip install ./kat/platform/workflow ./target/sdk-wheel/kat_sdk-0.1.0-py3-none-any.whl` 安装
+Runtime 及其 SDK 依赖。SDK 自身测试位于独立仓库，Runtime 集成测试留在本仓库。
 
 完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的

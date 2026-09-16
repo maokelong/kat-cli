@@ -97,12 +97,13 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 
 已经发布的同名物化打不开或合同不兼容时当前执行失败，不能删除、覆盖或原位修复；原始来源后来变化也不刷新当前 Session 的槽位。并发生产方各自完成 staging 后以 no-replace 发布，loser 打开并验证 winner，兼容则复用，否则失败且保留 winner。Session 内名称唯一性和大小写碰撞由调用方保证。
 
-`kat-workflow` 与 `kat-datasource` 是 Payload 中两个独立的私有 wheel：
+Payload 安装三个职责独立的 wheel：
 
-- `kat-workflow` 提供 `kat.workflow`、`kat.provider`、`kat.Context`、`kat.Duration`、`kat.WallClockTimestamp`、`kat.dataprovider` 和私有 Runtime；
-- 平台原生 `kat-datasource` 提供窄的 `kat_datasource` 来源 API；它不依赖或重新导出 `kat`。
+- 独立 `kat-sdk` 提供 `kat.workflow`、`kat.provider`、`kat.Context`、时间类型和 `kat.dataprovider`；
+- `kat-workflow` 提供私有 Runtime，依赖固定版本的 SDK；
+- 平台原生 `kat-datasource` 提供窄的 `kat_datasource` 来源 API。
 
-两个 wheel 随同一 KAT 版本原子安装，但 PACK 必须分别显式 import 所需模块，不能假设一个 distribution 会传递另一个。
+SDK 可独立通过 pip 安装；正式 PACK 执行使用 Payload 已验证的组合。PACK 分别显式 import `kat` 和所需 `kat_datasource` 模块。
 
 文本 Ftrace 的来源选择、物化复用、准入和查询已有公共具体实现，所有 PACK 都可以直接复用，不要复制到自己的 `datasources/`：
 
