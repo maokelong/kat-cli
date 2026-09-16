@@ -42,15 +42,15 @@ jobs:
       - name: Verify atomic release versions
         run: python -I -B build/verify_release_versions.py
 
-      - name: Build the locked independent SDK
+      - name: Download the locked SDK wheel
         id: sdk
         shell: bash
         run: |
           set -euo pipefail
-          python build/build_sdk_wheel.py --output target/kat/sdk-wheel
+          python build/download_sdk_wheel.py --output target/kat/sdk-wheel
           wheel=$(find target/kat/sdk-wheel -maxdepth 1 -name "*.whl" -type f)
           echo "sha256=$(sha256sum "$wheel" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          python -c 'import json, os; d=json.load(open("build/sdk-source.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + d["version"] + "\n")'
+          python -c 'import json, os; d=json.load(open("build/sdk-wheel.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + d["version"] + "\n")'
 
       - name: Upload SDK wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

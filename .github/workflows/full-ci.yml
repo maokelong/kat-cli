@@ -85,7 +85,7 @@ jobs:
 
       - name: Build and install Workflow Host wheel
         run: |
-          python build/build_sdk_wheel.py --output target/sdk-wheel
+          python build/download_sdk_wheel.py --output target/sdk-wheel
           python -c "import glob, subprocess, sys; sdk = glob.glob('target/sdk-wheel/kat_sdk-*.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--disable-pip-version-check', '--wheel-dir', 'target/workflow-wheel', './kat/platform/workflow', sdk])"
           python -c "import glob, subprocess, sys; wheel = glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-index', '--find-links', 'target/workflow-wheel', wheel])"
           python -c "import glob, os, sys; from pathlib import Path; wheel = Path(glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]).resolve(); open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write(f'KAT_TEST_PYTHON={sys.executable}\nKAT_TEST_WORKFLOW_WHEEL={wheel}\n')"

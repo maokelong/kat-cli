@@ -1,0 +1,8 @@
+{
+  "version": "0.1.0",
+  "artifact": {
+    "filename": "kat_sdk-0.1.0-py3-none-any.whl",
+    "url": "https://github.com/qiqingzhixin/kat-sdk/releases/download/v0.1.0/kat_sdk-0.1.0-py3-none-any.whl",
+    "sha256": "e3f85b170621a207371af54a2c24240ea22e709ec56212c3c795c8e2117b1893"
+  }
+}

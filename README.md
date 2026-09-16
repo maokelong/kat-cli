@@ -52,8 +52,8 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 SDK 可通过 pip 独立安装，版本不必与 CLI 相等；Runtime 与 Datasource 仍跟随 CLI
 版本。Payload 构建期完成安装，运行期无需联网。
 
-SDK 来源提交与版本固定在 `build/sdk-source.json`。开发验证先用
-`python build/build_sdk_wheel.py --output target/sdk-wheel` 构建 SDK，再用
+SDK 发布 wheel 的版本、URL 和 SHA-256 固定在 `build/sdk-wheel.json`。开发验证先用
+`python build/download_sdk_wheel.py --output target/sdk-wheel` 下载并校验 SDK wheel，再用
 `python -m pip install ./kat/platform/workflow ./target/sdk-wheel/kat_sdk-0.1.0-py3-none-any.whl` 安装
 Runtime 及其 SDK 依赖。SDK 自身测试位于独立仓库，Runtime 集成测试留在本仓库。
 
