@@ -1,0 +1,31 @@
+build/tests/test_assemble_skill.py
+  s_9807c18c839059::t_b346c91cddc8c6 291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "156e3e051d6e6a71fb05b4afcac6ca1cf87af10c",
+  "prompts": {},
+  "sessions": {
+    "s_9807c18c839059": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a2f6-2a1e-7af3-9b20-2404a491f951",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 1,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_b346c91cddc8c6": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 1,
+          "deletions": 1
+        }
+      }
+    }
+  }
+}
