@@ -1101,7 +1101,7 @@ fn manifest_only_inspection_never_imports_pack_python() {
 fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let bundled = skill.join("assets").join("packs").join("bundled-directory");
+    let bundled = skill.join("sdk").join("packs").join("bundled-directory");
     let bundled_manifest = write_pack(&bundled, "bravo", "Bundled description");
     let cwd = temporary.path().join("unrelated-cwd");
     let additional = cwd.join("relative-pack");
@@ -1175,7 +1175,7 @@ fn formed_operation_rejects_a_binary_outside_the_minimum_skill_layout() {
     assert!(response.get("result").is_none());
     let diagnostic = String::from_utf8_lossy(&output.stderr);
     assert!(diagnostic.contains("KAT Skill is unavailable"));
-    assert!(diagnostic.contains("<skill>/scripts/targets/<target>"));
+    assert!(diagnostic.contains("<skill>/sdk/platform/<target>"));
     assert!(diagnostic.contains("regular <skill>/"));
     assert!(diagnostic.contains("SKILL.md marker"));
 }
@@ -1250,9 +1250,9 @@ fn duplicate_pack_names_report_conflict_specific_help() {
 fn invalid_default_pack_search_path_reports_search_specific_help() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
-    let assets = skill.join("assets");
-    fs::create_dir_all(&assets).expect("create Skill assets directory");
-    fs::write(assets.join("packs"), "not a directory")
+    let sdk = skill.join("sdk");
+    fs::create_dir_all(&sdk).expect("create SDK directory");
+    fs::write(sdk.join("packs"), "not a directory")
         .expect("create invalid default PACK search path");
     let mut command = Command::new(binary);
     command.arg("inspect");
@@ -1294,7 +1294,7 @@ fn absent_default_directories_are_an_empty_result_and_are_not_created() {
         String::from_utf8(output.stdout).unwrap(),
         "{\"status\":\"success\",\"result\":{\"packs\":[]}}\n"
     );
-    assert!(!skill.join("assets").join("packs").exists());
+    assert!(!skill.join("sdk").join("packs").exists());
     #[cfg(not(windows))]
     assert!(!data_home(temporary.path()).exists());
 }
@@ -1308,7 +1308,7 @@ fn closed_stdout_makes_the_real_process_fail() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     write_pack(
-        &skill.join("assets").join("packs").join("large"),
+        &skill.join("sdk").join("packs").join("large"),
         "large",
         &"x".repeat(2 * 1024 * 1024),
     );

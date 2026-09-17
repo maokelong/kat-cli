@@ -13,7 +13,7 @@ from _test_control_peer import run_runtime_with_test_control
 
 class SkillReferencePackProcessTest(unittest.TestCase):
     def test_runtime_executes_the_only_public_reference_pack_source(self) -> None:
-        repository = Path(__file__).resolve().parents[4]
+        repository = Path(__file__).resolve().parents[5]
         pack = (
             repository
             / "kat"

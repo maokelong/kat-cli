@@ -10,10 +10,7 @@ pub fn cargo_kat() -> PathBuf {
 
 pub fn stage_skill(root: &Path, directory_name: &str) -> (PathBuf, PathBuf) {
     let skill = root.join(directory_name);
-    let payload = skill
-        .join("scripts")
-        .join("targets")
-        .join(platform_target());
+    let payload = skill.join("sdk").join("platform").join(platform_target());
     fs::create_dir_all(&payload).expect("create Platform Payload");
     fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
     let binary = payload.join(platform_binary());
@@ -37,18 +34,15 @@ pub fn stage_real_host_skill(
     workflow_wheel: &Path,
 ) -> (PathBuf, PathBuf) {
     let skill = root.join("staged-skill");
-    let platform_payload = skill
-        .join("scripts")
-        .join("targets")
-        .join(platform_target());
+    let platform_payload = skill.join("sdk").join("platform").join(platform_target());
     fs::create_dir_all(&platform_payload).expect("create staged Platform Payload");
     fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
     prepare_real_host_payload(&platform_payload, python, workflow_wheel);
     fs::copy(kat_binary, platform_payload.join(platform_binary()))
         .expect("stage kat beside the real Workflow Host");
     let binary = skill
-        .join("scripts")
-        .join("targets")
+        .join("sdk")
+        .join("platform")
         .join(platform_target())
         .join(platform_binary());
     (skill, binary)

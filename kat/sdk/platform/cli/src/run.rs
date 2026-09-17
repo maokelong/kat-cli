@@ -150,7 +150,7 @@ fn execute_allocated_run(
         }
     };
     let discovery_paths = PackDiscoveryPaths {
-        skill_pack_search_directory: skill_root.join("assets").join("packs"),
+        skill_pack_search_directory: skill_root.join("sdk").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: arguments.pack_directories,
     };

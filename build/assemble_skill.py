@@ -125,15 +125,15 @@ def assemble_skill(
     try:
         shutil.copytree(skills_source, staging, dirs_exist_ok=True, symlinks=True)
         shared = staging / "kat"
-        shutil.copytree(packs, shared / "assets" / "packs", symlinks=True)
+        shutil.copytree(packs, shared / "sdk" / "packs", symlinks=True)
         shutil.copytree(
             linux_payload,
-            shared / "scripts" / "targets" / "linux-x86_64",
+            shared / "sdk" / "platform" / "linux-x86_64",
             symlinks=True,
         )
         shutil.copytree(
             windows_payload,
-            shared / "scripts" / "targets" / "windows-x86_64",
+            shared / "sdk" / "platform" / "windows-x86_64",
             symlinks=True,
         )
         # 同目录 rename 是单写入者流程的提交点；调用方负责在装配期间独占 output。

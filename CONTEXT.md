@@ -7,8 +7,11 @@ KAT 是面向性能分析的可扩展平台。本文只收录名称不足以表�
 **KAT**:
 Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看护责任的性能分析平台。Kernel 表达项目起源而非产品范围；平台维护者也不会因此让自己拥有的 PACK 获得特权。
 
+**KAT SDK**:
+平台运行能力、Pack Authoring API 与 Bundled PACK 的同版本交付集合。SDK 整体升级，用户自有的 External PACK 和数据独立维护；内部运行组件不构成可分别升级的产品。
+
 **KAT Skills**:
-KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，包含负责路由的 `kat` 总入口，以及问题分析 `kat-analyze`、PACK 创作与维护 `kat-author`、分析复核 `kat-review` 三个并列任务入口。集合是原子发布单元，四个 Skill 同级部署，共用 `kat` 目录中的命令合同、运行环境和 Bundled PACK；成套安装不承诺四目录替换的文件系统原子事务。
+KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，包含负责路由的 `kat` 总入口，以及问题分析 `kat-analyze`、PACK 创作与维护 `kat-author`、分析复核 `kat-review` 三个并列任务入口。集合是原子发布单元，四个 Skill 同级部署，共用 `kat` 目录中的命令合同和同版本 KAT SDK；成套安装不承诺四目录替换的文件系统原子事务。
 
 **KAT Skill**:
 KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别承接对应任务。问题分析入口可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
@@ -31,18 +34,18 @@ KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别
 对一个 PACK 承担看护责任的唯一组织或团队。PACK owner 是可变的展示信息，不是 PACK 身份、命名空间、发布者认证或权限依据。
 
 **Bundled PACK**:
-与 KAT Skills 同版本发布的 PACK。Bundled 只说明交付来源，不形成公共 PACK kind，也不赋予额外运行权限。
+随 KAT SDK 同版本发布的 PACK。Bundled 只说明交付来源，不形成公共 PACK kind，也不赋予额外运行权限。
 _Avoid_: Built-in PACK、System PACK
 
 **External PACK**:
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **Pack Authoring API**:
-KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。
+KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是独立于 KAT SDK 安装或升级的 Python distribution。
 _Avoid_: Python SDK、Pack API
 
 **Datasource wheel**:
-平台原生私有 distribution `kat-datasource`，提供窄的 `kat_datasource` 来源 API。它与 `kat-workflow` 使用同一 KAT 版本，但二者互不依赖；Payload 同时安装它们，PACK 必须按所需边界显式 import。它不是 CLI 插件、公共 SDK 或可独立升级的产品。
+平台原生私有 distribution `kat-datasource`，提供窄的 `kat_datasource` 来源 API。它与 `kat-workflow` 使用同一 KAT 版本，但二者互不依赖；Payload 同时安装它们，PACK 必须按所需边界显式 import。它是 KAT SDK 的内部构建单元，不是 CLI 插件或可独立升级的产品。
 
 **KAT Trace Library**:
 KAT 向所有 PACK 平等提供的公共 Trace 分析语义，只接纳经过多个真实消费者和真实 Trace 验证的复用能力。来源解码、具体用户问题和单个 PACK 内尚未验证的候选算法不属于它。

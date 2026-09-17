@@ -61,7 +61,7 @@ jobs:
           tar -xzf target/distrib/.payload-inputs/windows-x86_64.tar.gz -C target/kat/payloads
           python build/assemble_skill.py \
             --skills-source kat/skills \
-            --packs kat/packs \
+            --packs kat/sdk/packs \
             --linux-payload target/kat/payloads/linux-x86_64 \
             --windows-payload target/kat/payloads/windows-x86_64 \
             --output target/kat/release/skills
@@ -166,7 +166,7 @@ jobs:
               unset KAT_DATA_HOME
               skills=/repo/target/kat/smoke-relocated
               skill=$skills/kat
-              payload=$skill/scripts/targets/linux-x86_64
+              payload=$skill/sdk/platform/linux-x86_64
               cli=$payload/kat
               python=$payload/python/bin/python3
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
@@ -203,7 +203,7 @@ jobs:
                 /work/materialization-race
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" /repo/build/fixtures/verify_workflow_pack_tests.py \
-                "$cli" "$skill/assets/packs" /repo/examples/packs/workflow-composition \
+                "$cli" "$skill/sdk/packs" /repo/examples/packs/workflow-composition \
                 /work/workflow-pack-tests
             '
 
@@ -252,7 +252,7 @@ jobs:
           if (Test-Path -LiteralPath $skills) { throw "Smoke relocation destination already exists" }
           Move-Item -LiteralPath $smokeInput -Destination $skills
           $skill = Join-Path $skills "kat"
-          $payload = Join-Path $skill "scripts/targets/windows-x86_64"
+          $payload = Join-Path $skill "sdk/platform/windows-x86_64"
           $cli = Join-Path $payload "kat.exe"
           $python = Join-Path $payload "python/python.exe"
           & $python -I -B "build/verify_skill_collection.py" $skills
@@ -308,7 +308,7 @@ jobs:
             (Join-Path $work "materialization-race")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $python "build/fixtures/verify_workflow_pack_tests.py" `
-            $cli (Join-Path $skill "assets/packs") `
+            $cli (Join-Path $skill "sdk/packs") `
             (Resolve-Path "examples/packs/workflow-composition").Path `
             (Join-Path $work "workflow-pack-tests")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

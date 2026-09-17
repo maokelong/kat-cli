@@ -989,7 +989,7 @@ def _build_cli_binary(
             "--target",
             inputs.rust_target,
             "--manifest-path",
-            str(options.repository / "kat/platform/cli/Cargo.toml"),
+            str(options.repository / "kat/sdk/platform/cli/Cargo.toml"),
         ]
     )
     subprocess.run(

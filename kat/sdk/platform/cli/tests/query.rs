@@ -62,7 +62,7 @@ fn stage_skill(root: &Path) -> PathBuf {
         "linux-x86_64"
     };
     let binary_name = if cfg!(windows) { "kat.exe" } else { "kat" };
-    let payload = skill.join("scripts").join("targets").join(target);
+    let payload = skill.join("sdk").join("platform").join(target);
     fs::create_dir_all(&payload).unwrap();
     fs::write(skill.join("SKILL.md"), "# KAT\n").unwrap();
     let data_home = data_home(root);

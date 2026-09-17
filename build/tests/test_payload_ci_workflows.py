@@ -240,11 +240,11 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 self.assertIn("-m venv", workflow)
                 self.assertIn("--no-deps --no-index", workflow)
                 self.assertIn(
-                    "kat/platform/datasource/tests/python/test_hitrace_api.py",
+                    "kat/sdk/platform/datasource/tests/python/test_hitrace_api.py",
                     workflow,
                 )
                 self.assertIn(
-                    "kat/platform/datasource/tests/python/test_text_ftrace_api.py",
+                    "kat/sdk/platform/datasource/tests/python/test_text_ftrace_api.py",
                     workflow,
                 )
 

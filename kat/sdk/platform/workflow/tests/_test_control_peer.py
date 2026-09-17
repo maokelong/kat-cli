@@ -138,14 +138,14 @@ def _drain_stderr(
 @cache
 def _real_host() -> tuple[tempfile.TemporaryDirectory, Path]:
     # 仅布置真实 CLI/已安装 Python 依赖；不在测试替身中重建 Run 执行与发布。
-    repository = Path(__file__).resolve().parents[4]
+    repository = Path(__file__).resolve().parents[5]
     binary = Path(os.environ.get("KAT_TEST_KAT", repository / "target" / "debug" / ("kat.exe" if os.name == "nt" else "kat")))
     if not binary.is_file():
         raise RuntimeError("kat_run integration tests require cargo build -p kat-cli or KAT_TEST_KAT")
     temporary = tempfile.TemporaryDirectory(prefix="kat-python-tests-host-")
     root = Path(temporary.name)
     (root / "SKILL.md").write_text("# KAT test Host\n", encoding="utf-8")
-    payload = root / "scripts" / "targets" / ("windows-x86_64" if os.name == "nt" else "linux-x86_64")
+    payload = root / "sdk" / "platform" / ("windows-x86_64" if os.name == "nt" else "linux-x86_64")
     environment = payload if os.name == "nt" else payload / "python"
     subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True)
     if os.name == "nt":

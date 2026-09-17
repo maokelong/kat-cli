@@ -12,7 +12,7 @@ from pathlib import Path
 VERSION_SOURCES = (
     ("release/kat/dist.toml", ("package", "version")),
     ("Cargo.toml", ("workspace", "package", "version")),
-    ("kat/platform/workflow/pyproject.toml", ("project", "version")),
+    ("kat/sdk/platform/workflow/pyproject.toml", ("project", "version")),
 )
 TAG_NAMESPACE = "kat"
 

@@ -129,13 +129,13 @@ fn test_success_ignores_legacy_dataset_storage_and_omits_it_from_the_request() {
         let (skill, binary) = support::stage_skill(temporary.path(), "skill");
         stage_fake_host(&binary);
         let pack = if bundled {
-            skill.join("assets/packs/alpha-source")
+            skill.join("sdk/packs/alpha-source")
         } else {
             temporary.path().join("external-pack")
         };
         write_pack(&pack, "alpha");
         fs::write(pack.join("tests/datasets"), "legacy storage is inert").unwrap();
-        let unrelated_broken_pack = skill.join("assets/packs/unrelated-broken");
+        let unrelated_broken_pack = skill.join("sdk/packs/unrelated-broken");
         fs::create_dir_all(&unrelated_broken_pack).unwrap();
         fs::write(
             unrelated_broken_pack.join("pack.toml"),
@@ -396,7 +396,7 @@ fn test_invalid_target_directory_never_falls_back_to_discovery_paths() {
     let temporary = tempfile::tempdir().unwrap();
     let (skill, binary) = support::stage_skill(temporary.path(), "skill");
     stage_fake_host(&binary);
-    write_pack(&skill.join("assets/packs/fallback"), "alpha");
+    write_pack(&skill.join("sdk/packs/fallback"), "alpha");
     let captured = temporary.path().join("unexpected-request.json");
     let missing = temporary.path().join("missing-target");
     let mut command = fake_host_test_command(&binary, temporary.path(), &missing);

@@ -58,7 +58,7 @@ class HitraceApiContractTests(unittest.TestCase):
         self.assertFalse(hasattr(kat_datasource, "DecodeError"))
 
     def test_distribution_version_is_normalized_from_cargo_release_version(self) -> None:
-        repository = pathlib.Path(__file__).resolve().parents[5]
+        repository = pathlib.Path(__file__).resolve().parents[6]
         with (repository / "Cargo.toml").open("rb") as source:
             cargo_version = tomllib.load(source)["workspace"]["package"]["version"]
 

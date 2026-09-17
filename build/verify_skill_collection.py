@@ -62,7 +62,7 @@ def verify_skill_collection(root: Path) -> None:
                     "Task Skill must link the adjacent shared command contract: "
                     f"{entrypoint}"
                 )
-            for owned_path in ("scripts/targets", "assets/packs"):
+            for owned_path in ("sdk/platform", "sdk/packs"):
                 if (root / name / owned_path).exists():
                     raise ValueError(
                         "Task Skill must use the shared kat payload: "
@@ -76,15 +76,15 @@ def verify_skill_collection(root: Path) -> None:
 
     for relative in (
         "kat/references/command-reference.md",
-        "kat/scripts/targets/linux-x86_64/kat",
-        "kat/scripts/targets/linux-x86_64/python/bin/python3",
-        "kat/scripts/targets/windows-x86_64/kat.exe",
-        "kat/scripts/targets/windows-x86_64/python/python.exe",
+        "kat/sdk/platform/linux-x86_64/kat",
+        "kat/sdk/platform/linux-x86_64/python/bin/python3",
+        "kat/sdk/platform/windows-x86_64/kat.exe",
+        "kat/sdk/platform/windows-x86_64/python/python.exe",
         "kat-author/scripts/scaffold_pack.py",
         "kat-author/references/examples/dataprovider-pack/pack.toml",
     ):
         _file(root / relative)
-    if not (root / "kat/assets/packs").is_dir():
+    if not (root / "kat/sdk/packs").is_dir():
         raise ValueError("Shared kat deployment is missing its Bundled PACK directory")
 
 

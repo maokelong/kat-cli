@@ -53,7 +53,7 @@ def main() -> None:
             "-q",
             "-p",
             "no:cacheprovider",
-            str(repository / "kat/platform/workflow/tests/ftrace"),
+            str(repository / "kat/sdk/platform/workflow/tests/ftrace"),
         ],
         check=True,
     )

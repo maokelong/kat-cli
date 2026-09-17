@@ -59,7 +59,7 @@ def build_datasource_wheel(
             "--release",
             "--locked",
             "--manifest-path",
-            str(repository / "kat/platform/datasource/Cargo.toml"),
+            str(repository / "kat/sdk/platform/datasource/Cargo.toml"),
             "--interpreter",
             str(python),
             "--out",

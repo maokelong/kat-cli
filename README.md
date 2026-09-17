@@ -6,17 +6,29 @@ KAT 是面向性能分析的可扩展平台。面向用户交付同版本的 KAT
 Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、daemon、REST API
 或独立的服务端发布面。
 
+平台与官方 Bundled PACK 组成统一版本的 **KAT SDK**；用户自己的 External PACK 放在 SDK 外，升级时保留。源码布局为：
+
+```text
+kat/
+├── sdk/
+│   ├── platform/  # CLI、私有 Python Host 与数据处理能力
+│   └── packs/     # 官方 Bundled PACK（当前只有占位目录）
+└── skills/       # 四个 Agent 入口的源码
+```
+
+安装包将 SDK 放在 `kat/sdk/`：原生载荷位于 `platform/<target>/`，官方 PACK 位于 `packs/`。
+
 项目仍处于 `0.1` 预发布阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
 ## 安装、升级与使用
 
 1. 从同一 Release 下载 `kat-skill-<version>.tar.gz` 与 `kat-skill-<version>.tar.gz.sha256` 校验文件，验证压缩包的 SHA-256。
 2. 解压到一个独立目录，将其中的 `kat/`、`kat-analyze/`、`kat-author/`、`kat-review/` 四目录一起安装到目标 Agent 的 skills 目录，保持同级。
-3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。其他 Skill 和 KAT Data Home 保持不动。
+3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。其他 Skill 和 KAT Data Home 保持不动；用户 PACK 放在 Data Home 的 `packs/` 或 `--pack-dir` 指定的 SDK 外目录，不放入 `kat/sdk/packs/`。
 
 首版由用户管理安装和替换，不提供安装器，也不承诺四目录替换是一个文件系统原子事务。
 归档中的 Linux 载荷含符号链接，解压环境需要支持保留这些链接；Windows 仍按下述候选平台边界验收。
-`kat/` 保存公共命令合同、双平台载荷和 Bundled PACK；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
+`kat/` 保存公共命令合同和 SDK，SDK 内 CLI、Python Host 与 Bundled PACK 作为整体更新；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
 
 | 入口 | 用法 |
 |---|---|
@@ -49,7 +61,7 @@ PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 私有 Python Host 同时安装两个边界独立、版本一致的 wheel：纯 Python
 `kat-workflow` 提供顶层 `kat` Pack Authoring API 和 `_kat_runtime`，平台原生
 `kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
-可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
+可单独下载、混装或升级的 SDK 内部组件；Platform Payload 将它们与 CLI 一起原子交付。
 
 完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
@@ -254,7 +266,7 @@ cargo test --workspace --locked
 Workflow Runtime：
 
 ```bash
-python -I -B -m unittest discover -s kat/platform/workflow/tests -p "test_*.py"
+python -I -B -m unittest discover -s kat/sdk/platform/workflow/tests -p "test_*.py"
 ```
 
 ## 架构与领域文档

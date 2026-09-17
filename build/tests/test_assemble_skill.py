@@ -100,17 +100,47 @@ class AssembleSkillTests(unittest.TestCase):
         self.assertEqual(
             self.relative_files(self.output),
             self.relative_files(self.skills)
-            | self.relative_files(self.packs, "kat/assets/packs/")
+            | self.relative_files(self.packs, "kat/sdk/packs/")
             | self.relative_files(
-                self.linux_payload, "kat/scripts/targets/linux-x86_64/"
+                self.linux_payload, "kat/sdk/platform/linux-x86_64/"
             )
             | self.relative_files(
-                self.windows_payload, "kat/scripts/targets/windows-x86_64/"
+                self.windows_payload, "kat/sdk/platform/windows-x86_64/"
             ),
         )
         self.assertFalse(
-            (self.output / "kat/assets/packs/dataprovider-pack").exists()
+            (self.output / "kat/sdk/packs/dataprovider-pack").exists()
         )
+
+    def test_sdk_replacement_preserves_external_pack_and_user_data(self) -> None:
+        self.assemble()
+        data_home = self.root / "user-data"
+        external = data_home / "packs/user-pack/workflows/analyze.py"
+        external.parent.mkdir(parents=True)
+        external.write_text("user-owned workflow", encoding="utf-8")
+        session = data_home / "sessions/existing-run.txt"
+        session.parent.mkdir()
+        session.write_text("user-owned result", encoding="utf-8")
+        before = self.relative_files(data_home)
+
+        (self.packs / "kat-example/pack.toml").write_text(
+            'name = "kat-example"\nversion = "next"\n', encoding="utf-8"
+        )
+        next_collection = self.root / "next-release"
+        self.assemble(output=next_collection)
+        sdk = self.output / "kat/sdk"
+        sdk.rename(self.root / "previous-sdk")
+        (next_collection / "kat/sdk").rename(sdk)
+
+        self.assertEqual(self.relative_files(data_home), before)
+        self.assertEqual(
+            (sdk / "packs/kat-example/pack.toml").read_bytes(),
+            (self.packs / "kat-example/pack.toml").read_bytes(),
+        )
+        self.assertTrue((sdk / "platform/linux-x86_64/kat").is_file())
+        self.assertTrue((sdk / "platform/windows-x86_64/kat.exe").is_file())
+        self.assertFalse((self.output / "kat/assets/packs").exists())
+        self.assertFalse((self.output / "kat/scripts/targets").exists())
 
     def test_whole_collection_move_preserves_sibling_resource_paths(self) -> None:
         self.assemble()
@@ -127,11 +157,11 @@ class AssembleSkillTests(unittest.TestCase):
                     ("linux-x86_64", "kat", "python/bin/python3"),
                     ("windows-x86_64", "kat.exe", "python/python.exe"),
                 ):
-                    cli = shared / "scripts/targets" / target / cli_name
+                    cli = shared / "sdk/platform" / target / cli_name
                     self.assertTrue(cli.is_file())
                     self.assertTrue((cli.parent / python_path).is_file())
                     self.assertTrue(
-                        (cli.parents[3] / "assets/packs/kat-example/pack.toml").is_file()
+                        (cli.parents[3] / "sdk/packs/kat-example/pack.toml").is_file()
                     )
         self.assertTrue((moved / "kat-author/scripts/init_pack.py").is_file())
         self.assertTrue(
@@ -241,11 +271,11 @@ class AssembleSkillTests(unittest.TestCase):
             self.relative_files(self.output),
             self.relative_files(self.skills)
             | {
-                "kat/scripts/targets/linux-x86_64/arbitrary-linux-content": b"linux",
-                "kat/scripts/targets/windows-x86_64/arbitrary-windows-content": b"windows",
+                "kat/sdk/platform/linux-x86_64/arbitrary-linux-content": b"linux",
+                "kat/sdk/platform/windows-x86_64/arbitrary-windows-content": b"windows",
             },
         )
-        self.assertTrue((self.output / "kat/assets/packs").is_dir())
+        self.assertTrue((self.output / "kat/sdk/packs").is_dir())
 
     def test_assembly_rejects_absolute_symlink_in_an_input(self) -> None:
         external = self.root / "external.txt"

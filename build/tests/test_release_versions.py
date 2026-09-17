@@ -19,14 +19,14 @@ def write_release_versions(
     workflow: str = "1.2.3",
 ) -> None:
     (repository / "release/kat").mkdir(parents=True)
-    (repository / "kat/platform/workflow").mkdir(parents=True)
+    (repository / "kat/sdk/platform/workflow").mkdir(parents=True)
     (repository / "release/kat/dist.toml").write_text(
         f'[package]\nname = "kat"\nversion = "{release}"\n', encoding="utf-8"
     )
     (repository / "Cargo.toml").write_text(
         f'[workspace.package]\nversion = "{rust}"\n', encoding="utf-8"
     )
-    (repository / "kat/platform/workflow/pyproject.toml").write_text(
+    (repository / "kat/sdk/platform/workflow/pyproject.toml").write_text(
         f'[project]\nname = "kat-workflow"\nversion = "{workflow}"\n',
         encoding="utf-8",
     )
@@ -151,7 +151,7 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("release/kat/dist.toml: 1.2.3", result.stderr)
             self.assertIn("Cargo.toml: 1.2.2", result.stderr)
-            self.assertIn("kat/platform/workflow/pyproject.toml: 1.2.3", result.stderr)
+            self.assertIn("kat/sdk/platform/workflow/pyproject.toml: 1.2.3", result.stderr)
 
     def test_workflow_version_drift_reports_all_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -164,7 +164,7 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("release/kat/dist.toml: 1.2.3", result.stderr)
             self.assertIn("Cargo.toml: 1.2.3", result.stderr)
-            self.assertIn("kat/platform/workflow/pyproject.toml: 1.2.4", result.stderr)
+            self.assertIn("kat/sdk/platform/workflow/pyproject.toml: 1.2.4", result.stderr)
 
 
 if __name__ == "__main__":

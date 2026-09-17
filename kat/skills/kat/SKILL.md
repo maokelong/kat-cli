@@ -19,6 +19,6 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 ## 共享执行边界
 
-四个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
+四个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md) 与 `sdk/`，SDK 统一包含平台 CLI、相邻私有 Python 和 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
 
 任务流程和结果要求由对应 Skill 维护。私有 Python 由 CLI 启动；任务 Skill 不复制环境，也不要求先经过本总路由。

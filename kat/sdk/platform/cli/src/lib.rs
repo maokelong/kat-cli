@@ -282,7 +282,7 @@ fn inspect_resolved_target(
         }
     };
     let discovered = match pack_discovery::discover(PackDiscoveryPaths {
-        skill_pack_search_directory: skill_root.join("assets").join("packs"),
+        skill_pack_search_directory: skill_root.join("sdk").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     }) {
@@ -377,7 +377,7 @@ fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, I
     let skill_root = locate_skill_root()?;
     let data_home = locate_data_home()?;
     let discovered = pack_discovery::discover(PackDiscoveryPaths {
-        skill_pack_search_directory: skill_root.join("assets").join("packs"),
+        skill_pack_search_directory: skill_root.join("sdk").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
     })
@@ -408,25 +408,23 @@ fn locate_skill_root() -> Result<PathBuf, SkillRootError> {
         .ok_or_else(|| SkillRootError::InvalidLayout {
             executable: executable.clone(),
         })?;
-    let targets = payload
+    let platform = payload
         .parent()
         .ok_or_else(|| SkillRootError::InvalidLayout {
             executable: executable.clone(),
         })?;
-    let scripts = targets
+    let sdk = platform
         .parent()
         .ok_or_else(|| SkillRootError::InvalidLayout {
             executable: executable.clone(),
         })?;
-    let skill = scripts
-        .parent()
-        .ok_or_else(|| SkillRootError::InvalidLayout {
-            executable: executable.clone(),
-        })?;
+    let skill = sdk.parent().ok_or_else(|| SkillRootError::InvalidLayout {
+        executable: executable.clone(),
+    })?;
     let expected_binary = if cfg!(windows) { "kat.exe" } else { "kat" };
     if executable.file_name().and_then(|name| name.to_str()) != Some(expected_binary)
-        || targets.file_name().and_then(|name| name.to_str()) != Some("targets")
-        || scripts.file_name().and_then(|name| name.to_str()) != Some("scripts")
+        || platform.file_name().and_then(|name| name.to_str()) != Some("platform")
+        || sdk.file_name().and_then(|name| name.to_str()) != Some("sdk")
     {
         return Err(SkillRootError::InvalidLayout { executable });
     }
@@ -449,7 +447,7 @@ fn locate_skill_root() -> Result<PathBuf, SkillRootError> {
 enum SkillRootError {
     #[error("failed to locate the current executable")]
     CurrentExecutable(#[source] io::Error),
-    #[error("KAT executable is not in <skill>/scripts/targets/<target>: {executable}")]
+    #[error("KAT executable is not in <skill>/sdk/platform/<target>: {executable}")]
     InvalidLayout { executable: PathBuf },
     #[error("failed to inspect KAT Skill marker {path}")]
     SkillMarker {
@@ -517,7 +515,7 @@ impl From<pack_discovery::PackDiscoveryError> for PackDiscoveryFailure {
 enum InspectPacksError {
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help(
-        "Run kat from <skill>/scripts/targets/<target> with a regular <skill>/SKILL.md marker"
+        "Run kat from <skill>/sdk/platform/<target> with a regular <skill>/SKILL.md marker"
     ))]
     SkillRoot(
         #[from]

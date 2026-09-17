@@ -82,7 +82,7 @@ jobs:
             python -c 'import json; d=json.load(open("build/runtime-inputs.json")); print(d["python"]["version"], d["uv"]["version"])'
           )
           test "$(uv --version | cut -d ' ' -f 2)" = "$uv_version"
-          uv pip compile kat/platform/workflow/pyproject.toml \
+          uv pip compile kat/sdk/platform/workflow/pyproject.toml \
             --python-version "$python_version" \
             --python-platform x86_64-unknown-linux-gnu \
             --only-binary :all: \
@@ -90,7 +90,7 @@ jobs:
             --no-config \
             --no-progress \
             --output-file build/requirements-linux.lock.txt
-          uv pip compile kat/platform/workflow/pyproject.toml \
+          uv pip compile kat/sdk/platform/workflow/pyproject.toml \
             --python-version "$python_version" \
             --python-platform x86_64-pc-windows-msvc \
             --only-binary :all: \

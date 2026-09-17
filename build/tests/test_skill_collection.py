@@ -23,15 +23,15 @@ class SkillCollectionTests(unittest.TestCase):
         shutil.copytree(REPOSITORY / "kat/skills", self.skills)
         # 这些占位文件只验证部署路径，绝不作为可执行载荷使用。
         for relative in (
-            "kat/scripts/targets/linux-x86_64/kat",
-            "kat/scripts/targets/linux-x86_64/python/bin/python3",
-            "kat/scripts/targets/windows-x86_64/kat.exe",
-            "kat/scripts/targets/windows-x86_64/python/python.exe",
+            "kat/sdk/platform/linux-x86_64/kat",
+            "kat/sdk/platform/linux-x86_64/python/bin/python3",
+            "kat/sdk/platform/windows-x86_64/kat.exe",
+            "kat/sdk/platform/windows-x86_64/python/python.exe",
         ):
             path = self.skills / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("path fixture; not executable\n", encoding="utf-8")
-        (self.skills / "kat/assets/packs").mkdir(parents=True)
+        (self.skills / "kat/sdk/packs").mkdir(parents=True)
 
     def _archive(self, names: tuple[str, ...]) -> Path:
         archive = self.work / "kat-skill-test.tar.gz"
@@ -82,6 +82,13 @@ class SkillCollectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly these top-level directories"):
             verify_skill_collection(relocated)
 
+    def test_legacy_payload_layout_is_rejected(self) -> None:
+        shared = self.skills / "kat"
+        (shared / "scripts").mkdir()
+        (shared / "sdk/platform").rename(shared / "scripts/targets")
+        with self.assertRaisesRegex(ValueError, "Required collection file is missing"):
+            verify_skill_collection(self.skills)
+
     def test_extra_top_level_file_is_rejected(self) -> None:
         (self.skills / "unexpected.txt").write_text("extra", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "exactly these top-level directories"):
@@ -105,7 +112,7 @@ class SkillCollectionTests(unittest.TestCase):
             "windows-x86_64/python/python.exe",
         ):
             with self.subTest(path=relative):
-                path = self.skills / "kat/scripts/targets" / relative
+                path = self.skills / "kat/sdk/platform" / relative
                 original = path.read_bytes()
                 path.unlink()
                 with self.assertRaisesRegex(
@@ -115,11 +122,11 @@ class SkillCollectionTests(unittest.TestCase):
                 path.write_bytes(original)
 
     def test_empty_bundled_pack_directory_is_valid(self) -> None:
-        self.assertEqual(list((self.skills / "kat/assets/packs").iterdir()), [])
+        self.assertEqual(list((self.skills / "kat/sdk/packs").iterdir()), [])
         verify_skill_collection(self.skills)
 
     def test_bundled_pack_directory_is_required(self) -> None:
-        (self.skills / "kat/assets/packs").rmdir()
+        (self.skills / "kat/sdk/packs").rmdir()
         with self.assertRaisesRegex(ValueError, "missing its Bundled PACK directory"):
             verify_skill_collection(self.skills)
 
@@ -150,7 +157,7 @@ class SkillCollectionTests(unittest.TestCase):
             verify_skill_collection(self.skills)
 
     def test_task_skill_cannot_duplicate_shared_payload(self) -> None:
-        (self.skills / "kat-author/scripts/targets").mkdir()
+        (self.skills / "kat-author/sdk/platform").mkdir(parents=True)
         with self.assertRaisesRegex(ValueError, "must use the shared kat payload"):
             verify_skill_collection(self.skills)
 

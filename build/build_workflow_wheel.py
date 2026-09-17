@@ -77,7 +77,7 @@ def build_workflow_wheel(
         )
         source = temporary_root / "source"
         shutil.copytree(
-            repository / "kat/platform/workflow",
+            repository / "kat/sdk/platform/workflow",
             source,
             ignore=shutil.ignore_patterns(
                 "__pycache__", "*.pyc", "*.pyo", "build", "*.egg-info"
