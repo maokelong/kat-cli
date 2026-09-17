@@ -318,7 +318,7 @@ class AssembleSkillTests(unittest.TestCase):
         target = self.skills / "kat/references/command-reference.md"
         link = self.skills / "kat-review/shared-reference.md"
         try:
-            link.symlink_to("../kat/references/command-reference.md")
+            link.symlink_to(Path("../kat/references/command-reference.md"))
         except OSError as error:
             self.skipTest(f"symbolic links are unavailable: {error}")
 
