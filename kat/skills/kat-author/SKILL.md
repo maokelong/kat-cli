@@ -13,7 +13,9 @@ description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provid
 
 每次 KAT 调用按公共合同选择 CLI 的绝对路径，复用其 Data Home、Response 与失败边界。四个 Skill 必须来自同一套部署；缺少共享目录或载荷时说明部署缺项，不从其他版本或 `PATH` 拼装。直接使用本 Skill 无需先调用总路由。
 
-本目录为 `<author-root>`，拥有 [PACK 骨架脚本](scripts/scaffold_pack.py) 和 [作者示例 PACK](references/examples/dataprovider-pack/README.md)。从本文件解析这些资源的绝对路径，不依赖当前工作目录；共享私有 Python 仍由 KAT CLI 启动。
+本目录为 `<author-root>`，拥有 [PACK 骨架脚本](scripts/scaffold_pack.py) 和 [作者示例 PACK](references/examples/dataprovider-pack/README.md)。从本文件解析这些资源的绝对路径，不依赖当前工作目录。
+
+已授权的 PACK、Provider 或 Workflow 创作中，可补装任务所需的缺失依赖，无需逐包再次询问；需要时读取共享 [Python 依赖管理](../kat/references/python-packages.md)。只读理解、检查、测试或诊断本身不授权安装；用户明确要求安装时按其授权执行。
 
 ## 创作与交付
 

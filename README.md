@@ -12,11 +12,13 @@ Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、da
 
 1. 从同一 Release 下载 `kat-skill-<version>.tar.gz` 与 `kat-skill-<version>.tar.gz.sha256` 校验文件，验证压缩包的 SHA-256。
 2. 解压到一个独立目录，将其中的 `kat/`、`kat-analyze/`、`kat-author/`、`kat-review/` 四目录一起安装到目标 Agent 的 skills 目录，保持同级。
-3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。其他 Skill 和 KAT Data Home 保持不动。
+3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。整套替换使用新版本的干净 Python 环境，额外安装的库需重新安装；其他 Skill 和 KAT Data Home 保持不动。
 
 首版由用户管理安装和替换，不提供安装器，也不承诺四目录替换是一个文件系统原子事务。
 归档中的 Linux 载荷含符号链接，解压环境需要支持保留这些链接；Windows 仍按下述候选平台边界验收。
 `kat/` 保存公共命令合同、双平台载荷和 Bundled PACK；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
+
+可用内置 Python 的 `-m pip` 安装、更新或卸载第三方库，详见 [Python 依赖管理](kat/skills/kat/references/python-packages.md)。同一部署中的所有 PACK 共用该环境；允许更新内置第三方依赖，版本冲突由用户管理。
 
 | 入口 | 用法 |
 |---|---|

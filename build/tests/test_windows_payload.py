@@ -19,6 +19,52 @@ def write_binary(path: Path) -> None:
 
 
 class WindowsPayloadBuilderTests(unittest.TestCase):
+    def test_pip_foreign_launchers_are_data_but_other_foreign_pe_files_are_rejected(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            distlib = root / "Lib/site-packages/pip/_vendor/distlib"
+            machines = {
+                root / "python.exe": build_windows_payload.PE_X86_64,
+                distlib / "t64.exe": build_windows_payload.PE_X86_64,
+                distlib / "w64.exe": build_windows_payload.PE_X86_64,
+                distlib / "t32.exe": 0x014C,
+                distlib / "w32.exe": 0x014C,
+                distlib / "t64-arm.exe": 0xAA64,
+                distlib / "w64-arm.exe": 0xAA64,
+            }
+            for path in machines:
+                write_binary(path)
+            with mock.patch.object(
+                build_windows_payload,
+                "pe_machine",
+                side_effect=machines.__getitem__,
+            ):
+                self.assertEqual(
+                    set(build_windows_payload.pe_files(root)),
+                    {
+                        path.resolve()
+                        for path, machine in machines.items()
+                        if machine == build_windows_payload.PE_X86_64
+                    },
+                )
+                self.assertTrue(all(path.is_file() for path in machines))
+                for path, machine in (
+                    (root / "Lib/site-packages/other/t32.exe", 0x014C),
+                    (root / "Lib/site-packages/other/t64-arm.exe", 0xAA64),
+                    (distlib / "unexpected.dll", 0x014C),
+                ):
+                    with self.subTest(path=path), self.assertRaisesRegex(
+                        ValueError, "non-x86_64 PE file"
+                    ):
+                        write_binary(path)
+                        machines[path] = machine
+                        try:
+                            build_windows_payload.pe_files(root)
+                        finally:
+                            path.unlink()
+
     @mock.patch.object(
         build_windows_payload,
         "pe_machine",

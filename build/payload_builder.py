@@ -830,13 +830,13 @@ def prune_private_host(python_root: Path, spec: PlatformSpec) -> None:
         for directory in python_root.glob(pattern)
     ]
     for directory in site_packages:
+        # uv 的托管标记属于构建环境；交付的共享环境允许用户直接用 pip 安装。
+        (directory.parent / "EXTERNALLY-MANAGED").unlink(missing_ok=True)
         for pattern in (
-            "pip",
             "setuptools",
             "wheel",
             "pkg_resources",
             "_distutils_hack",
-            "pip-*.dist-info",
             "setuptools-*.dist-info",
             "wheel-*.dist-info",
         ):

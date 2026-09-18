@@ -147,6 +147,11 @@ jobs:
           mkdir -p target/kat/smoke-input
           tar -xzf "target/kat/artifact/${ARTIFACT_NAME}" -C target/kat/smoke-input
           mv target/kat/smoke-input target/kat/smoke-relocated
+          target/kat/smoke-relocated/kat/scripts/targets/linux-x86_64/python/bin/python3 \
+            -I -B -m pip download --disable-pip-version-check \
+            --only-binary=:all: --no-deps --require-hashes \
+            -r build/requirements-package-smoke.lock.txt \
+            --dest target/kat/package-wheelhouse
           image='almalinux@sha256:dd9015a46bf86d46801080d9f37990528b2072b1d4a3f3851c6a5a79088adf82'
           docker pull "$image"
           docker run --rm --network none \
@@ -205,6 +210,9 @@ jobs:
                 "$python" /repo/build/fixtures/verify_workflow_pack_tests.py \
                 "$cli" "$skill/assets/packs" /repo/examples/packs/workflow-composition \
                 /work/workflow-pack-tests
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -I -B /repo/build/fixtures/verify_python_packages.py \
+                "$cli" /repo/target/kat/package-wheelhouse /work/python-packages
             '
 
   windows-smoke:
@@ -256,6 +264,15 @@ jobs:
           $cli = Join-Path $payload "kat.exe"
           $python = Join-Path $payload "python/python.exe"
           & $python -I -B "build/verify_skill_collection.py" $skills
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -I -B -m pip download --disable-pip-version-check `
+            --only-binary=:all: --no-deps --require-hashes `
+            -r "build/requirements-package-smoke.lock.txt" `
+            --dest "target/kat/package-wheelhouse"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -I -B "build/fixtures/verify_python_packages.py" `
+            $cli (Resolve-Path "target/kat/package-wheelhouse").Path `
+            (Join-Path $smokeParent "package-smoke")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $producerPack = (Resolve-Path "build/fixtures/payload-smoke-pack").Path
           $consumerPack = (Resolve-Path "build/fixtures/payload-smoke-consumer-pack").Path

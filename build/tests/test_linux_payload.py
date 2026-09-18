@@ -219,6 +219,41 @@ class PayloadBuilderTests(unittest.TestCase):
     def test_windows_private_python_and_requirements_use_locked_inputs(self) -> None:
         self._assert_private_python_and_requirements(build_windows_payload)
 
+    def test_pruned_hosts_keep_pip_and_allow_installation_without_override(self) -> None:
+        for module, library, scripts, launcher in (
+            (build_linux_payload, "lib/python3.14", "bin", "bin/python3"),
+            (build_windows_payload, "Lib", "Scripts", "python.exe"),
+        ):
+            with (
+                self.subTest(platform=module.PLATFORM),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                pip_module = root / library / "site-packages/pip/__main__.py"
+                pip_metadata = (
+                    root / library / "site-packages/pip-26.2.1.dist-info/METADATA"
+                )
+                managed_marker = root / library / "EXTERNALLY-MANAGED"
+                python = root / launcher
+                pip_entrypoint = root / scripts / "pip"
+                for path in (
+                    pip_module,
+                    pip_metadata,
+                    managed_marker,
+                    python,
+                    pip_entrypoint,
+                ):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("fixture", encoding="utf-8")
+
+                payload_builder.prune_private_host(root, module.PLATFORM_SPEC)
+
+                self.assertTrue(pip_module.is_file())
+                self.assertTrue(pip_metadata.is_file())
+                self.assertFalse(managed_marker.exists())
+                self.assertTrue(python.is_file())
+                self.assertFalse(pip_entrypoint.exists())
+
     def test_platform_adapters_own_platform_specific_options(self) -> None:
         linux = build_linux_payload.LinuxAdapter(readelf="locked-readelf")
         self.assertEqual(linux.readelf, "locked-readelf")

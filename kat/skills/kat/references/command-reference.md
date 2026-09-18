@@ -2,7 +2,7 @@
 
 用户只需用自然语言说明目标。以下命令供 KAT Skills 共用；始终以本合同选出的平台载荷绝对路径替代示例中的 `kat`。
 
-除 `--help` 外，每次调用的 stdout 都是一个 KAT Response JSON。只在 `status="success"` 时读取 `result`；失败时读取 `error`，以及存在时的 `log_path` 或 `test_report_path`。不要从终端文本、日志或 pytest 输出推断成功。
+除 `--help` 外，每次 KAT CLI 调用的 stdout 都是一个 KAT Response JSON。只在 `status="success"` 时读取 `result`；失败时读取 `error`，以及存在时的 `log_path` 或 `test_report_path`。不要从终端文本、日志或 pytest 输出推断成功。
 
 ## 调用前选择平台载荷
 
@@ -28,6 +28,8 @@
 仅在缺少继续任务的关键事实，或选择会改变实质结论时补问，说明已确认事实和缺项，一次只询问一个最小必要问题，不要求用户选择内部命令。
 
 Data Home 失败时引用实际 Diagnostic，说明尚未完成的操作；沿用当前配置停止，不把配置失败改成目录选择问卷。用户正在手工调整时说明等待事项，不把用户确认当作 KAT 验证成功。
+
+分析和复核遇到缺失 Python 依赖时报告缺项，不自动安装。用户明确要求安装时，读取 [Python 依赖管理](python-packages.md) 并按授权执行；创作中的补装边界由 `kat-author` 规定。
 
 ## 查看帮助
 

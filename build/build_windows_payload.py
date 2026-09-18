@@ -131,6 +131,11 @@ def pe_machine(path: Path) -> int | None:
 
 
 def pe_files(root: Path) -> list[Path]:
+    # pip wheel 的其他架构脚本模板不是本机运行依赖；t64/w64 仍验证依赖闭包。
+    foreign_pip_launchers = {
+        root / "Lib/site-packages/pip/_vendor/distlib" / name
+        for name in ("t32.exe", "w32.exe", "t64-arm.exe", "w64-arm.exe")
+    }
     files = (
         [root]
         if root.is_file()
@@ -138,6 +143,8 @@ def pe_files(root: Path) -> list[Path]:
     )
     result: list[Path] = []
     for path in files:
+        if path in foreign_pip_launchers:
+            continue
         machine = pe_machine(path)
         if machine is None:
             continue
