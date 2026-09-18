@@ -1,0 +1,46 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "79a3c7a64ae5ea101cae07ad17c20c7fdb6999d6",
+  "prompts": {},
+  "sessions": {
+    "s_7313f7b6bd4839": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b26e-9b2a-73d0-88aa-4c8ff6976c2b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 54,
+      "total_deletions": 100,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_0281570e5f6dba": "gpt-6-astra",
+        "t_07ad97e7c3542f": "gpt-6-astra",
+        "t_29e9b548e191ee": "gpt-6-astra",
+        "t_3a2f63bd204ed5": "gpt-6-astra",
+        "t_7b747686fe01b1": "gpt-6-astra",
+        "t_87058ff3e93a7b": "gpt-6-astra",
+        "t_89392956d1e35d": "gpt-6-astra",
+        "t_940212d6f5f49c": "gpt-6-astra",
+        "t_b8fc07e5a61922": "gpt-6-astra",
+        "t_be4984a210e4bb": "gpt-6-astra",
+        "t_c755e195b7ea32": "gpt-6-astra",
+        "t_d17f904ea586dd": "gpt-6-astra",
+        "t_e352209ffdb164": "gpt-6-astra",
+        "t_e4f8d205f38966": "gpt-6-astra",
+        "t_eba16edf43780a": "gpt-6-astra",
+        "t_f112931e67aa68": "gpt-6-astra",
+        "t_f77a4e2667e9ac": "gpt-6-astra",
+        "t_fec58d5073d7b6": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 858,
+          "deletions": 105
+        }
+      }
+    }
+  }
+}
