@@ -8,6 +8,9 @@ Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、da
 
 项目仍处于 `0.1` 预发布阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
+面向 Claude Code 使用者的 [中文用户手册](kat/skills/kat/user-manual.html) 覆盖安装、真实数据分析、
+PACK 开发测试及分享接收。手册随 Release 包交付，解压后用浏览器打开 `kat/user-manual.html` 即可离线阅读。
+
 ## 安装、升级与使用
 
 1. 从同一 Release 下载 `kat-skill-<version>.tar.gz` 与 `kat-skill-<version>.tar.gz.sha256` 校验文件，验证压缩包的 SHA-256。

@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>KAT 用户手册 · Claude Code</title>
+  <style>
+    :root { --ink: #172d36; --muted: #52656c; --accent: #146552; --line: #d7e1de; --paper: #fff; --wash: #f4f7f5; }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 24px; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 16px/1.85 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    a { color: var(--accent); text-underline-offset: .2em; }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible, pre:focus-visible { outline: 3px solid #bf8734; outline-offset: 4px; }
+    .skip { position: absolute; left: 16px; top: -80px; z-index: 2; padding: 8px 16px; background: white; }
+    .skip:focus { top: 12px; }
+    .rail { position: fixed; inset: 0 auto 0 0; width: 260px; padding: 34px 26px; overflow-y: auto; background: var(--wash); border-right: 1px solid var(--line); }
+    .brand { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -.05em; }
+    .rail p { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+    nav ol { padding: 0; margin: 0; list-style: none; }
+    nav a { display: block; padding: 7px 0; text-decoration: none; color: var(--ink); font-size: 14px; }
+    nav a span { display: inline-block; width: 28px; color: var(--accent); font-size: 12px; }
+    .rail .tip { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 18px; }
+    main { max-width: 1190px; margin-left: 260px; padding: 52px 64px 72px; }
+    header { padding-bottom: 36px; border-bottom: 2px solid var(--ink); }
+    .eyebrow { margin: 0; color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .12em; }
+    h1 { margin: 12px 0; font-size: clamp(30px, 4vw, 46px); line-height: 1.25; letter-spacing: -.04em; }
+    .lead { max-width: 690px; color: var(--muted); font-size: 18px; }
+    .meta { color: var(--muted); font-size: 13px; }
+    section { padding: 34px 0 24px; border-bottom: 1px solid var(--line); }
+    h2 { margin: 0 0 20px; font-size: 25px; line-height: 1.4; }
+    h2 .num { display: inline-block; margin-right: 12px; color: var(--accent); font: 500 15px/1.4 ui-monospace, monospace; }
+    h3 { font-size: 19px; margin: 28px 0 10px; }
+    p { margin: 12px 0; }
+    li { margin: 5px 0; }
+    ul, ol { padding-left: 1.5em; }
+    code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .91em; overflow-wrap: anywhere; }
+    :not(pre) > code { background: var(--wash); padding: 2px 5px; border-radius: 3px; }
+    pre { margin: 0; padding: 18px 20px; background: #f1f5f3; border: 1px solid var(--line); border-radius: 0 0 6px 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; }
+    .example { margin: 18px 0; }
+    .label { padding: 7px 14px; background: #e4eeea; color: #215143; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; font-size: 12px; font-weight: 700; }
+    .note { margin: 20px 0; padding: 14px 20px; border-left: 3px solid var(--accent); background: var(--wash); }
+    .note p { margin: 4px 0; }
+    .caution { border-color: #a46917; background: #fff9ed; }
+    .check { color: #295447; font-size: 14px; }
+    .paths { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 24px 0; }
+    .path { border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px; }
+    .path strong { display: block; margin-bottom: 8px; }
+    .path p { margin: 4px 0; font-size: 14px; color: var(--muted); }
+    .table-wrap { overflow-x: auto; margin: 18px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--line); }
+    th { color: var(--accent); background: var(--wash); }
+    td:first-child { min-width: 115px; }
+    details { margin: 14px 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px 18px; }
+    summary { cursor: pointer; font-weight: 650; }
+    footer { padding-top: 24px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 1000px) { .rail { width: 220px; padding: 26px 20px; } main { margin-left: 220px; padding: 40px 30px; } }
+    @media (max-width: 720px) {
+      .rail { position: static; width: auto; padding: 22px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .brand { font-size: 26px; } .rail p { margin-bottom: 12px; } nav ol { columns: 2; column-gap: 20px; }
+      nav li { break-inside: avoid; } nav a { font-size: 13px; } .rail .tip { margin: 12px 0 0; padding-top: 10px; }
+      main { margin: 0; padding: 28px 20px 40px; } .paths { grid-template-columns: 1fr; } h2 { font-size: 22px; }
+      pre { padding: 14px; font-size: 13px; } th, td { padding: 9px; }
+    }
+    @media print {
+      .rail, .skip { display: none; } main { margin: 0; padding: 0; max-width: none; }
+      body { font-size: 11pt; } h1 { font-size: 28pt; } h2, h3 { break-after: avoid; }
+      .example, .note, tr { break-inside: avoid; } a { color: inherit; } section { padding-top: 20px; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<aside class="rail">
+  <p class="brand">KAT<span aria-hidden="true">.</span></p>
+  <p>用户手册 / Claude Code</p>
+  <nav aria-label="手册目录">
+    <ol>
+      <li><a href="#start"><span>01</span>开始之前</a></li>
+      <li><a href="#install"><span>02</span>安装与首次启用</a></li>
+      <li><a href="#prepare"><span>03</span>准备真实分析</a></li>
+      <li><a href="#analyze"><span>04</span>分析与阅读结果</a></li>
+      <li><a href="#continue"><span>05</span>追问、继续与复核</a></li>
+      <li><a href="#author"><span>06</span>创建与维护 PACK</a></li>
+      <li><a href="#test"><span>07</span>测试与验收</a></li>
+      <li><a href="#share"><span>08</span>分享与接收 PACK</a></li>
+      <li><a href="#maintain"><span>09</span>数据、依赖与升级</a></li>
+      <li><a href="#troubleshoot"><span>10</span>常见问题</a></li>
+    </ol>
+  </nav>
+  <p class="tip">本页可离线阅读。<br>使用 Ctrl + F 查找，选中示例即可复制。</p>
+</aside>
+<main id="main">
+  <header>
+    <p class="eyebrow">KERNEL AI KIT · USER GUIDE</p>
+    <h1>从一个问题开始，<br>用证据完成分析。</h1>
+    <p class="lead">在 Claude Code 中使用 KAT 分析自己的数据，或把分析方法做成可测试、可交给同事使用的 PACK。</p>
+    <p class="meta">适用于与本手册同包交付的 KAT Skills。KAT 目前处于 0.1 预发布阶段。</p>
+  </header>
+
+  <section id="start">
+    <h2><span class="num">01</span>开始之前</h2>
+    <p>KAT 是一个可扩展的性能分析平台。在 Claude Code 中输入 <code>/kat</code>，说出你想做什么，就可以开始分析问题、创建或修改 PACK，也可以复核报告。KAT 会选择相应流程，需要补充信息时再询问你。</p>
+    <div class="paths">
+      <div class="path"><strong>我想分析问题</strong><p>准备自己的 Trace 与分析目标，使用已有 PACK。</p><a href="#install">安装后开始分析 →</a></div>
+      <div class="path"><strong>我想开发分析能力</strong><p>让 Claude Code 创建或修改 PACK，验证后分享。</p><a href="#author">查看开发流程 →</a></div>
+    </div>
+    <div class="table-wrap"><table>
+      <caption>先认识四个常用概念</caption>
+      <thead><tr><th scope="col">名称</th><th scope="col">你需要知道什么</th></tr></thead>
+      <tbody>
+        <tr><td>KAT Skills</td><td>安装进 Claude Code 的一套能力，共用一套运行环境。日常使用从 <code>/kat</code> 开始。</td></tr>
+        <tr><td>PACK</td><td>一个团队维护的一组分析策略。可以由同事提供，也可以让 Claude Code 帮你开发。</td></tr>
+        <tr><td>Workflow</td><td>PACK 中回答某个具体问题的执行入口，声明所需输入。完成计算不等于结论已充分得到证据支持。</td></tr>
+        <tr><td>Session / Run</td><td>Session 归集同一次分析；一次成功发布的 Workflow 执行形成一个 Run。继续查询时通常需要同时保存这两个 ID。</td></tr>
+      </tbody>
+    </table></div>
+    <p>KAT 支持哪些数据和问题，取决于当前可用的 Workflow。发布包可能没有业务 PACK；安装成功也不表示已经具备启动耗时、CPU 或内存分析能力。先检查能力；没有匹配时，再决定获取或开发 PACK。</p>
+    <div class="note"><p><strong>阅读与运行的前提不同。</strong>本页不需要网络。实际使用需要可正常工作的 Claude Code，以及选中 Workflow 要求的本地文件、工具或服务。数据必须位于 Claude Code 执行任务的主机可访问的位置。</p></div>
+  </section>
+
+  <section id="install">
+    <h2><span class="num">02</span>安装与首次启用</h2>
+    <h3>检查使用环境</h3>
+    <p>先确保 Claude Code 已可正常使用。尚未安装时，参阅 <a href="https://code.claude.com/docs/en/setup">Claude Code 官方安装说明（联网）</a>。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">KAT 运行平台</th><th scope="col">当前要求</th></tr></thead>
+      <tbody>
+        <tr><td>Linux</td><td>x86_64，glibc 2.28 或更高。可用 <code>uname -m</code> 和 <code>getconf GNU_LIBC_VERSION</code> 检查。</td></tr>
+        <tr><td>Windows</td><td>Windows 10/11 x86_64 客户端，仍为预发布候选；不等于已通过干净客户端正式支持验收。</td></tr>
+        <tr><td>其他环境</td><td>macOS、ARM、musl Linux、Windows Server、Windows 7/8.1 不在当前 KAT 支持范围内。Claude Code 可运行，不代表 KAT 载荷可运行。</td></tr>
+      </tbody>
+    </table></div>
+    <h3>下载、校验并完整解压</h3>
+    <ol>
+      <li>从 <a href="https://github.com/maokelong/kat-cli/releases">KAT Releases（联网）</a> 选择一个明确版本，下载同一 Release 的 <code>kat-skill-版本号.tar.gz</code> 和 <code>kat-skill-版本号.tar.gz.sha256</code>。<code>rc</code> 表示预发布候选。</li>
+      <li>核对压缩包的 SHA-256 与校验文件一致；不一致时重新获取对应版本，停止安装。</li>
+      <li>解压到一个空目录。解压结束后，应看到四个同级目录，手册位于其中的 <code>kat/user-manual.html</code>。</li>
+    </ol>
+    <div class="example"><div class="label">解压后的目录</div><pre tabindex="0"><code>解压目录/
+├── kat/                 总入口、公共说明和运行环境
+│   ├── SKILL.md
+│   ├── user-manual.html  本手册
+│   └── scripts/targets/  随包的 Linux 与 Windows 载荷
+├── kat-analyze/         分析已有数据
+├── kat-author/          创建和维护 PACK
+└── kat-review/          复核已有分析</code></pre></div>
+    <p>下列示例中的“版本号”替换为下载文件名中的实际版本。命令仅用于安装；日常操作使用后面的对话示例。</p>
+    <div class="example"><div class="label">Linux · 在下载目录中校验和解压</div><pre tabindex="0"><code>version='版本号'
+# 每一步成功后才执行下一步；使用一个尚不存在的目录。
+sha256sum -c "kat-skill-${version}.tar.gz.sha256" &amp;&amp;
+mkdir "kat-unpacked-${version}" &amp;&amp;
+tar -xzf "kat-skill-${version}.tar.gz" -C "kat-unpacked-${version}"</code></pre></div>
+    <div class="example"><div class="label">Windows PowerShell · 在下载目录中校验和解压</div><pre tabindex="0"><code>$version = '版本号'
+$archive = "kat-skill-$version.tar.gz"
+$expected = ((Get-Content -LiteralPath "$archive.sha256" -Raw).Trim() -split '\s+')[0]
+$actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+if ($actual -ine $expected) { throw 'SHA-256 不一致，停止安装' }
+New-Item -ItemType Directory -Path "kat-unpacked-$version" -ErrorAction Stop
+tar -xzf $archive -C "kat-unpacked-$version"
+if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }</code></pre></div>
+    <div class="note caution"><p>归档中的 Linux 载荷含符号链接。解压工具和环境必须支持保留链接及相应文件属性。若 Windows 报符号链接创建失败，应改用具备相应权限或能力的解压环境，再解压到新的空目录；不要忽略错误、只复制 <code>SKILL.md</code> 或混用另一版本的 Python。</p></div>
+    <h3>让 Claude Code 找到四个 Skill</h3>
+    <p>选择一个安装位置，将四个目录一起放进去并保持同级。推荐个人级安装，供本机不同项目使用。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">范围</th><th scope="col">四目录的共同父目录</th></tr></thead>
+      <tbody>
+        <tr><td>个人级 · Linux</td><td><code>~/.claude/skills/</code></td></tr>
+        <tr><td>个人级 · Windows</td><td><code>%USERPROFILE%\.claude\skills\</code>（文件资源管理器地址栏）；PowerShell 使用 <code>$env:USERPROFILE</code>。</td></tr>
+        <tr><td>项目级</td><td><code>项目根目录/.claude/skills/</code>；在该项目内使用 Claude Code。</td></tr>
+      </tbody>
+    </table></div>
+    <p>最终应存在 <code>skills/kat/SKILL.md</code>、<code>skills/kat-analyze/SKILL.md</code>、<code>skills/kat-author/SKILL.md</code>、<code>skills/kat-review/SKILL.md</code>。不要多套一层 <code>kat-unpacked-版本号</code>。如果目标已存在这四个目录，按<a href="#upgrade">升级步骤</a>处理，避免直接合并。</p>
+    <p>Linux 可使用保留文件属性和链接的 <code>cp -a</code> 复制。Windows 可以在目标四目录均不存在时，把已校验的原压缩包再次用支持符号链接的解压工具解到 skills 目录。保留同一版本的全部内容。</p>
+    <p>重新打开该项目的 Claude Code 会话，输入下面的内容。只有能发现并调用相应 Skill，才算完成 Claude Code 侧的启用。安装位置规则可参阅 <a href="https://code.claude.com/docs/en/skills">Claude Code 官方 Skills 说明（联网）</a>。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 首次自检</div><pre tabindex="0"><code>/kat 检查安装，并列出可用的 PACK。</code></pre></div>
+    <p class="check">应看到：平台与部署是否可用，以及实际发现的 PACK。PACK 列表为空可以是正常结果；下一步提供同事交付的 PACK，或进入开发流程。</p>
+    <p>后面的示例统一使用 <code>/kat</code>。你只需说明目标和相关材料，能力选择、执行检查、测试和结果整理由对应 Skill 负责。</p>
+    <details><summary>其他入口（可选）</summary><p>熟悉任务划分后，也可以直接调用 <code>/kat-analyze</code>、<code>/kat-author</code> 或 <code>/kat-review</code>。使用 <code>/kat</code> 时不需要自己选择这些入口。</p></details>
+  </section>
+
+  <section id="prepare">
+    <h2><span class="num">03</span>准备真实分析</h2>
+    <p>先告诉 KAT 你想解决的问题和数据在哪里。示例中的 <strong>【方括号内容】</strong> 替换为自己的信息即可，不必一次准备完整的分析参数。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 分析自己的 Trace</div><pre tabindex="0"><code>/kat 帮我分析【Trace 路径】中【应用名】冷启动慢的原因。</code></pre></div>
+    <p>KAT 会先查找适用的分析能力，缺少关键信息时再向你确认。知道采集工具、时间范围或对照数据时，可以顺手补充；不知道就说明未知。如果要使用同事提供的 PACK，再附上它的目录。</p>
+    <p>冷启动只是表达问题的例子，不表示每套安装都包含冷启动 Workflow。若数据缺失、格式不适配或能力不存在，应先解决该项缺口。不要把“文件能打开”当作“能回答这个问题”。</p>
+    <p>路径不是文件上传指令。按你所在环境的要求准备可访问文件；连接凭据按来源工具的配置方式提供，不放进分析提示中的 Workflow 参数。参数可能进入操作日志。</p>
+  </section>
+
+  <section id="analyze">
+    <h2><span class="num">04</span>完成分析，读懂结果</h2>
+    <p>发出分析请求后，Claude 会选择适用的 Workflow；如果补问信息，按实际情况回答即可。输入和能力明确后，KAT 执行分析并保留结果，Claude 据此给出结论、证据和限制。</p>
+    <h3>拿到报告后，检查四件事</h3>
+    <ol>
+      <li><strong>有没有回答原问题：</strong>结论对应你提出的现象、对象和时间范围。</li>
+      <li><strong>证据能不能定位：</strong>报告应说明使用了哪个 PACK/Workflow，并提供必要的 Session/Run、输出和查询证据。</li>
+      <li><strong>事实和解释有没有分开：</strong>计数、耗时、排序是观察；“为什么发生”可能仍是推断。</li>
+      <li><strong>限制是否明确：</strong>数据未覆盖、单位或时钟不明确、来源不完整时，应说明对结论的影响。</li>
+    </ol>
+    <div class="note"><p><strong>成功运行不是业务结论。</strong>Workflow 可能只组织其他 Workflow，不生成自己的输出表；有列但零行的表也可能是正常结果。这些情况都不能单独证明“没有问题”。</p></div>
+    <p>分析失败时，应得到停止阶段、具体原因和可用日志或报告位置。失败的顶层执行不会返回可用的本次 Run ID；预先创建的 Session 以及其中已成功发布的其他 Run 可能仍在，可以继续检查。</p>
+  </section>
+
+  <section id="continue">
+    <h2><span class="num">05</span>追问、继续与独立复核</h2>
+    <h3>在同一次分析中追问</h3>
+    <div class="example"><div class="label">在 Claude Code 中 · 追问已有结果</div><pre tabindex="0"><code>/kat 从刚才的结果看，【具体问题】？</code></pre></div>
+    <p>查询已有输出和重新执行分析是两件事。需要新增计算时，明确要求在已有 Session 内继续；每次执行可能增加新的 Run。</p>
+    <h3>换一个对话继续</h3>
+    <p>保存原问题、报告、Session ID、相关 Run ID、PACK 位置及已验证的 KAT 版本。新对话仍须访问原 Data Home 和相关 PACK。只复制两个 ID 到另一台机器，不会带走原来的数据与环境。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 恢复已有分析</div><pre tabindex="0"><code>/kat 继续 Session【完整 ID】的分析，帮我确认【新的问题】。</code></pre></div>
+    <p>需要定位某次结果时再附上 Run ID；原报告和 PACK 目录也可以直接提供。已有材料足够时，无需重复填写。</p>
+    <p>只有 Session ID 时，可以查看其中的 Run；只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。PACK 更新后取得的分析指南是当前版本，不是当时的历史快照。</p>
+    <h3>请另一轮分析独立复核报告</h3>
+    <div class="example"><div class="label">在 Claude Code 中 · 按需复核</div><pre tabindex="0"><code>/kat 帮我复核【报告路径】。</code></pre></div>
+    <p>Claude 会从报告和当前对话取得原问题与证据入口，必要时再向你询问。复核检查现有证据，不重新运行分析或改写原报告；新查询属于本次复核，不能证明原分析当时做过同样的查询。</p>
+  </section>
+
+  <section id="author">
+    <h2><span class="num">06</span>通过对话创建与维护 PACK</h2>
+    <p>当你需要新的分析能力时，直接用 <code>/kat</code> 说明“创建一个 PACK”或“修改这个 PACK”。先说清想让它做什么，Claude 会按开发流程补齐必要信息、实现并检查代码。</p>
+    <h3>创建一个可工作的分析能力</h3>
+    <div class="example"><div class="label">在 Claude Code 中 · 创建 PACK</div><pre tabindex="0"><code>/kat 创建一个统计 Ftrace 事件类型和数量的 PACK，放到【存放 PACK 的目录】。
+输入用【Trace 路径】。</code></pre></div>
+    <p>名称、维护方或输入背景有缺项时，Claude 会继续确认；已经知道的信息可以一并提供。有特定的预期结果，也可以直接说明，例如某类事件应有多少条。测试、声明检查和结果整理由 Skill 按开发流程完成，无需逐项写进请求。</p>
+    <p>这是开发需求示例，不表示安装后已有该 PACK。下面用 <code>trace-event-summary</code> 举例说明完成后的目录；实际名称由创建时确定。</p>
+    <div class="example"><div class="label">你应能理解的 PACK 目录</div><pre tabindex="0"><code>trace-event-summary/
+├── pack.toml       名称、标题、用途、维护方
+├── README.md       使用、输入与交付说明
+├── workflows/     回答分析问题的执行入口
+├── datasources/   需要时添加的来源能力
+├── helpers/       PACK 内部辅助代码
+├── knowledge/     分析策略与来源说明
+└── tests/         测试与受控样例</code></pre></div>
+    <p>骨架目录生成且可被发现，只说明结构有效。必须继续实现真实能力、通过测试和运行验收，才能交付给使用者。无需给没有用途的目录添加占位实现。</p>
+    <h3>修改已有 PACK</h3>
+    <div class="example"><div class="label">在 Claude Code 中 · 修改已有能力</div><pre tabindex="0"><code>/kat 给【PACK 目录】的事件统计增加按 CPU 分组。</code></pre></div>
+    <p>有必须保留的行为或新的验证数据时，再补充说明。只想了解原因时，说“诊断”；希望改代码时，说“修改”或“修复”，并指出要处理的 PACK。</p>
+    <p>已授权的创作任务可以按需补装缺失的 Python 库。当前部署中的全部 PACK 共用这个环境，交付时应列出安装的库、实际版本与验证结果，详见<a href="#python">依赖管理</a>。</p>
+  </section>
+
+  <section id="test">
+    <h2><span class="num">07</span>测试通过后，如何验收</h2>
+    <div class="example"><div class="label">在 Claude Code 中 · 验收指定 PACK</div><pre tabindex="0"><code>/kat 测试【PACK 目录】，并用【Trace 路径】验证事件统计。</code></pre></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">检查</th><th scope="col">它能证明什么</th><th scope="col">它还不能证明什么</th></tr></thead>
+      <tbody>
+        <tr><td>声明检查</td><td>PACK 可被发现，所查 Workflow/Provider 的声明与说明可读取。</td><td>真实数据一定可处理，或分析结论正确。</td></tr>
+        <tr><td>PACK 测试</td><td>已运行测试覆盖的行为符合断言。</td><td>所有输入、平台和外部服务均已验证。</td></tr>
+        <tr><td>真实运行</td><td>指定输入在该环境完成执行并形成可查询证据。</td><td>输出自动构成因果解释，或其他环境一定可运行。</td></tr>
+      </tbody>
+    </table></div>
+    <p>应看到实际检查、测试和运行的结果，以及仍存限制。没有测试、只创建了空骨架、测试失败或真实运行受阻，都不能标为“验收通过”。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 诊断失败</div><pre tabindex="0"><code>/kat 帮我诊断【PACK 目录】为什么运行失败，报错是【错误信息】。</code></pre></div>
+    <p>同一对话中已有错误信息时，直接说“帮我诊断刚才的失败”即可。诊断会给出原因和建议，需要修改时再提出修复请求。</p>
+  </section>
+
+  <section id="share">
+    <h2><span class="num">08</span>把 PACK 交给同事使用</h2>
+    <h3>发送方：交付完整目录与使用条件</h3>
+    <p>整体分享 PACK 目录，或将该目录压缩后传递。保留根部的 <code>pack.toml</code>、所需代码、knowledge、README，以及接收方验收所需的测试和受控 fixture。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 准备交付</div><pre tabindex="0"><code>/kat 把【PACK 目录】整理成可以交给同事使用的包，放到【新的交付目录】。</code></pre></div>
+    <p>交付前核对 README 是否说明用途、输入、已验证的 KAT 版本、额外依赖和使用方法。默认不分享原始业务 Trace、凭据、个人配置或运行产物。</p>
+    <p>不要把整个 KAT Data Home 当作 PACK 交付。包中有个人绝对路径或对原开发目录的依赖时，应在交付前改成明确的用户输入或可移植资源，并重新验证。</p>
+    <h3>接收方：放置、发现、测试，再分析</h3>
+    <ol>
+      <li>按<a href="#install">安装步骤</a>准备已验证版本的整套 KAT。阅读 PACK 的 README，准备明确要求的依赖、外部工具或服务。</li>
+      <li>把 PACK 解压到自己的工作目录。确认 <code>pack.toml</code> 直接在这个目录下，不要把它的上一级集合目录当作 PACK。</li>
+      <li>向 Claude Code 提供精确 PACK 目录，检查并运行测试。测试或依赖失败时先处理具体缺项。</li>
+      <li>提供自己的真实输入与目标，执行分析并核对证据。</li>
+    </ol>
+    <div class="example"><div class="label">在 Claude Code 中 · 接收验收</div><pre tabindex="0"><code>/kat 检查并测试我收到的 PACK：【接收后的目录】。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 使用收到的 PACK</div><pre tabindex="0"><code>/kat 用【PACK 目录】分析【数据路径】，看看【具体问题】。</code></pre></div>
+    <h3>让 PACK 默认可被发现</h3>
+    <p>保留在任意工作目录并在对话中提供路径即可使用。希望以后不重复提供路径时，可将完整目录放在<strong>当前有效 Data Home</strong> 的 <code>packs/</code> 直接子目录中：</p>
+    <div class="example"><div class="label">默认发现目录的层级</div><pre tabindex="0"><code>当前 Data Home/
+└── packs/
+    └── trace-event-summary/
+        ├── pack.toml
+        ├── workflows/
+        └── ...</code></pre></div>
+    <p>先确认实际使用的 Data Home，不能把平台默认路径直接当作已选路径。开发目录和安装目录中的同名 PACK 若同时被发现，会发生冲突；保留一个要使用的发现位置，不依赖隐式覆盖顺序。Workflow 调用其他 PACK 时，相关 PACK 也必须在可发现范围内。</p>
+    <p class="check">完成标准：接收环境能发现、测试并执行 PACK，且不再依赖发送方的目录。复制成功、测试通过与跨平台支持是不同的结论，只陈述实际验证过的范围。</p>
+  </section>
+
+  <section id="maintain">
+    <h2><span class="num">09</span>数据、依赖与版本维护</h2>
+    <h3 id="data-home">安装目录与 Data Home</h3>
+    <p>四个 Skill 目录保存说明和运行环境。Data Home 保存分析 Session、用户安装的 PACK、日志与查询结果。更新 KAT 时，应保留 Data Home 和另行维护的 PACK 源码。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">平台</th><th scope="col">默认数据目录 / 固定配置文件</th></tr></thead>
+      <tbody>
+        <tr><td>Linux</td><td><code>$XDG_DATA_HOME/kat</code>，未设置时为 <code>$HOME/.local/share/kat</code>；配置文件为该默认位置下的 <code>config.json</code>。</td></tr>
+        <tr><td>Windows</td><td><code>%APPDATA%\KAT\data</code>；配置文件为 <code>%APPDATA%\KAT\data\config.json</code>。</td></tr>
+      </tbody>
+    </table></div>
+    <p>选择顺序是：非空 <code>KAT_DATA_HOME</code> 环境变量 → 配置中的非空 <code>kat_data_home</code> → 平台默认目录。配置文件始终在默认位置；即使环境变量优先，已存在的配置文件也必须可读且格式有效。</p>
+    <details><summary>需要更换数据目录时</summary>
+      <p>先由你创建一个可访问的绝对目录，再手工修改上述固定位置的配置文件，保留其他字段，仅增加或更新 <code>kat_data_home</code>。下面是 Windows 示例；实际路径要换成你的目录：</p>
+      <div class="example"><div class="label">config.json 示例</div><pre tabindex="0"><code>{
+  "kat_data_home": "D:/kat-data"
+}</code></pre></div>
+      <p>Linux 可使用形如 <code>/home/你的用户名/kat-data</code> 的绝对路径。KAT 不展开配置值中的 <code>~</code>、<code>$HOME</code> 或 <code>%USERPROFILE%</code>。非空环境变量会优先；变更 Claude Code 的进程环境后需要重新打开相应会话。</p>
+      <p>完成手工调整后，告诉 Claude 再尝试操作，以实际结果验证。换目录不会迁移旧 Session；若要继续原分析，仍需使用其原 Data Home。路径或配置无效时 KAT 会失败，不会自动换用另一个目录。</p>
+    </details>
+    <h3 id="python">管理额外的 Python 依赖</h3>
+    <p>当前版本提供使用内置 Python 的 pip 管理第三方库的方式。分析或只读检查遇到缺库时先报告缺项；你明确要求安装后才执行。已授权的 PACK 创作可以补装任务所需依赖。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 安装依赖</div><pre tabindex="0"><code>/kat 安装【包名与版本】。</code></pre></div>
+    <p>同一套部署中的 Runtime 和全部 PACK 共享此环境。不要将库装到系统 Python 后就认为 KAT 可以使用，也不要通过复制另一套环境的文件补齐。安装成功不等于 PACK 验收通过；原生库可能另需系统依赖。更多命令见随包的<a href="references/python-packages.md">Python 依赖说明</a>。</p>
+    <h3 id="upgrade">升级 KAT 或更新 PACK</h3>
+    <ol>
+      <li>记录当前版本、额外安装的库、PACK 位置及需要保留的分析信息。停止使用这套部署的任务。</li>
+      <li>下载并校验新版本，将其解压到新的空目录，核对四个 Skill 与载荷完整。</li>
+      <li>把旧的四个 Skill 目录移到 skills 目录之外留作回退，再把新版本四目录成套放入原位置。不要合并新旧文件；其他 Skill 和 Data Home 保持不动。</li>
+      <li>按交付说明重新安装所需额外 Python 库，重新打开 Claude Code，完成自检、PACK 测试和一次实际分析。</li>
+    </ol>
+    <p>新版本带来一套干净 Python 环境，不自动保留后来加装的库。KAT 预发布阶段不承诺公共接口和数据布局跨版本兼容；升级前阅读对应 Release 说明。保留旧文件不等于旧版本能读取新版本产生的状态。</p>
+    <p>单独更新 PACK 时，停止相关任务，核对同事提供的版本要求，整体替换选定的 PACK 目录并重新验收。不同目录内的同名 PACK 没有自动优先级。</p>
+    <h3>删除不再需要的分析</h3>
+    <p>删除以整个 Session 为单位。先保存需要的报告和证据，再明确指定要删除的 Session。此操作永久删除其中的 Runs、输出和共享物化；不提供单个 Run 删除、自动清理或恢复功能。有活动操作时删除会失败，应在操作结束后处理。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 删除指定分析</div><pre tabindex="0"><code>/kat 永久删除 Session【完整 Session ID】。</code></pre></div>
+    <p>Session 外的操作日志和查询结果文件不会随之删除。需要进一步清理时，应根据明确的文件位置另行管理，不凭猜测删除整个 Data Home。</p>
+  </section>
+
+  <section id="troubleshoot">
+    <h2><span class="num">10</span>常见问题</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">遇到的情况</th><th scope="col">先检查什么</th><th scope="col">下一步</th></tr></thead>
+      <tbody>
+        <tr><td>找不到 /kat</td><td>是否位于个人或当前项目的 <code>.claude/skills/kat/SKILL.md</code>，有无多套一层目录。</td><td>成套检查四目录，重新打开该项目会话；提供安装路径和 Claude Code 的实际提示。</td></tr>
+        <tr><td>缺少载荷或 Python</td><td>是否完整解压同一版本，解压时有无符号链接或权限错误。</td><td>校验原包，解到新的空目录。不要用系统 Python、Cargo 输出或另一个版本拼装。</td></tr>
+        <tr><td>平台不支持</td><td>KAT 执行所在主机的 OS、架构和 libc，不只是终端所在的桌面。</td><td>使用当前支持的环境，或等待对应平台支持；不要把拒绝当作分析失败结果。</td></tr>
+        <tr><td>没有 PACK / 没有匹配 Workflow</td><td>是否提供实际 PACK 根目录，当前能力是否真的覆盖问题。</td><td>获取适配 PACK，或用 <code>/kat</code> 提出创建或扩展 PACK 的需求。</td></tr>
+        <tr><td>PACK 重名</td><td>Data Home、随包目录和显式目录是否同时发现同名 PACK。</td><td>选定一个发现位置，排除重复；不能靠路径顺序覆盖。</td></tr>
+        <tr><td>缺少依赖 / 外部解析器</td><td>PACK 的交付说明、内置环境实际库版本、工具路径及配置。</td><td>按明确缺项补齐，并重新检查、测试和执行。不要把依赖安装成功当作分析完成。</td></tr>
+        <tr><td>Data Home 无效</td><td>固定配置文件语法、环境变量、所选路径是否绝对且可访问。</td><td>根据诊断手工修正后重试；不要自动改用另一目录造成分析分散。</td></tr>
+        <tr><td>已有 Run 无法继续</td><td>Session/Run 是否成对、Data Home 是否相同、当前 PACK 和文件是否仍可用。</td><td>提供原报告和已知 ID；资料缺失时标明限制，不猜 ID 或重建历史。</td></tr>
+        <tr><td>没有结果表 / 结果为空</td><td>Workflow 的用途、实际输出和需要查看的子 Run。</td><td>依据实际证据解释；不能直接得出“没有问题”。</td></tr>
+        <tr><td>测试或运行失败</td><td>具体阶段、错误摘要、KAT 返回的日志或测试报告位置。</td><td>用 <code>/kat</code> 请求诊断或修复，并指出要处理的 PACK。</td></tr>
+      </tbody>
+    </table></div>
+    <p>向维护者求助时，提供 KAT 版本、主机平台、Claude Code 版本、PACK 来源及已验证版本、最短复现步骤、错误摘要和明确相关的日志位置。分享材料前去掉凭据与无关业务内容；没有取得的信息直接说明缺失。</p>
+    <p>需要查看底层操作形状时，可打开随包的<a href="references/command-reference.md">命令速查</a>。它供 Agent 执行与排错使用，日常任务仍可直接用自然语言表达。</p>
+  </section>
+  <footer>
+    <p>KAT 用户手册 · 随 KAT Skills 同版本交付。请优先使用当前部署中的手册；联网参考链接不参与本页加载。</p>
+    <p><a href="#main">返回页首 ↑</a></p>
+  </footer>
+</main>
+</body>
+</html>
