@@ -138,6 +138,16 @@ class AssembleSkillTests(unittest.TestCase):
             (moved / "kat-author/references/examples/dataprovider-pack/pack.toml").is_file()
         )
 
+    def test_assembly_includes_user_manual_from_real_skills_source(self) -> None:
+        skills_source = Path(__file__).resolve().parents[2] / "kat/skills"
+        self.assemble(skills_source=skills_source)
+
+        manual = self.output / "kat/user-manual.html"
+        self.assertTrue(manual.is_file())
+        self.assertEqual(
+            manual.read_bytes(), (skills_source / "kat/user-manual.html").read_bytes()
+        )
+
     def test_assembly_rejects_missing_or_invalid_skill_entries(self) -> None:
         for name in ("kat", "kat-analyze", "kat-author", "kat-review"):
             skill = self.skills / name
