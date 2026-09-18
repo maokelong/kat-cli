@@ -102,7 +102,7 @@
 
   <section id="start">
     <h2><span class="num">01</span>开始之前</h2>
-    <p>KAT 是一个可扩展的性能分析平台。你提供问题、数据位置和必要背景，Claude Code 通过 KAT 发现可用的分析方法、执行计算，再依据结果回答问题。</p>
+    <p>KAT 是一个可扩展的性能分析平台。在 Claude Code 中输入 <code>/kat</code>，说出你想做什么，就可以开始分析问题、创建或修改 PACK，也可以复核报告。KAT 会选择相应流程，需要补充信息时再询问你。</p>
     <div class="paths">
       <div class="path"><strong>我想分析问题</strong><p>准备自己的 Trace 与分析目标，使用已有 PACK。</p><a href="#install">安装后开始分析 →</a></div>
       <div class="path"><strong>我想开发分析能力</strong><p>让 Claude Code 创建或修改 PACK，验证后分享。</p><a href="#author">查看开发流程 →</a></div>
@@ -111,7 +111,7 @@
       <caption>先认识四个常用概念</caption>
       <thead><tr><th scope="col">名称</th><th scope="col">你需要知道什么</th></tr></thead>
       <tbody>
-        <tr><td>KAT Skills</td><td>安装进 Claude Code 的四个任务入口，共用一套运行环境。</td></tr>
+        <tr><td>KAT Skills</td><td>安装进 Claude Code 的一套能力，共用一套运行环境。日常使用从 <code>/kat</code> 开始。</td></tr>
         <tr><td>PACK</td><td>一个团队维护的一组分析策略。可以由同事提供，也可以让 Claude Code 帮你开发。</td></tr>
         <tr><td>Workflow</td><td>PACK 中回答某个具体问题的执行入口，声明所需输入。完成计算不等于结论已充分得到证据支持。</td></tr>
         <tr><td>Session / Run</td><td>Session 归集同一次分析；一次成功发布的 Workflow 执行形成一个 Run。继续查询时通常需要同时保存这两个 ID。</td></tr>
@@ -175,41 +175,24 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <p>最终应存在 <code>skills/kat/SKILL.md</code>、<code>skills/kat-analyze/SKILL.md</code>、<code>skills/kat-author/SKILL.md</code>、<code>skills/kat-review/SKILL.md</code>。不要多套一层 <code>kat-unpacked-版本号</code>。如果目标已存在这四个目录，按<a href="#upgrade">升级步骤</a>处理，避免直接合并。</p>
     <p>Linux 可使用保留文件属性和链接的 <code>cp -a</code> 复制。Windows 可以在目标四目录均不存在时，把已校验的原压缩包再次用支持符号链接的解压工具解到 skills 目录。保留同一版本的全部内容。</p>
     <p>重新打开该项目的 Claude Code 会话，输入下面的内容。只有能发现并调用相应 Skill，才算完成 Claude Code 侧的启用。安装位置规则可参阅 <a href="https://code.claude.com/docs/en/skills">Claude Code 官方 Skills 说明（联网）</a>。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 首次自检</div><pre tabindex="0"><code>/kat 检查这套 KAT 是否可以在当前主机运行，并列出当前可用 PACK。
-先不要执行分析或修改 PACK。如果缺少安装内容，请说明具体缺项和路径。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 首次自检</div><pre tabindex="0"><code>/kat 检查安装，并列出可用的 PACK。</code></pre></div>
     <p class="check">应看到：平台与部署是否可用，以及实际发现的 PACK。PACK 列表为空可以是正常结果；下一步提供同事交付的 PACK，或进入开发流程。</p>
-    <p>一般使用 <code>/kat</code> 描述目标即可。目标明确时也可以直接使用 <code>/kat-analyze</code>、<code>/kat-author</code> 和 <code>/kat-review</code>。</p>
+    <p>后面的示例统一使用 <code>/kat</code>。你只需说明目标和相关材料，能力选择、执行检查、测试和结果整理由对应 Skill 负责。</p>
+    <details><summary>其他入口（可选）</summary><p>熟悉任务划分后，也可以直接调用 <code>/kat-analyze</code>、<code>/kat-author</code> 或 <code>/kat-review</code>。使用 <code>/kat</code> 时不需要自己选择这些入口。</p></details>
   </section>
 
   <section id="prepare">
     <h2><span class="num">03</span>准备真实分析</h2>
-    <p>从你实际遇到的问题出发，准备下面这些信息。示例中的 <strong>【方括号内容】</strong> 都要替换为真实信息；不知道的内容直接注明未知。</p>
-    <ul>
-      <li><strong>输入：</strong>文件绝对路径或 Workflow 所需的来源位置、格式和采集工具。使用远程主机时，提供远程主机可见的路径。</li>
-      <li><strong>问题：</strong>发生了什么、预期是什么、你想比较或解释哪一段行为。</li>
-      <li><strong>范围：</strong>相关进程、线程、时间区间、设备与采集条件；有对照数据时说明对应关系。</li>
-      <li><strong>能力：</strong>若同事提供过 PACK，说明它的目录和用途。没有 PACK 时先发现当前可用能力。</li>
-    </ul>
-    <div class="example"><div class="label">在 Claude Code 中 · 先确认分析条件</div><pre tabindex="0"><code>/kat-analyze 我想分析一次应用冷启动耗时偏长的问题。
-Trace： 【文件绝对路径】
-采集工具和格式： 【实际工具、格式；未知项请写未知】
-目标应用或进程： 【名称】
-现象及关注区间： 【例如点击图标到首帧显示；给出你掌握的范围】
-可用 PACK： 【PACK 目录；没有则说明没有】
-
-请先确认已有 Workflow 能回答什么，以及还缺哪些输入。
-没有匹配能力时说明缺口，先不要创建或修改 PACK。</code></pre></div>
+    <p>先告诉 KAT 你想解决的问题和数据在哪里。示例中的 <strong>【方括号内容】</strong> 替换为自己的信息即可，不必一次准备完整的分析参数。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 分析自己的 Trace</div><pre tabindex="0"><code>/kat 帮我分析【Trace 路径】中【应用名】冷启动慢的原因。</code></pre></div>
+    <p>KAT 会先查找适用的分析能力，缺少关键信息时再向你确认。知道采集工具、时间范围或对照数据时，可以顺手补充；不知道就说明未知。如果要使用同事提供的 PACK，再附上它的目录。</p>
     <p>冷启动只是表达问题的例子，不表示每套安装都包含冷启动 Workflow。若数据缺失、格式不适配或能力不存在，应先解决该项缺口。不要把“文件能打开”当作“能回答这个问题”。</p>
     <p>路径不是文件上传指令。按你所在环境的要求准备可访问文件；连接凭据按来源工具的配置方式提供，不放进分析提示中的 Workflow 参数。参数可能进入操作日志。</p>
   </section>
 
   <section id="analyze">
     <h2><span class="num">04</span>完成分析，读懂结果</h2>
-    <p>输入和可用能力明确后，让 Claude 执行所选 Workflow。KAT 为新分析建立 Session，计算后保留成功 Run 的表格证据；Claude 据此组织结论。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 开始分析</div><pre tabindex="0"><code>/kat-analyze 按刚才确认的 Workflow 和输入执行这次分析。
-先直接回答我的问题，再给关键证据、结论适用范围和仍不确定的部分。
-请保留本次 Session ID、相关 Run ID、PACK 和 Workflow 名称，方便继续追问。
-如果现有证据不足以判断原因，请说明缺口，不要把推测写成已确认结论。</code></pre></div>
+    <p>发出分析请求后，Claude 会选择适用的 Workflow；如果补问信息，按实际情况回答即可。输入和能力明确后，KAT 执行分析并保留结果，Claude 据此给出结论、证据和限制。</p>
     <h3>拿到报告后，检查四件事</h3>
     <ol>
       <li><strong>有没有回答原问题：</strong>结论对应你提出的现象、对象和时间范围。</li>
@@ -224,46 +207,26 @@ Trace： 【文件绝对路径】
   <section id="continue">
     <h2><span class="num">05</span>追问、继续与独立复核</h2>
     <h3>在同一次分析中追问</h3>
-    <div class="example"><div class="label">在 Claude Code 中 · 只查已有证据</div><pre tabindex="0"><code>/kat-analyze 继续刚才的分析。请从已有 Run 的输出中核对【具体问题】。
-先查询支持结论所需的最少证据，并说明过滤范围、单位和比较基准。
-暂时不要重新执行 Workflow；如果已有输出无法回答，请说明缺少什么。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 追问已有结果</div><pre tabindex="0"><code>/kat 从刚才的结果看，【具体问题】？</code></pre></div>
     <p>查询已有输出和重新执行分析是两件事。需要新增计算时，明确要求在已有 Session 内继续；每次执行可能增加新的 Run。</p>
     <h3>换一个对话继续</h3>
     <p>保存原问题、报告、Session ID、相关 Run ID、PACK 位置及已验证的 KAT 版本。新对话仍须访问原 Data Home 和相关 PACK。只复制两个 ID 到另一台机器，不会带走原来的数据与环境。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 恢复已有分析</div><pre tabindex="0"><code>/kat-analyze 请继续已有分析。
-原问题： 【问题】
-Session ID： 【完整 ID】
-Run ID： 【完整 ID；只知道 Session 时可省略】
-PACK 目录： 【实际目录】
-已有报告： 【报告文件路径或必要内容】
-这次要核对： 【新的问题】
-请先查看现有证据，说明是否需要新增执行。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 恢复已有分析</div><pre tabindex="0"><code>/kat 继续 Session【完整 ID】的分析，帮我确认【新的问题】。</code></pre></div>
+    <p>需要定位某次结果时再附上 Run ID；原报告和 PACK 目录也可以直接提供。已有材料足够时，无需重复填写。</p>
     <p>只有 Session ID 时，可以查看其中的 Run；只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。PACK 更新后取得的分析指南是当前版本，不是当时的历史快照。</p>
     <h3>请另一轮分析独立复核报告</h3>
-    <div class="example"><div class="label">在 Claude Code 中 · 按需复核</div><pre tabindex="0"><code>/kat-review 请复核【报告路径】。
-原问题： 【问题】
-Session ID / Run ID： 【对应 ID】
-请逐条说明哪些结论有证据支持、哪些证据不足、哪些与证据矛盾或无法验证。
-可以对已有输出补充只读查询，不重新运行分析，也不改写原报告。</code></pre></div>
-    <p>复核基于能取得的现存材料，不保证还原完整历史。新查询属于本次复核，不能证明原分析当时做过同样的查询。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 按需复核</div><pre tabindex="0"><code>/kat 帮我复核【报告路径】。</code></pre></div>
+    <p>Claude 会从报告和当前对话取得原问题与证据入口，必要时再向你询问。复核检查现有证据，不重新运行分析或改写原报告；新查询属于本次复核，不能证明原分析当时做过同样的查询。</p>
   </section>
 
   <section id="author">
     <h2><span class="num">06</span>通过对话创建与维护 PACK</h2>
-    <p>当已有能力无法回答问题，或你希望让同事复用一种分析方法时，使用 <code>/kat-author</code>。你负责说明目标、材料与验收口径，Claude 负责在指定目录实现和检查代码。</p>
+    <p>当你需要新的分析能力时，直接用 <code>/kat</code> 说明“创建一个 PACK”或“修改这个 PACK”。先说清想让它做什么，Claude 会按开发流程补齐必要信息、实现并检查代码。</p>
     <h3>创建一个可工作的分析能力</h3>
-    <div class="example"><div class="label">在 Claude Code 中 · 创建 PACK</div><pre tabindex="0"><code>/kat-author 请在【PACK 集合目录的绝对路径】创建一个 PACK。
-名称： trace-event-summary
-标题： Trace 事件概览
-维护方： 【真实团队或组织】
-用途： 对我提供的真实文本 Ftrace 按事件类型计数，帮助检查采集内容。
-输入： 【真实 Trace 的绝对路径、采集工具及已知时钟信息】
-期望输出： 事件类型和计数，并解释数据范围和已知限制。
-验收： 事件分类与总量能用独立检查核对；包含正常输入、空输入和不支持输入的处理测试。
-
-请先检查可复用的数据能力，再创建骨架并实现 Workflow、分析说明和测试。
-只修改新 PACK；完成后运行声明检查、测试和这份真实数据的分析，交付实际证据。</code></pre></div>
-    <p>以上是开发需求示例，不是安装后必定存在的 PACK。目标目录与维护方不可虚构。实际参数、来源支持和边界由实现与验证确定；时钟信息未知时说明未知，不能凭空指定真实时钟。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 创建 PACK</div><pre tabindex="0"><code>/kat 创建一个统计 Ftrace 事件类型和数量的 PACK，放到【存放 PACK 的目录】。
+输入用【Trace 路径】。</code></pre></div>
+    <p>名称、维护方或输入背景有缺项时，Claude 会继续确认；已经知道的信息可以一并提供。有特定的预期结果，也可以直接说明，例如某类事件应有多少条。测试、声明检查和结果整理由 Skill 按开发流程完成，无需逐项写进请求。</p>
+    <p>这是开发需求示例，不表示安装后已有该 PACK。下面用 <code>trace-event-summary</code> 举例说明完成后的目录；实际名称由创建时确定。</p>
     <div class="example"><div class="label">你应能理解的 PACK 目录</div><pre tabindex="0"><code>trace-event-summary/
 ├── pack.toml       名称、标题、用途、维护方
 ├── README.md       使用、输入与交付说明
@@ -274,23 +237,14 @@ Session ID / Run ID： 【对应 ID】
 └── tests/         测试与受控样例</code></pre></div>
     <p>骨架目录生成且可被发现，只说明结构有效。必须继续实现真实能力、通过测试和运行验收，才能交付给使用者。无需给没有用途的目录添加占位实现。</p>
     <h3>修改已有 PACK</h3>
-    <div class="example"><div class="label">在 Claude Code 中 · 限定修改范围</div><pre tabindex="0"><code>/kat-author 请修改【PACK 目录】中的【Workflow 名称】。
-当前行为： 【现状】
-需要改变： 【例如在事件计数结果中增加按 CPU 的分组】
-保持不变： 【已有输入、其他 Workflow 或交付约定】
-真实验证数据： 【文件路径和预期可核对事实】
-请说明受影响范围，更新必要的分析说明和测试，并验证修改前后的关键行为。</code></pre></div>
-    <p>只想理解或排错时，明确写“只检查，不修改”。请求诊断不自动授权修复；需要修复时再说清可以修改的范围。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 修改已有能力</div><pre tabindex="0"><code>/kat 给【PACK 目录】的事件统计增加按 CPU 分组。</code></pre></div>
+    <p>有必须保留的行为或新的验证数据时，再补充说明。只想了解原因时，说“诊断”；希望改代码时，说“修改”或“修复”，并指出要处理的 PACK。</p>
     <p>已授权的创作任务可以按需补装缺失的 Python 库。当前部署中的全部 PACK 共用这个环境，交付时应列出安装的库、实际版本与验证结果，详见<a href="#python">依赖管理</a>。</p>
   </section>
 
   <section id="test">
     <h2><span class="num">07</span>测试通过后，如何验收</h2>
-    <div class="example"><div class="label">在 Claude Code 中 · 验收指定 PACK</div><pre tabindex="0"><code>/kat-author 请验收【PACK 目录】，先不要修改实现或安装依赖。
-检查 manifest、Workflow 和相关 Provider 声明，运行 PACK 测试。
-再确认【真实数据路径】是否适用于【分析问题】，使用实际 Workflow 验证。
-请交付检查与测试结果、实际运行证据、受影响文件，以及仍未验证的部分。
-失败时给出具体原因和诊断位置，不把未执行的检查列为通过。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 验收指定 PACK</div><pre tabindex="0"><code>/kat 测试【PACK 目录】，并用【Trace 路径】验证事件统计。</code></pre></div>
     <div class="table-wrap"><table>
       <thead><tr><th scope="col">检查</th><th scope="col">它能证明什么</th><th scope="col">它还不能证明什么</th></tr></thead>
       <tbody>
@@ -299,22 +253,17 @@ Session ID / Run ID： 【对应 ID】
         <tr><td>真实运行</td><td>指定输入在该环境完成执行并形成可查询证据。</td><td>输出自动构成因果解释，或其他环境一定可运行。</td></tr>
       </tbody>
     </table></div>
-    <p>要求报告成功与失败数量、适用输入、KAT 版本、关键结果和仍存限制。没有测试、只创建了空骨架、测试失败或真实运行受阻，都不能标为“验收通过”。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 只诊断失败</div><pre tabindex="0"><code>/kat-author 请诊断【PACK 目录】的这次失败，暂不修复。
-失败发生在： 【检查、测试或运行阶段】
-错误和报告： 【错误摘要、KAT 返回的日志或测试报告路径】
-请定位原因、说明影响，并给出最小修复建议。</code></pre></div>
+    <p>应看到实际检查、测试和运行的结果，以及仍存限制。没有测试、只创建了空骨架、测试失败或真实运行受阻，都不能标为“验收通过”。</p>
+    <div class="example"><div class="label">在 Claude Code 中 · 诊断失败</div><pre tabindex="0"><code>/kat 帮我诊断【PACK 目录】为什么运行失败，报错是【错误信息】。</code></pre></div>
+    <p>同一对话中已有错误信息时，直接说“帮我诊断刚才的失败”即可。诊断会给出原因和建议，需要修改时再提出修复请求。</p>
   </section>
 
   <section id="share">
     <h2><span class="num">08</span>把 PACK 交给同事使用</h2>
     <h3>发送方：交付完整目录与使用条件</h3>
     <p>整体分享 PACK 目录，或将该目录压缩后传递。保留根部的 <code>pack.toml</code>、所需代码、knowledge、README，以及接收方验收所需的测试和受控 fixture。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 准备交付</div><pre tabindex="0"><code>/kat-author 请为【PACK 目录】准备给同事使用的交付目录，输出到【新的交付目录】。
-保留运行与测试所需文件，不默认包含原始业务 Trace、凭据、个人配置或运行产物。
-补全 README：用途、输入要求、已验证 KAT 版本、额外 Python 库及版本、
-外部工具或服务、依赖的其他 PACK、首次分析提示词、预期结果与已知限制。
-请先检查交付内容和测试，再告诉我哪些文件需要一起分享。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 准备交付</div><pre tabindex="0"><code>/kat 把【PACK 目录】整理成可以交给同事使用的包，放到【新的交付目录】。</code></pre></div>
+    <p>交付前核对 README 是否说明用途、输入、已验证的 KAT 版本、额外依赖和使用方法。默认不分享原始业务 Trace、凭据、个人配置或运行产物。</p>
     <p>不要把整个 KAT Data Home 当作 PACK 交付。包中有个人绝对路径或对原开发目录的依赖时，应在交付前改成明确的用户输入或可移植资源，并重新验证。</p>
     <h3>接收方：放置、发现、测试，再分析</h3>
     <ol>
@@ -323,13 +272,8 @@ Session ID / Run ID： 【对应 ID】
       <li>向 Claude Code 提供精确 PACK 目录，检查并运行测试。测试或依赖失败时先处理具体缺项。</li>
       <li>提供自己的真实输入与目标，执行分析并核对证据。</li>
     </ol>
-    <div class="example"><div class="label">在 Claude Code 中 · 接收验收</div><pre tabindex="0"><code>/kat-author 我收到一个 PACK，目录是【接收后的绝对路径】。
-请阅读它的交付说明，核对当前环境与所需依赖，检查声明并运行测试。
-先不要修改 PACK 或安装依赖；缺项时列出具体信息。
-通过后告诉我怎样用自己的数据调用它，以及还有哪些环境未验证。</code></pre></div>
-    <div class="example"><div class="label">在 Claude Code 中 · 使用收到的 PACK</div><pre tabindex="0"><code>/kat-analyze 使用【接收后的 PACK 绝对路径】分析【自己的数据路径】。
-目标是【具体问题】，相关背景是【采集条件、对象和范围】。
-请依据实际 Workflow 确认输入，运行后交付结论和可追溯证据。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 接收验收</div><pre tabindex="0"><code>/kat 检查并测试我收到的 PACK：【接收后的目录】。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 使用收到的 PACK</div><pre tabindex="0"><code>/kat 用【PACK 目录】分析【数据路径】，看看【具体问题】。</code></pre></div>
     <h3>让 PACK 默认可被发现</h3>
     <p>保留在任意工作目录并在对话中提供路径即可使用。希望以后不重复提供路径时，可将完整目录放在<strong>当前有效 Data Home</strong> 的 <code>packs/</code> 直接子目录中：</p>
     <div class="example"><div class="label">默认发现目录的层级</div><pre tabindex="0"><code>当前 Data Home/
@@ -364,9 +308,7 @@ Session ID / Run ID： 【对应 ID】
     </details>
     <h3 id="python">管理额外的 Python 依赖</h3>
     <p>当前版本提供使用内置 Python 的 pip 管理第三方库的方式。分析或只读检查遇到缺库时先报告缺项；你明确要求安装后才执行。已授权的 PACK 创作可以补装任务所需依赖。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 明确安装并验证依赖</div><pre tabindex="0"><code>/kat 请在当前这套 KAT 的内置 Python 中安装【包名与需要的版本】。
-确认实际安装版本、依赖冲突和隔离导入是否正常，再验证【受影响的 PACK 目录】。
-请说明安装结果和仍未通过的检查。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 安装依赖</div><pre tabindex="0"><code>/kat 安装【包名与版本】。</code></pre></div>
     <p>同一套部署中的 Runtime 和全部 PACK 共享此环境。不要将库装到系统 Python 后就认为 KAT 可以使用，也不要通过复制另一套环境的文件补齐。安装成功不等于 PACK 验收通过；原生库可能另需系统依赖。更多命令见随包的<a href="references/python-packages.md">Python 依赖说明</a>。</p>
     <h3 id="upgrade">升级 KAT 或更新 PACK</h3>
     <ol>
@@ -379,9 +321,7 @@ Session ID / Run ID： 【对应 ID】
     <p>单独更新 PACK 时，停止相关任务，核对同事提供的版本要求，整体替换选定的 PACK 目录并重新验收。不同目录内的同名 PACK 没有自动优先级。</p>
     <h3>删除不再需要的分析</h3>
     <p>删除以整个 Session 为单位。先保存需要的报告和证据，再明确指定要删除的 Session。此操作永久删除其中的 Runs、输出和共享物化；不提供单个 Run 删除、自动清理或恢复功能。有活动操作时删除会失败，应在操作结束后处理。</p>
-    <div class="example"><div class="label">在 Claude Code 中 · 明确删除范围</div><pre tabindex="0"><code>/kat 请删除 Session【完整 Session ID】。
-我已保存需要的报告，明确要永久删除这个 Session 的全部 Run、输出和共享物化。
-不要处理其他 Session。</code></pre></div>
+    <div class="example"><div class="label">在 Claude Code 中 · 删除指定分析</div><pre tabindex="0"><code>/kat 永久删除 Session【完整 Session ID】。</code></pre></div>
     <p>Session 外的操作日志和查询结果文件不会随之删除。需要进一步清理时，应根据明确的文件位置另行管理，不凭猜测删除整个 Data Home。</p>
   </section>
 
@@ -393,13 +333,13 @@ Session ID / Run ID： 【对应 ID】
         <tr><td>找不到 /kat</td><td>是否位于个人或当前项目的 <code>.claude/skills/kat/SKILL.md</code>，有无多套一层目录。</td><td>成套检查四目录，重新打开该项目会话；提供安装路径和 Claude Code 的实际提示。</td></tr>
         <tr><td>缺少载荷或 Python</td><td>是否完整解压同一版本，解压时有无符号链接或权限错误。</td><td>校验原包，解到新的空目录。不要用系统 Python、Cargo 输出或另一个版本拼装。</td></tr>
         <tr><td>平台不支持</td><td>KAT 执行所在主机的 OS、架构和 libc，不只是终端所在的桌面。</td><td>使用当前支持的环境，或等待对应平台支持；不要把拒绝当作分析失败结果。</td></tr>
-        <tr><td>没有 PACK / 没有匹配 Workflow</td><td>是否提供实际 PACK 根目录，当前能力是否真的覆盖问题。</td><td>获取适配 PACK，或明确发起 <code>/kat-author</code> 开发请求。</td></tr>
+        <tr><td>没有 PACK / 没有匹配 Workflow</td><td>是否提供实际 PACK 根目录，当前能力是否真的覆盖问题。</td><td>获取适配 PACK，或用 <code>/kat</code> 提出创建或扩展 PACK 的需求。</td></tr>
         <tr><td>PACK 重名</td><td>Data Home、随包目录和显式目录是否同时发现同名 PACK。</td><td>选定一个发现位置，排除重复；不能靠路径顺序覆盖。</td></tr>
         <tr><td>缺少依赖 / 外部解析器</td><td>PACK 的交付说明、内置环境实际库版本、工具路径及配置。</td><td>按明确缺项补齐，并重新检查、测试和执行。不要把依赖安装成功当作分析完成。</td></tr>
         <tr><td>Data Home 无效</td><td>固定配置文件语法、环境变量、所选路径是否绝对且可访问。</td><td>根据诊断手工修正后重试；不要自动改用另一目录造成分析分散。</td></tr>
         <tr><td>已有 Run 无法继续</td><td>Session/Run 是否成对、Data Home 是否相同、当前 PACK 和文件是否仍可用。</td><td>提供原报告和已知 ID；资料缺失时标明限制，不猜 ID 或重建历史。</td></tr>
         <tr><td>没有结果表 / 结果为空</td><td>Workflow 的用途、实际输出和需要查看的子 Run。</td><td>依据实际证据解释；不能直接得出“没有问题”。</td></tr>
-        <tr><td>测试或运行失败</td><td>具体阶段、错误摘要、KAT 返回的日志或测试报告位置。</td><td>用 <code>/kat-author</code> 明确请求诊断或修复，并限定修改范围。</td></tr>
+        <tr><td>测试或运行失败</td><td>具体阶段、错误摘要、KAT 返回的日志或测试报告位置。</td><td>用 <code>/kat</code> 请求诊断或修复，并指出要处理的 PACK。</td></tr>
       </tbody>
     </table></div>
     <p>向维护者求助时，提供 KAT 版本、主机平台、Claude Code 版本、PACK 来源及已验证版本、最短复现步骤、错误摘要和明确相关的日志位置。分享材料前去掉凭据与无关业务内容；没有取得的信息直接说明缺失。</p>
