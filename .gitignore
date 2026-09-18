@@ -3,3 +3,5 @@
 /build/release/
 /dist/
 __pycache__/
+/kat/sdk/build/
+/kat/sdk/*.egg-info/

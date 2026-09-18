@@ -38,10 +38,7 @@ FORBIDDEN_PAYLOAD_NAMES = {
     "pyproject.toml",
 }
 FORBIDDEN_PAYLOAD_SUFFIXES = {".whl", ".pyc", ".pyo"}
-WORKFLOW_WHEEL_NAME = re.compile(
-    r"kat_workflow-(?P<version>[^-]+)-py3-none-any\.whl"
-)
-DATASOURCE_WHEEL_PLATFORMS = {
+SDK_WHEEL_PLATFORMS = {
     "linux-x86_64": ("cp314-cp314-manylinux_2_28_x86_64", ".so"),
     "windows-x86_64": ("cp314-cp314-win_amd64", ".pyd"),
 }
@@ -141,8 +138,7 @@ class CommonBuildOptions(Protocol):
     wheelhouse: Path | None
     cargo: str
     offline: bool
-    workflow_wheel: WheelArtifactInput
-    datasource_wheel: WheelArtifactInput
+    sdk_wheel: WheelArtifactInput
 
 
 InputsT = TypeVar("InputsT", bound=CommonInputs)
@@ -590,119 +586,71 @@ def install_locked_requirements(
     )
 
 
-def validate_workflow_wheel_archive(
-    path: Path,
-    *,
-    expected_version: str | None = None,
-) -> str:
-    match = WORKFLOW_WHEEL_NAME.fullmatch(path.name)
-    if match is None or not path.is_file():
-        raise ValueError(f"unexpected Workflow Host wheel: {path}")
-    version = match.group("version")
-    if expected_version is not None and version != expected_version:
-        raise ValueError(
-            "Workflow Host wheel expected version "
-            f"{expected_version}, got {version}"
-        )
-    dist_info = f"kat_workflow-{version}.dist-info"
-    with zipfile.ZipFile(path) as archive:
-        names = set(archive.namelist())
-        required = {
-            "kat/__init__.py",
-            "_kat_runtime/__main__.py",
-            f"{dist_info}/METADATA",
-            f"{dist_info}/WHEEL",
-        }
-        missing = sorted(required - names)
-        if missing:
-            raise ValueError(f"Workflow Host wheel is incomplete: {missing}")
-
-        metadata = BytesParser(policy=policy.default).parsebytes(
-            archive.read(f"{dist_info}/METADATA")
-        )
-        if metadata.get("Name") != "kat-workflow":
-            raise ValueError("Workflow Host wheel has an unexpected distribution")
-        if metadata.get("Version") != version:
-            raise ValueError("Workflow Host wheel version does not match its filename")
-        if _metadata_requires(metadata, "kat-datasource"):
-            raise ValueError("Workflow Host wheel must not depend on kat-datasource")
-
-        wheel_metadata = BytesParser(policy=policy.default).parsebytes(
-            archive.read(f"{dist_info}/WHEEL")
-        )
-        if wheel_metadata.get("Root-Is-Purelib", "").lower() != "true":
-            raise ValueError("Workflow Host wheel must be pure Python")
-        if wheel_metadata.get_all("Tag", []) != ["py3-none-any"]:
-            raise ValueError("Workflow Host wheel must use the py3-none-any tag")
-    return version
-
-
-def validated_workflow_wheel(artifact: WheelArtifactInput) -> Path:
-    if not isinstance(artifact, WheelArtifactInput):
-        raise TypeError("workflow wheel must be a WheelArtifactInput")
-    wheel = artifact.path.resolve(strict=True)
-    if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
-        raise ValueError("Workflow Host wheel has an invalid expected SHA-256")
-    verify_sha256(wheel, artifact.sha256)
-    validate_workflow_wheel_archive(
-        wheel,
-        expected_version=artifact.expected_version,
-    )
-    return wheel
-
-
-def validate_datasource_wheel_archive(
+def validate_sdk_wheel_archive(
     path: Path,
     *,
     expected_version: str,
     platform: str,
 ) -> str:
     try:
-        expected_tag, extension_suffix = DATASOURCE_WHEEL_PLATFORMS[platform]
+        expected_tag, extension_suffix = SDK_WHEEL_PLATFORMS[platform]
     except KeyError:
-        raise ValueError(f"unsupported Datasource wheel platform: {platform}") from None
+        raise ValueError(f"unsupported SDK wheel platform: {platform}") from None
     expected_name = (
-        f"kat_datasource-{expected_version}-{expected_tag}.whl"
+        f"kat_sdk-{expected_version}-{expected_tag}.whl"
     )
     if path.name != expected_name or not path.is_file():
         raise ValueError(
-            f"unexpected Datasource wheel: expected {expected_name}, got {path.name}"
+            f"unexpected SDK wheel: expected {expected_name}, got {path.name}"
         )
-    dist_info = f"kat_datasource-{expected_version}.dist-info"
+    dist_info = f"kat_sdk-{expected_version}.dist-info"
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         required = {
-            "kat_datasource/__init__.py",
-            "kat_datasource/hitrace.py",
-            "kat_datasource/text_ftrace.py",
+            "kat/__init__.py",
+            "kat/_declarations/workflow.py",
+            "kat/_declarations/provider.py",
+            "kat/dataprovider/__init__.py",
+            "kat/_runtime/__main__.py",
+            "kat/knowledge/index.md",
+            "kat/knowledge/authoring/pack-authoring-flow.md",
+            "kat/knowledge/providers/ftrace/guide.md",
+            "kat/knowledge/providers/trace_streamer/guide.md",
+            "kat/providers/decoding/__init__.py",
+            "kat/providers/decoding/hitrace.py",
+            "kat/providers/decoding/text_ftrace.py",
             f"{dist_info}/METADATA",
             f"{dist_info}/WHEEL",
         }
         missing = sorted(required - names)
         if missing:
-            raise ValueError(f"Datasource wheel is incomplete: {missing}")
+            raise ValueError(f"SDK wheel is incomplete: {missing}")
 
         metadata = BytesParser(policy=policy.default).parsebytes(
             archive.read(f"{dist_info}/METADATA")
         )
-        if metadata.get("Name") != "kat-datasource":
-            raise ValueError("Datasource wheel has an unexpected distribution")
+        if metadata.get("Name") != "kat-sdk":
+            raise ValueError("SDK wheel has an unexpected distribution")
         if metadata.get("Version") != expected_version:
             raise ValueError(
-                "Datasource wheel expected version "
+                "SDK wheel expected version "
                 f"{expected_version}, got {metadata.get('Version')}"
             )
-        if _metadata_requires(metadata, "kat-workflow"):
-            raise ValueError("Datasource wheel must not depend on kat-workflow")
+        if any(_metadata_requires(metadata, name) for name in ("kat-workflow", "kat-datasource", "kat-cli")):
+            raise ValueError("SDK wheel must not depend on other KAT distributions")
+        if any(not name.startswith(("kat/", f"{dist_info}/")) for name in names):
+            raise ValueError("SDK wheel contains files outside its package")
+        if f"{dist_info}/entry_points.txt" in names:
+            raise ValueError("SDK wheel must not install CLI entry points")
 
         wheel_metadata = BytesParser(policy=policy.default).parsebytes(
             archive.read(f"{dist_info}/WHEEL")
         )
         if wheel_metadata.get("Root-Is-Purelib", "").lower() != "false":
-            raise ValueError("Datasource wheel must be platform native")
+            raise ValueError("SDK wheel must be platform native")
         if wheel_metadata.get_all("Tag", []) != [expected_tag]:
             raise ValueError(
-                f"Datasource wheel must use the {expected_tag} tag"
+                f"SDK wheel must use the {expected_tag} tag"
             )
 
         native = sorted(
@@ -712,16 +660,16 @@ def validate_datasource_wheel_archive(
         )
         if (
             len(native) != 1
-            or not native[0].startswith("kat_datasource/_native.")
+            or not native[0].startswith("kat/providers/_native.")
             or not native[0].endswith(extension_suffix)
         ):
             raise ValueError(
-                "Datasource wheel must contain exactly one private _native extension"
+                "SDK wheel must contain exactly one private _native extension"
             )
     return expected_version
 
 
-def validated_datasource_wheel(
+def validated_sdk_wheel(
     artifact: WheelArtifactInput,
     *,
     platform: str,
@@ -730,9 +678,9 @@ def validated_datasource_wheel(
         raise TypeError("datasource wheel must be a WheelArtifactInput")
     wheel = artifact.path.resolve(strict=True)
     if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
-        raise ValueError("Datasource wheel has an invalid expected SHA-256")
+        raise ValueError("SDK wheel has an invalid expected SHA-256")
     verify_sha256(wheel, artifact.sha256)
-    validate_datasource_wheel_archive(
+    validate_sdk_wheel_archive(
         wheel,
         expected_version=artifact.expected_version,
         platform=platform,
@@ -766,19 +714,19 @@ def install_kat_wheels(
         )
 
 
-def check_isolated_workflow_install(
+def check_sdk_install(
     python: Path,
     expected_version: str,
 ) -> None:
     script = (
         "import importlib.metadata as metadata\n"
-        "import importlib.util as util\n"
         "import sys\n"
-        "import kat\n"
-        "if metadata.version('kat-workflow') != sys.argv[1]:\n"
-        "    raise SystemExit('kat-workflow version mismatch')\n"
-        "if util.find_spec('kat_datasource') is not None:\n"
-        "    raise SystemExit('kat-workflow unexpectedly exposes kat_datasource')\n"
+        "import kat, kat._runtime, kat.providers.decoding\n"
+        "assert metadata.version('kat-sdk') == sys.argv[1]\n"
+        "for name in ('kat-workflow', 'kat-datasource'):\n"
+        "    try: metadata.distribution(name)\n"
+        "    except metadata.PackageNotFoundError: pass\n"
+        "    else: raise SystemExit('unexpected split distribution: ' + name)\n"
     )
     subprocess.run(
         [str(python), "-I", "-B", "-c", script, expected_version],
@@ -896,9 +844,8 @@ def _prepare_private_host(
     python_archive: Path,
     uv_archive: Path,
     inputs: CommonInputs,
-    workflow_wheel: Path,
-    workflow_version: str,
-    datasource_wheel: Path,
+    sdk_version: str,
+    sdk_wheel: Path,
     wheelhouse: Path | None,
     offline: bool,
 ) -> None:
@@ -934,26 +881,8 @@ def _prepare_private_host(
         copy_links=copy_links,
     )
     kat_wheel_cache = temporary_root / "uv-kat-wheel-cache"
-    install_kat_wheels(
-        uv,
-        python,
-        (workflow_wheel,),
-        kat_wheel_cache,
-        copy_links=copy_links,
-    )
-    # Datasource 尚未出现时验证 Workflow wheel 可独立 import，避免两个
-    # distribution 通过未声明的安装顺序形成隐式 wrapper 关系。
-    check_isolated_workflow_install(
-        python,
-        workflow_version,
-    )
-    install_kat_wheels(
-        uv,
-        python,
-        (datasource_wheel,),
-        kat_wheel_cache,
-        copy_links=copy_links,
-    )
+    install_kat_wheels(uv, python, (sdk_wheel,), kat_wheel_cache, copy_links=copy_links)
+    check_sdk_install(python, sdk_version)
     check_private_host(
         uv,
         python,
@@ -1008,11 +937,6 @@ def build_payload(
     options: CommonBuildOptions,
     adapter: PlatformAdapter[InputsT, ExtraInputsT],
 ) -> Path:
-    if (
-        options.workflow_wheel.expected_version
-        != options.datasource_wheel.expected_version
-    ):
-        raise ValueError("KAT wheels must use the same expected version")
     adapter.require_builder()
     repository = options.repository.resolve()
     inputs = adapter.load_inputs(repository)
@@ -1021,8 +945,7 @@ def build_payload(
     common_inputs = [
         ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
-        ("Workflow Host wheel", options.workflow_wheel.path),
-        ("Datasource wheel", options.datasource_wheel.path),
+        ("SDK wheel", options.sdk_wheel.path),
         ("wheelhouse", options.wheelhouse),
         ("Python archive", options.python_archive),
         ("uv archive", options.uv_archive),
@@ -1038,9 +961,8 @@ def build_payload(
         )
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
-    workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
-    datasource_wheel = validated_datasource_wheel(
-        options.datasource_wheel,
+    sdk_wheel = validated_sdk_wheel(
+        options.sdk_wheel,
         platform=adapter.spec.key,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1070,9 +992,8 @@ def build_payload(
             python_archive=python_archive,
             uv_archive=uv_archive,
             inputs=inputs,
-            workflow_wheel=workflow_wheel,
-            workflow_version=options.workflow_wheel.expected_version,
-            datasource_wheel=datasource_wheel,
+            sdk_version=options.sdk_wheel.expected_version,
+            sdk_wheel=sdk_wheel,
             wheelhouse=options.wheelhouse,
             offline=options.offline,
         )

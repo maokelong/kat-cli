@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[project]
+name = "kat-sdk"
+version = "0.1.1-rc.15"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "adbc-driver-manager==1.11.0",
+    "adbc-driver-postgresql==1.11.0",
+    "datafusion==54.0.0",
+    "pyarrow==24.0.0",
+    "click==8.4.2",
+    "pytest==9.1.1",
+]
+
+[tool.maturin]
+manifest-path = "native/Cargo.toml"
+bindings = "pyo3"
+features = ["python-extension"]
+python-source = "."
+python-packages = ["kat"]
+module-name = "kat.providers._native"
+exclude = ["**/__pycache__/**", "**/*.pyc"]
+include = [{ path = "kat/**/*.md", format = "wheel" }]

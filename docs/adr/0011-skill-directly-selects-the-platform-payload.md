@@ -4,6 +4,8 @@ status: accepted
 
 # Skill 直接选择平台载荷
 
+本 ADR 中的 SDK 与平台交付边界已由 [ADR-0083](0083-sdk-owns-authoring-api-and-knowledge.md) 调整；下文保留原决策背景。
+
 [ADR-0082](0082-kat-review-rechecks-existing-evidence.md) 将交付扩为四个同级 Skill 后，本 ADR 的 `<skill>` 仍指共享 `kat/` 根。平台选择规则由其公共命令合同承载，三个任务 Skill 从自身位置读取相邻 `kat/` 并直接使用对应载荷；CLI 反推根目录、相邻 Python 与 Bundled PACK 的定位合同继续有效。
 
 KAT 作为一份原子 Skill 同时携带 Linux x86_64 和 Windows x86_64 的完整 Platform Payload。`SKILL.md` 在每次操作前识别当前 OS、架构和必要运行约束，然后只为 glibc 2.28 及以上的 Linux x86_64 调用 `scripts/targets/linux-x86_64/kat`，只为作为预发布候选的 Windows 10/11 x86_64 客户端调用 `scripts/targets/windows-x86_64/kat.exe`；Windows 正式支持仍以 [Issue #143](https://github.com/maokelong/kat-cli/issues/143) 的干净客户端验收为准，Windows 7/8.1、Windows Server 与其他平台明确拒绝。KAT 不再增加一个无法原生跨 Linux 与 Windows 执行的“通用启动器”，也不持久化平台选择。

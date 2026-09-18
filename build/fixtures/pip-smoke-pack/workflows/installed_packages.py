@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 
 import kat
-import kat.dataprovider as dp
+from kat import dataprovider as dp
 import packaging
 import pyarrow as pa
 import six

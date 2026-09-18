@@ -188,65 +188,20 @@ class PayloadCiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_dual_wheel_identity_flows_through_each_native_payload_job(self) -> None:
+    def test_sdk_identity_flows_through_each_native_payload_job(self) -> None:
         orchestrator = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
-        self.assertIn(
-            "      normalized-version: ${{ steps.verify.outputs.normalized-version }}\n",
-            orchestrator,
-        )
-        self.assertIn(
-            'echo "normalized-version=${version/-rc./rc}" >> "$GITHUB_OUTPUT"',
-            orchestrator,
-        )
-        self.assertIn(
-            "      expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}\n",
-            orchestrator,
-        )
-        self.assertEqual(
-            orchestrator.count(
-                "      workflow-wheel-sha256: ${{ "
-                "needs.prepare.outputs['workflow-wheel-sha256'] }}\n"
-            ),
-            2,
-        )
-
-        prepare = PREPARE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("      expected-version:\n", prepare)
-        self.assertIn("      workflow-wheel-sha256:\n", prepare)
-        self.assertIn(
-            "        value: ${{ jobs.workflow-wheel.outputs.sha256 }}\n",
-            prepare,
-        )
-        self.assertIn(
-            "          --expected-version ${{ inputs['expected-version'] }}\n",
-            prepare,
-        )
-        self.assertIn('echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"', prepare)
-
+        self.assertIn("expected-version:", orchestrator)
+        self.assertNotIn("workflow-wheel", orchestrator)
         for platform in ("linux", "windows"):
             with self.subTest(platform=platform):
-                workflow = (
-                    REPOSITORY
-                    / f".github/workflows/build-{platform}-payload-ci.yml"
-                ).read_text(encoding="utf-8")
-                self.assertIn("      expected-version:\n", workflow)
-                self.assertIn("      workflow-wheel-sha256:\n", workflow)
-                self.assertIn("build/build_datasource_wheel.py", workflow)
+                workflow = (REPOSITORY / f".github/workflows/build-{platform}-payload-ci.yml").read_text(encoding="utf-8")
+                self.assertIn("build/build_sdk_wheel.py", workflow)
                 self.assertIn(f"--platform {platform}-x86_64", workflow)
-                self.assertIn("--workflow-wheel-version", workflow)
-                self.assertIn("--workflow-wheel-sha256", workflow)
-                self.assertIn("--datasource-wheel-version", workflow)
-                self.assertIn("--datasource-wheel-sha256", workflow)
-                self.assertIn("-m venv", workflow)
-                self.assertIn("--no-deps --no-index", workflow)
-                self.assertIn(
-                    "kat/platform/datasource/tests/python/test_hitrace_api.py",
-                    workflow,
-                )
-                self.assertIn(
-                    "kat/platform/datasource/tests/python/test_text_ftrace_api.py",
-                    workflow,
-                )
+                self.assertIn("--sdk-wheel-version", workflow)
+                self.assertIn("--sdk-wheel-sha256", workflow)
+                self.assertNotIn("workflow-wheel", workflow)
+                self.assertIn("kat/sdk/tests/providers/decoding/test_hitrace_api.py", workflow)
+                self.assertIn("kat/sdk/tests/providers/decoding/test_text_ftrace_api.py", workflow)
 
     def test_payload_smoke_uses_hitrace_provider_and_validates_ndjson(self) -> None:
         assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
@@ -325,7 +280,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         )
         self.assertTrue(pack_test.is_file())
         self.assertIn("from kat import dataprovider as dp", provider)
-        self.assertIn("from kat_datasource import hitrace", provider)
+        self.assertIn("from kat.providers.decoding import hitrace", provider)
         self.assertIn("hitrace.decode", provider)
         self.assertIn("dp.open(root=", provider)
         self.assertIn("dp.DataFusionProvider", provider)
@@ -346,7 +301,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         self.assertIn("field.nullable", consumer)
         self.assertIn('b"kat.materialization.version"', consumer)
         self.assertIn('b"hitrace-v1"', consumer)
-        self.assertNotIn("kat_datasource", consumer)
+        self.assertNotIn("kat.providers.decoding", consumer)
         self.assertNotIn("HitraceProvider", consumer)
         self.assertNotIn("decode", consumer)
 

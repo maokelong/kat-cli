@@ -110,12 +110,7 @@ class PayloadBuilderTests(unittest.TestCase):
                     repository=repository,
                     output=output,
                     download_cache=None,
-                    workflow_wheel=payload_builder.WheelArtifactInput(
-                        repository / "workflow.whl",
-                        "0.1.1rc1",
-                        "0" * 64,
-                    ),
-                    datasource_wheel=payload_builder.WheelArtifactInput(
+                    sdk_wheel=payload_builder.WheelArtifactInput(
                         repository / "datasource.whl",
                         "0.1.1rc1",
                         "0" * 64,

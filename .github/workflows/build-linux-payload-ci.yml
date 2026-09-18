@@ -9,11 +9,7 @@ on:
         type: boolean
         default: false
       expected-version:
-        description: Expected normalized version of both private wheels.
-        required: true
-        type: string
-      workflow-wheel-sha256:
-        description: SHA-256 of the downloaded Workflow Host wheel.
+        description: Expected normalized SDK version.
         required: true
         type: string
 
@@ -62,12 +58,6 @@ jobs:
           echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> "$GITHUB_ENV"
           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
-      - name: Download the single Workflow Host wheel
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kat-workflow-wheel
-          path: target/kat/workflow-wheel
-
       - name: Install locked Builder dependencies
         shell: bash
         run: >-
@@ -78,38 +68,32 @@ jobs:
           --require-hashes
           -r build/requirements-builder.lock.txt
 
-      - name: Build native Datasource wheel and locked Payload
+      - name: Build native SDK wheel and locked Payload
         shell: bash
         env:
           EXPECTED_VERSION: ${{ inputs['expected-version'] }}
-          WORKFLOW_WHEEL_SHA256: ${{ inputs['workflow-wheel-sha256'] }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           test -x /opt/python/cp314-cp314/bin/python
-          workflow_wheel=$(find target/kat/workflow-wheel -maxdepth 1 -type f -name '*.whl' -print)
-          test "$(printf '%s\n' "$workflow_wheel" | sed '/^$/d' | wc -l)" -eq 1
-          /opt/python/cp314-cp314/bin/python build/build_datasource_wheel.py \
+          /opt/python/cp314-cp314/bin/python build/build_sdk_wheel.py \
             --python /opt/python/cp314-cp314/bin/python \
             --platform linux-x86_64 \
             --expected-version "$EXPECTED_VERSION" \
-            --output target/kat/datasource-wheel
-          datasource_wheel=$(find target/kat/datasource-wheel -maxdepth 1 -type f -name '*.whl' -print)
-          test "$(printf '%s\n' "$datasource_wheel" | sed '/^$/d' | wc -l)" -eq 1
-          datasource_sha256=$(sha256sum "$datasource_wheel" | cut -d ' ' -f 1)
-          /opt/python/cp314-cp314/bin/python -m venv target/kat/datasource-wheel-test
-          test_python=target/kat/datasource-wheel-test/bin/python
-          "$test_python" -m pip install --disable-pip-version-check --no-deps --no-index "$datasource_wheel"
-          "$test_python" -I -B kat/platform/datasource/tests/python/test_hitrace_api.py -v
-          "$test_python" -I -B kat/platform/datasource/tests/python/test_text_ftrace_api.py -v
+            --output target/kat/sdk-wheel
+          sdk_wheel=$(find target/kat/sdk-wheel -maxdepth 1 -type f -name 'kat_sdk-*.whl' -print)
+          test "$(printf '%s\n' "$sdk_wheel" | sed '/^$/d' | wc -l)" -eq 1
+          sdk_sha256=$(sha256sum "$sdk_wheel" | cut -d ' ' -f 1)
+          /opt/python/cp314-cp314/bin/python -m venv target/kat/sdk-wheel-test
+          test_python=target/kat/sdk-wheel-test/bin/python
+          "$test_python" -m pip install --disable-pip-version-check --only-binary=:all: "$sdk_wheel"
+          "$test_python" -I -B kat/sdk/tests/providers/decoding/test_hitrace_api.py -v
+          "$test_python" -I -B kat/sdk/tests/providers/decoding/test_text_ftrace_api.py -v
           /opt/python/cp314-cp314/bin/python build/build_linux_payload.py \
             --output target/kat/payloads/linux-x86_64 \
-            --workflow-wheel "$workflow_wheel" \
-            --workflow-wheel-version "$EXPECTED_VERSION" \
-            --workflow-wheel-sha256 "$WORKFLOW_WHEEL_SHA256" \
-            --datasource-wheel "$datasource_wheel" \
-            --datasource-wheel-version "$EXPECTED_VERSION" \
-            --datasource-wheel-sha256 "$datasource_sha256"
+            --sdk-wheel "$sdk_wheel" \
+            --sdk-wheel-version "$EXPECTED_VERSION" \
+            --sdk-wheel-sha256 "$sdk_sha256"
           mkdir -p target/distrib/.payload-inputs
           tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
             --format=posix --pax-option=delete=atime,delete=ctime \

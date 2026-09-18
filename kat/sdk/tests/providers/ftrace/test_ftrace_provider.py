@@ -1,0 +1,489 @@
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+from kat.providers import ftrace as provider_module
+from kat.providers.ftrace import FtraceProvider
+from kat.providers.decoding import text_ftrace
+
+from kat import dataprovider as dp
+
+_FIXTURE = Path(__file__).parents[1] / "fixtures" / "typed.ftrace"
+
+
+def _write_relation(root: Path, name: str, table: pa.Table) -> None:
+    pq.write_table(table, root / f"{name}.parquet")
+
+
+def _write_catalog(
+    root: Path,
+    *,
+    clock_domain: str = "fixture_clock",
+    unsupported_event_names: tuple[str, ...] = (),
+) -> None:
+    root.mkdir()
+    _write_relation(
+        root,
+        "text_ftrace_header",
+        pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
+    )
+    _write_relation(
+        root,
+        "text_ftrace_event_occurrence",
+        pa.table(
+            {
+                "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
+                "source_event_sequence": pa.array([0, 1, 3, 4], type=pa.uint64()),
+            }
+        ),
+    )
+    if unsupported_event_names:
+        _write_relation(
+            root,
+            "text_ftrace_unsupported_event",
+            pa.table({"event_name": list(unsupported_event_names)}),
+        )
+    _write_relation(
+        root,
+        "text_ftrace_event",
+        pa.table(
+            {
+                "_kat_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
+                "_kat_parent_row_id": pa.array([0, 1, 2, 3], type=pa.uint64()),
+                "clock_domain": [clock_domain] * 4,
+                "clock_value": pa.array(
+                    [1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000],
+                    type=pa.uint64(),
+                ),
+                "cpu": pa.array([2, 2, 2, 2], type=pa.uint32()),
+                "emitter_thread_name": ["worker"] * 4,
+                "emitter_thread_id": pa.array([7, 7, 7, 7], type=pa.int32()),
+                "emitter_process_id": pa.array([7, 7, 7, 7], type=pa.int32()),
+                "context_flags": ["d...."] * 4,
+            }
+        ),
+    )
+    _write_relation(
+        root,
+        "text_ftrace_event_sched_switch",
+        pa.table(
+            {
+                "_kat_row_id": pa.array([0], type=pa.uint64()),
+                "_kat_parent_row_id": pa.array([0], type=pa.uint64()),
+                "previous_thread_name": ["old"],
+                "previous_thread_id": pa.array([7], type=pa.int32()),
+                "previous_priority": pa.array([120], type=pa.int32()),
+                "previous_state": ["R+"],
+                "next_thread_name": ["new"],
+                "next_thread_id": pa.array([8], type=pa.int32()),
+                "next_priority": pa.array([100], type=pa.int32()),
+            }
+        ),
+    )
+
+
+def _write_unknown_only_catalog(root: Path) -> None:
+    root.mkdir()
+    _write_relation(
+        root,
+        "text_ftrace_header",
+        pa.table({"tracer": ["nop"], "has_tgid_column": [True]}),
+    )
+    _write_relation(
+        root,
+        "text_ftrace_unsupported_event",
+        pa.table({"event_name": ["a_event", "z_event"]}),
+    )
+
+
+def _arguments(workspace_root: Path, **overrides) -> dict[str, object]:
+    arguments = {
+        "source": _FIXTURE,
+        "clock_domain": "fixture_clock",
+        "workspace_root": workspace_root,
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+def test_construction_decodes_to_workspace_root_plus_source_stem(
+    monkeypatch,
+    tmp_path,
+):
+    def convert(source, catalog_root, clock_domain):
+        assert source == _FIXTURE.resolve()
+        assert clock_domain == "fixture_clock"
+        assert catalog_root == tmp_path / _FIXTURE.stem
+        _write_catalog(catalog_root)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+    provider = FtraceProvider(**_arguments(tmp_path))
+
+    topology = provider.query(
+        """
+        SELECT o.source_event_sequence, e.clock_domain, s.previous_state
+        FROM text_ftrace_event_occurrence o
+        JOIN text_ftrace_event e
+          ON e._kat_parent_row_id = o._kat_row_id
+        JOIN text_ftrace_event_sched_switch s
+          ON s._kat_parent_row_id = e._kat_row_id
+        """
+    )
+
+    assert isinstance(topology, dp.Table)
+    assert topology.to_rows() == [
+        {
+            "source_event_sequence": 0,
+            "clock_domain": "fixture_clock",
+            "previous_state": "R+",
+        }
+    ]
+
+
+def test_native_decoder_creates_and_reuses_the_source_stem_catalog(tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    first = FtraceProvider(**_arguments(tmp_path))
+    materialized_at = catalog_root.stat().st_mtime_ns
+
+    second = FtraceProvider(**_arguments(tmp_path))
+
+    assert first.query("SELECT COUNT(*) AS count FROM text_ftrace_event").to_rows() == [
+        {"count": 4}
+    ]
+    assert second.tables == first.tables
+    assert catalog_root.stat().st_mtime_ns == materialized_at
+
+
+def test_decode_failure_can_retry_when_no_catalog_was_written(monkeypatch, tmp_path):
+    attempts = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise text_ftrace.DecodeError("fixture failure")
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    with pytest.raises(RuntimeError, match="decode failed"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    provider = FtraceProvider(**_arguments(tmp_path))
+    assert provider.query(
+        "SELECT COUNT(*) AS event_count FROM text_ftrace_event"
+    ).to_rows() == [{"event_count": 4}]
+
+
+def test_unreadable_parquet_is_not_redecoded(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        catalog.mkdir()
+        (catalog / "text_ftrace_event.parquet").write_bytes(b"invalid parquet")
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    with pytest.raises(pa.ArrowInvalid, match="Parquet"):
+        FtraceProvider(**_arguments(tmp_path))
+    with pytest.raises(pa.ArrowInvalid, match="Parquet"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert conversions == 1
+    assert (tmp_path / _FIXTURE.stem).is_dir()
+
+
+def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_path):
+    def convert(_source, catalog, _clock_domain):
+        _write_catalog(catalog)
+
+    def reject_catalog(*, catalog):
+        assert catalog.tables
+        raise RuntimeError("query provider failed")
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+    monkeypatch.setattr(provider_module._fusion, "DataFusionProvider", reject_catalog)
+
+    with pytest.raises(RuntimeError, match="query provider failed"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert (tmp_path / _FIXTURE.stem).is_dir()
+
+
+def test_same_source_stem_reuses_the_materialized_catalog(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    first = FtraceProvider(**_arguments(tmp_path))
+    second = FtraceProvider(**_arguments(tmp_path))
+
+    assert conversions == 1
+    for provider in (first, second):
+        assert provider.query(
+            "SELECT COUNT(*) AS count FROM text_ftrace_event"
+        ).to_rows() == [{"count": 4}]
+
+
+def test_published_source_stem_is_reused_after_the_source_is_removed(
+    monkeypatch, tmp_path
+):
+    source = tmp_path / "capture.ftrace"
+    source.write_text("first", encoding="utf-8")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    first = FtraceProvider(**_arguments(workspace_root, source=source))
+    source.unlink()
+    second = FtraceProvider(**_arguments(workspace_root, source=source))
+
+    assert conversions == 1
+    assert second.tables == first.tables
+
+
+def test_symlink_source_uses_the_lexical_source_stem(monkeypatch, tmp_path):
+    source = tmp_path / "physical.ftrace"
+    source.write_text("trace", encoding="utf-8")
+    link = tmp_path / "analysis-alias.trace"
+    try:
+        link.symlink_to(source)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation is unavailable: {error}")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    def convert(resolved_source, catalog, _clock_domain):
+        assert resolved_source == source.resolve()
+        assert catalog == workspace_root / link.stem
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    FtraceProvider(**_arguments(workspace_root, source=link))
+
+    assert (workspace_root / link.stem).is_dir()
+    assert not (workspace_root / source.stem).exists()
+
+
+def test_same_stem_in_different_source_directories_reuses_catalog(
+    monkeypatch, tmp_path
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    first_source = tmp_path / "first" / "trace.ftrace"
+    second_source = tmp_path / "second" / "trace.ftrace"
+    first_source.parent.mkdir()
+    second_source.parent.mkdir()
+    first_source.write_text("first", encoding="utf-8")
+    second_source.write_text("second", encoding="utf-8")
+    decoded_sources = []
+
+    def convert(source, catalog, _clock_domain):
+        decoded_sources.append(source)
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    FtraceProvider(**_arguments(workspace_root, source=first_source))
+    FtraceProvider(**_arguments(workspace_root, source=second_source))
+
+    assert decoded_sources == [first_source.resolve()]
+
+
+def test_different_source_stems_use_different_catalogs(monkeypatch, tmp_path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    first_source = tmp_path / "first.ftrace"
+    second_source = tmp_path / "second.ftrace"
+    first_source.write_text("first", encoding="utf-8")
+    second_source.write_text("second", encoding="utf-8")
+    catalogs = []
+
+    def convert(_source, catalog, _clock_domain):
+        catalogs.append(catalog)
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    FtraceProvider(**_arguments(workspace_root, source=first_source))
+    FtraceProvider(**_arguments(workspace_root, source=second_source))
+
+    assert catalogs == [
+        workspace_root / first_source.stem,
+        workspace_root / second_source.stem,
+    ]
+
+
+def test_cached_clock_domain_must_match_the_request(monkeypatch, tmp_path):
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+    FtraceProvider(**_arguments(tmp_path))
+
+    with pytest.raises(RuntimeError, match="clock_domain"):
+        FtraceProvider(**_arguments(tmp_path, clock_domain="another_clock"))
+
+    assert conversions == 1
+
+
+def test_existing_empty_catalog_is_rejected_without_decode(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    catalog_root.mkdir()
+    conversions = 0
+
+    def convert(_source, catalog, _clock_domain):
+        nonlocal conversions
+        conversions += 1
+        _write_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    with pytest.raises(ValueError, match="at least one relation"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert conversions == 0
+    assert catalog_root.is_dir()
+
+
+def test_nonempty_catalog_without_parquet_is_rejected(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+    catalog_root.mkdir()
+    marker = catalog_root / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    def convert(*_arguments):
+        pytest.fail("nonempty catalog must not be overwritten")
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    with pytest.raises(ValueError, match="at least one relation"):
+        FtraceProvider(**_arguments(tmp_path))
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_source_file_is_not_overwritten_when_it_matches_catalog_path(
+    monkeypatch, tmp_path
+):
+    source = tmp_path / "trace"
+    source.write_text("trace", encoding="utf-8")
+
+    def convert(*_arguments):
+        pytest.fail("source path must not be used as a catalog")
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    with pytest.raises(ValueError, match="root must be an existing ordinary directory"):
+        FtraceProvider(**_arguments(tmp_path, source=source))
+
+    assert source.read_text(encoding="utf-8") == "trace"
+
+
+def test_unknown_only_catalog_is_queryable_and_preserves_the_decode_report(
+    monkeypatch, tmp_path
+):
+    def convert(_source, catalog, _clock_domain):
+        _write_unknown_only_catalog(catalog)
+
+    monkeypatch.setattr(text_ftrace, "decode", convert)
+
+    first = FtraceProvider(**_arguments(tmp_path))
+    second = FtraceProvider(**_arguments(tmp_path))
+
+    assert first.tables == (
+        "text_ftrace_header",
+        "text_ftrace_unsupported_event",
+    )
+    assert first.decode_report.unsupported_event_names == ("a_event", "z_event")
+    assert second.decode_report == first.decode_report
+    assert first.query(
+        "SELECT tracer, has_tgid_column FROM text_ftrace_header"
+    ).to_rows() == [{"tracer": "nop", "has_tgid_column": True}]
+
+
+def test_publish_race_reuses_the_winning_catalog(monkeypatch, tmp_path):
+    catalog_root = tmp_path / _FIXTURE.stem
+
+    def lose_publish_race(_source, catalog, _clock_domain):
+        assert catalog == catalog_root
+        _write_catalog(catalog)
+        raise text_ftrace.DecodeError("destination already exists")
+
+    monkeypatch.setattr(text_ftrace, "decode", lose_publish_race)
+
+    provider = FtraceProvider(**_arguments(tmp_path))
+
+    assert provider.query(
+        "SELECT COUNT(*) AS count FROM text_ftrace_event"
+    ).to_rows() == [{"count": 4}]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        Path("."),
+        Path("CON.ftrace"),
+        Path("trace..ftrace"),
+        Path("bad?.ftrace"),
+        Path("bad\x1f.ftrace"),
+    ),
+)
+def test_invalid_source_stems_are_rejected(source):
+    with pytest.raises(ValueError, match="invalid.*source stem"):
+        provider_module._source_stem(source)
+
+
+def test_source_stem_removes_only_the_last_suffix():
+    assert provider_module._source_stem(Path("capture.perf.ftrace")) == "capture.perf"
+
+
+@pytest.mark.parametrize("field", ("source", "workspace_root"))
+def test_paths_require_pathlib_path(field, tmp_path):
+    arguments = _arguments(tmp_path)
+    arguments[field] = str(arguments[field])
+
+    with pytest.raises(TypeError, match=rf"{field}.*Path"):
+        FtraceProvider(**arguments)
+
+
+def test_clock_domain_is_explicit_and_nonempty(tmp_path):
+    with pytest.raises(TypeError, match="clock_domain.*string"):
+        FtraceProvider(
+            source=_FIXTURE,
+            clock_domain=None,
+            workspace_root=tmp_path,
+        )
+    with pytest.raises(ValueError, match="clock_domain.*non-empty"):
+        FtraceProvider(
+            source=_FIXTURE,
+            clock_domain="   ",
+            workspace_root=tmp_path,
+        )
+
+
+def test_removed_lifecycle_options_are_not_part_of_the_interface(tmp_path):
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        FtraceProvider(**_arguments(tmp_path), redecode=True)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        FtraceProvider(**_arguments(tmp_path), auto_cleanup=True)

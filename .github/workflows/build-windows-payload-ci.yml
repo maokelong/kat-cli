@@ -9,11 +9,7 @@ on:
         type: boolean
         default: false
       expected-version:
-        description: Expected normalized version of both private wheels.
-        required: true
-        type: string
-      workflow-wheel-sha256:
-        description: SHA-256 of the downloaded Workflow Host wheel.
+        description: Expected normalized SDK version.
         required: true
         type: string
 
@@ -84,46 +80,34 @@ jobs:
           --require-hashes
           -r build/requirements-builder.lock.txt
 
-      - name: Download the single Workflow Host wheel
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kat-workflow-wheel
-          path: target/kat/workflow-wheel
-
-      - name: Build native Datasource wheel and locked Payload
+      - name: Build native SDK wheel and locked Payload
         shell: pwsh
         env:
           EXPECTED_VERSION: ${{ inputs['expected-version'] }}
-          WORKFLOW_WHEEL_SHA256: ${{ inputs['workflow-wheel-sha256'] }}
         run: |
           $ErrorActionPreference = "Stop"
-          $workflowWheels = @(Get-ChildItem "target/kat/workflow-wheel" -Filter "*.whl" -File)
-          if ($workflowWheels.Count -ne 1) { throw "expected exactly one Workflow Host wheel" }
-          python build/build_datasource_wheel.py `
+          python build/build_sdk_wheel.py `
             --python (Get-Command python).Source `
             --platform windows-x86_64 `
             --expected-version $env:EXPECTED_VERSION `
-            --output "target/kat/datasource-wheel"
+            --output "target/kat/sdk-wheel"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $datasourceWheels = @(Get-ChildItem "target/kat/datasource-wheel" -Filter "*.whl" -File)
-          if ($datasourceWheels.Count -ne 1) { throw "expected exactly one Datasource wheel" }
-          $datasourceSha256 = (Get-FileHash -Algorithm SHA256 $datasourceWheels[0].FullName).Hash.ToLowerInvariant()
-          python -m venv "target/kat/datasource-wheel-test"
-          $testPython = (Resolve-Path "target/kat/datasource-wheel-test/Scripts/python.exe").Path
-          & $testPython -m pip install --disable-pip-version-check --no-deps --no-index $datasourceWheels[0].FullName
+          $sdkWheels = @(Get-ChildItem "target/kat/sdk-wheel" -Filter "kat_sdk-*.whl" -File)
+          if ($sdkWheels.Count -ne 1) { throw "expected exactly one SDK wheel" }
+          $sdkSha256 = (Get-FileHash -Algorithm SHA256 $sdkWheels[0].FullName).Hash.ToLowerInvariant()
+          python -m venv "target/kat/sdk-wheel-test"
+          $testPython = (Resolve-Path "target/kat/sdk-wheel-test/Scripts/python.exe").Path
+          & $testPython -m pip install --disable-pip-version-check --only-binary=:all: $sdkWheels[0].FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $testPython -I -B "kat/platform/datasource/tests/python/test_hitrace_api.py" -v
+          & $testPython -I -B "kat/sdk/tests/providers/decoding/test_hitrace_api.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $testPython -I -B "kat/platform/datasource/tests/python/test_text_ftrace_api.py" -v
+          & $testPython -I -B "kat/sdk/tests/providers/decoding/test_text_ftrace_api.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python build/build_windows_payload.py `
             --output "target/kat/payloads/windows-x86_64" `
-            --workflow-wheel $workflowWheels[0].FullName `
-            --workflow-wheel-version $env:EXPECTED_VERSION `
-            --workflow-wheel-sha256 $env:WORKFLOW_WHEEL_SHA256 `
-            --datasource-wheel $datasourceWheels[0].FullName `
-            --datasource-wheel-version $env:EXPECTED_VERSION `
-            --datasource-wheel-sha256 $datasourceSha256
+            --sdk-wheel $sdkWheels[0].FullName `
+            --sdk-wheel-version $env:EXPECTED_VERSION `
+            --sdk-wheel-sha256 $sdkSha256
           New-Item -ItemType Directory -Force "target/distrib/.payload-inputs" | Out-Null
           tar -czf "target/distrib/.payload-inputs/windows-x86_64.tar.gz" `
             -C "target/kat/payloads" windows-x86_64

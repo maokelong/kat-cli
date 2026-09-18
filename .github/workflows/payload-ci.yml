@@ -176,6 +176,8 @@ jobs:
               python=$payload/python/bin/python3
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" -I -B /repo/build/verify_skill_collection.py "$skills"
+              /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
+                "$python" -I -B /repo/build/fixtures/verify_installed_sdk.py
               producer_pack=/repo/build/fixtures/payload-smoke-pack
               /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u PYTHONUSERBASE \
                 "$python" -I -B /repo/build/fixtures/verify_public_ftrace.py "$cli"
@@ -264,6 +266,8 @@ jobs:
           $cli = Join-Path $payload "kat.exe"
           $python = Join-Path $payload "python/python.exe"
           & $python -I -B "build/verify_skill_collection.py" $skills
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -I -B "build/fixtures/verify_installed_sdk.py"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $python -I -B -m pip download --disable-pip-version-check `
             --only-binary=:all: --no-deps --require-hashes `

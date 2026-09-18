@@ -135,7 +135,6 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
       expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
-      workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   build-windows:
     name: Build Windows Payload
@@ -146,7 +145,6 @@ jobs:
     with:
       cold-build: ${{ github.event_name == 'workflow_dispatch' && inputs['cold-build'] }}
       expected-version: ${{ needs.release-channel.outputs['normalized-version'] }}
-      workflow-wheel-sha256: ${{ needs.prepare.outputs['workflow-wheel-sha256'] }}
 
   assemble-and-smoke:
     name: Assemble and smoke the selected candidate

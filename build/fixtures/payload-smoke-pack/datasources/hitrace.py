@@ -8,7 +8,7 @@ from typing import Self
 
 import pyarrow.parquet as pq
 from kat import dataprovider as dp
-from kat_datasource import hitrace
+from kat.providers.decoding import hitrace
 
 
 _EXPECTED_RELATIONS = ("clock_domain", "clock_snapshot")

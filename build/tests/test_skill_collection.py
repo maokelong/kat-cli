@@ -82,6 +82,11 @@ class SkillCollectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly these top-level directories"):
             verify_skill_collection(relocated)
 
+    def test_sdk_directory_cannot_replace_or_duplicate_original_layout(self) -> None:
+        (self.skills / "kat/sdk").mkdir()
+        with self.assertRaisesRegex(ValueError, "SDK must be installed in bundled Python"):
+            verify_skill_collection(self.skills)
+
     def test_extra_top_level_file_is_rejected(self) -> None:
         (self.skills / "unexpected.txt").write_text("extra", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "exactly these top-level directories"):

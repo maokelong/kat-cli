@@ -1,0 +1,7 @@
+# Third-party dependencies for the complete private Runtime.
+adbc-driver-manager==1.11.0
+adbc-driver-postgresql==1.11.0
+click==8.4.2
+datafusion==54.0.0
+pyarrow==24.0.0
+pytest==9.1.1

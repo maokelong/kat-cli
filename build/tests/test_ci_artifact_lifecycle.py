@@ -221,7 +221,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
 
         self.assertIn("已合并 merge commit", runbook)
         self.assertIn("Immutable Releases", runbook)
-        self.assertIn("kat-workflow-wheel", runbook)
+        self.assertNotIn("kat-workflow-wheel", runbook)
         self.assertIn("plan-only probe", runbook)
         self.assertIn("release-rehearsal.md", adr)
         self.assertIn("应删除该适配", adr)
@@ -276,7 +276,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
             for block in upload_blocks(workflow.read_text(encoding="utf-8"))
         ]
 
-        self.assertEqual(len(blocks), 4)
+        self.assertEqual(len(blocks), 3)
         for block in blocks:
             with self.subTest(block=block):
                 self.assertIn("retention-days: 1", block)

@@ -38,7 +38,7 @@ use std::{env, fs, io::{self, Write}, process};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
-    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
+    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "kat._runtime", "--request"];
     if arguments.len() != 11
         || arguments[..8] != fixed
         || arguments[9] != "--response"
@@ -341,7 +341,7 @@ use std::{env, fs, process};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
-    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
+    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "kat._runtime", "--request"];
     if arguments.len() != 11
         || arguments[..8] != fixed
         || arguments[9] != "--response"
@@ -680,7 +680,7 @@ fn targeted_knowledge_inspection_runs_the_real_installed_host() {
             let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
             if selected.is_some() {
                 let provider = &response["result"]["provider"];
-                assert_eq!(provider["module"], "kat.dataprovider.ftrace");
+                assert_eq!(provider["module"], "kat.providers.ftrace");
                 assert_eq!(provider["qualname"], "FtraceProvider");
                 assert!(
                     provider["guide"]

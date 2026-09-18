@@ -7,8 +7,11 @@ KAT 是面向性能分析的可扩展平台。本文只收录名称不足以表�
 **KAT**:
 Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看护责任的性能分析平台。Kernel 表达项目起源而非产品范围；平台维护者也不会因此让自己拥有的 PACK 获得特权。
 
+**KAT SDK**:
+面向 PACK 作者和执行环境的统一安装包，包含公共 API、Workflow Runtime、原生 Datasource 与随版本知识。CLI 和 Python 解释器不包含在 SDK 中，用户 PACK 与数据独立维护。
+
 **KAT Skills**:
-KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，包含负责路由的 `kat` 总入口，以及问题分析 `kat-analyze`、PACK 创作与维护 `kat-author`、分析复核 `kat-review` 三个并列任务入口。集合是原子发布单元，四个 Skill 同级部署，共用 `kat` 目录中的命令合同、运行环境和 Bundled PACK；成套安装不承诺四目录替换的文件系统原子事务。
+KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，包含负责路由的 `kat` 总入口，以及问题分析 `kat-analyze`、PACK 创作与维护 `kat-author`、分析复核 `kat-review` 三个并列任务入口。集合是原子发布单元，四个 Skill 同级部署，共用 `kat` 目录中的命令合同与配套版本的 KAT SDK；成套安装不承诺四目录替换的文件系统原子事务。
 
 **KAT Skill**:
 KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别承接对应任务。问题分析入口可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
@@ -31,18 +34,18 @@ KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别
 对一个 PACK 承担看护责任的唯一组织或团队。PACK owner 是可变的展示信息，不是 PACK 身份、命名空间、发布者认证或权限依据。
 
 **Bundled PACK**:
-与 KAT Skills 同版本发布的 PACK。Bundled 只说明交付来源，不形成公共 PACK kind，也不赋予额外运行权限。
+随 KAT 平台配套发布的 PACK。Bundled 只说明交付来源，不形成公共 PACK kind，也不赋予额外运行权限。
 _Avoid_: Built-in PACK、System PACK
 
 **External PACK**:
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **Pack Authoring API**:
-KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。
+KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。distribution `kat-sdk` 统一承载`kat` 下的 API、Markdown、Runtime 和 Datasource；公共根入口导出作者 API，旧顶层模块不保留。
 _Avoid_: Python SDK、Pack API
 
 **Datasource wheel**:
-平台原生私有 distribution `kat-datasource`，提供窄的 `kat_datasource` 来源 API。它与 `kat-workflow` 使用同一 KAT 版本，但二者互不依赖；Payload 同时安装它们，PACK 必须按所需边界显式 import。它不是 CLI 插件、公共 SDK 或可独立升级的产品。
+原生解码源码位于 kat/sdk/native，由 SDK 根构建直接打入 kat-sdk。Python 通过窄接口 kat.providers.decoding 使用，PACK 保持显式 import；版本随 SDK 更新。
 
 **KAT Trace Library**:
 KAT 向所有 PACK 平等提供的公共 Trace 分析语义，只接纳经过多个真实消费者和真实 Trace 验证的复用能力。来源解码、具体用户问题和单个 PACK 内尚未验证的候选算法不属于它。
@@ -127,7 +130,7 @@ Data Provider Toolkit 提供的具体本地查询 Provider，由 Workflow 或 PA
 DataFusion Provider 对 Workflow 显式提供的内存 Table、Parquet Catalog 或两者组合执行并形成新 Table 的本地查询。它不能透明引用 Datasource Provider 私有的 Source catalog、发现来源 Provider、隐式触发 Source query，或替 Workflow 拆分和下推远端 SQL；来源特定下推由各 Datasource Provider 自己负责。
 
 **Hitrace decode**:
-PACK 通过独立 `kat-datasource` wheel 的 `kat_datasource.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 可以把一次性 destination 放进 `ctx.scratch_root`，或按 Session 复用约定发布到 `ctx.datasource_root` 下的来源目录，再用 `dp.open(root=destination)` 打开；解码结果不会自动成为 Run Output。
+PACK 通过 `kat-sdk` 内的 `kat.providers.decoding.hitrace.decode(source, destination)` 显式执行的原生来源解码。调用方拥有 source 和尚不存在的 destination；成功后 destination 的直接子级只含扁平具名 `*.parquet` relation，并返回 unsupported plugin/section report。Workflow 可以把一次性 destination 放进 `ctx.scratch_root`，或按 Session 复用约定发布到 `ctx.datasource_root` 下的来源目录，再用 `dp.open(root=destination)` 打开；解码结果不会自动成为 Run Output。
 
 **Datasource materialization**:
 Datasource Provider 为来源查询准备的本地 backend，其来源语义与准入合同由 Provider 拥有。准备跨 Run 复用的物化在 Analysis Session 中首次完整发布后不可原位替换，其他 Workflow 可以跨 PACK 按约定只读复用；一次性物化留在 `ctx.scratch_root`，打不开或不符合合同的共享物化只能换用新的 Source stem 或在新 Session 中重新物化，并且它不是 Provider query result 或 Run Output。

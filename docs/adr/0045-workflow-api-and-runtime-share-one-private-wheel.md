@@ -4,6 +4,8 @@ status: accepted
 
 # Workflow API 与 Runtime 共用一个私有 wheel
 
+> pip 安装与原环境升级由 [ADR-0083](0083-sdk-owns-authoring-api-and-knowledge.md) 调整；下文的相邻 Host 约束继续适用于离线 Skills 归档。
+
 > ADR-0047 进一步明确：该 wheel 提供顶层 `kat` Pack Authoring API，但不提供静态 `kat.pack`；`kat.pack` 由 Runtime 为当前 PACK 动态挂载。本文其余构建与发布决定继续有效。
 
 `kat/platform/workflow` 是 Pack Authoring API 与 Workflow Runtime 的单一源码构建单元。构建期使用成熟 PEP 517 backend 生成一个纯 Python Workflow Host wheel；它同时包含 PACK 使用的 `kat` package，以及 KAT CLI 以 `python -I -B -X utf8 -u -m <private-runtime-module>` 启动的私有 Runtime module。源码职责目录、Python import namespace 与 wheel 内文件布局由标准 backend 映射，不要求三者目录同构，也不通过脚本手工复制 site-packages。

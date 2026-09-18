@@ -4,6 +4,8 @@ status: accepted
 
 # Skill 与运行时原子发布
 
+本 ADR 中的 SDK 与平台交付边界已由 [ADR-0083](0083-sdk-owns-authoring-api-and-knowledge.md) 调整；下文保留原决策背景。
+
 用户主动为 Bundled Python Host 安装第三方库的边界由 [ADR-0084](0084-bundled-python-allows-user-installed-packages.md) 局部替代：允许用户使用 pip 修改当前部署的共享环境。发布初始环境仍锁定并验证，正常分析执行不自行安装依赖。
 
 本 ADR 将单个 Skill 作为发布单元的约束由 [ADR-0082](0082-kat-review-rechecks-existing-evidence.md) 局部替代为包含 `kat`、`kat-analyze`、`kat-author`、`kat-review` 四个同级目录的 KAT Skills 集合。集合与载荷保持同版本原子发布，共享载荷继续位于 `kat` 目录。装配 staging 的发布不承诺用户安装时四目录替换的文件系统原子事务。私有运行时、候选平台、RC 发布流程和用户状态隔离的约束继续有效。

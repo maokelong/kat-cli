@@ -37,7 +37,7 @@ use std::{
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
-    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
+    let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "kat._runtime", "--request"];
     if arguments.len() != 13
         || arguments[..8] != fixed
         || arguments[9] != "--response"

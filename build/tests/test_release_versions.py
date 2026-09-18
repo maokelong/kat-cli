@@ -16,18 +16,18 @@ def write_release_versions(
     *,
     release: str = "1.2.3",
     rust: str = "1.2.3",
-    workflow: str = "1.2.3",
+    sdk: str = "1.2.3",
 ) -> None:
+    (repository / "kat/sdk").mkdir(parents=True)
     (repository / "release/kat").mkdir(parents=True)
-    (repository / "kat/platform/workflow").mkdir(parents=True)
     (repository / "release/kat/dist.toml").write_text(
         f'[package]\nname = "kat"\nversion = "{release}"\n', encoding="utf-8"
     )
     (repository / "Cargo.toml").write_text(
         f'[workspace.package]\nversion = "{rust}"\n', encoding="utf-8"
     )
-    (repository / "kat/platform/workflow/pyproject.toml").write_text(
-        f'[project]\nname = "kat-workflow"\nversion = "{workflow}"\n',
+    (repository / "kat/sdk/pyproject.toml").write_text(
+        f'[project]\nname = "kat-sdk"\nversion = "{sdk}"\n',
         encoding="utf-8",
     )
 
@@ -85,7 +85,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 repository,
                 release="1.2.3-rc.1",
                 rust="1.2.3-rc.1",
-                workflow="1.2.3-rc.1",
+                sdk="1.2.3-rc.1",
             )
 
             result = self.run_verifier(repository, tag="kat/1.2.3-rc.1")
@@ -104,7 +104,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 repository,
                 release="1.2.3-rc.1",
                 rust="1.2.3-rc.1",
-                workflow="1.2.3-rc.1",
+                sdk="1.2.3-rc.1",
             )
 
             result = self.run_verifier(repository, tag="kat/1.2.3")
@@ -151,12 +151,12 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("release/kat/dist.toml: 1.2.3", result.stderr)
             self.assertIn("Cargo.toml: 1.2.2", result.stderr)
-            self.assertIn("kat/platform/workflow/pyproject.toml: 1.2.3", result.stderr)
+            self.assertIn("kat/sdk/pyproject.toml: 1.2.3", result.stderr)
 
-    def test_workflow_version_drift_reports_all_sources(self) -> None:
+    def test_sdk_version_drift_reports_all_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory)
-            write_release_versions(repository, workflow="1.2.4")
+            write_release_versions(repository, sdk="1.2.4")
 
             result = self.run_verifier(repository)
 
@@ -164,7 +164,7 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("release/kat/dist.toml: 1.2.3", result.stderr)
             self.assertIn("Cargo.toml: 1.2.3", result.stderr)
-            self.assertIn("kat/platform/workflow/pyproject.toml: 1.2.4", result.stderr)
+            self.assertIn("kat/sdk/pyproject.toml: 1.2.4", result.stderr)
 
 
 if __name__ == "__main__":

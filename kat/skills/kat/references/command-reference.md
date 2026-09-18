@@ -4,7 +4,10 @@
 
 除 `--help` 外，每次 KAT CLI 调用的 stdout 都是一个 KAT Response JSON。只在 `status="success"` 时读取 `result`；失败时读取 `error`，以及存在时的 `log_path` 或 `test_report_path`。不要从终端文本、日志或 pytest 输出推断成功。
 
+用户请求检查最新 SDK、下载、安装或升级时，先执行 [SDK 安装与升级流程](sdk-install.md)；普通分析、PACK 开发和复核沿用当前版本。
+
 ## 调用前选择平台载荷
+
 
 `<kat-root>` 固定为总入口 `kat/SKILL.md` 的绝对父目录。直接使用 `kat-analyze`、`kat-author` 或 `kat-review` 时，从该任务 `SKILL.md` 所在目录解析相邻 `../kat/`，确认 `kat/SKILL.md` 后使用同一根目录；不能锚定任务 Skill、当前工作目录或其他版本的部署。
 

@@ -10,7 +10,7 @@
 | `TraceStreamerProvider` | 公共 Provider 将 Htrace 物化为 Session 内可复用 SQLite | SQLite SQL | `summarize-native-hook` |
 
 PostgreSQLProvider 与教学用 FtraceTextProvider 是 `datasources/` 中的普通 Python 类；
-TraceStreamerProvider 直接来自公共 `kat.dataprovider.trace_streamer`，不在本 PACK 重定义。
+TraceStreamerProvider 直接来自公共 `kat.providers.trace_streamer`，不在本 PACK 重定义。
 新 PACK 接入来源前先 inspect 公共 Provider；文本 Ftrace 已有公共 FtraceProvider，
 按其来源合同直接复用，不因本例展示自有 Provider 而复制文本解析器。
 `@kat.provider` 只附加 inspection 元数据；KAT 可以发现声明，但不会构造或包装 Provider。
@@ -49,9 +49,9 @@ dataprovider-pack/
 也不需要再包装一层 Provider；融合 Workflow 直接通过 `dp.open(tables=...)` 打开明确的
 relation。
 
-两个自有 Provider 作为普通 PACK 代码运行，公共 TraceStreamerProvider 随 `kat-workflow` 交付。平台原生 Hitrace
-解码则位于独立 `kat-datasource` wheel：需要它的 PACK 显式调用
-`kat_datasource.hitrace.decode(source, destination)`，再用 `dp.open(root=destination)`
+两个自有 Provider 作为普通 PACK 代码运行，公共 TraceStreamerProvider 与原生 Hitrace
+解码统一随 `kat-sdk` 交付：需要解码的 PACK 显式调用
+`kat.providers.decoding.hitrace.decode(source, destination)`，再用 `dp.open(root=destination)`
 打开其 flat Parquet relation；KAT 不把该目录注册成隐式输入。
 
 ## PostgreSQL：直接查询与本地融合
@@ -106,7 +106,7 @@ query，返回的 eager Table 不再依赖临时 Parquet。
 
 ## Trace Streamer：二进制解析与 SQLite
 
-Workflow 直接导入 `kat.dataprovider.trace_streamer.TraceStreamerProvider`，在构造时传入
+Workflow 直接导入 `kat.providers.trace_streamer.TraceStreamerProvider`，在构造时传入
 `source`、`executable` 和 `workspace_root=ctx.datasource_root`。初始化在 Session 专用物化路径
 准备 SQLite，已有完整结果直接复用；损坏物化报错，不覆盖重解码。
 

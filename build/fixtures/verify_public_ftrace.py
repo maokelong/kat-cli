@@ -34,7 +34,7 @@ def main() -> None:
     detail = invoke("inspect", "provider", "--provider", "ftrace-text")["result"][
         "provider"
     ]
-    assert detail["module"] == "kat.dataprovider.ftrace", detail
+    assert detail["module"] == "kat.providers.ftrace", detail
     assert detail["qualname"] == "FtraceProvider", detail
     assert "text_ftrace_event_sched_switch" in detail["guide"], detail
     assert "clock_domain" in detail["guide"], detail
@@ -53,7 +53,7 @@ def main() -> None:
             "-q",
             "-p",
             "no:cacheprovider",
-            str(repository / "kat/platform/workflow/tests/ftrace"),
+            str(repository / "kat/sdk/tests/providers/ftrace"),
         ],
         check=True,
     )

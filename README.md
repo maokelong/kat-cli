@@ -6,6 +6,16 @@ KAT 是面向性能分析的可扩展平台。面向用户交付同版本的 KAT
 Windows x86_64 预发布候选 Runtime。仓库不再交付旧 `kat-rs` CLI、daemon、REST API
 或独立的服务端发布面。
 
+**KAT SDK** 以一个安装包交付作者 API、Workflow Runtime、原生 Datasource 与 Markdown。CLI 与 Python 解释器独立，Skill 目录结构保持不变，Python 入口统一为 `kat`，旧 PACK 需更新导入。
+
+```text
+kat/
+├── sdk/          # 作者 API、Workflow Runtime、原生 Datasource、知识与测试
+├── platform/     # 原生 CLI
+├── packs/        # 配套 Bundled PACK（当前只有占位）
+└── skills/       # 四个 Agent 入口的源码
+```
+
 项目仍处于 `0.1` 预发布阶段，公共接口和本地布局尚未承诺跨版本兼容。
 
 面向 Claude Code 使用者的 [中文用户手册](kat/skills/kat/user-manual.html) 覆盖安装、真实数据分析、
@@ -13,13 +23,17 @@ PACK 开发测试及分享接收。手册随 Release 包交付，解压后用浏
 
 ## 安装、升级与使用
 
+需要保留 Python 环境并通过 pip 更新 SDK 时，使用 [SDK 安装与升级](kat/skills/kat/references/sdk-install.md)：沿用完整 Skill 自带的 Python 环境，以后使用 `python -m pip install --upgrade` 更新 SDK。候选 wheels 由独立 SDK CI 生成，当前未发布 PyPI。维护者的构建、检查和发布见 [SDK 维护指南](kat/sdk/README.md)。
+
+以下为包含 Python 的完整离线 Skills 归档安装方式：
+
 1. 从同一 Release 下载 `kat-skill-<version>.tar.gz` 与 `kat-skill-<version>.tar.gz.sha256` 校验文件，验证压缩包的 SHA-256。
 2. 解压到一个独立目录，将其中的 `kat/`、`kat-analyze/`、`kat-author/`、`kat-review/` 四目录一起安装到目标 Agent 的 skills 目录，保持同级。
-3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。整套替换使用新版本的干净 Python 环境，额外安装的库需重新安装；其他 Skill 和 KAT Data Home 保持不动。
+3. 升级前停止使用这套部署的任务，再用同一版本的四目录成套替换旧目录，不合并新旧文件。整套替换使用新版本的干净 Python 环境，额外安装的库需重新安装；其他 Skill 和 KAT Data Home 保持不动。 用户 PACK 放在 Data Home 的 `packs/` 或 `--pack-dir` 指定的归档外目录，不放入归档的 `kat/assets/packs/`。
 
 首版由用户管理安装和替换，不提供安装器，也不承诺四目录替换是一个文件系统原子事务。
 归档中的 Linux 载荷含符号链接，解压环境需要支持保留这些链接；Windows 仍按下述候选平台边界验收。
-`kat/` 保存公共命令合同、双平台载荷和 Bundled PACK；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
+`kat/` 保存公共命令合同和完整运行载荷，归档内 CLI、Python Host 与 Bundled PACK 作为整体更新；三个任务 Skill 直接使用相邻的 `kat/`，无需先调用总路由。
 
 可用内置 Python 的 `-m pip` 安装、更新或卸载第三方库，详见 [Python 依赖管理](kat/skills/kat/references/python-packages.md)。同一部署中的所有 PACK 共用该环境；允许更新内置第三方依赖，版本冲突由用户管理。
 
@@ -46,15 +60,10 @@ cargo build --release -p kat-cli
 
 ## 运行前提
 
-`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
-deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
-`python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
+`kat inspect workflow`、`kat inspect provider` 和 `kat run` 使用完整 KAT Skills deployment 中的原生 CLI 与相邻 `python` 目录。任意 Cargo 输出目录中的 Rust 二进制不能直接执行这些操作，CLI 不从 PATH 猜测另一套 Host。
 PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
 
-私有 Python Host 同时安装两个边界独立、版本一致的 wheel：纯 Python
-`kat-workflow` 提供顶层 `kat` Pack Authoring API 和 `_kat_runtime`，平台原生
-`kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
-可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
+私有 Python Host 只安装统一的 `kat-sdk`：实际代码位于 `kat/`，下设 `_declarations/`、`dataprovider/`、`providers/`、`_runtime/`、`knowledge/`，旁边是唯一的 SDK 安装记录。SDK 根构建配置直接生成完整 wheel。兼容范围内可仅通过 pip 更新 SDK，保留 Python、CLI 和 Skill。
 
 完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
@@ -229,8 +238,8 @@ inspection 会扫描其 metadata declaration。不可变 Table、Datasource Sche
 Workflow 必须返回精确的 `dp.Table`，或返回一个非空普通 `dict`，其字符串键是 Output
 名称、值均为精确的 `dp.Table`；PyArrow Table、引擎惰性值、空或混合 Mapping 都失败。
 
-需要原生 Hitrace 解码时，PACK 显式导入独立 wheel 的
-`from kat_datasource import hitrace`。一次性解码在 `ctx.scratch_root` 下使用尚不存在的
+需要原生 Hitrace 解码时，PACK 显式导入 SDK 内的
+`from kat.providers.decoding import hitrace`。一次性解码在 `ctx.scratch_root` 下使用尚不存在的
 destination；需要在同一 Session 复用时，以 `Path(source).stem` 作为
 `ctx.datasource_root` 的直接子目录名。复用命中必须先 `dp.open(root=destination)` 并校验
 所需 relation、columns、物理类型、nullability 与版本合同；Hitrace 当前要求每个实际 Parquet relation 的 Arrow
@@ -259,7 +268,7 @@ cargo test --workspace --locked
 Workflow Runtime：
 
 ```bash
-python -I -B -m unittest discover -s kat/platform/workflow/tests -p "test_*.py"
+python -I -B -m unittest discover -s kat/sdk/tests/runtime -p "test_*.py"
 ```
 
 ## 架构与领域文档

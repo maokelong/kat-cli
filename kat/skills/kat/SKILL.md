@@ -1,6 +1,6 @@
 ---
 name: kat
-description: KAT 总入口，根据自然语言目标路由到问题分析、PACK 创作维护、分析结论复核或当前部署的 Python 依赖管理。适用于用户使用 KAT 但尚未指定任务 Skill 的请求。
+description: KAT 总入口，根据自然语言目标路由到 SDK 下载与安装升级、问题分析、PACK 创作维护、分析结论复核或当前部署的 Python 依赖管理。适用于用户使用 KAT 但尚未指定任务 Skill 的请求。
 ---
 
 # KAT
@@ -9,6 +9,7 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
+| 检查最新 SDK 版本、下载、安装或升级 SDK | [SDK 安装与升级流程](references/sdk-install.md) |
 | 分析数据来源、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
 | 理解、创建、修改、测试或诊断 PACK、Provider、Workflow | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
@@ -20,6 +21,6 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 ## 共享执行边界
 
-四个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
+四个 Skill 使用同一套部署和配套平台命令合同。本目录承载公共 [命令合同](references/command-reference.md)；完整归档在 `scripts/targets/<平台>/` 内附带 CLI 与私有 Python，并将 kat-sdk 安装在该 Python 中；Bundled PACK 位于 `assets/packs/`；后续 SDK 更新使用该私有 Python 的 pip。调用 KAT 前按公共合同定位入口、处理 Data Home，并依据结构化 Response 判断结果。
 
 任务流程和结果要求由对应 Skill 维护。CLI 使用本目录的 Python，依赖管理也使用同一解释器；任务 Skill 不复制环境，也不要求先经过本总路由。

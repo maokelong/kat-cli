@@ -34,7 +34,7 @@ use protocol::{
     TestControlRequestFrame, TestPackRequest, TestPackResult,
 };
 
-const PRIVATE_RUNTIME_MODULE: &str = "_kat_runtime";
+const PRIVATE_RUNTIME_MODULE: &str = "kat._runtime";
 
 /// Executes one nested Workflow request received from a parent Runtime.
 ///

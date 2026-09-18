@@ -43,6 +43,9 @@ def verify_skill_collection(root: Path) -> None:
             f"Collection must contain exactly these top-level directories: {SKILLS}"
         )
 
+    if (root / "kat/sdk").exists():
+        raise ValueError("SDK must be installed in bundled Python, not kat/sdk")
+
     for name in SKILLS:
         entrypoint = root / name / "SKILL.md"
         _file(entrypoint)

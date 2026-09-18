@@ -4,6 +4,8 @@ status: accepted
 
 # 受支持的执行强制使用 Bundled Python Host
 
+> pip 安装与原环境升级由 [ADR-0083](0083-sdk-owns-authoring-api-and-knowledge.md) 调整；下文的相邻 Host 约束继续适用于离线 Skills 归档。
+
 用户使用内置 Python 管理第三方依赖的边界由 [ADR-0084](0084-bundled-python-allows-user-installed-packages.md) 局部替代：允许主动 pip 安装和更新，修改后的共享依赖由用户负责。执行仍使用当前部署的 Python 和 isolated mode。
 
 KAT Skill 始终从当前 Platform Payload 的相对路径启动 Bundled Python Host：Linux KAT CLI 只使用同一目标目录下的 `python/bin/python3`，Windows KAT CLI 只使用 `python/python.exe`。它忽略用户 Python 环境，不提供系统 Python fallback 或生产环境解释器覆盖参数。这一决定用来保证所有受支持的 KAT 执行共享经过验证的 Pack Authoring API、第三方 Python 库集合与行为约束；它不尝试阻止控制本机的用户在 KAT 之外独立执行自己持有的 PACK 源码。
