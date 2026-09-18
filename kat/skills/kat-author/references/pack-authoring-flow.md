@@ -47,16 +47,75 @@ PACK 名称：memory-analysis
 根据开发目标分别调用：
 
 - `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取参数合同和 analysis guide。
-- `kat inspect provider`：发现平台公共来源能力；追加 `--provider ftrace-text` 读取公共文本 FtraceProvider 的导入位置和来源 guide，无需先选择 PACK。
+- `kat inspect provider`：发现平台公共来源能力；选中一个后追加 `--provider <名称>` 读取 `module`、`qualname` 和来源 guide，无需先选择 PACK。
 - `kat inspect provider --pack <名称>`：了解 PACK 已有的 Provider；选中一个后追加 `--provider <名称>` 读取代码位置和数据库、SQL、Schema 或接入 guide。
 
-Workflow 和 Provider 是两个独立知识入口。开发 Workflow 时只在需要复用或修改数据能力时 inspect Provider；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
+新增或修改来源接入、准备实现 Provider 前，必须先列出公共 Provider，再读取匹配项的 detail。已有公共能力满足需求时直接 import、构造并调用，不在 PACK 内重新定义实现、增加薄声明或复制来源 guide。确有能力缺口时说明已检查的公共能力与具体缺口，再在 `datasources/` 中实现必要的 PACK 自有来源逻辑。新建 PACK 与维护已有 PACK 都遵循此步骤；仅修改文档或不涉及来源接入的分析逻辑时，无需重复来源选型。
+
+Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
 
 新建 PACK 没有 KAT 任务契约内的 Issue 或 SDD 前置门；执行所在仓库的协作规范仍独立适用。
 
+### 复用公共来源
+
+以下是当前公共来源的调用示例，实际可用能力仍以公共 inspection 为准。公共类自身携带声明与平台维护的来源 guide；`--pack` 只查询 PACK 自有 Provider，两个范围允许同名，不合并或自动回退。
+
+文本 Ftrace 选择 `ftrace-text`，读取 detail 后直接使用公共具体实现：
+
+```python
+from pathlib import Path
+
+from kat.dataprovider.ftrace import FtraceProvider
+
+provider = FtraceProvider(
+    source=Path(trace_path),
+    clock_domain=clock_domain,
+    workspace_root=ctx.datasource_root,
+)
+result = provider.query("SELECT * FROM text_ftrace_header")
+```
+
+来源约束以公共 guide 为准。FtraceProvider 默认信任 datasource 输出，直接使用实际关系和报告，不重复校验关系白名单、Schema 或物化版本；消费 PACK 无需补充准入包装。Source stem 合法性、显式 clock domain 和物化目录复用约束继续生效。
+
+Trace Streamer 选择 `trace-streamer-sqlite`，读取 detail 后直接使用公共类的两个互斥入口：
+
+```python
+from pathlib import Path
+
+from kat.dataprovider.trace_streamer import TraceStreamerProvider
+
+provider = TraceStreamerProvider(
+    source=Path(source_path), executable=Path(parser_path),
+    workspace_root=ctx.datasource_root,
+)
+# 或直接打开现有数据库：
+provider = TraceStreamerProvider(sqlite_path=sqlite_path)
+result = provider.query(sql, schema=result_schema, params={"minimum": 1})
+```
+
+解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。物化使用 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
+
 ## 3. 声明可发现知识
 
-Workflow 与 Provider 都用显式元数据供 Agent 索引：
+新建和维护 PACK 时，Python 入口与作者知识按以下归属放置，只添加当前任务需要的内容：
+
+```text
+<pack>/
+├─ pack.toml
+├─ workflows/
+│  └─ memory_summary.py
+├─ datasources/                 # PACK 自有 Provider；复用公共能力无需添加实现
+│  └─ postgresql.py
+├─ helpers/                     # PACK 内其他普通 Python 模块
+├─ knowledge/
+│  ├─ workflows/
+│  │  └─ memory-summary.md
+│  └─ providers/
+│     └─ postgresql.md
+└─ tests/
+```
+
+Workflow 与 Provider 都用显式元数据供 Agent 索引。Decorator 的 `guide` 相对 `knowledge/`：`guide="workflows/memory-summary.md"` 指向 `knowledge/workflows/memory-summary.md`，不指向 Python 入口旁的文件。已为某 Workflow 编写分析或结果解释 Guide 时，必须放入该知识目录并在对应 `@kat.workflow` 中填写 `guide`；不能只写 Markdown 而漏掉关联。
 
 ```python
 import kat
@@ -91,7 +150,7 @@ class PostgreSQLProvider:
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 提供当前 Session 共享的 `ctx.datasource_root`、当前候选执行私有的 `ctx.scratch_root`，以及线程安全的同步 `ctx.run(pack_name, workflow_name, /, **inputs)`；不提供 Session identity 或整个 Session 根。PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
-PACK 自有来源在顶层 `datasources/` 中使用普通 Python 模块和 Provider 类；复用公共 FtraceProvider 时可以省略这一层。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
+PACK 自有来源在顶层 `datasources/` 中使用普通 Python 模块和 Provider 类；复用公共 Provider 时可以省略这一层。Workflow 像调用其他 PACK 代码一样显式 import、构造并调用它们；KAT 不构造或包装 Provider。一次性解析、SQLite 或其他中间工作放在 `ctx.scratch_root`，执行结束后不得被后续 Workflow 当作输入。需要在同一 Session 复用的文件来源以明确参数的 `Path(source).stem` 作为 `ctx.datasource_root` 的直接子目录名；不扫描目录猜来源，也不附加 hash 或自动消歧。
 
 Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字符、Windows 非法字符、尾随点或空格以及大小写不敏感的 Windows device name。PACK 自有且自行维护物化合同的 Provider 在目标存在时先用 `dp.open()` 打开，并校验允许的 relation 集合、每个实际 relation 的完整 columns/物理类型/nullability 与显式版本合同，只有目标不存在时才 decode 或 `dp.write()`。原生 decoder 使用每张 Parquet relation 的 Arrow Schema metadata `kat.materialization.version` 保存版本；这类 Provider 应与对应 `kat_datasource` 模块导出的 `MATERIALIZATION_VERSION_METADATA_KEY` 和 `MATERIALIZATION_VERSION` 比较，不把目录存在或 Schema 恰好相同当成版本兼容。自定义物化也必须定义并验证等价的稳定版本事实。
 
@@ -103,25 +162,6 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 - 平台原生 `kat-datasource` 提供窄的 `kat_datasource` 来源 API；它不依赖或重新导出 `kat`。
 
 两个 wheel 随同一 KAT 版本原子安装，但 PACK 必须分别显式 import 所需模块，不能假设一个 distribution 会传递另一个。
-
-文本 Ftrace 的来源选择、物化复用、准入和查询已有公共具体实现，所有 PACK 都可以直接复用，不要复制到自己的 `datasources/`：
-
-```python
-from pathlib import Path
-
-from kat.dataprovider.ftrace import FtraceProvider
-
-provider = FtraceProvider(
-    source=Path(trace_path),
-    clock_domain=clock_domain,
-    workspace_root=ctx.datasource_root,
-)
-result = provider.query("SELECT * FROM text_ftrace_header")
-```
-
-公共类自身携带 `@kat.provider(...)` 声明与平台维护的来源 guide，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。`--pack` 只查询 PACK 自有 Provider；两个范围允许同名，不合并或自动回退。公共 inspection 提供 `ftrace-text` 和 `trace-streamer-sqlite`。
-
-复用公共 FtraceProvider 时，来源约束以其公共 guide 为准。它默认信任 datasource 输出，直接使用实际关系和报告，不重复校验关系白名单、Schema 或物化版本；消费 PACK 无需补充准入包装。Source stem 合法性、显式 clock domain 和物化目录复用约束继续生效。
 
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
@@ -191,9 +231,7 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 - 推理知识保留判断依据、替代解释、结论局限及由证据触发的下一步。仅使用已发布 Output 或适用 Workflow 补证据；缺少能力时说明缺口，不引导分析 AI 直接访问 Provider、中间数据库或私有文件。
 - Provider Guide 面向作者，保留必要的接入、SQL、Schema 和来源语义；复用公共 Provider 时使用其已有 Guide，不另建重复的接入教程。无额外输出解释或推理知识的 Workflow 可以不写 Guide，不强制章节或凑齐模板。
 
-一个 PACK 的作者知识统一放在顶层 `knowledge/`：Workflow guide 位于 `knowledge/workflows/`，Provider guide 位于 `knowledge/providers/`。框架不限制 Markdown 的章节和写法。
-
-Decorator 中的 `guide` 是相对 `knowledge/` 的路径，例如 `providers/postgresql.md`。它必须指向 `knowledge/` 内已有、非空、有效 UTF-8 的普通 `.md` 文件；绝对路径、路径穿越和解析后逃逸 `knowledge/` 都会被拒绝。
+Guide 的文件位置与 decorator 路径按第 3 节对应。声明必须指向知识目录内已有、非空、有效 UTF-8 的普通 `.md` 文件；绝对路径、路径穿越和解析后逃逸 `knowledge/` 都会被拒绝。普通 README 不要求关联为 Guide，框架也不限制 Markdown 的章节和写法。
 
 List inspection 会校验全部声明及 guide，但只返回 `name`、`description`，不会把所有 Markdown 放进上下文。选中 detail 后，Runtime 才把对应文件按原样读成 Response 的 `guide` 字符串；Agent 直接使用该字段，不自行组合路径或实现 include。Workflow 未声明 guide 时 detail 返回 `null`；Provider guide 始终返回字符串。
 
@@ -314,30 +352,9 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 
 写入后按变更面验证：
 
-1. 重新执行对应 Workflow 或 Provider list inspection，确认所有声明与 guide 都能完整校验。
-2. 对新增或修改的声明执行 detail inspection，核对精确公开字段和 guide 内容；对照脚本检查关键输出的含义与口径，确认仅凭公开输出和 Guide 即可理解结果及局限，无需阅读实现。单位或范围仍缺依据时明确记录缺口。
+1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
+2. 重新执行对应 Workflow 或 Provider list inspection，再对新增或修改的声明及 Guide 所属对象执行 detail inspection。已编写 Workflow Guide 时，成功 Response 的 `guide` 必须非空且与预期正文一致；返回 `null`、内容不符或文件放错目录都表示作者验收未完成。Runtime 不会自动关联 Markdown，列表成功或 PACK 测试通过不能替代这项检查。没有额外解释需求且未编写 Guide 的 Workflow 仍允许 `guide: null`。对照脚本核准关键输出的含义与口径，确认仅凭公开输出和适用的 Guide 即可理解结果及局限；单位或范围仍缺依据时明确记录缺口。
 3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
-4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制。
+4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；涉及来源接入时说明公共能力复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。
-
-
-### 公共 Trace Streamer Provider
-
-`from kat.dataprovider.trace_streamer import TraceStreamerProvider` 提供两个互斥入口：
-
-```python
-provider = TraceStreamerProvider(
-    source=Path(source_path), executable=Path(parser_path),
-    workspace_root=ctx.datasource_root,
-)
-# 或直接打开现有数据库：
-provider = TraceStreamerProvider(sqlite_path=sqlite_path)
-result = provider.query(sql, schema=result_schema, params={"minimum": 1})
-```
-
-解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。
-构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。
-解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。
-物化沿用 ADR-0077 的 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
-公共 Provider 的声明与 SQL guide 由平台交付，消费 PACK 无需复制来源声明或 guide。

@@ -1,8 +1,7 @@
 # Data Provider reference PACK
 
-这是 KAT Skill 随源码维护的唯一公共 reference PACK。它在同一个 `datasources/` 模块
-下提供三个 sibling Provider，展示 PACK 作者如何用 `@kat.provider` 配合
-`kat.dataprovider` 承接远端数据库、本地文本和本地二进制解析器：
+这是 KAT Skill 随源码维护的唯一公共 reference PACK。它用两个 PACK 自有 Provider
+和一个直接导入的公共 Provider，展示远端数据库、本地文本及本地二进制来源的接入：
 
 | Provider | 来源与物化 | 查询方式 | 示例 Workflow |
 |---|---|---|---|
@@ -10,15 +9,19 @@
 | `FtraceTextProvider` | Python 解析 tracefs 文本并写入两张 Parquet 表 | DataFusion SQL | `summarize-ftrace-events` |
 | `TraceStreamerProvider` | 公共 Provider 将 Htrace 物化为 Session 内可复用 SQLite | SQLite SQL | `summarize-native-hook` |
 
-Provider 都是 PACK 自有的普通 Python 类。`@kat.provider` 只附加 inspection 元数据；
-KAT 可以发现声明，但不会构造或包装 Provider。Workflow 显式调用 `decode()`、`query()`
+PostgreSQLProvider 与教学用 FtraceTextProvider 是 `datasources/` 中的普通 Python 类；
+TraceStreamerProvider 直接来自公共 `kat.dataprovider.trace_streamer`，不在本 PACK 重定义。
+新 PACK 接入来源前先 inspect 公共 Provider；文本 Ftrace 已有公共 FtraceProvider，
+按其来源合同直接复用，不因本例展示自有 Provider 而复制文本解析器。
+`@kat.provider` 只附加 inspection 元数据；KAT 可以发现声明，但不会构造或包装 Provider。
+Workflow 显式调用 `decode()`、`query()`
 和 Data Provider Toolkit。只有 Workflow 返回的 `dp.Table` 会发布为 Run Output，
 中间 Table 和临时物化数据不会自动成为 Output。`dp.Table` 是已经完成且不可变的
 Arrow-backed 单表值；Datasource 的多 relation 构建只使用 `dp.write()` 写事务。
-两个示例本地 Parser 都只为当前 Workflow 形成一次性中间数据，因此其独占 workspace
-位于 `ctx.scratch_root`；后续 Workflow 不得把这些路径当作输入。需要跨 Run 复用的来源
-应改用经过合法性检查的 `Path(source).stem` 在 `ctx.datasource_root` 中定位，并遵守
-命中先 open/验证、缺失才 decode、无效既有目标绝不替换的 Session 物化合同。
+教学用 FtraceTextProvider 只为当前 Workflow 形成一次性中间数据，其 workspace 位于
+`ctx.scratch_root`；后续 Workflow 不得把这些路径当作输入。公共 TraceStreamerProvider
+使用 `ctx.datasource_root`，按 Source stem 复用 Session 内的 SQLite；损坏的既有物化
+报错，不覆盖重解码。
 
 ## 目录
 
@@ -27,7 +30,7 @@ dataprovider-pack/
 ├─ pack.toml
 ├─ datasources/
 │  ├─ postgresql.py
-│  ├─ ftrace.py
+│  └─ ftrace.py
 ├─ knowledge/
 │  ├─ providers/
 │  └─ workflows/
@@ -42,11 +45,11 @@ dataprovider-pack/
    └─ trace_streamer/
 ```
 
-`dp.DataFusionProvider` 是 KAT Toolkit，不是这个 PACK 的第四个 Provider。本地 Parquet
+`dp.DataFusionProvider` 是 KAT Toolkit，不属于这个 PACK 的自有 Provider 声明。本地 Parquet
 也不需要再包装一层 Provider；融合 Workflow 直接通过 `dp.open(tables=...)` 打开明确的
 relation。
 
-这个 PACK 的 Provider 与 `kat-workflow` 一起作为普通 PACK 代码运行。平台原生 Hitrace
+两个自有 Provider 作为普通 PACK 代码运行，公共 TraceStreamerProvider 随 `kat-workflow` 交付。平台原生 Hitrace
 解码则位于独立 `kat-datasource` wheel：需要它的 PACK 显式调用
 `kat_datasource.hitrace.decode(source, destination)`，再用 `dp.open(root=destination)`
 打开其 flat Parquet relation；KAT 不把该目录注册成隐式输入。
