@@ -19,7 +19,7 @@ description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provid
 
 ## 创作与交付
 
-1. 读取 [PACK 创作与维护流程](references/pack-authoring-flow.md)，按目标使用 Workflow 与 Provider 两个独立知识入口。
+1. 读取 [PACK 创作与维护流程](references/pack-authoring-flow.md)；新增或修改来源接入前先检查公共 Provider，按流程确认复用或自实现的依据。
 2. 理解、检查、测试和诊断不自动授权修改 PACK；只有用户明确要求创建、修改或修复时才写入指定目标。创建骨架时使用自带脚本并保留其拒绝覆盖行为。
-3. 脚本承载确定性执行，Workflow Guide 解释关键输出与推理依据；按创作流程核对两者的口径，完成适用的 inspection 与 PACK 测试，依据成功 Response 或 Diagnostic 判断结果。
+3. 脚本承载确定性执行，Workflow Guide 解释关键输出与推理依据；核对文件归属、Guide 与装饰器的关联及实际 detail 回读内容，再核准输出口径并完成适用的 PACK 测试。
 4. 交付前读取 [作者结果契约](references/result-contract.md)，说明实际变更、验证证据和仍存限制。
