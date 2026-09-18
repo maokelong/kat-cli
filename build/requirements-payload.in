@@ -1,0 +1,2 @@
+# 随 Payload 交付的安装工具，不是 Workflow Host 的运行依赖。
+pip==26.2.1

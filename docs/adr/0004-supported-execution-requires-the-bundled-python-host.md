@@ -4,6 +4,8 @@ status: accepted
 
 # 受支持的执行强制使用 Bundled Python Host
 
+用户使用内置 Python 管理第三方依赖的边界由 [ADR-0084](0084-bundled-python-allows-user-installed-packages.md) 局部替代：允许主动 pip 安装和更新，修改后的共享依赖由用户负责。执行仍使用当前部署的 Python 和 isolated mode。
+
 KAT Skill 始终从当前 Platform Payload 的相对路径启动 Bundled Python Host：Linux KAT CLI 只使用同一目标目录下的 `python/bin/python3`，Windows KAT CLI 只使用 `python/python.exe`。它忽略用户 Python 环境，不提供系统 Python fallback 或生产环境解释器覆盖参数。这一决定用来保证所有受支持的 KAT 执行共享经过验证的 Pack Authoring API、第三方 Python 库集合与行为约束；它不尝试阻止控制本机的用户在 KAT 之外独立执行自己持有的 PACK 源码。
 
 KAT CLI 对 `inspect_pack`、`run_workflow`、`query_run` 和 `test_pack` 统一以 `<bundled-python> -I -B -X utf8 -u -m <private-runtime-module>` 启动 Host，并为进程设置 `NO_COLOR`。其中只有 `test_pack` 由 CLI 在启动边界把 Host 子进程工作目录固定为所选 PACK directory；这个目录只提供 pytest 相对路径与测试代码可观察的环境，Runtime 仍从 request 中显式的 PACK name 与 canonical path 取得身份和源码位置。其他操作不获得这项测试专属的工作目录约束。Runtime module 位于该 Host 自身的 site-packages，不通过脚本路径、当前工作目录或 `PYTHONPATH` 查找。CPython isolated mode 同时忽略全部 `PYTHON*` 环境变量、当前目录、脚本目录和用户 site-packages；`-B` 禁止 import PACK 源码时写入 `.pyc`，因此只读 Bundled PACK 与 External PACK 均不会出现 `__pycache__`；`-X utf8` 让 Python 文本 stdout/stderr 使用 UTF-8，`-u` 让两者无缓冲地及时到达 CLI。`NO_COLOR` 只减少遵守该约定的工具产生终端控制序列，CLI 的日志边界仍独立清理实际捕获内容。KAT 不额外拼装等价的环境变量白名单，也不使用 `-S` 关闭由 KAT 控制的 Host site-packages。该启动方式是可移植性与正确性约束，不是对受信任 PACK 的安全沙箱。

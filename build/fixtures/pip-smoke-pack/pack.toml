@@ -1,0 +1,4 @@
+name = "pip-smoke"
+title = "Python Package Installation Smoke"
+description = "Verify user-installed packages in the shipped Python runtime."
+owner = "KAT Maintainers"

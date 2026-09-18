@@ -1,0 +1,10 @@
+# 仅用于最终归档安装验收；wheel SHA256 来自 PyPI 官方版本 JSON。
+# https://pypi.org/pypi/six/1.17.0/json
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+# https://pypi.org/pypi/packaging/25.0/json
+packaging==25.0 \
+    --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484
+# https://pypi.org/pypi/wheel/0.48.0/json
+wheel==0.48.0 \
+    --hash=sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
