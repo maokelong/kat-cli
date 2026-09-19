@@ -5,12 +5,12 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 # KAT
 
-按用户目标读取对应入口或共享说明并执行；三个任务 Skill 也可以直接调用。
+按用户目标读取对应入口或共享说明并执行；四个任务 Skill 也可以直接调用。
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
 | 分析数据来源、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
-| 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [SDK 开发指南](references/sdk-development.md) |
+| 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [dev-sdk](../dev-sdk/SKILL.md) |
 | 理解、创建、修改、测试或诊断领域 PACK 及其 Provider、Workflow | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |
@@ -21,6 +21,6 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 ## 共享执行边界
 
-四个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
+五个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
 
 任务流程和结果要求由对应 Skill 维护。CLI 使用本目录的 Python，依赖管理也使用同一解释器；任务 Skill 不复制环境，也不要求先经过本总路由。

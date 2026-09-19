@@ -6,7 +6,7 @@
 
 ## 调用前选择平台载荷
 
-`<kat-root>` 固定为总入口 `kat/SKILL.md` 的绝对父目录。直接使用 `kat-analyze`、`kat-author` 或 `kat-review` 时，从该任务 `SKILL.md` 所在目录解析相邻 `../kat/`，确认 `kat/SKILL.md` 后使用同一根目录；不能锚定任务 Skill、当前工作目录或其他版本的部署。
+`<kat-root>` 固定为总入口 `kat/SKILL.md` 的绝对父目录。直接使用 `kat-analyze`、`kat-author`、`kat-review` 或 `dev-sdk` 时，从该任务 `SKILL.md` 所在目录解析相邻 `../kat/`，确认 `kat/SKILL.md` 后使用同一根目录；不能锚定任务 Skill、当前工作目录或其他版本的部署。
 
 在每次操作前重新检查当前主机：
 

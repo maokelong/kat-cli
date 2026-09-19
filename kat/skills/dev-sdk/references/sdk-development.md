@@ -2,7 +2,7 @@
 
 在新增或维护官方 SDK 的 Provider、Workflow、公共 Python 函数，以及修改随包知识、构建 SDK wheel 时读取本指南。开发对象是 KAT 源码仓库中的 `kat/sdk/`；已安装的 `site-packages/kat_sdk/` 用于运行和验收，源码修改后通过重新构建、安装 wheel 生效。
 
-仅安装或升级现成 wheel 时，先读 [Python 依赖管理](python-packages.md)。CLI 路径、Data Home、参数和 Response 以 [公共命令合同](command-reference.md) 为准。
+仅安装或升级现成 wheel 时，先读 [Python 依赖管理](../../kat/references/python-packages.md)。CLI 路径、Data Home、参数和 Response 以 [公共命令合同](../../kat/references/command-reference.md) 为准。
 
 ## 可运行的 demo
 

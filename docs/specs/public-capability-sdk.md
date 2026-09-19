@@ -182,3 +182,9 @@ Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代
 用户要求分别创建 Workflow、公共库 demo 及文档。SDK 0.1.1 新增 `libraries/demo/greeting.py` 与 `workflows/demo/greeting.py`：普通函数生成问候语，`demo-greeting` 返回一行标准结果表。两类 Guide、生成 API 与首页导航随 wheel 一起交付。此示例用于演示 SDK 开发和调用，不扩展框架或引入外部数据源；验证覆盖默认值、Unicode、空白拒绝、真实 CLI 查询、跨 PACK 调用及升级后继续可用。此前“零 Workflow”的记录描述 0.1.0，0.1.1 的正式列表包含此 demo。
 
 Demo 验证结果：89 项构建测试通过。SDK 0.1.1 在 Windows 隔离宿主中完成安装、默认/Unicode/非法参数、查询、跨 PACK 调用、升级与卸载回归，源码公共库测试一并通过；报告为 `target/release-preview-rc13/verification-demo-final/report.json`。候选 SHA256 为 `f48cb150e2f79182fdb29b145beabeb699b64a0d9bb9bb2fde3760da52041832`。
+
+## SDK 开发独立 Skill
+
+按用户要求将 SDK 开发从 kat reference 抽为 `dev-sdk` 同级任务 Skill。最小切片为独立入口、迁移开发指南、总路由和成套发布清单更新，复用 kat 的命令合同及相邻 Python，不复制 Runtime。验收覆盖 Skill 路由、相对链接、集合装配及归档移动后的可读性。此变更将 ADR-0082 的四入口集合扩为五入口；分析、PACK 创作、复核的职责保持原样。
+
+独立 Skill 验证：89 项构建测试通过，包含五入口装配、公共载荷不重复、归档重定位和相对链接检查。公共库文档是否改变发布所有权，等待用户对文档类型的进一步确认。

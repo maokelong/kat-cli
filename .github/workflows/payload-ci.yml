@@ -69,7 +69,7 @@ jobs:
           tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
             --format=posix --pax-option=delete=atime,delete=ctime \
             -C target/kat/release/skills -czf "target/distrib/release/${artifact}" \
-            kat kat-analyze kat-author kat-review
+            kat kat-analyze kat-author kat-review dev-sdk
           (
             cd target/distrib/release
             sha256sum "$artifact" > "${artifact}.sha256"
