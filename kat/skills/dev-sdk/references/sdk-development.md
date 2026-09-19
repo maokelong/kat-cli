@@ -6,7 +6,7 @@
 
 ## 可运行的 demo
 
-SDK 0.1.1 提供一组同领域示例：`libraries/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读当前 SDK 知识首页中的两篇 demo Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
+SDK 0.1.1 提供一组同领域示例：`libraries/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读 kat Skill 的 [公共库介绍](../../kat/references/libraries/demo/greeting.md) 和当前 SDK 中的 Workflow Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
 
 源码测试位于 `kat/sdk/tests/test_demo_greeting.py`，完整安装验收还验证 CLI 执行、结果查询及跨 PACK 调用。以此为最小例子学习目录、声明、知识、打包和运行链路，再添加具体领域能力。
 
@@ -42,7 +42,7 @@ kat/sdk/
 └─ tests/
 ```
 
-`workflows/` 和 `libraries/` 均先按领域分目录，例如 `workflows/memory/summarize.py`、`libraries/memory/units.py`；对应知识位于 `knowledge/workflows/memory/` 和 `knowledge/libraries/memory/`。公共库的父包与领域包均设置 `__init__.py`，并显式登记 `kat_sdk.libraries`、`kat_sdk.libraries.memory` 等包名；Workflow 目录保持无 `__init__.py`。
+`workflows/` 和 `libraries/` 均先按领域分目录，例如 `workflows/memory/summarize.py`、`libraries/memory/units.py`；Workflow Guide 位于 `knowledge/workflows/memory/`；公共库手写介绍位于 `kat/skills/kat/references/libraries/memory/`，生成 API 参考仍位于 SDK 的 `knowledge/libraries/memory/`。公共库的父包与领域包均设置 `__init__.py`，并显式登记 `kat_sdk.libraries`、`kat_sdk.libraries.memory` 等包名；Workflow 目录保持无 `__init__.py`。
 
 安装后资源根为 `kat_sdk/`，直接包含 `pack.toml`，不增加 `packs/` 层。框架将该根目录补充到既有 PACK 发现范围，沿用目录去重和同名冲突规则；无需复制到各领域 PACK 或 Data Home。
 
@@ -86,13 +86,15 @@ result = ctx.run("kat-sdk", "目标-workflow", **inputs)
 
 ### 公共函数
 
+公共库介绍维护在 `kat/skills/kat/references/libraries/<领域>/<模块>.md`，并更新该目录的 `index.md` 导航。介绍说明适用 SDK 版本、导入方式和使用示例；不在 `kat/sdk/knowledge/libraries/` 维护手写介绍。
+
 在 `libraries/<领域>/` 中编写普通 Python 模块，通过 `__all__` 声明公开函数并提供类型注解、docstring 和行为测试。消费者按模块导入：
 
 ```python
 from kat_sdk.libraries.<领域>.<模块> import <函数>
 ```
 
-以上是路径占位示意，替换为实际标识符。公共函数不注册为 Workflow 或 Provider，也不增加 CLI 发现命令。AI 通过 `knowledge/index.md` 中的链接阅读方法用法。
+以上是路径占位示意，替换为实际标识符。公共函数不注册为 Workflow 或 Provider，也不增加 CLI 发现命令。AI 从 kat Skill 的 [公共库导航](../../kat/references/libraries/index.md) 阅读方法介绍，再核对当前 SDK 的生成 API。
 
 ## 3. 写 API 文档与使用知识
 

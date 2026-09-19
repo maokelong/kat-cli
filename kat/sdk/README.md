@@ -32,4 +32,6 @@ Provider 与 libraries 模块通过 `__all__` 列出公开接口。Provider 的�
 
 ## Demo 入门
 
-SDK 0.1.1 中的 `libraries/demo/greeting.py` 提供 `build_greeting()`；`workflows/demo/greeting.py` 的 `demo-greeting` 调用该函数并返回一行 `message` 表。分别阅读 [公共库文档](knowledge/libraries/demo/greeting.md) 和 [Workflow 文档](knowledge/workflows/demo/greeting.md)，安装 wheel 后即可跟随示例执行。
+SDK 0.1.1 中的 `libraries/demo/greeting.py` 提供 `build_greeting()`；`workflows/demo/greeting.py` 的 `demo-greeting` 调用该函数并返回一行 `message` 表。分别阅读 [公共库文档](../skills/kat/references/libraries/demo/greeting.md) 和 [Workflow 文档](knowledge/workflows/demo/greeting.md)，安装 wheel 后即可跟随示例执行。
+
+公共库的手写使用介绍由 `kat/skills/kat/references/libraries/<领域>/` 维护并随 Skill 交付，生成的 API 参考继续随 SDK wheel 交付。新增或修改公共库时同时更新 kat 的导航、介绍中的适用 SDK 版本，以及源码注解/docstring。

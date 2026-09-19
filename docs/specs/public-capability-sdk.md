@@ -187,4 +187,8 @@ Demo 验证结果：89 项构建测试通过。SDK 0.1.1 在 Windows 隔离宿�
 
 按用户要求将 SDK 开发从 kat reference 抽为 `dev-sdk` 同级任务 Skill。最小切片为独立入口、迁移开发指南、总路由和成套发布清单更新，复用 kat 的命令合同及相邻 Python，不复制 Runtime。验收覆盖 Skill 路由、相对链接、集合装配及归档移动后的可读性。此变更将 ADR-0082 的四入口集合扩为五入口；分析、PACK 创作、复核的职责保持原样。
 
-独立 Skill 验证：89 项构建测试通过，包含五入口装配、公共载荷不重复、归档重定位和相对链接检查。公共库文档是否改变发布所有权，等待用户对文档类型的进一步确认。
+独立 Skill 验证：89 项构建测试通过，包含五入口装配、公共载荷不重复、归档重定位和相对链接检查。用户随后确认公共库手写介绍迁至 `kat/skills/kat/references/libraries/<领域>/`；生成的 API 参考仍随 SDK wheel 交付。
+
+公共库介绍入口：kat Skill 提供 `references/libraries/index.md` 与按领域组织的手写介绍；SDK 的知识首页只链接当前版本生成 API，并提示介绍所在 Skill 路径。公共库介绍随 Skill 版本交付，标明适用 SDK 版本，读取时核对已安装 API，避免把旧介绍当成新版本的完整合同。Workflow/Provider Guide 的随包发现机制保持不变。
+
+文档迁移验收：89 项构建测试通过，全部 Skill Markdown 相对链接有效；真实 wheel 构建通过，确认不再携带 `knowledge/libraries/demo/greeting.md` 手写介绍，保留生成的 `greeting.api.md`。本次仅迁移开发/使用文档及 Skill 装配，不改变 SDK 函数、Workflow 或 Runtime 行为。

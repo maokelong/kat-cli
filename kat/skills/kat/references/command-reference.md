@@ -86,13 +86,13 @@ Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL
 
 ## 阅读 SDK 公共函数和 API 文档
 
-公共函数通过 Python import 使用，不注册为 Workflow 或 Provider。需要复用函数或查看完整 API 时，用当前载荷的 Python 定位知识首页：Windows 使用与 CLI 同目录的 `python/python.exe`，Linux 使用 `python/bin/python3`，均替换为绝对路径。
+公共函数通过 Python import 使用，不注册为 Workflow 或 Provider。先从 [公共库导航](libraries/index.md) 阅读按领域维护的介绍；需要核对当前安装版本的完整 API 时，用当前载荷的 Python 定位知识首页：Windows 使用与 CLI 同目录的 `python/python.exe`，Linux 使用 `python/bin/python3`，均替换为绝对路径。
 
 ```text
 <当前 KAT Python> -I -B -c "from importlib.resources import files; print(files('kat_sdk').joinpath('knowledge/index.md'))"
 ```
 
-读取输出的首页，按相对链接加载所需文档。不要复制知识到 Skill 或依赖之前缓存的路径和内容；SDK 升级后重新定位并读取。Provider/Workflow 的 Guide 优先通过上述 inspection 获取。SDK 更新使用当前 KAT Python 的 `-m pip install --upgrade <wheel路径或URL>`，安装权限与环境检查遵循 [Python 依赖管理](python-packages.md)。
+读取输出的首页，按相对链接加载所需文档。公共库介绍由 Skill 维护，生成 API 随 SDK 发布；SDK 升级后重新定位 API，核对介绍标注的适用版本，不依赖旧路径或缓存内容。Provider/Workflow 的 Guide 优先通过上述 inspection 获取。SDK 更新使用当前 KAT Python 的 `-m pip install --upgrade <wheel路径或URL>`，安装权限与环境检查遵循 [Python 依赖管理](python-packages.md)。
 
 ## 创建一个 Session
 

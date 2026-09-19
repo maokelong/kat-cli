@@ -8,7 +8,7 @@ status: accepted
 
 SDK 根直接拥有一个公共 PACK，源码为 `kat/sdk/pack.toml`，Workflow 位于 `workflows/`，不增加 packs 层。当前 KAT 的 Bundled Python 定位已安装 SDK 根，CLI 将该精确目录加入正常发现集合；同一目录去重、不同目录同名失败。顶层执行、组合执行与 PACK 测试沿用同一发现范围和 Runtime 合同。SDK 是可选能力包：未安装时不加入候选，既有 PACK 与框架功能照常使用，公共 Provider 列表为空。已安装 SDK 的资源损坏仍报告错误，不把坏安装伪装成未安装；公共 PACK 没有覆盖优先级。
 
-公共 Provider 的模块清单由 SDK 拥有，Runtime 读取固定 SDK 入口，不硬编码具体 Provider。公共 inspection 与 PACK 自有范围继续隔离；读取声明和知识时不实例化来源。Provider、Workflow 的实现与 Guide 随 SDK 一起版本化。普通公共函数是直接 import 的 Python API，不建立 KAT 函数发现命令；AI 通过当前 KAT Python 定位 `knowledge/index.md` 并读取相对链接中的方法说明。
+公共 Provider 的模块清单由 SDK 拥有，Runtime 读取固定 SDK 入口，不硬编码具体 Provider。公共 inspection 与 PACK 自有范围继续隔离；读取声明和知识时不实例化来源。Provider、Workflow 的实现与 Guide 随 SDK 一起版本化。普通公共函数是直接 import 的 Python API，不建立 KAT 函数发现命令；AI 从 kat Skill 的 `references/libraries/` 阅读公共库手写介绍，再通过当前 KAT Python 定位 SDK 的 `knowledge/index.md` 和生成 API 参考。公共库介绍按用户后续要求随 Skill 交付，标明适用 SDK 版本；Workflow/Provider Guide 仍随 SDK 交付。
 
 SDK 的手写导航和 Guide 与构建期生成的 API Markdown 分开维护。类型注解与 docstring 是 API 参考权威来源，构建使用 Griffe/Griffe2MD 静态解析，不执行业务模块，也不自行实现 Python 文档解析器。Framework 的已有原子目录发布能力以窄的 `publish_materialization` Toolkit 方法公开，TraceStreamerProvider 无需继续依赖框架私有符号或复制通用实现。
 
