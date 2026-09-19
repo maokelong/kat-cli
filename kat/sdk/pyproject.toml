@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kat-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "KAT 官方公共 Provider、Workflow 与领域公共库"
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -19,7 +19,7 @@ dependencies = [
 
 [tool.setuptools]
 include-package-data = false
-packages = ["kat_sdk", "kat_sdk.providers"]
+packages = ["kat_sdk", "kat_sdk.providers", "kat_sdk.libraries", "kat_sdk.libraries.demo"]
 package-dir = { kat_sdk = "." }
 
 [tool.setuptools.package-data]

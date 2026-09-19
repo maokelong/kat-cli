@@ -4,6 +4,12 @@
 
 仅安装或升级现成 wheel 时，先读 [Python 依赖管理](python-packages.md)。CLI 路径、Data Home、参数和 Response 以 [公共命令合同](command-reference.md) 为准。
 
+## 可运行的 demo
+
+SDK 0.1.1 提供一组同领域示例：`libraries/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读当前 SDK 知识首页中的两篇 demo Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
+
+源码测试位于 `kat/sdk/tests/test_demo_greeting.py`，完整安装验收还验证 CLI 执行、结果查询及跨 PACK 调用。以此为最小例子学习目录、声明、知识、打包和运行链路，再添加具体领域能力。
+
 ## 1. 确定能力归属
 
 SDK 只提供跨领域复用的具体 Provider、Workflow、公共函数及知识。框架的 Runtime、Context、装饰器和表工具继续由框架维护。SDK 是可选包：未安装或卸载后，框架及不依赖它的 PACK 仍可运行；安装 SDK 只增加能力。
@@ -68,11 +74,13 @@ class ExampleProvider:
 
 每个入口文件定义一个带 `@kat.workflow` 的 Workflow，声明名称、用途和业务参数说明；需要分析 Guide 时指向 `workflows/<领域>/<主题>.md`。名称来自装饰器，目录只负责组织源码。
 
-入口接收框架 `kat.Context`，返回框架支持的 Table/Catalog。复用 Provider 和普通函数时从 `kat_sdk` 导入；组合其他 Workflow 时使用：
+入口接收框架 `kat.Context`，返回框架支持的 Table 或非空命名 Table 字典。复用 Provider 和普通函数时从 `kat_sdk` 导入；组合其他 Workflow 时使用：
 
 ```python
 result = ctx.run("kat-sdk", "目标-workflow", **inputs)
 ```
+
+`ctx.run()` 返回只读 Catalog；需要将子调用结果作为当前 Workflow 输出时，先用框架表工具查询为 Table，再返回。
 
 不通过 import 其他入口函数绕过框架执行。完成标准是列表、参数、Guide、直接执行和嵌套执行指向同一份能力；零 Workflow 的 SDK 也是合法公共 PACK。
 

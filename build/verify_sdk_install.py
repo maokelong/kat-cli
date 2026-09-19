@@ -32,7 +32,7 @@ def fixture(repository: Path, work: Path, revision: int) -> Path:
     original = config.read_text(encoding="utf-8")
     version = tomllib.loads(original)["project"]["version"]
     config.write_text(original.replace(f'version = "{version}"', f'version = "{version}+verify{revision}"')
-                      .replace('"kat_sdk.providers"]', '"kat_sdk.providers", "kat_sdk.libraries", "kat_sdk.libraries.verification"]'), encoding="utf-8")
+                      .replace('"kat_sdk.libraries.demo"]', '"kat_sdk.libraries.demo", "kat_sdk.libraries.verification"]'), encoding="utf-8")
     def write(path: str, text: str) -> None:
         target = sdk / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +185,7 @@ def test_compose(kat_run):
     run(host, "-m", "pip", "check")
     packs = invoke("inspect")["result"]["packs"]
     assert "kat-sdk" in [p["name"] for p in packs], packs
-    assert invoke("inspect", "workflow", "--pack", "kat-sdk")["result"]["workflows"] == []
+    assert [w["name"] for w in invoke("inspect", "workflow", "--pack", "kat-sdk")["result"]["workflows"]] == ["demo-greeting"]
     public = invoke("inspect", "provider")["result"]["providers"]
     assert [p["name"] for p in public] == ["ftrace-text", "trace-streamer-sqlite"]
     for name in ("ftrace-text", "trace-streamer-sqlite"):
@@ -195,6 +195,19 @@ def test_compose(kat_run):
     run(host, "-I", "-B", "-X", "utf8", "-m", "pytest", "-q", "-p", "no:cacheprovider", repository / "kat/sdk/tests")
     library = host_run("from importlib.resources import files; print(files('kat_sdk'))").strip()
     sdk_root = Path(library)
+    def verify_demo() -> None:
+        detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "demo-greeting")["result"]["workflow"]
+        assert "公共库" in detail["guide"] and detail["parameters"], detail
+        for relative in ("libraries/demo/greeting.api.md", "workflows/demo/greeting.api.md"):
+            assert (sdk_root / "knowledge" / relative).is_file()
+        session = invoke("session", "create")["result"]["session_id"]
+        for arguments, expected in (([], "你好，KAT！"), (["--", "--name", " 小明 "], "你好，小明！")):
+            executed = invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", *arguments)["result"]
+            queried = invoke("query", "--session", session, "--run", executed["run_id"], "--sql", "SELECT message FROM output.main")["result"]
+            assert json.loads(Path(queried["path"]).read_text(encoding="utf-8")) == {"message": expected}
+        invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", "--", "--name", "   ", success=False)
+        invoke("session", "delete", "--session", session)
+    verify_demo()
     assert (sdk_root / "knowledge/providers/ftrace.api.md").is_file()
     assert invoke("inspect", "--pack-dir", sdk_root)["result"]["packs"] == packs
     manifest = sdk_root / "pack.toml"
@@ -234,12 +247,20 @@ def call(ctx: kat.Context):
     catalog = ctx.run("kat-sdk", "sdk-probe")
     return kat.dataprovider.DataFusionProvider(catalog=catalog).query("SELECT value FROM main")
 ''', encoding="utf-8")
+    (consumer / "workflows/demo.py").write_text('''import kat
+@kat.workflow(name="call-demo", description="Call the demo Workflow.")
+def call(ctx: kat.Context):
+    """Call the demo Workflow."""
+    catalog = ctx.run("kat-sdk", "demo-greeting", name="小明")
+    return kat.dataprovider.DataFusionProvider(catalog=catalog).query("SELECT message FROM main")
+''', encoding="utf-8")
     revisions = []
     for revision in (1, 2):
         wheel = fixture(repository, root, revision)
         run(host, "-m", "pip", "install", "--no-deps", "--no-index", "--upgrade", wheel)
+        verify_demo()
         listing = invoke("inspect", "workflow", "--pack", "kat-sdk")["result"]["workflows"]
-        expected = ["sdk-probe"] if revision == 1 else ["sdk-added", "sdk-probe"]
+        expected = ["demo-greeting", "sdk-probe"] if revision == 1 else ["demo-greeting", "sdk-added", "sdk-probe"]
         assert [w["name"] for w in listing] == expected, listing
         detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "sdk-probe")["result"]["workflow"]
         assert f"revision {revision}" in detail["guide"] and detail["parameters"], detail
@@ -251,9 +272,11 @@ def call(ctx: kat.Context):
             assert json.loads(host_run(f"import json, pyarrow.parquet as p; print(json.dumps(p.read_table({str(published)!r}).to_pydict()))")) == {"value": [40 + revision]}
         (consumer / "tests/test_sdk.py").write_text(f'''def test_sdk(kat_run):
     assert kat_run(workflow="call-sdk")["main"].to_pydict() == {{"value": [{40 + revision}]}}
+def test_demo(kat_run):
+    assert kat_run(workflow="call-demo")["main"].to_pydict() == {{"message": ["你好，小明！"]}}
 ''', encoding="utf-8")
         tested = invoke("test", "--pack-dir", consumer)
-        assert tested["result"]["summary"]["passed"] == 1, tested
+        assert tested["result"]["summary"]["passed"] == 2, tested
         knowledge = (sdk_root / "knowledge/libraries/verification/values.api.md").read_text(encoding="utf-8")
         assert "increment(value: int) -> int" in knowledge and "增加输入整数" in knowledge, knowledge
         assert "libraries/verification/values.api.md" in (sdk_root / "knowledge/index.md").read_text(encoding="utf-8")

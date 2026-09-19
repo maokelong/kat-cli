@@ -115,7 +115,7 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 | 未安装及卸载 SDK | 原有三个来源 PACK 的发现、自有 Provider、直接/嵌套执行、查询和测试正常；纯 manifest 发现不新增 Python 要求 |
 | 干净 KAT 部署安装真实 wheel | 资源布局正确，依赖检查通过，两个 Provider 可导入并实际查询 |
 | 公共 Provider list/detail | 正确名称、摘要、kat_sdk 导入路径及非空知识；不构造来源，不依赖领域 PACK |
-| 正式 SDK 无公共 Workflow | 公共 PACK 可发现，Workflow 完整列表为空，不虚构业务能力 |
+| 正式 SDK Workflow 列表 | 0.1.0 允许空列表；0.1.1 包含用户授权的 demo-greeting，并能读取 Guide 和实际执行 |
 | 测试 SDK 含 Workflow fixture | 列表、参数、Guide、直接执行、跨 PACK 调用及 kat test 路径一致 |
 | 同名/损坏资源 | 沿用明确失败语义，不覆盖、不回退、不返回部分列表 |
 | 公共函数文档 fixture | 从首页相对链接找到真实 import、签名、语义和可执行示例；无函数发现命令 |
@@ -176,3 +176,9 @@ Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代
 从最终展开目录运行公共 Ftrace Guide/PACK 消费验收，Ftrace 26 项、TraceStreamer 26 项行为测试与 `pip check` 均通过；ZIP CRC 校验通过。产物及报告位于 `target/release-preview-rc13/`。这是 Windows 单平台本地预览；Linux 和双平台正式 Release CI 仍待验证。
 
 领域目录验收：公共库测试改为 `libraries/verification/`，Workflow 与知识均保留 `verification/` 领域层。Windows 真实 wheel 安装、嵌套导入、直接/组合调用、API 文档导航、升级清理及卸载后框架回归全部通过；报告为 `target/release-preview-rc13/verification-domain-layout/report.json`。
+
+## 用户授权的 demo 切片
+
+用户要求分别创建 Workflow、公共库 demo 及文档。SDK 0.1.1 新增 `libraries/demo/greeting.py` 与 `workflows/demo/greeting.py`：普通函数生成问候语，`demo-greeting` 返回一行标准结果表。两类 Guide、生成 API 与首页导航随 wheel 一起交付。此示例用于演示 SDK 开发和调用，不扩展框架或引入外部数据源；验证覆盖默认值、Unicode、空白拒绝、真实 CLI 查询、跨 PACK 调用及升级后继续可用。此前“零 Workflow”的记录描述 0.1.0，0.1.1 的正式列表包含此 demo。
+
+Demo 验证结果：89 项构建测试通过。SDK 0.1.1 在 Windows 隔离宿主中完成安装、默认/Unicode/非法参数、查询、跨 PACK 调用、升级与卸载回归，源码公共库测试一并通过；报告为 `target/release-preview-rc13/verification-demo-final/report.json`。候选 SHA256 为 `f48cb150e2f79182fdb29b145beabeb699b64a0d9bb9bb2fde3760da52041832`。

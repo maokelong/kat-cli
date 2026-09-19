@@ -14,7 +14,7 @@ python build/verify_sdk_install.py --kat <当前源码构建的CLI> --workflow-w
 
 构建用标准 setuptools backend，Griffe 解析类型与 docstring，griffe2md 生成实际 Markdown。生成器只做静态分析；不会为了文档实例化 Provider 或加载原生解析器。构建依赖由 pyproject 固定，API MD 生成于临时构建目录，不提交生成物。发布 wheel 和对应 SHA256，安装时使用 KAT 当前 Python 的 `-m pip install --upgrade <wheel路径或URL>`。
 
-首版 SDK 版本为 0.1.0，最低框架基线为 0.1.1rc13；已发布 rc12 不具备 SDK 发现能力。支持 CPython 3.14 的当前 Windows/Linux x86_64 部署。发布前在两种平台验证真实 wheel；普通 Python 能导入模块不等于具备 KAT 执行宿主。
+当前 SDK 版本为 0.1.1，包含 demo 领域的公共库和 Workflow 示例，最低框架基线为 0.1.1rc13；已发布 rc12 不具备 SDK 发现能力。支持 CPython 3.14 的当前 Windows/Linux x86_64 部署。发布前在两种平台验证真实 wheel；普通 Python 能导入模块不等于具备 KAT 执行宿主。
 
 验证脚本新建隔离 KAT 部署，先在未安装 SDK 时验证既有 PACK 的发现、执行、查询与测试，再安装指定 SDK wheel，检查公共发现、Guide、两种 Provider 实际查询，并构建两份仅测试用 SDK 验证新增 Workflow/Provider、直接执行、跨 PACK 调用、kat test、函数文档及旧文件清理。最后卸载 SDK 并重复既有 PACK 验证。验证期间保持 CLI 和框架版本不变，结果与 SHA256 写入输出目录的 `report.json`。外部 Trace Streamer 的完整 Trace 解码仍须由真实工具及样本另行验证；此脚本验证 SQLite 查询和受控解析器行为。
 
@@ -29,3 +29,7 @@ Provider 与 libraries 模块通过 `__all__` 列出公开接口。Provider 的�
 公共函数是 `libraries/<领域>/` 中的普通 Python 模块，不注册为 KAT 能力。公共库的父包、领域包设置 `__init__.py`，并在 `pyproject.toml` 的 packages 中显式登记（如 `kat_sdk.libraries`、`kat_sdk.libraries.memory`）。API 参数与返回类型写注解，单位、限制、异常和示例写 docstring；构建为公开模块生成 `knowledge/<类别>/<模块相对路径>.api.md`。手写 Guide、教程和首页链接使用其他文件名，避免覆盖生成文件。
 
 安装后的知识入口为 `kat_sdk/knowledge/index.md`，用 KAT 当前 Python 的 `importlib.resources.files("kat_sdk")` 定位，按相对链接读取当前版本。详细契约见仓库 `docs/specs/public-capability-sdk.md`。
+
+## Demo 入门
+
+SDK 0.1.1 中的 `libraries/demo/greeting.py` 提供 `build_greeting()`；`workflows/demo/greeting.py` 的 `demo-greeting` 调用该函数并返回一行 `message` 表。分别阅读 [公共库文档](knowledge/libraries/demo/greeting.md) 和 [Workflow 文档](knowledge/workflows/demo/greeting.md)，安装 wheel 后即可跟随示例执行。
