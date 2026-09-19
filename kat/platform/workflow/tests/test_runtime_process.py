@@ -706,6 +706,23 @@ def analyze(ctx: Context, *, limit: int = 10):
             self.assertEqual(response["status"], "failure", response)
             self.assertEqual(response["error"]["message"], "Runtime Request is invalid")
 
+    def test_missing_sdk_exposes_an_empty_public_scope(self) -> None:
+        from _kat_runtime import provider_inspection as inspection
+        missing = ModuleNotFoundError("No module named 'kat_sdk'", name="kat_sdk")
+        with mock.patch.object(inspection.importlib, "import_module", side_effect=missing):
+            self.assertEqual(inspection.inspect_provider(None, None).providers, [])
+            with self.assertRaises(inspection.ProviderInspectionError) as failure:
+                inspection.inspect_provider(None, None, "ftrace-text")
+            self.assertIn("was not found in public Providers", str(failure.exception.diagnostic))
+
+    def test_missing_sdk_dependency_is_not_treated_as_an_absent_sdk(self) -> None:
+        from _kat_runtime import provider_inspection as inspection
+        missing = ModuleNotFoundError("No module named 'broken_dependency'", name="broken_dependency")
+        with mock.patch.object(inspection.importlib, "import_module", side_effect=missing):
+            with self.assertRaises(inspection.ProviderInspectionError) as failure:
+                inspection.inspect_provider(None, None)
+            self.assertIn("broken_dependency", str(failure.exception.diagnostic))
+
     def test_public_inspection_reads_knowledge_without_constructing(self) -> None:
         from _kat_runtime.provider_inspection import (
             ProviderInspectionError,

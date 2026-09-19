@@ -141,7 +141,7 @@ class CommonBuildOptions(Protocol):
     wheelhouse: Path | None
     cargo: str
     offline: bool
-    sdk_wheel: WheelArtifactInput
+    sdk_wheel: WheelArtifactInput | None
     workflow_wheel: WheelArtifactInput
     datasource_wheel: WheelArtifactInput
 
@@ -910,7 +910,7 @@ def _prepare_private_host(
     python_archive: Path,
     uv_archive: Path,
     inputs: CommonInputs,
-    sdk_wheel: Path,
+    sdk_wheel: Path | None,
     workflow_wheel: Path,
     workflow_version: str,
     datasource_wheel: Path,
@@ -965,7 +965,7 @@ def _prepare_private_host(
     install_kat_wheels(
         uv,
         python,
-        (datasource_wheel, sdk_wheel),
+        (datasource_wheel,) if sdk_wheel is None else (datasource_wheel, sdk_wheel),
         kat_wheel_cache,
         copy_links=copy_links,
     )
@@ -1036,7 +1036,7 @@ def build_payload(
     common_inputs = [
         ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
-        ("SDK wheel", options.sdk_wheel.path),
+        ("SDK wheel", options.sdk_wheel.path if options.sdk_wheel is not None else None),
         ("Workflow Host wheel", options.workflow_wheel.path),
         ("Datasource wheel", options.datasource_wheel.path),
         ("wheelhouse", options.wheelhouse),
@@ -1054,7 +1054,8 @@ def build_payload(
         )
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
-    sdk_wheel = validated_sdk_wheel(options.sdk_wheel)
+    sdk_wheel = (validated_sdk_wheel(options.sdk_wheel)
+                 if options.sdk_wheel is not None else None)
     workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
     datasource_wheel = validated_datasource_wheel(
         options.datasource_wheel,

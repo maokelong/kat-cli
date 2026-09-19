@@ -39,14 +39,14 @@ cargo build --release -p kat-cli
 ```
 
 该命令只生成 Rust 二进制，不装配相邻 Python Host。Cargo 输出可以用于编译检查和
-不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect`、`kat inspect workflow`、
+不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect workflow`、
 `kat inspect provider` 或 `kat run`。
 仅做 Rust 开发时使用 `cargo test -p kat-cli`；需要执行 Workflow 的调用必须满足
 下述运行前提。
 
 ## 运行前提
 
-`kat inspect`、`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
+`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
 PACK 可以来自内置目录、平台数据目录、显式的 `--pack-dir`，或当前 KAT Python 中安装的官方 SDK 根。
@@ -56,7 +56,7 @@ PACK 可以来自内置目录、平台数据目录、显式的 `--pack-dir`，�
 `kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
 可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
 
-另有独立版本的 `kat-sdk` 提供具体公共 Provider、Workflow、普通 Python 函数与随包知识。
+另有可选、独立版本的 `kat-sdk` 提供具体公共 Provider、Workflow、普通 Python 函数与随包知识。未安装或卸载 SDK 后，框架与不依赖 SDK 的 PACK 继续使用。
 源码位于 [`kat/sdk`](kat/sdk/README.md)，导入 namespace 为 `kat_sdk`；它使用框架 API，
 不包含 Runtime。当前新基线从 `0.1.1-rc.13` 开始接入 SDK，SDK 初版为 `0.1.0`。
 公共 PACK 自动进入发现范围，公共 Provider 仍由 `kat inspect provider` 单独发现；

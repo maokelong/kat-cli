@@ -46,7 +46,7 @@ kat <命令> --help
 kat inspect [--pack-dir <PACK目录> ...]
 ```
 
-裸 `kat inspect` 通过当前 KAT Python 定位已安装 SDK 根，再读取候选 `pack.toml`，返回 `result.packs` 中的 PACK manifest 概要。官方 SDK 作为 `kat-sdk` PACK 自动加入发现范围，无需 `--pack-dir`；SDK 安装缺失或损坏时报告错误。它不导入 PACK Python，不扫描 Workflow 或 Provider，也不读取 guide。`--pack-dir` 可重复，每个目录必须直接包含 `pack.toml`。
+裸 `kat inspect` 通过当前 KAT Python 定位已安装 SDK 根，再读取候选 `pack.toml`，返回 `result.packs` 中的 PACK manifest 概要。官方 SDK 作为 `kat-sdk` PACK 自动加入发现范围，无需 `--pack-dir`；未安装 SDK 时只发现原有 PACK，已安装 SDK 的资源损坏时报告错误。它不导入 PACK Python，不扫描 Workflow 或 Provider，也不读取 guide。`--pack-dir` 可重复，每个目录必须直接包含 `pack.toml`。
 
 ## 发现和读取 Workflow 知识
 
@@ -76,7 +76,7 @@ kat inspect provider --pack <PACK名称> --provider <Provider名称> \
   [--pack-dir <PACK目录> ...]
 ```
 
-- 第一条列出平台公共 Provider，第二条返回公共 `ftrace-text` 的详情。
+- 第一条列出已安装 SDK 的公共 Provider；未安装 SDK 时返回空列表。第二条返回公共 `ftrace-text` 的详情，未安装时按目标不存在报告。
 - 第三条只列出所选 PACK 自有的 Provider，第四条返回该范围内一个精确 Provider。
 - 列表的成功 `result.providers` 按 `name` 排序；每项恰好只有 `name`、`description`。详情的成功 `result.provider` 恰好只有 `name`、`description`、`module`、`qualname`、`guide`；`guide` 始终是非空 Markdown 字符串。
 

@@ -91,7 +91,14 @@ def inspect_provider(
             raise ValueError("PACK name must be a non-empty string")
         if public:
             providers = []
-            from kat_sdk import PROVIDER_MODULES
+            try:
+                sdk = importlib.import_module("kat_sdk")
+            except ModuleNotFoundError as error:
+                if error.name != "kat_sdk":
+                    raise
+                PROVIDER_MODULES = ()
+            else:
+                PROVIDER_MODULES = sdk.PROVIDER_MODULES
 
             if not isinstance(PROVIDER_MODULES, tuple) or any(
                 not isinstance(name, str) or not name.startswith("kat_sdk.providers.")

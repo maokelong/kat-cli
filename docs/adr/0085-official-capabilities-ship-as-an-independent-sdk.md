@@ -6,7 +6,7 @@ status: accepted
 
 各领域需要复用同一套具体 Provider、Workflow 和公共函数，并在不替换 CLI 与 Runtime 的情况下升级能力。将这些实现留在私有 Host wheel 中，会把领域能力更新绑到整套 KAT 发布；将框架整体搬入 SDK 又会扩大兼容面。本决定采用独立的官方公共能力 distribution `kat-sdk`，Python namespace 为 `kat_sdk`；框架 API、Runtime、Context、装饰器和标准表工具继续由 `kat-workflow` 提供，原生来源解码继续由 `kat-datasource` 提供。
 
-SDK 根直接拥有一个公共 PACK，源码为 `kat/sdk/pack.toml`，Workflow 位于 `workflows/`，不增加 packs 层。当前 KAT 的 Bundled Python 定位已安装 SDK 根，CLI 将该精确目录加入正常发现集合；同一目录去重、不同目录同名失败。顶层执行、组合执行与 PACK 测试沿用同一发现范围和 Runtime 合同。SDK 缺失或损坏是安装问题，不返回看似完整的部分能力列表，也不为公共 PACK 设置覆盖优先级。
+SDK 根直接拥有一个公共 PACK，源码为 `kat/sdk/pack.toml`，Workflow 位于 `workflows/`，不增加 packs 层。当前 KAT 的 Bundled Python 定位已安装 SDK 根，CLI 将该精确目录加入正常发现集合；同一目录去重、不同目录同名失败。顶层执行、组合执行与 PACK 测试沿用同一发现范围和 Runtime 合同。SDK 是可选能力包：未安装时不加入候选，既有 PACK 与框架功能照常使用，公共 Provider 列表为空。已安装 SDK 的资源损坏仍报告错误，不把坏安装伪装成未安装；公共 PACK 没有覆盖优先级。
 
 公共 Provider 的模块清单由 SDK 拥有，Runtime 读取固定 SDK 入口，不硬编码具体 Provider。公共 inspection 与 PACK 自有范围继续隔离；读取声明和知识时不实例化来源。Provider、Workflow 的实现与 Guide 随 SDK 一起版本化。普通公共函数是直接 import 的 Python API，不建立 KAT 函数发现命令；AI 通过当前 KAT Python 定位 `knowledge/index.md` 并读取相对链接中的方法说明。
 

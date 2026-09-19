@@ -38,7 +38,7 @@ _Avoid_: Built-in PACK、System PACK
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **KAT SDK**:
-由官方独立版本化的具体公共 Provider、Workflow、普通 Python 函数及其知识，导入命名空间为 `kat_sdk`。SDK 根作为一个公共 PACK 被当前 KAT 发现；公共函数由 Python 直接调用、通过随包知识导航了解用法。框架执行能力与标准表类型不属于 SDK。
+由官方独立版本化的具体公共 Provider、Workflow、普通 Python 函数及其知识，导入命名空间为 `kat_sdk`。SDK 是可选能力包，未安装时不影响框架和既有 PACK；安装后的 SDK 根作为一个公共 PACK 被当前 KAT 发现；公共函数由 Python 直接调用、通过随包知识导航了解用法。框架执行能力与标准表类型不属于 SDK。
 
 **Pack Authoring API**:
 KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。

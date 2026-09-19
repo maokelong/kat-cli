@@ -1,6 +1,6 @@
 # KAT 官方公共能力 SDK
 
-SDK 提供公共 Provider、Workflow 及领域公共函数，框架 API 和 Runtime 保持在 `kat/platform/workflow`。公开导入使用 `kat_sdk`；旧的具体 Provider 导入不再保留。
+SDK 是可选能力包，未安装或卸载后框架与不依赖它的 PACK 照常工作。SDK 提供公共 Provider、Workflow 及领域公共函数，框架 API 和 Runtime 保持在 `kat/platform/workflow`。公开导入使用 `kat_sdk`；旧的具体 Provider 导入不再保留。
 
 ## 构建与验证
 
@@ -16,9 +16,9 @@ python build/verify_sdk_install.py --kat <当前源码构建的CLI> --workflow-w
 
 首版 SDK 版本为 0.1.0，最低框架基线为 0.1.1rc13；已发布 rc12 不具备 SDK 发现能力。支持 CPython 3.14 的当前 Windows/Linux x86_64 部署。发布前在两种平台验证真实 wheel；普通 Python 能导入模块不等于具备 KAT 执行宿主。
 
-验证脚本新建隔离 KAT 部署，安装指定的三个 wheel，检查公共发现、Guide、两种 Provider 实际查询，并构建两份仅测试用 SDK 验证新增 Workflow/Provider、直接执行、跨 PACK 调用、kat test、函数文档及旧文件清理。验证期间保持 CLI 和框架版本不变，结果与 SHA256 写入输出目录的 `report.json`。外部 Trace Streamer 的完整 Trace 解码仍须由真实工具及样本另行验证；此脚本验证 SQLite 查询和受控解析器行为。
+验证脚本新建隔离 KAT 部署，先在未安装 SDK 时验证既有 PACK 的发现、执行、查询与测试，再安装指定 SDK wheel，检查公共发现、Guide、两种 Provider 实际查询，并构建两份仅测试用 SDK 验证新增 Workflow/Provider、直接执行、跨 PACK 调用、kat test、函数文档及旧文件清理。最后卸载 SDK 并重复既有 PACK 验证。验证期间保持 CLI 和框架版本不变，结果与 SHA256 写入输出目录的 `report.json`。外部 Trace Streamer 的完整 Trace 解码仍须由真实工具及样本另行验证；此脚本验证 SQLite 查询和受控解析器行为。
 
-独立候选验收通过 GitHub Actions 的 `SDK CI` 手动触发：只构建一份 SDK wheel，两种平台下载同一 `kat-sdk-candidate` 产物后运行验证。两份 `sdk-evidence-*` 中的摘要必须与候选一致。确认成功后，将该候选中的 wheel 和 `.sha256` 原样上传至对应 SDK GitHub Release，不在验证后重新构建、不发布 PyPI。工作流不自动创建 Release。KAT 成套构建同样显式接收 SDK 路径、独立版本和 SHA256。
+独立候选验收通过 GitHub Actions 的 `SDK CI` 手动触发：只构建一份 SDK wheel，两种平台下载同一 `kat-sdk-candidate` 产物后运行验证。两份 `sdk-evidence-*` 中的摘要必须与候选一致。确认成功后，将该候选中的 wheel 和 `.sha256` 原样上传至对应 SDK GitHub Release，不在验证后重新构建、不发布 PyPI。工作流不自动创建 Release。KAT 成套构建可选接收 SDK 路径、独立版本和 SHA256；三个参数一起提供或一起省略。官方成套 CI 仍可选择预装 SDK，不意味着框架依赖 SDK。
 
 ## 维护能力
 

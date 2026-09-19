@@ -1355,3 +1355,39 @@ fn inspect_dataset_option_is_not_a_cli_surface() {
     assert!(removed.stdout.is_empty());
     assert!(String::from_utf8_lossy(&removed.stderr).contains("unexpected argument '--dataset'"));
 }
+
+#[test]
+fn manifest_discovery_without_python_preserves_existing_pack_directories() {
+    let temporary = tempfile::tempdir().unwrap();
+    let (skill, binary) = stage_minimum_skill_layout(temporary.path());
+    fs::remove_file(support::host_path(&binary)).unwrap();
+    let home = temporary.path().join("data");
+    fs::create_dir_all(&home).unwrap();
+    write_pack(
+        &skill.join("assets/packs/bundled"),
+        "bundled",
+        "Bundled PACK",
+    );
+    write_pack(&home.join("packs/external"), "installed", "Installed PACK");
+    let additional = temporary.path().join("additional");
+    write_pack(&additional, "additional", "Additional PACK");
+    let output = Command::new(binary)
+        .env("KAT_DATA_HOME", &home)
+        .args(["inspect", "--pack-dir"])
+        .arg(additional)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let names: Vec<_> = response["result"]["packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|pack| pack["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["additional", "bundled", "installed"]);
+}

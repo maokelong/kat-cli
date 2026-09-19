@@ -16,8 +16,11 @@ import json
 from pathlib import Path
 
 spec = importlib.util.find_spec("kat_sdk")
-if spec is None or not spec.submodule_search_locations:
-    raise RuntimeError("KAT SDK is not installed in the current KAT Python environment")
+if spec is None:
+    print("null")
+    raise SystemExit(0)
+if not spec.submodule_search_locations:
+    raise RuntimeError("KAT SDK must be an installed package directory")
 locations = list(spec.submodule_search_locations)
 if len(locations) != 1:
     raise RuntimeError("KAT SDK must have one installed package directory")
@@ -30,28 +33,37 @@ pub(crate) fn discover(
     let sdk = installed_pack().map_err(|source| PackDiscoveryError::Sdk {
         source: Box::new(source),
     })?;
-    paths.additional_pack_directories.push(sdk);
+    if let Some(sdk) = sdk {
+        paths.additional_pack_directories.push(sdk);
+    }
     pack_discovery::discover(paths)
 }
 
-fn installed_pack() -> Result<PathBuf, SdkError> {
+fn installed_pack() -> Result<Option<PathBuf>, SdkError> {
     let python = workflow_runtime::bundled_python_path()?;
-    let output = Command::new(&python)
+    let output = match Command::new(&python)
         .args(["-I", "-B", "-X", "utf8", "-c", LOCATE_SDK])
         .stdin(Stdio::null())
         .output()
-        .map_err(|source| SdkError::Locate { python, source })?;
+    {
+        Ok(output) => output,
+        // 尚未装配 Python Host 时，原有纯 manifest 发现仍可使用。
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => return Err(SdkError::Locate { python, source }),
+    };
     if !output.status.success() {
         return Err(SdkError::HostFailed {
             details: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         });
     }
-    let path: String = serde_json::from_slice(&output.stdout).map_err(SdkError::InvalidResponse)?;
+    let path: Option<String> =
+        serde_json::from_slice(&output.stdout).map_err(SdkError::InvalidResponse)?;
+    let Some(path) = path else { return Ok(None) };
     let path = PathBuf::from(path);
     if !path.is_absolute() {
         return Err(SdkError::RelativePath);
     }
-    Ok(path)
+    Ok(Some(path))
 }
 
 #[derive(Debug, Error)]

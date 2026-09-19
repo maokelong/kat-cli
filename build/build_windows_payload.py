@@ -90,7 +90,7 @@ class BuildOptions:
     vc_redist_archive: Path | None
     cargo: str
     offline: bool
-    sdk_wheel: payload_builder.WheelArtifactInput
+    sdk_wheel: payload_builder.WheelArtifactInput | None
     workflow_wheel: payload_builder.WheelArtifactInput
     datasource_wheel: payload_builder.WheelArtifactInput
 
@@ -519,9 +519,9 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
     parser.add_argument("--python-archive", type=Path)
     parser.add_argument("--uv-archive", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
-    parser.add_argument("--sdk-wheel", type=Path, required=True)
-    parser.add_argument("--sdk-wheel-version", required=True)
-    parser.add_argument("--sdk-wheel-sha256", required=True)
+    parser.add_argument("--sdk-wheel", type=Path)
+    parser.add_argument("--sdk-wheel-version")
+    parser.add_argument("--sdk-wheel-sha256")
     parser.add_argument("--workflow-wheel", type=Path, required=True)
     parser.add_argument("--workflow-wheel-version", required=True)
     parser.add_argument("--workflow-wheel-sha256", required=True)
@@ -536,6 +536,9 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--offline", action="store_true")
     args = parser.parse_args(argv)
+    sdk_fields = (args.sdk_wheel, args.sdk_wheel_version, args.sdk_wheel_sha256)
+    if any(value is not None for value in sdk_fields) and not all(value is not None for value in sdk_fields):
+        parser.error("--sdk-wheel, --sdk-wheel-version and --sdk-wheel-sha256 must be supplied together")
     repository = args.repository.resolve()
     output = args.output or repository / "target/kat/payloads/windows-x86_64"
     download_cache = args.download_cache or repository / "target/kat/downloads"
@@ -551,7 +554,7 @@ def parse_args(argv: list[str] | None = None) -> BuildOptions:
         offline=args.offline,
         sdk_wheel=payload_builder.WheelArtifactInput(
             args.sdk_wheel, args.sdk_wheel_version, args.sdk_wheel_sha256,
-        ),
+        ) if args.sdk_wheel is not None else None,
         workflow_wheel=payload_builder.WheelArtifactInput(
             args.workflow_wheel,
             args.workflow_wheel_version,

@@ -276,7 +276,17 @@ class WheelArtifactTests(unittest.TestCase):
         self.assertIn("version('kat-workflow')", script)
         self.assertIn("find_spec('kat_datasource')", script)
 
-    def test_platform_builders_require_three_explicit_wheel_artifacts(self) -> None:
+    def test_platform_builders_allow_no_sdk_but_reject_partial_sdk_inputs(self) -> None:
+        arguments = ["--workflow-wheel", "workflow.whl", "--workflow-wheel-version", "0.1.1rc13",
+                     "--workflow-wheel-sha256", "a" * 64, "--datasource-wheel", "native.whl",
+                     "--datasource-wheel-version", "0.1.1rc13", "--datasource-wheel-sha256", "b" * 64]
+        for module in (build_linux_payload, build_windows_payload):
+            with self.subTest(platform=module.PLATFORM):
+                self.assertIsNone(module.parse_args(arguments).sdk_wheel)
+                with self.assertRaises(SystemExit):
+                    module.parse_args([*arguments, "--sdk-wheel", "sdk.whl"])
+
+    def test_platform_builders_accept_three_explicit_wheel_artifacts(self) -> None:
         digest = "a" * 64
         for module in (build_linux_payload, build_windows_payload):
             with self.subTest(platform=module.PLATFORM):

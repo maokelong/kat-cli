@@ -68,7 +68,7 @@ kat run --session <id> --pack <sdk-pack> --workflow <workflow> -- <业务参数>
 
 跨 PACK 调用保持 `ctx.run("<sdk-pack>", "<workflow>", **inputs)`，返回现有只读 Catalog。inspection、顶层执行、嵌套执行和 PACK 测试必须共享 SDK 所在的发现范围，不能只给列表增加入口。
 
-缺失或损坏的已声明 SDK 安装资源应报告安装/资源问题，不返回看似完整的部分能力列表。无需 SDK 的操作不应增加无关来源连接或业务执行。
+SDK 未安装是正常状态：跳过 SDK 候选，保留 Skill、Data Home 与 `--pack-dir` 的所有既有 PACK；公共 Provider 列表为空，指定不存在的公共 Provider 返回未找到。卸载 SDK 后框架自有操作和不依赖 SDK 的 PACK 继续可用。没有 Python Host 时仍可执行原有纯 manifest PACK 发现，运行 Workflow 继续遵循框架原本的 Host 要求。已安装 SDK 的资源损坏仍报告安装/资源问题，不将损坏误判为未安装。
 
 ## Provider 发现与知识
 
@@ -112,6 +112,7 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 
 | 场景 | 必须提供的结果 |
 | --- | --- |
+| 未安装及卸载 SDK | 原有三个来源 PACK 的发现、自有 Provider、直接/嵌套执行、查询和测试正常；纯 manifest 发现不新增 Python 要求 |
 | 干净 KAT 部署安装真实 wheel | 资源布局正确，依赖检查通过，两个 Provider 可导入并实际查询 |
 | 公共 Provider list/detail | 正确名称、摘要、kat_sdk 导入路径及非空知识；不构造来源，不依赖领域 PACK |
 | 正式 SDK 无公共 Workflow | 公共 PACK 可发现，Workflow 完整列表为空，不虚构业务能力 |
@@ -146,10 +147,11 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 
 | 验证 | 实际结果 |
 | --- | --- |
-| `cargo test -p kat-cli --locked --tests`（本机 stable 工具链） | 166 passed，11 ignored |
+| `cargo test -p kat-cli --locked --tests`（本机 stable 工具链） | 167 passed，11 ignored |
 | 另行运行五条 real installed Host 测试 | 5 passed：知识读取、组合调用、业务错误传播、scratch 生命周期、PACK 测试 |
 | `python -I -B -m pytest kat/platform/workflow/tests kat/sdk/tests -q` | 209 passed，294 subtests passed |
-| `python -m unittest discover -s build/tests` | 87 passed，含静态中文 API 生成、无初始化文件的 Workflow、Guide/链接缺损和手写文档保护 |
+| 可选 SDK 修正后重跑 `test_runtime_process.py` | 30 passed，37 subtests passed |
+| `python -m unittest discover -s build/tests` | 88 passed，含静态中文 API 生成、无初始化文件的 Workflow、Guide/链接缺损和手写文档保护 |
 | `cargo clippy -p kat-cli --locked --all-targets -- -D warnings` | passed |
 | `cargo fmt --all -- --check`、`git diff --check` | passed |
 | `python -I -B build/verify_release_versions.py` | 0.1.1-rc.13 一致，SDK 版本独立 |
@@ -161,6 +163,8 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 515b176056cf32ef2e753674782acc86786d5946c869d920fb192f37e6c91129
 ```
 
-安装验证报告为 `target/issue-296/verification-candidate/report.json`；对应日志为 `target/issue-296/sdk-candidate-verification.log`。升级 fixture 为 `0.1.0+verify1` 与 `0.1.0+verify2`，只供测试；正式 SDK 未增加虚构 Workflow 或公共算法。升级后再次运行两个 Provider 的行为测试与 pip check，并验证框架版本和 CLI 摘要保持不变。
+安装验证报告为 `target/issue-296/verification-optional/report.json`；对应日志为 `target/issue-296/optional-sdk-verification.log`。升级 fixture 为 `0.1.0+verify1` 与 `0.1.0+verify2`，只供测试；正式 SDK 未增加虚构 Workflow 或公共算法。升级后再次运行两个 Provider 的行为测试与 pip check，并验证框架版本和 CLI 摘要保持不变。
 
-Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代表已用真实外部 Trace Streamer 完成完整 Trace 解码。独立 `SDK CI` 已配置为两平台下载同一候选并校验 SHA256 后验收；`Full CI` 和成套 Payload 构建也已接入 SDK。尚未触发远程 CI，未发布 wheel、Release 或 PR。
+Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代表已用真实外部 Trace Streamer 完成完整 Trace 解码。独立 `SDK CI` 已配置为两平台下载同一候选并校验 SHA256 后验收；`Full CI` 和成套 Payload 构建也已接入 SDK。尚未触发远程 CI，未发布 wheel 或 Release；草稿 PR 为 #297。
+
+可选 SDK 回归：真实隔离环境先不安装 SDK，验证 Skill、Data Home 和显式目录中的 PACK，再安装、升级并卸载 SDK，重复完整基线验证。两次均通过，且 CLI 摘要与框架版本保持不变。Payload 构建可省略全部 SDK 参数；只提供部分 SDK 参数会被拒绝。

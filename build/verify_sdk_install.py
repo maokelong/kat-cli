@@ -100,7 +100,7 @@ def verify(options: argparse.Namespace) -> dict:
     python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python3")
     run(python, "-m", "pip", "install", "--disable-pip-version-check",
         "--find-links", options.workflow_wheel.parent,
-        options.workflow_wheel, options.datasource_wheel, options.sdk_wheel)
+        options.workflow_wheel, options.datasource_wheel)
     host = payload / ("python/python.exe" if os.name == "nt" else "python/bin/python3")
     if os.name == "nt":
         host.parent.mkdir()
@@ -119,6 +119,64 @@ def verify(options: argparse.Namespace) -> dict:
         return response
     def host_run(script: str) -> str:
         return run(host, "-I", "-B", "-X", "utf8", "-c", script)
+    standalone = root / "standalone"
+    for base, name in ((skill / "assets/packs/baseline", "bundled-base"),
+                       (home / "packs/baseline", "data-base"),
+                       (standalone, "external-base")):
+        (base / "workflows").mkdir(parents=True)
+        (base / "pack.toml").write_text(f'name="{name}"\ntitle="Baseline"\ndescription="Framework without SDK"\nowner="KAT tests"\n', encoding="utf-8")
+        (base / "workflows/identity.py").write_text('''import kat
+import pyarrow as pa
+@kat.workflow(name="identity", description="Framework baseline.")
+def identity(ctx: kat.Context):
+    """Framework baseline."""
+    return kat.dataprovider.Table.from_arrow(pa.table({"value": [42]}))
+''', encoding="utf-8")
+    (standalone / "workflows/compose.py").write_text('''import kat
+@kat.workflow(name="compose", description="Compose ordinary PACKs without SDK.")
+def compose(ctx: kat.Context):
+    """Compose ordinary PACKs without SDK."""
+    first = ctx.run("bundled-base", "identity")
+    second = ctx.run("data-base", "identity")
+    assert first.tables == second.tables == ("main",)
+    return kat.dataprovider.DataFusionProvider(catalog=second).query("SELECT value FROM main")
+''', encoding="utf-8")
+    (standalone / "datasources").mkdir()
+    (standalone / "knowledge/providers").mkdir(parents=True)
+    (standalone / "knowledge/providers/local.md").write_text("# PACK owned provider\n", encoding="utf-8")
+    (standalone / "datasources/local.py").write_text('''import kat
+@kat.provider(name="local", description="PACK owned provider.", guide="providers/local.md")
+class LocalProvider:
+    pass
+''', encoding="utf-8")
+    (standalone / "tests").mkdir()
+    (standalone / "tests/test_baseline.py").write_text('''def test_identity(kat_run):
+    assert kat_run(workflow="identity")["main"].to_pydict() == {"value": [42]}
+def test_compose(kat_run):
+    assert kat_run(workflow="compose")["main"].to_pydict() == {"value": [42]}
+''', encoding="utf-8")
+    def verify_without_sdk() -> None:
+        host_run("import importlib.util as u; assert u.find_spec('kat_sdk') is None")
+        discovered = invoke("inspect", "--pack-dir", standalone)["result"]["packs"]
+        assert [p["name"] for p in discovered] == ["bundled-base", "data-base", "external-base"]
+        assert invoke("inspect", "provider")["result"]["providers"] == []
+        invoke("inspect", "provider", "--provider", "ftrace-text", success=False)
+        own = invoke("inspect", "provider", "--pack", "external-base", "--pack-dir", standalone)
+        assert own["result"]["providers"][0]["name"] == "local"
+        invoke("inspect", "workflow", "--pack", "external-base", "--pack-dir", standalone)
+        session = invoke("session", "create")["result"]["session_id"]
+        for workflow in ("identity", "compose"):
+            executed = invoke("run", "--session", session, "--pack", "external-base",
+                              "--workflow", workflow, "--pack-dir", standalone)["result"]
+            queried = invoke("query", "--session", session, "--run", executed["run_id"],
+                             "--sql", "SELECT value FROM output.main")["result"]
+            assert json.loads(Path(queried["path"]).read_text(encoding="utf-8")) == {"value": 42}
+        assert invoke("test", "--pack-dir", standalone)["result"]["summary"]["passed"] == 2
+        invoke("inspect", "session", "--session", session)
+        invoke("session", "delete", "--session", session)
+        run(host, "-m", "pip", "check")
+    verify_without_sdk()
+    run(host, "-m", "pip", "install", "--no-index", "--no-deps", options.sdk_wheel)
     identity_script = "import importlib.metadata as m; print(m.version('kat-workflow')); print(m.version('kat-datasource'))"
     host_run("import importlib.util as u; assert u.find_spec('kat.dataprovider.ftrace') is None; assert u.find_spec('kat.dataprovider.trace_streamer') is None")
     before = host_run(identity_script)
@@ -211,7 +269,11 @@ def call(ctx: kat.Context):
         revisions.append(wheel.name)
     run(host, "-I", "-B", "-X", "utf8", "-m", "pytest", "-q", "-p", "no:cacheprovider", repository / "kat/sdk/tests")
     run(host, "-m", "pip", "check")
-    report = {"platform": sys.platform, "python": sys.version, "sdk_version": version,
+    run(host, "-m", "pip", "uninstall", "--yes", "kat-sdk")
+    verify_without_sdk()
+    assert host_run(identity_script) == before
+    assert hashlib.sha256(cli.read_bytes()).hexdigest() == binary_hash
+    report = {"without_sdk": "passed before install and after uninstall", "platform": sys.platform, "python": sys.version, "sdk_version": version,
               "sdk_sha256": hashlib.sha256(options.sdk_wheel.read_bytes()).hexdigest(),
               "framework_versions": before.splitlines(), "cli_sha256": binary_hash,
               "upgrade_wheels": revisions, "status": "passed"}
