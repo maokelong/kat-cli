@@ -83,6 +83,11 @@ fn json_string(document: &str, key: &str) -> String {
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.get(4).map(String::as_str) == Some("-c") {
+        let location = std::env::current_exe().unwrap().parent().unwrap().join("sdk-fixture");
+        print!("{:?}", location.to_str().unwrap());
+        return;
+    }
     if arguments.len() != 11 || arguments[7] != "--request" || arguments[9] != "--response" {
         process::exit(91);
     }

@@ -141,6 +141,7 @@ class CommonBuildOptions(Protocol):
     wheelhouse: Path | None
     cargo: str
     offline: bool
+    sdk_wheel: WheelArtifactInput
     workflow_wheel: WheelArtifactInput
     datasource_wheel: WheelArtifactInput
 
@@ -637,6 +638,19 @@ def validate_workflow_wheel_archive(
     return version
 
 
+def validated_sdk_wheel(artifact: WheelArtifactInput) -> Path:
+    from build_sdk_wheel import validate_sdk_wheel_archive
+
+    if not isinstance(artifact, WheelArtifactInput):
+        raise TypeError("SDK wheel must be a WheelArtifactInput")
+    wheel = artifact.path.resolve(strict=True)
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact.sha256):
+        raise ValueError("SDK wheel has an invalid expected SHA-256")
+    verify_sha256(wheel, artifact.sha256)
+    validate_sdk_wheel_archive(wheel, expected_version=artifact.expected_version)
+    return wheel
+
+
 def validated_workflow_wheel(artifact: WheelArtifactInput) -> Path:
     if not isinstance(artifact, WheelArtifactInput):
         raise TypeError("workflow wheel must be a WheelArtifactInput")
@@ -896,6 +910,7 @@ def _prepare_private_host(
     python_archive: Path,
     uv_archive: Path,
     inputs: CommonInputs,
+    sdk_wheel: Path,
     workflow_wheel: Path,
     workflow_version: str,
     datasource_wheel: Path,
@@ -950,7 +965,7 @@ def _prepare_private_host(
     install_kat_wheels(
         uv,
         python,
-        (datasource_wheel,),
+        (datasource_wheel, sdk_wheel),
         kat_wheel_cache,
         copy_links=copy_links,
     )
@@ -1021,6 +1036,7 @@ def build_payload(
     common_inputs = [
         ("Cargo cache", cargo_cache),
         ("download cache", options.download_cache),
+        ("SDK wheel", options.sdk_wheel.path),
         ("Workflow Host wheel", options.workflow_wheel.path),
         ("Datasource wheel", options.datasource_wheel.path),
         ("wheelhouse", options.wheelhouse),
@@ -1038,6 +1054,7 @@ def build_payload(
         )
     if options.offline and options.wheelhouse is None:
         raise ValueError("offline build requires --wheelhouse")
+    sdk_wheel = validated_sdk_wheel(options.sdk_wheel)
     workflow_wheel = validated_workflow_wheel(options.workflow_wheel)
     datasource_wheel = validated_datasource_wheel(
         options.datasource_wheel,
@@ -1070,6 +1087,7 @@ def build_payload(
             python_archive=python_archive,
             uv_archive=uv_archive,
             inputs=inputs,
+            sdk_wheel=sdk_wheel,
             workflow_wheel=workflow_wheel,
             workflow_version=options.workflow_wheel.expected_version,
             datasource_wheel=datasource_wheel,

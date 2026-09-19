@@ -91,7 +91,16 @@ def inspect_provider(
             raise ValueError("PACK name must be a non-empty string")
         if public:
             providers = []
-            for module_name in ("kat.dataprovider.ftrace", "kat.dataprovider.trace_streamer"):
+            from kat_sdk import PROVIDER_MODULES
+
+            if not isinstance(PROVIDER_MODULES, tuple) or any(
+                not isinstance(name, str) or not name.startswith("kat_sdk.providers.")
+                for name in PROVIDER_MODULES
+            ):
+                raise ValueError("Invalid SDK public Provider module list")
+            if len(set(PROVIDER_MODULES)) != len(PROVIDER_MODULES):
+                raise ValueError("Duplicate SDK public Provider module")
+            for module_name in PROVIDER_MODULES:
                 module = importlib.import_module(module_name)
                 declared = _inspect_module(module, read_public_provider_guide)
                 if not declared:

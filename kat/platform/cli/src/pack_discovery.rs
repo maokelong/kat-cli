@@ -259,6 +259,11 @@ fn normalized_display_field(
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PackDiscoveryError {
+    #[error("failed to discover the installed KAT SDK")]
+    Sdk {
+        #[source]
+        source: Box<crate::sdk::SdkError>,
+    },
     #[error("failed to read default PACK search directory {path}")]
     ReadSearchDirectory {
         path: PathBuf,

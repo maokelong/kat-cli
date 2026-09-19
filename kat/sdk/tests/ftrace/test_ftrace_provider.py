@@ -3,8 +3,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from kat.dataprovider import ftrace as provider_module
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers import ftrace as provider_module
+from kat_sdk.providers.ftrace import FtraceProvider
 from kat_datasource import text_ftrace
 
 from kat import dataprovider as dp
@@ -205,7 +205,7 @@ def test_query_provider_failure_keeps_the_materialized_catalog(monkeypatch, tmp_
         raise RuntimeError("query provider failed")
 
     monkeypatch.setattr(text_ftrace, "decode", convert)
-    monkeypatch.setattr(provider_module._fusion, "DataFusionProvider", reject_catalog)
+    monkeypatch.setattr(provider_module.dp, "DataFusionProvider", reject_catalog)
 
     with pytest.raises(RuntimeError, match="query provider failed"):
         FtraceProvider(**_arguments(tmp_path))

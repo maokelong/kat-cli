@@ -39,22 +39,29 @@ cargo build --release -p kat-cli
 ```
 
 该命令只生成 Rust 二进制，不装配相邻 Python Host。Cargo 输出可以用于编译检查和
-不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect workflow`、
+不依赖 Workflow Host 的开发验证，但不能直接执行 `kat inspect`、`kat inspect workflow`、
 `kat inspect provider` 或 `kat run`。
 仅做 Rust 开发时使用 `cargo test -p kat-cli`；需要执行 Workflow 的调用必须满足
 下述运行前提。
 
 ## 运行前提
 
-`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
+`kat inspect`、`kat inspect workflow`、`kat inspect provider` 和 `kat run` 需要带有相邻 Python Host 的完整 KAT Skills
 deployment；任意 Cargo 输出目录中的 Rust 二进制不能直接执行它们。CLI 只从相邻的
 `python` 目录启动 `_kat_runtime`，不会回退到系统 Python 或从环境变量寻找另一套 Host。
-PACK 可以来自内置目录、平台数据目录或显式的 `--pack-dir`。
+PACK 可以来自内置目录、平台数据目录、显式的 `--pack-dir`，或当前 KAT Python 中安装的官方 SDK 根。
 
 私有 Python Host 同时安装两个边界独立、版本一致的 wheel：纯 Python
 `kat-workflow` 提供顶层 `kat` Pack Authoring API 和 `_kat_runtime`，平台原生
 `kat-datasource` 提供 `kat_datasource.hitrace`。两个 distribution 互不依赖，也都不是
 可单独下载、混装或兼容的公共 SDK；Platform Payload 将它们与 CLI 一起原子交付。
+
+另有独立版本的 `kat-sdk` 提供具体公共 Provider、Workflow、普通 Python 函数与随包知识。
+源码位于 [`kat/sdk`](kat/sdk/README.md)，导入 namespace 为 `kat_sdk`；它使用框架 API，
+不包含 Runtime。当前新基线从 `0.1.1-rc.13` 开始接入 SDK，SDK 初版为 `0.1.0`。
+公共 PACK 自动进入发现范围，公共 Provider 仍由 `kat inspect provider` 单独发现；
+普通函数通过 Python import 使用，AI 从随包 `knowledge/index.md` 查找方法说明。
+经过兼容验证的 SDK wheel 可通过当前 KAT Python 的 pip 单独升级。
 
 完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循
 [ADR-0002](docs/adr/0002-skill-and-runtime-ship-atomically.md)。两个原生 payload 只是发布流水线的
@@ -76,7 +83,7 @@ workflow 上发布新的 canonical prerelease，完成真实 host → announce �
 stable promotion。
 符合合同的 stable 或
 prerelease tag 会触发 Linux/Windows payload 构建、Skills 集合装配、SHA-256 校验和与
-GitHub Release；prerelease 不得成为 Latest。Release 的用户可安装资产只有
+GitHub Release；prerelease 不得成为 Latest。KAT Skills Release 的用户可安装资产只有
 `kat-skill-<version>.tar.gz` 及其校验文件。固定的 `dist 0.32` 不能在发布计划中登记自定义
 global job 生成的 opaque Skill，且其 `dist-manifest.json` 会声明未公开的原生 payload
 归档；生成流水线因此在 `post-announce` 阶段校验最终资产和 SHA-256，再从 Release 删除该
@@ -100,6 +107,8 @@ dist plan
 
 PR 中生成的 Release workflow 同样会运行固定版本的 `dist plan`；`dist 0.32` 会在该命令
 开始时拒绝过期或被手改的生成 workflow，不另建一套 YAML 同步门禁。
+
+官方 SDK 独立产物通过 `build/build_sdk_wheel.py` 构建，`SDK CI` 用同一 wheel 做双平台安装和升级验收；SDK Release 的候选 wheel 与 SHA256 不进入 KAT Skills Release 的资产清理流程。具体构建、验证和发布步骤见 [SDK 维护说明](kat/sdk/README.md)。
 
 仓库不提交 payload、完整 Skills 部署、wheel 或其他构建产物。
 
@@ -127,7 +136,7 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 
 以下命令只适用于满足上述拓扑的完整 KAT Skills deployment：
 
-- `kat inspect`：只读取 manifest，发现 PACK。
+- `kat inspect`：定位已安装 SDK 并读取候选 manifest，发现 PACK，不导入业务模块。
 - `kat inspect workflow`：发现或读取 Workflow 分析知识。
 - `kat inspect provider`：发现或读取 Provider 开发知识。
 - `kat inspect session`：按已知 Session ID 列出其中已发布 Run 的公开 inventory。

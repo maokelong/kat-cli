@@ -37,6 +37,9 @@ _Avoid_: Built-in PACK、System PACK
 **External PACK**:
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
+**KAT SDK**:
+由官方独立版本化的具体公共 Provider、Workflow、普通 Python 函数及其知识，导入命名空间为 `kat_sdk`。SDK 根作为一个公共 PACK 被当前 KAT 发现；公共函数由 Python 直接调用、通过随包知识导航了解用法。框架执行能力与标准表类型不属于 SDK。
+
 **Pack Authoring API**:
 KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。
 _Avoid_: Python SDK、Pack API
@@ -93,13 +96,13 @@ Workflow arguments 经选定 Workflow 的约束解析后得到的具名、带类
 _Avoid_: Source executor、KAT Provider facade
 
 **Public Datasource Provider**:
-由 KAT 平台统一维护实现、声明和公共来源知识，供所有 PACK 直接使用的 Datasource Provider。它的发现与使用不依附于某个 PACK 的来源声明，消费方无需重复维护公共来源知识。
+由 KAT SDK 统一交付实现、声明和公共来源知识，供所有 PACK 直接使用的 Datasource Provider。它的发现与使用不依附于某个 PACK 的来源声明，消费方无需重复维护公共来源知识。
 
 **Provider guide**:
-Provider declaration 必须引用、由该 Provider 所有者维护的来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。公共 Datasource Provider 的 guide 由平台维护，PACK 自有 Provider 的 guide 由 PACK 维护；它服务 PACK 开发，不是 Workflow 分析策略。
+Provider declaration 必须引用、由该 Provider 所有者维护的来源知识，说明 Source query 方言、relation、Schema、接入限制与诊断方式。公共 Datasource Provider 的 guide 由平台维护，PACK 自有 Provider 的 guide 由 PACK 维护；它服务各领域理解和使用来源，不是 Workflow 分析策略。
 
 **Data Provider Toolkit**:
-KAT 通过 `kat.dataprovider` 向 PACK 作者提供的标准表数据工具与公共 Datasource Provider，涵盖 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力。它不统一接管 PACK 自有 Provider 的来源语义或生命周期。
+KAT 通过 `kat.dataprovider` 向 PACK 作者提供的标准表数据工具，涵盖 Datasource Schema、单表数据、Parquet Catalog 和本地 Fusion query 能力。它不统一接管 PACK 自有 Provider 的来源语义或生命周期。
 
 **Datasource Schema**:
 PACK 通过 `dp.Schema` 保存的一个 Datasource Provider 可产生的一组具名逻辑表及其列约束，规定自定义解析代码准备形成的多表事实结构。声明使用普通嵌套 Mapping 和基础 Python 类型；它是 Provider 产出事实的逻辑合同，也是 `dp.write()` 创建一次 Datasource 流式写事务时唯一需要的结构声明，但不是 Database 定义或打开既有 Parquet 时必须提供的持久化 Schema。

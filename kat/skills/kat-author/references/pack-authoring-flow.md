@@ -65,7 +65,7 @@ Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect P
 ```python
 from pathlib import Path
 
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers.ftrace import FtraceProvider
 
 provider = FtraceProvider(
     source=Path(trace_path),
@@ -82,7 +82,7 @@ Trace Streamer 选择 `trace-streamer-sqlite`，读取 detail 后直接使用公
 ```python
 from pathlib import Path
 
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 
 provider = TraceStreamerProvider(
     source=Path(source_path), executable=Path(parser_path),

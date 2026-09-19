@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 公共能力的交付位置与 SDK 发现来源已由 [ADR-0085](0085-official-capabilities-ship-as-an-independent-sdk.md) 局部修订；其余边界继续有效。
+
 # PACK 发现要求静态清单
 
 每个 PACK 必须提供 `pack.toml`。第一版清单恰好由根级 `name`、`title`、`description` 和 `owner` 四个非空 string 组成，不增加 `[pack]` 包装；任何未知 key 或 TOML table 都直接失败。CLI 对三个展示字段使用 Rust 标准库 `str::trim()` 去掉外层 Unicode whitespace，清理后为空则 manifest 非法，无目标 inspect 返回的 PACK list 与目标 PACK object 使用清理后的文本；内部空白与换行保留。机器身份 `name` 不参与该规范化，仍按自身语法精确校验。文件本身已经表达 PACK 作用域，额外 table 只会增加作者层级；严格字段集合则能把拼写错误立即暴露为诊断，而不是静默形成缺失或无效元数据。

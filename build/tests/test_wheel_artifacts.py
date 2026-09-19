@@ -73,7 +73,29 @@ def write_datasource_wheel(
         )
 
 
+def write_sdk_wheel(path: Path, version: str = "0.1.0") -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        for name in ("__init__.py", "providers/__init__.py"):
+            archive.writestr(f"kat_sdk/{name}", "")
+        archive.writestr("kat_sdk/pack.toml", 'name="kat-sdk"\ntitle="SDK"\ndescription="Official capabilities"\nowner="KAT"\n')
+        archive.writestr("kat_sdk/knowledge/index.md", "# SDK knowledge\n")
+        archive.writestr(f"kat_sdk-{version}.dist-info/METADATA", f"Metadata-Version: 2.4\nName: kat-sdk\nVersion: {version}\n")
+        archive.writestr(f"kat_sdk-{version}.dist-info/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+
+
 class WheelArtifactTests(unittest.TestCase):
+    def test_sdk_artifact_has_its_own_version_and_checksum(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = Path(directory) / "kat_sdk-0.1.0-py3-none-any.whl"
+            write_sdk_wheel(wheel)
+            digest = payload_builder.file_sha256(wheel)
+            artifact = payload_builder.WheelArtifactInput(wheel, "0.1.0", digest)
+            self.assertEqual(payload_builder.validated_sdk_wheel(artifact), wheel.resolve())
+            with self.assertRaisesRegex(ValueError, "version mismatch"):
+                payload_builder.validated_sdk_wheel(payload_builder.WheelArtifactInput(wheel, "0.2.0", digest))
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                payload_builder.validated_sdk_wheel(payload_builder.WheelArtifactInput(wheel, "0.1.0", "0" * 64))
+
     def test_wheel_validation_has_no_implicit_path_or_sidecar_fallback(self) -> None:
         with self.assertRaisesRegex(TypeError, "WheelArtifactInput"):
             payload_builder.validated_workflow_wheel(Path("workflow.whl"))
@@ -254,12 +276,18 @@ class WheelArtifactTests(unittest.TestCase):
         self.assertIn("version('kat-workflow')", script)
         self.assertIn("find_spec('kat_datasource')", script)
 
-    def test_platform_builders_require_two_explicit_wheel_artifacts(self) -> None:
+    def test_platform_builders_require_three_explicit_wheel_artifacts(self) -> None:
         digest = "a" * 64
         for module in (build_linux_payload, build_windows_payload):
             with self.subTest(platform=module.PLATFORM):
                 options = module.parse_args(
                     [
+                        "--sdk-wheel",
+                        "sdk.whl",
+                        "--sdk-wheel-version",
+                        "0.1.0",
+                        "--sdk-wheel-sha256",
+                        digest,
                         "--workflow-wheel",
                         "workflow.whl",
                         "--workflow-wheel-version",
@@ -275,6 +303,10 @@ class WheelArtifactTests(unittest.TestCase):
                     ]
                 )
 
+                self.assertEqual(
+                    options.sdk_wheel,
+                    payload_builder.WheelArtifactInput(Path("sdk.whl"), "0.1.0", digest),
+                )
                 self.assertEqual(
                     options.workflow_wheel,
                     payload_builder.WheelArtifactInput(
@@ -298,6 +330,8 @@ class WheelArtifactTests(unittest.TestCase):
             )
             write_workflow_wheel(workflow)
             write_datasource_wheel(datasource)
+            sdk = root / "kat_sdk-0.1.0-py3-none-any.whl"
+            write_sdk_wheel(sdk)
             repository = root / "repository"
             repository.mkdir()
             options = mock.Mock(
@@ -313,6 +347,9 @@ class WheelArtifactTests(unittest.TestCase):
                     datasource,
                     "0.1.1rc1",
                     "0" * 64,
+                ),
+                sdk_wheel=payload_builder.WheelArtifactInput(
+                    sdk, "0.1.0", payload_builder.file_sha256(sdk)
                 ),
                 wheelhouse=None,
                 python_archive=None,

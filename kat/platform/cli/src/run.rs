@@ -154,7 +154,7 @@ fn execute_allocated_run(
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: arguments.pack_directories,
     };
-    let discovered = match pack_discovery::discover(discovery_paths.clone()) {
+    let discovered = match crate::sdk::discover(discovery_paths.clone()) {
         Ok(discovered) => discovered,
         Err(source) => {
             return execution::RunFailure::before_runtime(

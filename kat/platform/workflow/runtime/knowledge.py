@@ -17,7 +17,7 @@ def read_public_provider_guide(reference: str) -> str:
         raise ValueError(
             "Public Provider guide must be relative to knowledge/providers/"
         )
-    target = files("kat.dataprovider").joinpath("knowledge", *relative.parts)
+    target = files("kat_sdk").joinpath("knowledge", *relative.parts)
     if not target.is_file():
         raise ValueError(
             f"Public Provider guide is missing from the installation: {reference}"

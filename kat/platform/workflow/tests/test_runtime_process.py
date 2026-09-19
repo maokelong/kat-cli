@@ -229,7 +229,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(response["status"], "success", response)
         provider = response["result"]["provider"]
-        self.assertEqual(provider["module"], "kat.dataprovider.trace_streamer")
+        self.assertEqual(provider["module"], "kat_sdk.providers.trace_streamer")
         self.assertEqual(provider["qualname"], "TraceStreamerProvider")
         self.assertIn("sched_slice", provider["guide"])
         self.assertNotIn("TraceStreamerProvider(", provider["guide"])
@@ -591,7 +591,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         self.assertEqual(response["status"], "success", response)
         provider = response["result"]["provider"]
-        self.assertEqual(provider["module"], "kat.dataprovider.ftrace")
+        self.assertEqual(provider["module"], "kat_sdk.providers.ftrace")
         self.assertEqual(provider["qualname"], "FtraceProvider")
         self.assertIn("text_ftrace_event_sched_switch", provider["guide"])
         self.assertIn("clock_domain", provider["guide"])
@@ -651,7 +651,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         )
         (pack / "datasources" / "custom.py").write_text(
             "from kat import provider\n"
-            "from kat.dataprovider.ftrace import FtraceProvider\n"
+            "from kat_sdk.providers.ftrace import FtraceProvider\n"
             "@provider(name='ftrace-text', description='PACK source', guide='providers/custom.md')\n"
             "class CustomProvider:\n"
             "    def __init__(self):\n"
@@ -671,7 +671,7 @@ def analyze(ctx: Context, *, limit: int = 10):
             response["result"]["provider"]["guide"], "# PACK-owned source\n"
         )
         (pack / "datasources" / "custom.py").write_text(
-            "from kat.dataprovider.ftrace import FtraceProvider\n", encoding="utf-8"
+            "from kat_sdk.providers.ftrace import FtraceProvider\n", encoding="utf-8"
         )
         _, response = self.run_runtime({**request, "provider_name": None})
         self.assertEqual(response["result"], {"providers": []})
@@ -711,7 +711,7 @@ def analyze(ctx: Context, *, limit: int = 10):
             ProviderInspectionError,
             inspect_provider,
         )
-        from kat.dataprovider.ftrace import FtraceProvider
+        from kat_sdk.providers.ftrace import FtraceProvider
 
         with mock.patch.object(
             FtraceProvider, "__init__", side_effect=AssertionError("constructed")

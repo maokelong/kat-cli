@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 from kat.pack.workflows import summarize_native_hook as summary
 
 

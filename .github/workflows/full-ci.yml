@@ -89,6 +89,22 @@ jobs:
           python -c "import glob, subprocess, sys; wheel = glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-index', '--find-links', 'target/workflow-wheel', wheel])"
           python -c "import glob, os, sys; from pathlib import Path; wheel = Path(glob.glob('target/workflow-wheel/kat_workflow-*.whl')[0]).resolve(); open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write(f'KAT_TEST_PYTHON={sys.executable}\nKAT_TEST_WORKFLOW_WHEEL={wheel}\n')"
 
+      - name: Build and install SDK and native Datasource
+        shell: bash
+        run: |
+          python -m pip install build==1.6.1 maturin==1.15.0
+          python -m pip wheel --no-deps --wheel-dir target/workflow-wheel ./kat/platform/datasource
+          python build/build_sdk_wheel.py --output target/sdk-wheel
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          sdk = next(Path("target/sdk-wheel").glob("*.whl")).resolve()
+          native = next(Path("target/workflow-wheel").glob("kat_datasource-*.whl")).resolve()
+          subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", str(sdk), str(native)], check=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              stream.write(f"KAT_TEST_SDK_WHEEL={sdk}\nKAT_TEST_DATASOURCE_WHEEL={native}\n")
+          PY
+
       - name: Test
         if: runner.os != 'Linux'
         run: cargo test --workspace --locked
@@ -108,5 +124,15 @@ jobs:
           cargo test --locked -p kat-cli --test run_finalization scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs -- --ignored --exact
           cargo test --locked -p kat-cli --test test test_uses_real_installed_workflow_host_end_to_end -- --ignored --exact
 
-      - name: Test Workflow Host
-        run: python -I -B -m unittest discover -s kat/platform/workflow/tests
+      - name: Test Workflow Host and SDK
+        run: python -I -B -m pytest kat/platform/workflow/tests kat/sdk/tests
+
+      - name: Verify installed SDK and independent upgrade
+        shell: bash
+        run: |
+          cli=target/debug/kat
+          if [ "$RUNNER_OS" = "Windows" ]; then cli=target/debug/kat.exe; fi
+          python build/verify_sdk_install.py --kat "$cli" \
+            --workflow-wheel "$KAT_TEST_WORKFLOW_WHEEL" \
+            --datasource-wheel "$KAT_TEST_DATASOURCE_WHEEL" \
+            --sdk-wheel "$KAT_TEST_SDK_WHEEL" --output target/sdk-verification

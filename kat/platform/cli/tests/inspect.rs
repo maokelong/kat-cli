@@ -38,6 +38,11 @@ use std::{env, fs, io::{self, Write}, process};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.get(4).map(String::as_str) == Some("-c") {
+        let location = std::env::current_exe().unwrap().parent().unwrap().join("sdk-fixture");
+        print!("{:?}", location.to_str().unwrap());
+        return;
+    }
     let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
     if arguments.len() != 11
         || arguments[..8] != fixed
@@ -341,6 +346,11 @@ use std::{env, fs, process};
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.get(4).map(String::as_str) == Some("-c") {
+        let location = std::env::current_exe().unwrap().parent().unwrap().join("sdk-fixture");
+        print!("{:?}", location.to_str().unwrap());
+        return;
+    }
     let fixed = ["-I", "-B", "-X", "utf8", "-u", "-m", "_kat_runtime", "--request"];
     if arguments.len() != 11
         || arguments[..8] != fixed
@@ -680,7 +690,7 @@ fn targeted_knowledge_inspection_runs_the_real_installed_host() {
             let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
             if selected.is_some() {
                 let provider = &response["result"]["provider"];
-                assert_eq!(provider["module"], "kat.dataprovider.ftrace");
+                assert_eq!(provider["module"], "kat_sdk.providers.ftrace");
                 assert_eq!(provider["qualname"], "FtraceProvider");
                 assert!(
                     provider["guide"]
@@ -1131,12 +1141,12 @@ fn inspect_lists_all_packs_from_a_moved_skill_and_arbitrary_cwd() {
     #[cfg(not(windows))]
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"alpha\",\"title\":\"alpha\",\"description\":\"External description\",\"owner\":\"Test Team\"},{\"name\":\"bravo\",\"title\":\"bravo\",\"description\":\"Bundled description\",\"owner\":\"Test Team\"},{\"name\":\"charlie\",\"title\":\"charlie\",\"description\":\"Data Home description\",\"owner\":\"Test Team\"}]}}\n"
+        "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"alpha\",\"title\":\"alpha\",\"description\":\"External description\",\"owner\":\"Test Team\"},{\"name\":\"bravo\",\"title\":\"bravo\",\"description\":\"Bundled description\",\"owner\":\"Test Team\"},{\"name\":\"charlie\",\"title\":\"charlie\",\"description\":\"Data Home description\",\"owner\":\"Test Team\"},{\"name\":\"kat-sdk\",\"title\":\"SDK\",\"description\":\"Official SDK fixture\",\"owner\":\"KAT tests\"}]}}\n"
     );
     #[cfg(windows)]
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"alpha\",\"title\":\"alpha\",\"description\":\"External description\",\"owner\":\"Test Team\"},{\"name\":\"bravo\",\"title\":\"bravo\",\"description\":\"Bundled description\",\"owner\":\"Test Team\"}]}}\n"
+        "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"alpha\",\"title\":\"alpha\",\"description\":\"External description\",\"owner\":\"Test Team\"},{\"name\":\"bravo\",\"title\":\"bravo\",\"description\":\"Bundled description\",\"owner\":\"Test Team\"},{\"name\":\"kat-sdk\",\"title\":\"SDK\",\"description\":\"Official SDK fixture\",\"owner\":\"KAT tests\"}]}}\n"
     );
     assert_eq!(
         fs::read_to_string(moved_bundled.join("pack.toml")).unwrap(),
@@ -1280,7 +1290,7 @@ fn invalid_default_pack_search_path_reports_search_specific_help() {
     windows,
     ignore = "requires a clean Windows user profile; full-ci runs it on windows-latest"
 )]
-fn absent_default_directories_are_an_empty_result_and_are_not_created() {
+fn absent_default_directories_leave_only_the_sdk_and_are_not_created() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (skill, binary) = stage_minimum_skill_layout(temporary.path());
     let mut command = Command::new(binary);
@@ -1292,7 +1302,7 @@ fn absent_default_directories_are_an_empty_result_and_are_not_created() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "{\"status\":\"success\",\"result\":{\"packs\":[]}}\n"
+        "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"kat-sdk\",\"title\":\"SDK\",\"description\":\"Official SDK fixture\",\"owner\":\"KAT tests\"}]}}\n"
     );
     assert!(!skill.join("assets").join("packs").exists());
     #[cfg(not(windows))]
