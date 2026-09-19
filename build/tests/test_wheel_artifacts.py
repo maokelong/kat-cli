@@ -84,6 +84,26 @@ def write_sdk_wheel(path: Path, version: str = "0.1.0") -> None:
 
 
 class WheelArtifactTests(unittest.TestCase):
+    def test_payload_keeps_only_installed_sdk_manifest(self) -> None:
+        for spec, site in (
+            (build_windows_payload.PLATFORM_SPEC, "Lib/site-packages"),
+            (build_linux_payload.PLATFORM_SPEC, "lib/python3.14/site-packages"),
+        ):
+            with self.subTest(platform=spec.key), tempfile.TemporaryDirectory() as directory:
+                payload = Path(directory)
+                manifest = payload / "python" / site / "kat_sdk/pack.toml"
+                manifest.parent.mkdir(parents=True)
+                manifest.write_text('name="kat-sdk"\n', encoding="utf-8")
+                payload_builder.assert_no_build_artifacts(payload, spec)
+                for relative in ("pack.toml", "python/other/pack.toml",
+                                 f"python/{site}/kat_sdk/pyproject.toml"):
+                    leaked = payload / relative
+                    leaked.parent.mkdir(parents=True, exist_ok=True)
+                    leaked.write_text("", encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "source/build/cache"):
+                        payload_builder.assert_no_build_artifacts(payload, spec)
+                    leaked.unlink()
+
     def test_sdk_artifact_has_its_own_version_and_checksum(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             wheel = Path(directory) / "kat_sdk-0.1.0-py3-none-any.whl"

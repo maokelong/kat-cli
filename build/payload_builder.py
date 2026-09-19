@@ -206,14 +206,23 @@ def _metadata_requires(metadata: Any, distribution: str) -> bool:
 
 def assert_no_build_artifacts(payload: Path, spec: PlatformSpec) -> None:
     suffixes = FORBIDDEN_PAYLOAD_SUFFIXES | spec.forbidden_payload_suffixes
+    # SDK 的 manifest 属于运行资源，其余位置仍禁止混入 PACK 源码。
+    sdk_manifests = {
+        directory / "kat_sdk" / "pack.toml"
+        for pattern in spec.site_packages_globs
+        for directory in (payload / "python").glob(pattern)
+    }
     forbidden = [
         path
         for path in payload.rglob("*")
-        if path.name in FORBIDDEN_PAYLOAD_NAMES
-        or path.suffix.casefold() in suffixes
-        or any(
-            path.name.casefold().startswith(prefix.casefold())
-            for prefix in spec.forbidden_payload_prefixes
+        if path not in sdk_manifests
+        and (
+            path.name in FORBIDDEN_PAYLOAD_NAMES
+            or path.suffix.casefold() in suffixes
+            or any(
+                path.name.casefold().startswith(prefix.casefold())
+                for prefix in spec.forbidden_payload_prefixes
+            )
         )
     ]
     if forbidden:

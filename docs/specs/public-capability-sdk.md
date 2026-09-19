@@ -151,7 +151,7 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 | 另行运行五条 real installed Host 测试 | 5 passed：知识读取、组合调用、业务错误传播、scratch 生命周期、PACK 测试 |
 | `python -I -B -m pytest kat/platform/workflow/tests kat/sdk/tests -q` | 209 passed，294 subtests passed |
 | 可选 SDK 修正后重跑 `test_runtime_process.py` | 30 passed，37 subtests passed |
-| `python -m unittest discover -s build/tests` | 88 passed，含静态中文 API 生成、无初始化文件的 Workflow、Guide/链接缺损和手写文档保护 |
+| `python -m unittest discover -s build/tests` | 89 passed，含静态中文 API 生成、无初始化文件的 Workflow、Guide/链接缺损和手写文档保护 |
 | `cargo clippy -p kat-cli --locked --all-targets -- -D warnings` | passed |
 | `cargo fmt --all -- --check`、`git diff --check` | passed |
 | `python -I -B build/verify_release_versions.py` | 0.1.1-rc.13 一致，SDK 版本独立 |
@@ -168,3 +168,9 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代表已用真实外部 Trace Streamer 完成完整 Trace 解码。独立 `SDK CI` 已配置为两平台下载同一候选并校验 SHA256 后验收；`Full CI` 和成套 Payload 构建也已接入 SDK。尚未触发远程 CI，未发布 wheel 或 Release；草稿 PR 为 #297。
 
 可选 SDK 回归：真实隔离环境先不安装 SDK，验证 Skill、Data Home 和显式目录中的 PACK，再安装、升级并卸载 SDK，重复完整基线验证。两次均通过，且 CLI 摘要与框架版本保持不变。Payload 构建可省略全部 SDK 参数；只提供部分 SDK 参数会被拒绝。
+
+## Windows 本地 Release 产物验证
+
+按用户要求生成 `0.1.1-rc.13` Windows 本地预览 ZIP 与 SDK `0.1.0` wheel，未发布远程 Release。使用锁定的 Python 3.14.6 和 Windows 依赖，完整 Payload 构建、PE/DLL 闭包检查与 SDK 自动发现通过。打包时修正了一处残留过滤：仅允许安装目录中的 `kat_sdk/pack.toml`，其他 PACK manifest 与构建文件仍禁止；双平台规则回归包含在 89 项构建测试中。
+
+从最终展开目录运行公共 Ftrace Guide/PACK 消费验收，Ftrace 26 项、TraceStreamer 26 项行为测试与 `pip check` 均通过；ZIP CRC 校验通过。产物及报告位于 `target/release-preview-rc13/`。这是 Windows 单平台本地预览；Linux 和双平台正式 Release CI 仍待验证。
