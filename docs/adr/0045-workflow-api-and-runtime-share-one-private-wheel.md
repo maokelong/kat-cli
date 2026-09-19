@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 公共能力的交付位置与 SDK 发现来源已由 [ADR-0085](0085-official-capabilities-ship-as-an-independent-sdk.md) 局部修订；其余边界继续有效。
+
 # Workflow API 与 Runtime 共用一个私有 wheel
 
 > ADR-0047 进一步明确：该 wheel 提供顶层 `kat` Pack Authoring API，但不提供静态 `kat.pack`；`kat.pack` 由 Runtime 为当前 PACK 动态挂载。本文其余构建与发布决定继续有效。

@@ -318,7 +318,7 @@ class _WriteTransaction:
 
     def _publish(self, staging: Path) -> None:
         try:
-            _rename_no_replace(staging, self._destination)
+            publish_materialization(staging, self._destination)
         except BaseException:
             if not staging.exists() and self._destination.is_dir():
                 self._staging = None
@@ -403,7 +403,12 @@ def _add_note(primary: BaseException, message: str, secondary: BaseException) ->
         pass
 
 
-def _rename_no_replace(source: Path, destination: Path) -> None:
+def publish_materialization(source: Path, destination: Path) -> None:
+    """发布已完成的来源目录，目标已存在时失败且不覆盖。
+
+    source 和 destination 必须位于同一文件系统；调用方负责验证来源
+    完整性及处理竞争中已发布的目标，本函数仅提供框架的发布原语。
+    """
     if os.name == "nt":
         os.rename(source, destination)
         return

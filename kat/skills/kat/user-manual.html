@@ -137,7 +137,7 @@
     <ol>
       <li>从 <a href="https://github.com/maokelong/kat-cli/releases">KAT Releases（联网）</a> 选择一个明确版本，下载同一 Release 的 <code>kat-skill-版本号.tar.gz</code> 和 <code>kat-skill-版本号.tar.gz.sha256</code>。<code>rc</code> 表示预发布候选。</li>
       <li>核对压缩包的 SHA-256 与校验文件一致；不一致时重新获取对应版本，停止安装。</li>
-      <li>解压到一个空目录。解压结束后，应看到四个同级目录，手册位于其中的 <code>kat/user-manual.html</code>。</li>
+      <li>解压到一个空目录。解压结束后，应看到五个同级目录，手册位于其中的 <code>kat/user-manual.html</code>。</li>
     </ol>
     <div class="example"><div class="label">解压后的目录</div><pre tabindex="0"><code>解压目录/
 ├── kat/                 总入口、公共说明和运行环境
@@ -146,7 +146,8 @@
 │   └── scripts/targets/  随包的 Linux 与 Windows 载荷
 ├── kat-analyze/         分析已有数据
 ├── kat-author/          创建和维护 PACK
-└── kat-review/          复核已有分析</code></pre></div>
+├── kat-review/          复核已有分析
+└── dev-sdk/             开发官方 SDK</code></pre></div>
     <p>下列示例中的“版本号”替换为下载文件名中的实际版本。命令仅用于安装；日常操作使用后面的对话示例。</p>
     <div class="example"><div class="label">Linux · 在下载目录中校验和解压</div><pre tabindex="0"><code>version='版本号'
 # 每一步成功后才执行下一步；使用一个尚不存在的目录。
@@ -162,23 +163,23 @@ New-Item -ItemType Directory -Path "kat-unpacked-$version" -ErrorAction Stop
 tar -xzf $archive -C "kat-unpacked-$version"
 if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }</code></pre></div>
     <div class="note caution"><p>归档中的 Linux 载荷含符号链接。解压工具和环境必须支持保留链接及相应文件属性。若 Windows 报符号链接创建失败，应改用具备相应权限或能力的解压环境，再解压到新的空目录；不要忽略错误、只复制 <code>SKILL.md</code> 或混用另一版本的 Python。</p></div>
-    <h3>让 Claude Code 找到四个 Skill</h3>
-    <p>选择一个安装位置，将四个目录一起放进去并保持同级。推荐个人级安装，供本机不同项目使用。</p>
+    <h3>让 Claude Code 找到五个 Skill</h3>
+    <p>选择一个安装位置，将五个目录一起放进去并保持同级。推荐个人级安装，供本机不同项目使用。</p>
     <div class="table-wrap"><table>
-      <thead><tr><th scope="col">范围</th><th scope="col">四目录的共同父目录</th></tr></thead>
+      <thead><tr><th scope="col">范围</th><th scope="col">五目录的共同父目录</th></tr></thead>
       <tbody>
         <tr><td>个人级 · Linux</td><td><code>~/.claude/skills/</code></td></tr>
         <tr><td>个人级 · Windows</td><td><code>%USERPROFILE%\.claude\skills\</code>（文件资源管理器地址栏）；PowerShell 使用 <code>$env:USERPROFILE</code>。</td></tr>
         <tr><td>项目级</td><td><code>项目根目录/.claude/skills/</code>；在该项目内使用 Claude Code。</td></tr>
       </tbody>
     </table></div>
-    <p>最终应存在 <code>skills/kat/SKILL.md</code>、<code>skills/kat-analyze/SKILL.md</code>、<code>skills/kat-author/SKILL.md</code>、<code>skills/kat-review/SKILL.md</code>。不要多套一层 <code>kat-unpacked-版本号</code>。如果目标已存在这四个目录，按<a href="#upgrade">升级步骤</a>处理，避免直接合并。</p>
-    <p>Linux 可使用保留文件属性和链接的 <code>cp -a</code> 复制。Windows 可以在目标四目录均不存在时，把已校验的原压缩包再次用支持符号链接的解压工具解到 skills 目录。保留同一版本的全部内容。</p>
+    <p>最终应存在 <code>skills/kat/SKILL.md</code>、<code>skills/kat-analyze/SKILL.md</code>、<code>skills/kat-author/SKILL.md</code>、<code>skills/kat-review/SKILL.md</code>、<code>skills/dev-sdk/SKILL.md</code>。不要多套一层 <code>kat-unpacked-版本号</code>。如果目标已存在这五个目录，按<a href="#upgrade">升级步骤</a>处理，避免直接合并。</p>
+    <p>Linux 可使用保留文件属性和链接的 <code>cp -a</code> 复制。Windows 可以在目标五目录均不存在时，把已校验的原压缩包再次用支持符号链接的解压工具解到 skills 目录。保留同一版本的全部内容。</p>
     <p>重新打开该项目的 Claude Code 会话，输入下面的内容。只有能发现并调用相应 Skill，才算完成 Claude Code 侧的启用。安装位置规则可参阅 <a href="https://code.claude.com/docs/en/skills">Claude Code 官方 Skills 说明（联网）</a>。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 首次自检</div><pre tabindex="0"><code>/kat 检查安装，并列出可用的 PACK。</code></pre></div>
     <p class="check">应看到：平台与部署是否可用，以及实际发现的 PACK。PACK 列表为空可以是正常结果；下一步提供同事交付的 PACK，或进入开发流程。</p>
     <p>后面的示例统一使用 <code>/kat</code>。你只需说明目标和相关材料，能力选择、执行检查、测试和结果整理由对应 Skill 负责。</p>
-    <details><summary>其他入口（可选）</summary><p>熟悉任务划分后，也可以直接调用 <code>/kat-analyze</code>、<code>/kat-author</code> 或 <code>/kat-review</code>。使用 <code>/kat</code> 时不需要自己选择这些入口。</p></details>
+    <details><summary>其他入口（可选）</summary><p>熟悉任务划分后，也可以直接调用 <code>/kat-analyze</code>、<code>/kat-author</code>、<code>/kat-review</code> 或 <code>/dev-sdk</code>。使用 <code>/kat</code> 时不需要自己选择这些入口。</p></details>
   </section>
 
   <section id="prepare">
@@ -289,7 +290,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
   <section id="maintain">
     <h2><span class="num">09</span>数据、依赖与版本维护</h2>
     <h3 id="data-home">安装目录与 Data Home</h3>
-    <p>四个 Skill 目录保存说明和运行环境。Data Home 保存分析 Session、用户安装的 PACK、日志与查询结果。更新 KAT 时，应保留 Data Home 和另行维护的 PACK 源码。</p>
+    <p>五个 Skill 目录保存说明和运行环境。Data Home 保存分析 Session、用户安装的 PACK、日志与查询结果。更新 KAT 时，应保留 Data Home 和另行维护的 PACK 源码。</p>
     <div class="table-wrap"><table>
       <thead><tr><th scope="col">平台</th><th scope="col">默认数据目录 / 固定配置文件</th></tr></thead>
       <tbody>
@@ -313,8 +314,8 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <h3 id="upgrade">升级 KAT 或更新 PACK</h3>
     <ol>
       <li>记录当前版本、额外安装的库、PACK 位置及需要保留的分析信息。停止使用这套部署的任务。</li>
-      <li>下载并校验新版本，将其解压到新的空目录，核对四个 Skill 与载荷完整。</li>
-      <li>把旧的四个 Skill 目录移到 skills 目录之外留作回退，再把新版本四目录成套放入原位置。不要合并新旧文件；其他 Skill 和 Data Home 保持不动。</li>
+      <li>下载并校验新版本，将其解压到新的空目录，核对五个 Skill 与载荷完整。</li>
+      <li>把旧的五个 Skill 目录移到 skills 目录之外留作回退，再把新版本五目录成套放入原位置。不要合并新旧文件；其他 Skill 和 Data Home 保持不动。</li>
       <li>按交付说明重新安装所需额外 Python 库，重新打开 Claude Code，完成自检、PACK 测试和一次实际分析。</li>
     </ol>
     <p>新版本带来一套干净 Python 环境，不自动保留后来加装的库。KAT 预发布阶段不承诺公共接口和数据布局跨版本兼容；升级前阅读对应 Release 说明。保留旧文件不等于旧版本能读取新版本产生的状态。</p>
@@ -330,7 +331,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <div class="table-wrap"><table>
       <thead><tr><th scope="col">遇到的情况</th><th scope="col">先检查什么</th><th scope="col">下一步</th></tr></thead>
       <tbody>
-        <tr><td>找不到 /kat</td><td>是否位于个人或当前项目的 <code>.claude/skills/kat/SKILL.md</code>，有无多套一层目录。</td><td>成套检查四目录，重新打开该项目会话；提供安装路径和 Claude Code 的实际提示。</td></tr>
+        <tr><td>找不到 /kat</td><td>是否位于个人或当前项目的 <code>.claude/skills/kat/SKILL.md</code>，有无多套一层目录。</td><td>成套检查五目录，重新打开该项目会话；提供安装路径和 Claude Code 的实际提示。</td></tr>
         <tr><td>缺少载荷或 Python</td><td>是否完整解压同一版本，解压时有无符号链接或权限错误。</td><td>校验原包，解到新的空目录。不要用系统 Python、Cargo 输出或另一个版本拼装。</td></tr>
         <tr><td>平台不支持</td><td>KAT 执行所在主机的 OS、架构和 libc，不只是终端所在的桌面。</td><td>使用当前支持的环境，或等待对应平台支持；不要把拒绝当作分析失败结果。</td></tr>
         <tr><td>没有 PACK / 没有匹配 Workflow</td><td>是否提供实际 PACK 根目录，当前能力是否真的覆盖问题。</td><td>获取适配 PACK，或用 <code>/kat</code> 提出创建或扩展 PACK 的需求。</td></tr>

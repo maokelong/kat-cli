@@ -1189,7 +1189,7 @@ fn terminate_test_runtime(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn bundled_python_path() -> Result<PathBuf, RuntimeInfrastructureError> {
+pub(crate) fn bundled_python_path() -> Result<PathBuf, RuntimeInfrastructureError> {
     let executable =
         std::env::current_exe().map_err(RuntimeInfrastructureError::CurrentExecutable)?;
     let payload = executable

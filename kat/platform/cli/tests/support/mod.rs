@@ -18,6 +18,7 @@ pub fn stage_skill(root: &Path, directory_name: &str) -> (PathBuf, PathBuf) {
     fs::write(skill.join("SKILL.md"), "# KAT\n").expect("write Skill marker");
     let binary = payload.join(platform_binary());
     fs::copy(cargo_kat(), &binary).expect("copy kat into Skill");
+    stage_sdk_locator(&binary);
     (skill, binary)
 }
 
@@ -104,6 +105,11 @@ fn prepare_real_host_payload(payload: &Path, python: &Path, workflow_wheel: &Pat
                 .expect("Workflow wheel belongs to a wheelhouse"),
         )
         .arg(workflow_wheel)
+        .arg(std::env::var_os("KAT_TEST_SDK_WHEEL").expect("SDK wheel from current checkout"))
+        .arg(
+            std::env::var_os("KAT_TEST_DATASOURCE_WHEEL")
+                .expect("Datasource wheel from current checkout"),
+        )
         .output()
         .expect("install Workflow Host wheel");
     assert!(
@@ -118,4 +124,46 @@ fn prepare_real_host_payload(payload: &Path, python: &Path, workflow_wheel: &Pat
         fs::create_dir_all(host.parent().unwrap()).expect("create real Host directory");
         fs::copy(environment_python, host).expect("stage real Windows Host executable");
     }
+}
+
+fn stage_sdk_locator(binary: &Path) {
+    use std::sync::OnceLock;
+    static LOCATOR: OnceLock<Vec<u8>> = OnceLock::new();
+    let bytes = LOCATOR.get_or_init(|| {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("locator.rs");
+        let executable = temporary.path().join("locator.exe");
+        fs::write(&source, include_str!("sdk_locator.rs")).unwrap();
+        let output = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+            .arg(source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::read(executable).unwrap()
+    });
+    let host = host_path(binary);
+    fs::create_dir_all(host.parent().unwrap()).unwrap();
+    fs::write(&host, bytes).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&host, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let sdk = host.parent().unwrap().join("sdk-fixture");
+    fs::create_dir_all(&sdk).unwrap();
+    fs::write(
+        sdk.join("pack.toml"),
+        r#"name = "kat-sdk"
+title = "SDK"
+description = "Official SDK fixture"
+owner = "KAT tests"
+"#,
+    )
+    .unwrap();
 }

@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 公共能力的交付位置与 SDK 发现来源已由 [ADR-0085](0085-official-capabilities-ship-as-an-independent-sdk.md) 局部修订；其余边界继续有效。
+
 # 公共 Datasource Provider 的实现与来源知识由平台共同拥有
 
 多个 PACK 复用文本 Ftrace 时，只有公共实现仍会让来源发现依赖某个 PACK，并迫使消费方维护重复的声明与来源 guide。KAT 在 `kat.dataprovider` 提供公共 FtraceProvider，并由平台共同维护其 `@kat.provider(name=..., description=..., guide=...)` 声明与公共来源 guide；作者无需先选中 PACK 即可发现其声明、导入位置与来源知识，消费 PACK 无需创建 `datasources/` 薄声明或复制 guide。
