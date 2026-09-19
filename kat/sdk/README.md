@@ -24,8 +24,8 @@ python build/verify_sdk_install.py --kat <当前源码构建的CLI> --workflow-w
 
 Provider 与 libraries 模块通过 `__all__` 列出公开接口。Provider 的公开类声明名称、用途和 Guide，模块加入根模块的 `PROVIDER_MODULES`。实现通过框架公开 API 复用表工具；知识在 `knowledge/providers/`。
 
-公共 Workflow 直接位于 SDK 根下的 `workflows/`，可以按领域分目录。每个入口自己定义一个 `@kat.workflow`，目录中不用 `__init__.py`；公共身份由装饰器声明，跨 Workflow 复用通过框架调用。不要把示例自动发布为正式能力。
+公共 Workflow 直接位于 SDK 根下的 `workflows/`，按领域分目录。每个入口自己定义一个 `@kat.workflow`，目录中不用 `__init__.py`；公共身份由装饰器声明，跨 Workflow 复用通过框架调用。不要把示例自动发布为正式能力。
 
-公共函数是 `libraries/` 中的普通 Python 模块，不注册为 KAT 能力。新增 Python package 同步加入标准打包配置。API 参数与返回类型写注解，单位、限制、异常和示例写 docstring；构建为公开模块生成 `knowledge/<类别>/<模块>.api.md`。手写 Guide、教程和首页链接使用其他文件名，避免覆盖生成文件。
+公共函数是 `libraries/<领域>/` 中的普通 Python 模块，不注册为 KAT 能力。公共库的父包、领域包设置 `__init__.py`，并在 `pyproject.toml` 的 packages 中显式登记（如 `kat_sdk.libraries`、`kat_sdk.libraries.memory`）。API 参数与返回类型写注解，单位、限制、异常和示例写 docstring；构建为公开模块生成 `knowledge/<类别>/<模块相对路径>.api.md`。手写 Guide、教程和首页链接使用其他文件名，避免覆盖生成文件。
 
 安装后的知识入口为 `kat_sdk/knowledge/index.md`，用 KAT 当前 Python 的 `importlib.resources.files("kat_sdk")` 定位，按相对链接读取当前版本。详细契约见仓库 `docs/specs/public-capability-sdk.md`。

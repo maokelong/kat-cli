@@ -32,13 +32,14 @@ def fixture(repository: Path, work: Path, revision: int) -> Path:
     original = config.read_text(encoding="utf-8")
     version = tomllib.loads(original)["project"]["version"]
     config.write_text(original.replace(f'version = "{version}"', f'version = "{version}+verify{revision}"')
-                      .replace('"kat_sdk.providers"]', '"kat_sdk.providers", "kat_sdk.libraries"]'), encoding="utf-8")
+                      .replace('"kat_sdk.providers"]', '"kat_sdk.providers", "kat_sdk.libraries", "kat_sdk.libraries.verification"]'), encoding="utf-8")
     def write(path: str, text: str) -> None:
         target = sdk / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     write("libraries/__init__.py", "")
-    write("libraries/values.py", f'''__all__ = ["increment"]
+    write("libraries/verification/__init__.py", "")
+    write("libraries/verification/values.py", f'''__all__ = ["increment"]
 
 def increment(value: int) -> int:
     """增加输入整数，用于验证中文、类型注解与实际调用。
@@ -52,19 +53,19 @@ def increment(value: int) -> int:
     workflow = '''import kat
 import pyarrow as pa
 from kat import dataprovider as dp
-from kat_sdk.libraries.values import increment
+from kat_sdk.libraries.verification.values import increment
 
-@kat.workflow(name="sdk-probe", description="SDK verification workflow.", parameters={"value": "Input value"}, guide="workflows/probe.md")
+@kat.workflow(name="sdk-probe", description="SDK verification workflow.", parameters={"value": "Input value"}, guide="workflows/verification/probe.md")
 def probe(ctx: kat.Context, value: int = 40):
     """SDK verification workflow."""
     return dp.Table.from_arrow(pa.table({"value": [increment(value)]}))
 '''
     write("workflows/verification/probe.py", workflow)
-    write("knowledge/workflows/probe.md", f"# SDK probe revision {revision}\n")
+    write("knowledge/workflows/verification/probe.md", f"# SDK probe revision {revision}\n")
     index = sdk / "knowledge/index.md"
-    index.write_text(index.read_text(encoding="utf-8") + "\n- [Verification function](libraries/values.api.md)\n- [Verification Workflow](workflows/probe.md)\n", encoding="utf-8")
+    index.write_text(index.read_text(encoding="utf-8") + "\n- [Verification function](libraries/verification/values.api.md)\n- [Verification Workflow](workflows/verification/probe.md)\n", encoding="utf-8")
     if revision == 1:
-        write("libraries/removed.py", '"""此旧版本文件必须由 pip 在升级时移除。"""\n')
+        write("libraries/verification/removed.py", '"""此旧版本文件必须由 pip 在升级时移除。"""\n')
     else:
         write("providers/probe.py", '''import kat
 __all__ = ["ProbeProvider"]
@@ -253,13 +254,13 @@ def call(ctx: kat.Context):
 ''', encoding="utf-8")
         tested = invoke("test", "--pack-dir", consumer)
         assert tested["result"]["summary"]["passed"] == 1, tested
-        knowledge = (sdk_root / "knowledge/libraries/values.api.md").read_text(encoding="utf-8")
+        knowledge = (sdk_root / "knowledge/libraries/verification/values.api.md").read_text(encoding="utf-8")
         assert "increment(value: int) -> int" in knowledge and "增加输入整数" in knowledge, knowledge
-        assert "libraries/values.api.md" in (sdk_root / "knowledge/index.md").read_text(encoding="utf-8")
-        assert host_run("from kat_sdk.libraries.values import increment; print(increment(40))").strip() == str(40 + revision)
+        assert "libraries/verification/values.api.md" in (sdk_root / "knowledge/index.md").read_text(encoding="utf-8")
+        assert host_run("from kat_sdk.libraries.verification.values import increment; print(increment(40))").strip() == str(40 + revision)
         if revision == 2:
-            assert not (sdk_root / "libraries/removed.py").exists()
-            assert not (sdk_root / "knowledge/libraries/removed.api.md").exists()
+            assert not (sdk_root / "libraries/verification/removed.py").exists()
+            assert not (sdk_root / "knowledge/libraries/verification/removed.api.md").exists()
             detail = invoke("inspect", "provider", "--provider", "sdk-probe")["result"]["provider"]
             assert "revision 2" in detail["guide"]
             assert host_run("from kat_sdk.providers.probe import ProbeProvider; print(ProbeProvider().value())").strip() == "42"

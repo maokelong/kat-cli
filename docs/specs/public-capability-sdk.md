@@ -29,7 +29,7 @@ sdk/
 ├─ pack.toml
 ├─ providers/                 # 具体公共 Provider
 ├─ workflows/                 # 一个公共 PACK 的入口，内部按领域组织
-├─ libraries/                 # 普通公共 Python 模块
+├─ libraries/                 # 普通公共 Python 模块，按领域分目录
 └─ knowledge/
    ├─ index.md
    ├─ providers/
@@ -41,7 +41,7 @@ sdk/
 
 `pack.toml` 沿用现有 `name/title/description/owner` 合同，不添加 SDK 版本、Workflow 列表或依赖字段。PACK 身份由 manifest name 给出，SDK distribution 版本来自标准包元数据；文中命令使用 `<sdk-pack>` 指代实际名称。
 
-`workflows/` 沿用现有声明式入口规则：每个 Python 入口定义自身的一个 Workflow，目录层次只组织源码，不改变显式 Workflow name；不增加 `__init__.py`，不直接 import 其他 Workflow 入口作为复用方式。公共 Provider 和函数从 `kat_sdk.providers`、`kat_sdk.libraries` 导入，跨 Workflow 组合使用 `ctx.run()`。
+`workflows/` 沿用现有声明式入口规则：每个 Python 入口定义自身的一个 Workflow，目录层次只组织源码，不改变显式 Workflow name；不增加 `__init__.py`，不直接 import 其他 Workflow 入口作为复用方式。公共函数源码位于 `libraries/<领域>/<模块>.py`，父包与领域包均设置 `__init__.py` 并显式登记打包配置。Workflow 与公共库知识保留对应领域层级。公共 Provider 从 `kat_sdk.providers` 导入，公共函数从 `kat_sdk.libraries.<领域>.<模块>` 导入，跨 Workflow 组合使用 `ctx.run()`。
 
 ## 框架边界与依赖
 
@@ -174,3 +174,5 @@ Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代
 按用户要求生成 `0.1.1-rc.13` Windows 本地预览 ZIP 与 SDK `0.1.0` wheel，未发布远程 Release。使用锁定的 Python 3.14.6 和 Windows 依赖，完整 Payload 构建、PE/DLL 闭包检查与 SDK 自动发现通过。打包时修正了一处残留过滤：仅允许安装目录中的 `kat_sdk/pack.toml`，其他 PACK manifest 与构建文件仍禁止；双平台规则回归包含在 89 项构建测试中。
 
 从最终展开目录运行公共 Ftrace Guide/PACK 消费验收，Ftrace 26 项、TraceStreamer 26 项行为测试与 `pip check` 均通过；ZIP CRC 校验通过。产物及报告位于 `target/release-preview-rc13/`。这是 Windows 单平台本地预览；Linux 和双平台正式 Release CI 仍待验证。
+
+领域目录验收：公共库测试改为 `libraries/verification/`，Workflow 与知识均保留 `verification/` 领域层。Windows 真实 wheel 安装、嵌套导入、直接/组合调用、API 文档导航、升级清理及卸载后框架回归全部通过；报告为 `target/release-preview-rc13/verification-domain-layout/report.json`。
