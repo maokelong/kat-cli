@@ -6,18 +6,6 @@
 
 ## 目标与非目标
 
-### 本轮调整：统一 helpers 与开发前复用检查
-
-沿用 Issue #296，按用户最新决定将本次 SDK 开发中的公共函数目录、导入命名空间、打包配置、验收 fixture 和文档路径统一为历史 PACK 已采用的 `helpers`；不保留双命名兼容层，不改动无关第三方库术语。SDK 公共函数说明继续随 kat Skill 交付，领域函数说明留在各自 PACK。本文路径统一采用当前命名，历史验收仍只代表当时产物，本轮更名需重新验收。
-
-SDK 与领域 PACK 创建 Workflow、Provider、公共函数前均检查已有同类实现。公共函数服务于 Workflow 和 Provider，因此两者开发前还须检查 SDK 与目标 PACK 的公共函数能否直接复用，按语义、输入输出和限制确认，而非仅比较名称。记录已查范围、复用选择与实际缺口，只实现缺口。
-
-最小切片为命名迁移及三个开发入口的指导修正，不新增业务能力或运行时发现机制。验证包括 SDK 函数与 Workflow 调用、真实 wheel 构建和安装升级、Skill 装配及相对链接，以及本次开发文件中旧路径残留检查；实际结果另行记录。
-
-本轮验证（2026-09-20，Windows x86_64 / CPython 3.14.0）：`python -m unittest discover -s build/tests` 的 90 项测试通过；28 份 Skill Markdown 的相对链接有效；从 `pack-helpers.md` 提取的函数与 Workflow 经真实 `kat test` 验证，2 项通过。真实 SDK wheel 的 helpers 布局检查与 `build/verify_sdk_install.py` 均通过，覆盖公共发现、Provider 行为测试、函数导入、直接及跨 PACK Workflow 调用、两次测试版本安装升级、旧文件清理和卸载后框架回归。框架及 Datasource 为 0.1.1rc13，CLI 与框架版本在升级中保持不变。
-
-候选为 `target/issue-296/helpers-sdk-wheel/kat_sdk-0.1.1-py3-none-any.whl`，SHA256 为 `0853966e8446df1f6a19862d502298aacc2e5d6fb115a861917440b2e20bf8dc`。安装验收报告为 `target/issue-296/helpers-sdk-verified/report.json`，构建与指南验证日志分别为 `target/issue-296/helpers-build-tests.log`、`target/issue-296/helpers-guide-check.log`。首次误用旧 CLI 导致未安装 SDK 的基线失败，更换为配套 rc.13 CLI 后完整重跑通过；Linux 本轮未运行，未发布 Release。
-
 将各领域需要复用的具体 Provider、Workflow 和公共 Python 函数收敛为官方 SDK。用户在 KAT 使用的 Python 环境中通过 pip 安装或升级 wheel；Skill 运行时通过现有 `kat` 命令发现公共 Workflow、Provider 及对应知识，通过 KAT 直接执行或组合调用 Workflow。公共函数由 Python 直接导入，AI 阅读 kat Skill 的公共库 Markdown 了解用法。
 
 SDK 不包含 CLI、Runtime、Context、装饰器、执行协议或另一套表类型。框架提供的 `kat` 作者 API 和 Data Provider Toolkit 继续由框架维护；SDK 使用这些接口。首版只支持官方能力，不建立第三方插件体系、自动在线更新、独立执行宿主或新的公共函数发现命令。源码仓库拆分、PyPI 发布、原生解析器合并、额外 Python/平台支持均不属于本切片。
