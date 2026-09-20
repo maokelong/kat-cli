@@ -66,6 +66,15 @@ Workflow list 用于低成本筛选分析能力；只在选定一个 Workflow �
 
 Workflow list 仍会校验所有声明的 guide。任一 Workflow 导入、声明、重名或 guide 无效都会使本次 inspection 原子失败，不返回部分列表。
 
+为分析显式保存本次实际 Guide 时，在 detail inspection 上增加归档参数：
+
+```text
+kat inspect workflow --pack P --workflow W --archive-to-session S
+kat inspect workflow --session S --run R --archive-to-session S
+```
+
+需要外部 PACK 时仍可提供 `--pack-dir`。归档目标必须已有 Analysis Record；按 Run 定位时两个 Session 必须一致。程序保存本次真实 Guide 字符串或 `null`、PACK/Workflow 身份，原 `result.workflow` 保持不变，并附加 `result.analysis` 回执。执行前可以尚无 Run，之后节点引用材料时核对 Workflow 身份。没有显式归档参数时仍只读取当前知识；恢复历史依据使用下文 `analysis show --material`，不重新读取当前 PACK。
+
 ## 发现和读取 Provider 知识
 
 ```text
@@ -122,7 +131,7 @@ kat inspect session --session <Session ID>
 ## 查询 Workflow 输出
 
 ```text
-kat query --session <Session ID> --run <Run ID> --sql <一条只读 SQL>
+kat query --session <Session ID> --run <Run ID> --sql <一条只读 SQL> [--archive]
 ```
 
 `kat query` 每次在独立 DataFusion Session 中只注册该双 ID 定位 Run 的 `output.*` 与 `information_schema`。优先沿用刚完成的 `kat run` 成功 Response 中的 `result.outputs`；只有双 ID 时，先依次查询实际 relation 与 columns：
@@ -143,7 +152,99 @@ ORDER BY table_name, ordinal_position
 
 随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Workflow inspection 提供分析策略，不替代 Output relation 发现。
 
-成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
+普通查询的成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
+
+`--archive` 要求该 Session 已初始化分析记录；在普通结果外附加 `result.analysis`。程序保存这次实际 SQL、Run 来源、列和原始 NDJSON 文本，不让模型抄写行或重编码数值。探索后需要保存依据时执行更窄的证据 SQL，归档其完整少量结果；这是一份新证据，不保证与先前查询相同。归档失败不返回可恢复材料的成功身份，不能把已完成查询与已保存材料混为一谈。
+
+## 保存和恢复分析
+
+```text
+kat analysis init --session S --file goal.json
+kat analysis show --session S
+kat analysis show --session S --run R
+kat analysis show --session S --material M
+kat analysis update --session S --expected-revision N --file changes.json
+```
+
+这些命令操作已存在 Session 内唯一的 Analysis Record，不创建 Run。`init` 只创建尚不存在的记录，已有记录拒绝覆盖，初始 `revision` 为 1。`--file` 指向 UTF-8 JSON 请求文件；下例的 S/R/G/Q/N 是说明用占位符，实际使用成功 Response 中的完整 Session、Run、材料身份及整数 revision，不能照抄占位值。
+
+`goal.json` 直接保存目标对象：
+
+```json
+{"question":"这个时间范围内出现了什么现象？","scope":"用户指定的来源与时间范围","gaps":[]}
+```
+
+`init`、默认 `show`、`update` 的成功 `result` 包含 `schema_version`、`session_id`、`revision`、`goal`、有序 `nodes`、材料 ID 到元数据的 `materials` 映射和 `report`。概览不展开所有 Guide/NDJSON 正文。`show --run R` 返回 `result.{session_id,revision,node}`；`show --material M` 返回 `result.{session_id,revision,material_id,material}`，其中有保存的原材料。两个选择器互斥；恢复读取不加载当前 PACK。没有记录、损坏或未知格式按 Diagnostic 处理，不当作空分析覆盖。
+
+每个节点只有一个 `run_id`，通过 `report_parent` 指向已选入的真实直接程序父 Run；`null` 挂隐含报告根。同父节点的数组相对顺序就是报告顺序，没有另存的 `tree` 或 `choices`。节点还保存可空 `selection` 与 `interpretation`，前者记录已知 AI 选择依据，后者保存解释及实际依赖。
+
+`changes.json` 的唯一外层字段是 `changes` 数组。可用的领域更新如下；不得提交整份记录或通用 JSON Patch：
+
+| `op` | 字段与含义 |
+|---|---|
+| `set_goal` | `goal:{question,scope,gaps}`；更新同一目标的范围与缺口，独立新目标新建 Session |
+| `select_node` | `run_id,report_parent,before`；选入或移动原节点；`before` 是同父节点的 Run ID，`null` 放末尾；保留原选择依据和解释 |
+| `set_selection` | `run_id,selection`；值为 `null` 或 `{source_runs:[],materials:[],finding,reason,input_sources:{}}`；`input_sources` 按输入名记录来源说明 |
+| `set_interpretation` | `run_id,interpretation:{facts:[],conclusion,scope,limitations:[],guide,evidence:[],uses:[]}`；Guide/证据使用程序返回的材料 ID |
+| `set_report` | `report:{content,uses:[]}`；保存一份综合报告及实际采用的解释引用 |
+
+每个 `uses` 项都是 `{"run_id":"R","interpretation_version":1}`，版本必须来自成功保存的解释。CLI 生成 `interpretation_version`、解释/报告的 `state` 和记录 revision；请求不能自写这些字段、Guide 正文或原始证据。Guide 材料匹配节点 Workflow，证据可来自同 Session 的其他 Run，不强制把材料来源选入报告；`uses` 引用已有节点解释，也允许跨分支引用。AI 选择来源不自动成为解释依赖。
+
+以下三个更新文件按顺序分别提交，每次使用最近读写的 revision；真实结论和证据 ID 必须来自本次分析。
+
+先用 `select.json` 选入一个独立报告节点：
+
+```json
+{"changes":[{"op":"select_node","run_id":"R","report_parent":null,"before":null}]}
+```
+
+运行 `kat analysis update --session S --expected-revision N --file select.json`。程序子节点把 `report_parent` 换为已选入的真实父 Run，CLI 按 Manifest 核对；同一 Run 重挂不复制节点。AI 选择后续根 Run 时可在同批追加 `set_selection`：
+
+```json
+{"changes":[{"op":"set_selection","run_id":"R2","selection":{"source_runs":["R1"],"materials":["Q1"],"finding":"证据 Q1 中记录的发现摘要","reason":"进一步核对该现象","input_sources":{"thread_id":"来自 Q1 的实际 thread_id 值"}}}]}
+```
+
+选入节点并归档实际 Guide G、证据 Q 后，用 `interpretation.json` 保存解释：
+
+```json
+{
+  "changes": [{
+    "op": "set_interpretation",
+    "run_id": "R",
+    "interpretation": {
+      "facts": ["按证据 Q 记录的事实"],
+      "conclusion": "由实际证据支持的局部结论",
+      "scope": "本次查询覆盖的来源、对象和范围",
+      "limitations": [],
+      "guide": "G",
+      "evidence": ["Q"],
+      "uses": []
+    }
+  }]
+}
+```
+
+运行相同的 `analysis update`，替换 JSON 文件名与 revision。需要采用其他节点解释时，将它成功返回的 Run ID/解释版本加入 `uses`；没有自己的表时可以直接采用必要子证据或子解释。未声明 Guide 时仍引用那份记录 `guide=null` 的材料。
+
+从返回节点读取实际 `interpretation_version`，再用 `report.json` 汇总（下例的 1 也须换成真实版本）：
+
+```json
+{"changes":[{"op":"set_report","report":{"content":"回答用户问题的综合报告，包含关键证据、范围与限制。","uses":[{"run_id":"R","interpretation_version":1}]}}]}
+```
+
+`update` 在预期 revision 不一致时拒绝旧写；重新 `show` 核对其他任务的修改后再决定更新，不能仅换成新数字重提。新解释令实际消费者和总报告失效；重排节点使旧总报告失效。`current` 只表示登记依赖有效，不保证文字判断正确。依赖新解释的消费者分次提交：先保存子解释取得版本，再保存父解释，最后报告；同批不得引用这次尚未生成的新版本，也不能让新的消费者使用本批被替换的旧版本。
+
+### 材料归档回执与修订
+
+显式 Guide/query 归档保持原结果并附加以下结构：
+
+```json
+{"analysis":{"session_id":"S","previous_revision":3,"revision":4,"material_id":"M"}}
+```
+
+该片段位于成功 Response 的 `result` 内。材料追加不要求 `--expected-revision`，但会锁住最新记录追加并增加 revision。只有 `previous_revision` 等于 Agent 先前读/写的 revision 时，才能直接接受新 revision；否则先 `analysis show` 并核对变化，再提交解释。新材料尚未被解释采用时，不使旧解释失效，也不自动成为结论依据。
+
+保存成功才承诺本次状态可恢复；损坏不能作为缓存丢弃。保存响应不确定时重新 `show` 检查，不能盲重提、重复归档或重跑 Workflow。普通 query/inspection 不带归档参数时行为不变，材料恢复不依赖 Session 外的查询文件。
 
 ## 删除一个 Session
 
@@ -151,7 +252,7 @@ ORDER BY table_name, ordinal_position
 kat session delete --session <Session ID>
 ```
 
-这是唯一删除入口，会永久删除该 Session 的 Runs、Outputs、materializations 与 scratch。成功 `result` 恰含 `session_id`；删除不创建 Operation log，也不删除 Session 外的既有 Operation logs 或 Query Results。活跃 Run、Query 或 inspection 占用该 Session 时删除立即失败且不修改它。失败后若已进入内部 tombstone，可以用相同命令续删；KAT 不提供单 Run 删除、TTL 或自动 GC。
+这是唯一删除入口，会永久删除该 Session 的 Runs、Outputs、materializations、scratch，以及存在时的 Analysis Record 和归档材料。成功 `result` 恰含 `session_id`；删除不创建 Operation log，也不删除 Session 外的既有 Operation logs 或 Query Results。活跃 Run、Query、inspection 或分析记录读写占用该 Session 时删除立即失败且不修改它。失败后若已进入内部 tombstone，可以用相同命令续删；KAT 不提供单 Run 删除、TTL 或自动 GC。
 
 只有用户明确要求永久删除这个已知 Session 时才调用；分析完成、切换问题或磁盘空间可能不足都不自动构成删除授权。
 

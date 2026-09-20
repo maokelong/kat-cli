@@ -9,7 +9,7 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
-| 分析数据来源、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
+| 分析数据来源、凭 Session ID 恢复报告与依据、继续取证并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
 | 理解、创建、修改、测试或诊断 PACK、Provider、Workflow | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |

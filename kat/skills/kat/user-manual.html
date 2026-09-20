@@ -114,7 +114,7 @@
         <tr><td>KAT Skills</td><td>安装进 Claude Code 的一套能力，共用一套运行环境。日常使用从 <code>/kat</code> 开始。</td></tr>
         <tr><td>PACK</td><td>一个团队维护的一组分析策略。可以由同事提供，也可以让 Claude Code 帮你开发。</td></tr>
         <tr><td>Workflow</td><td>PACK 中回答某个具体问题的执行入口，声明所需输入。完成计算不等于结论已充分得到证据支持。</td></tr>
-        <tr><td>Session / Run</td><td>Session 归集同一次分析；一次成功发布的 Workflow 执行形成一个 Run。继续查询时通常需要同时保存这两个 ID。</td></tr>
+        <tr><td>Session / Run</td><td>Session 归集同一目标的分析和当前报告；一次成功发布的 Workflow 执行形成一个 Run。保存 Session ID 可以恢复已保存的报告与依据，定位具体输出时再使用 Run ID。</td></tr>
       </tbody>
     </table></div>
     <p>KAT 支持哪些数据和问题，取决于当前可用的 Workflow。发布包可能没有业务 PACK；安装成功也不表示已经具备启动耗时、CPU 或内存分析能力。先检查能力；没有匹配时，再决定获取或开发 PACK。</p>
@@ -192,7 +192,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
 
   <section id="analyze">
     <h2><span class="num">04</span>完成分析，读懂结果</h2>
-    <p>发出分析请求后，Claude 会选择适用的 Workflow；如果补问信息，按实际情况回答即可。输入和能力明确后，KAT 执行分析并保留结果，Claude 据此给出结论、证据和限制。</p>
+    <p>发出分析请求后，Claude 会选择适用的 Workflow；如果补问信息，按实际情况回答即可。输入和能力明确后，KAT 执行分析，Claude 按需取证、保存局部解释，再形成一份包含结论、证据和限制的综合报告。</p>
     <h3>拿到报告后，检查四件事</h3>
     <ol>
       <li><strong>有没有回答原问题：</strong>结论对应你提出的现象、对象和时间范围。</li>
@@ -210,10 +210,10 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <div class="example"><div class="label">在 Claude Code 中 · 追问已有结果</div><pre tabindex="0"><code>/kat 从刚才的结果看，【具体问题】？</code></pre></div>
     <p>查询已有输出和重新执行分析是两件事。需要新增计算时，明确要求在已有 Session 内继续；每次执行可能增加新的 Run。</p>
     <h3>换一个对话继续</h3>
-    <p>保存原问题、报告、Session ID、相关 Run ID、PACK 位置及已验证的 KAT 版本。新对话仍须访问原 Data Home 和相关 PACK。只复制两个 ID 到另一台机器，不会带走原来的数据与环境。</p>
+    <p>报告保存成功后，保留 Session ID。新对话访问同一 Data Home，即可恢复已保存的原问题、报告组织、节点解释及当时使用的分析指南和关键证据；不必再提供旧对话或原报告。读取这些归档内容不依赖原 PACK 仍安装。只复制 ID 到另一台机器，不会带走原来的数据。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 恢复已有分析</div><pre tabindex="0"><code>/kat 继续 Session【完整 ID】的分析，帮我确认【新的问题】。</code></pre></div>
-    <p>需要定位某次结果时再附上 Run ID；原报告和 PACK 目录也可以直接提供。已有材料足够时，无需重复填写。</p>
-    <p>只有 Session ID 时，可以查看其中的 Run；只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。PACK 更新后取得的分析指南是当前版本，不是当时的历史快照。</p>
+    <p>需要定位某次结果时再附上 Run ID；需要新计算或新策略时，再使用相应 PACK。已有有效结论可以直接复用，缺少或过期的必要解释按需补齐。后续追问更新当前分析，独立新问题创建新 Session。</p>
+    <p>只有 Session ID 时先恢复分析记录；若该 Session 从未保存记录，仍可查询已有 Run，但不能还原未保存的 AI 结论。只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。重新读取 PACK 得到的是当前指南，采用它形成新判断时会与原归档依据区分。</p>
     <h3>请另一轮分析独立复核报告</h3>
     <div class="example"><div class="label">在 Claude Code 中 · 按需复核</div><pre tabindex="0"><code>/kat 帮我复核【报告路径】。</code></pre></div>
     <p>Claude 会从报告和当前对话取得原问题与证据入口，必要时再向你询问。复核检查现有证据，不重新运行分析或改写原报告；新查询属于本次复核，不能证明原分析当时做过同样的查询。</p>
@@ -320,7 +320,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <p>新版本带来一套干净 Python 环境，不自动保留后来加装的库。KAT 预发布阶段不承诺公共接口和数据布局跨版本兼容；升级前阅读对应 Release 说明。保留旧文件不等于旧版本能读取新版本产生的状态。</p>
     <p>单独更新 PACK 时，停止相关任务，核对同事提供的版本要求，整体替换选定的 PACK 目录并重新验收。不同目录内的同名 PACK 没有自动优先级。</p>
     <h3>删除不再需要的分析</h3>
-    <p>删除以整个 Session 为单位。先保存需要的报告和证据，再明确指定要删除的 Session。此操作永久删除其中的 Runs、输出和共享物化；不提供单个 Run 删除、自动清理或恢复功能。有活动操作时删除会失败，应在操作结束后处理。</p>
+    <p>删除以整个 Session 为单位。先另存需要保留的报告和证据，再明确指定要删除的 Session。此操作永久删除其中的 Runs、输出、共享物化、分析记录和归档依据；不提供单个 Run 删除、自动清理或删除恢复功能。有活动操作时删除会失败，应在操作结束后处理。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 删除指定分析</div><pre tabindex="0"><code>/kat 永久删除 Session【完整 Session ID】。</code></pre></div>
     <p>Session 外的操作日志和查询结果文件不会随之删除。需要进一步清理时，应根据明确的文件位置另行管理，不凭猜测删除整个 Data Home。</p>
   </section>
@@ -337,7 +337,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
         <tr><td>PACK 重名</td><td>Data Home、随包目录和显式目录是否同时发现同名 PACK。</td><td>选定一个发现位置，排除重复；不能靠路径顺序覆盖。</td></tr>
         <tr><td>缺少依赖 / 外部解析器</td><td>PACK 的交付说明、内置环境实际库版本、工具路径及配置。</td><td>按明确缺项补齐，并重新检查、测试和执行。不要把依赖安装成功当作分析完成。</td></tr>
         <tr><td>Data Home 无效</td><td>固定配置文件语法、环境变量、所选路径是否绝对且可访问。</td><td>根据诊断手工修正后重试；不要自动改用另一目录造成分析分散。</td></tr>
-        <tr><td>已有 Run 无法继续</td><td>Session/Run 是否成对、Data Home 是否相同、当前 PACK 和文件是否仍可用。</td><td>提供原报告和已知 ID；资料缺失时标明限制，不猜 ID 或重建历史。</td></tr>
+        <tr><td>已有分析无法继续</td><td>Session ID 和 Data Home 是否正确，是否已保存分析记录；新增取证所需 PACK 和输出是否可用。</td><td>先按 Session ID 恢复已保存内容；缺少记录或材料时说明限制，不猜 ID 或重建历史。</td></tr>
         <tr><td>没有结果表 / 结果为空</td><td>Workflow 的用途、实际输出和需要查看的子 Run。</td><td>依据实际证据解释；不能直接得出“没有问题”。</td></tr>
         <tr><td>测试或运行失败</td><td>具体阶段、错误摘要、KAT 返回的日志或测试报告位置。</td><td>用 <code>/kat</code> 请求诊断或修复，并指出要处理的 PACK。</td></tr>
       </tbody>

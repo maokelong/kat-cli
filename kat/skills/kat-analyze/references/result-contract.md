@@ -6,17 +6,24 @@
 
 按以下顺序交付：
 
-1. 对用户问题的直接结论。
-2. 少量可追溯证据：选中的 PACK/Workflow、Session ID 与 Run ID、Run Output 名称，以及调用方主动约束范围的 Query columns 与 NDJSON 对象行。
-3. 结论的适用范围、假设与不确定性；若使用 `--session ... --run ...` 读取当前 Workflow guide，避免把当前策略声称为历史 Run 的快照。
-4. 基于 Workflow analysis guide 和已有证据形成的可选下一步探索方向。
+1. 一份直接回答用户问题的综合结论，复用仍适用的节点解释；不逐节点交付独立报告或直接拼接 Guide。
+2. 少量可追溯证据：选中的 PACK/Workflow、Session ID 与 Run ID、Run Output 名称，以及实际采用的查询证据和材料引用。处理不同范围、相互矛盾或重叠的证据，不重复计数。
+3. 适用范围、假设与不确定性；区分恢复的原解释与按新 Guide/新证据形成的后续判断。当前 Workflow inspection 不能冒充历史快照。
+4. 当前报告的保存状态及可继续分析的 Session ID；新报告保存成功后才承诺该版本可跨任务恢复，恢复已有有效报告不必再保存一次。
+5. 基于 Guide 和已有证据形成的可选下一步探索方向；证据已经足够时停止。
 
 Workflow guide 指导分析方法，但不是数据证据。不要把 Provider guide、Provider 实现或未执行的 SQL 当作分析结论。
 
+Run 发布、节点解释保存与总报告保存是不同完成点。未解释或失效节点可以作为已保存进展存在，但缺少必需解释时不能声称当前总报告完整有效。CLI 的 `current` 只保证登记依赖未失效，证据充分性和结论强度仍需按问题判断。
+
 ## 需要补充信息
 
-已有 Run 只有 Session ID 与 Run ID 时不属于缺少用户信息：`kat inspect workflow --session ... --run ...` 取得当前 Workflow 知识，`kat query` 的 `information_schema` 取得实际 Output relation 与 columns。只提供 Run ID 时缺少公共地址所需的 Session ID；KAT 不跨 Session 扫描或维护 locator，应请求这一项最小补充信息。只有 Session ID 时可先用 Session inspection 列出其中已发布 Run。
+只有 Session ID 时先用 `analysis show` 恢复已保存目标、报告与依据，不要求用户重述旧对话。明确没有分析记录时，说明仅能查询现存 Run，不能恢复未保存的 AI 分析；目标确实未知时才询问问题。只有 Run ID 且上下文无法确定所属 Session 时，请求这一项最小补充信息，不跨 Session 搜索。
+
+已有 Run 只有双 ID 时也不必询问表结构：需要新增查询时，使用 `information_schema` 发现实际 relation 与 columns；需要新的策略且无适用历史依据时，才 inspection 并归档当前 Guide。
 
 ## 执行失败或受阻
 
-没有匹配 PACK/Workflow、Workflow inspection 的原子失败、来源准入或解码失败、失败 Run 和实际执行失败的 Query 都属于这一状态。说明已确认的能力或执行边界，以及最小下一步；不能把部分输出描述为分析已完成，也不自动转为 PACK 创作或重新执行整个分析。
+没有匹配 PACK/Workflow、Workflow inspection 的原子失败、来源准入或解码失败、失败 Run、失败 Query，以及无法继续的记录损坏或保存失败都属于这一状态。说明已确认事实、最后成功保存的进展与最小下一步；不能把部分输出或未保存报告描述为完整且可恢复。
+
+修订冲突先重读并核对当前状态；保存响应不确定时读取记录确认，不能盲重提解释或重跑 Workflow。明确区分“分析判断已经形成”和“这次保存尚未确认”，保留先前可恢复版本。仍可保存的已知缺口写回当前目标；不自动转为 PACK 创作或独立复核。

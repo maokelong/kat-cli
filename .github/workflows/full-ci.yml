@@ -102,6 +102,7 @@ jobs:
 
       - name: Test real Workflow Host vertical slices
         run: |
+          cargo test --locked -p kat-cli --test analysis_real_host -- --ignored
           cargo test --locked -p kat-cli --test inspect targeted_knowledge_inspection_runs_the_real_installed_host -- --ignored --exact
           cargo test --locked -p kat-cli --test run run_composes_real_installed_workflows_end_to_end -- --ignored --exact
           cargo test --locked -p kat-cli --test run child_business_diagnostic_survives_direct_nested_and_test_execution -- --ignored --exact

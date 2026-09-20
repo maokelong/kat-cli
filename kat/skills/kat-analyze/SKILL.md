@@ -1,11 +1,11 @@
 ---
 name: kat-analyze
-description: 使用 KAT 发现并执行已有 Workflow，查询 Run Output 并回答性能分析问题。适用于新分析、继续已有 Session/Run 或临时组合多个已有 Workflow 取证。
+description: 使用 KAT 发现并执行已有 Workflow，查询证据、保存分析报告，或仅凭 Session ID 恢复报告树与原依据并继续分析。适用于新分析、恢复已有分析或临时组合多个已有 Workflow 取证。
 ---
 
 # KAT Analyze
 
-根据用户问题执行已有分析能力，依据可追溯证据形成结论。
+围绕一个用户问题执行已有分析能力，将所选 Run、解释和原依据保存到该 Session 的 Analysis Record，形成一份可恢复的综合报告。
 
 ## 定位共享部署
 
@@ -15,7 +15,7 @@ description: 使用 KAT 发现并执行已有 Workflow，查询 Run Output 并�
 
 ## 分析与交付
 
-1. 读取 [分析流程](references/analysis-flow.md)，确认问题和新分析或已有 Session/Run 起点，渐进选择 Workflow、执行并查询最少证据。
+1. 读取 [分析流程](references/analysis-flow.md)。已有 Session 先恢复记录，复用仍适用的结论；新分析渐进选择 Workflow，并在取证前建立目标与材料归档边界。
 2. 只从 Workflow 知识发现分析能力，不扫描 Provider，不把输入路径或日志当作成功结果。
 3. 没有匹配 Workflow 时说明已发现的能力边界；未经用户明确授权，不切换到 PACK 创作或修改源码。
-4. 交付前读取 [分析结果契约](references/result-contract.md)，区分事实、推断和不确定性。证据足够即结束，不自动触发 `kat-review`。
+4. 选入 Run、形成选择依据或解释后保存进展；交付前读取 [分析结果契约](references/result-contract.md)，保存总报告并区分事实、推断和不确定性。证据足够即结束，不自动触发 `kat-review`。

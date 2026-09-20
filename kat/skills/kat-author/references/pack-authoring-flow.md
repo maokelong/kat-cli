@@ -235,9 +235,13 @@ Guide 的文件位置与 decorator 路径按第 3 节对应。声明必须指向
 
 List inspection 会校验全部声明及 guide，但只返回 `name`、`description`，不会把所有 Markdown 放进上下文。选中 detail 后，Runtime 才把对应文件按原样读成 Response 的 `guide` 字符串；Agent 直接使用该字段，不自行组合路径或实现 include。Workflow 未声明 guide 时 detail 返回 `null`；Provider guide 始终返回字符串。
 
-Workflow guide 只解释声明它的 Workflow 所发布的 Run，不自动继承、拼接或替代子 Guide。组合父 Guide 如果需要子结论，应明确要求 KAT Skill 沿父 Run 的 `child_runs` 选择相关子 Run，分别使用各子 Run 自己的 Guide 和最少 Output 证据，再回到父级汇总；这是自由 Markdown 指导，不是新的可执行语法。缺省 Guide 表示该 Run 不要求独立解释。
+Workflow guide 只解释声明它的 Workflow 所发布的 Run，不自动继承、拼接或替代子 Guide。父 Guide 应说明自身 Output 的单位、范围、关键限制和足够作结论的条件。需要子结论时，说明哪些子证据支持哪个父判断，以及缺失、矛盾或重叠证据如何影响汇总；引导分析 Skill 沿真实 `child_runs` 选择相关子 Run，分别使用自己的 Guide 和最少证据，再回到父级汇总。父证据足够时不要求解释全部叶子；这是自由 Markdown 指导，不是新的可执行语法。
+
+无输出父 Workflow 要说明如何综合必要子证据，不能把编排成功解释为没有问题。子结果继续遵守各自 Guide 的语义边界，复用同一证据时不要重复计数。缺省 Guide 不要求独立解释，也不需要为保存分析而补占位 Guide、固定章节或独立子报告模板。
 
 Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Session 中形成新的独立根 Run，不会事后加入或修改已经发布的父 `child_runs`。若某个子调用是父结果成立所必需的确定性步骤，必须把它写入父 Workflow 的 Python 控制流，不能依赖 Guide 追认调用关系。
+
+后续取证建议说明目的和参数来源；分析 Skill 将这些选择依据与实际解释保存到 Analysis Record，并归档它实际使用的 Guide。Guide 作者无需给 Markdown 增加记录字段或保存命令，也不让 Python Workflow 写 AI 解释。更新 PACK 不会改写已有 Guide 快照；按新策略分析属于后续更新。
 
 ## 7. Provider inspection 的执行边界
 

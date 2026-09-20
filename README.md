@@ -128,13 +128,14 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 以下命令只适用于满足上述拓扑的完整 KAT Skills deployment：
 
 - `kat inspect`：只读取 manifest，发现 PACK。
-- `kat inspect workflow`：发现或读取 Workflow 分析知识。
+- `kat inspect workflow`：发现或读取 Workflow 分析知识；详情可用 `--archive-to-session` 保存实际 Guide。
 - `kat inspect provider`：发现或读取 Provider 开发知识。
 - `kat inspect session`：按已知 Session ID 列出其中已发布 Run 的公开 inventory。
 - `kat session create`：显式发布一个可以为空的 Analysis Session。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：在必填的已有 `--session` 中原子发布一个 Run。
-- `kat query`：用 Session ID 与 Run ID 只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result。
+- `kat query`：用 Session ID 与 Run ID 只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result；`--archive` 保存关键查询证据。
+- `kat analysis init/show/update`：初始化目标、恢复分析记录，或带预期修订号保存报告树、解释与总报告。
 - `kat session delete`：按已知 Session ID 永久删除整个 Session。
 
 使用外部 PACK 的调用模板如下；`/path/to/example-pack/pack.toml` 的 `name`
@@ -179,7 +180,7 @@ Session/Run identity、PACK、Workflow、有效输入、直接 `child_runs` 和 
 不记录来源物化 provenance。叶子 Run 的 `child_runs` 是空数组。
 
 `kat query` 只接受已发布 Run，并且新建一个 fresh DataFusion Session；其中只注册该 Run
-的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。成功 Response 的
+的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。普通成功 Response 的
 `result` 精确返回 `format`、`path` 和 `columns`：`format` 为 `ndjson`，`path` 指向 Runtime
 直接写出的单个 NDJSON 文件，文件中每行是一个使用查询列名的 JSON object。不存在、
 未发布、双 ID 错配或损坏的 Run，以及非只读或多语句 SQL，都明确失败。调用形状为：
@@ -189,6 +190,7 @@ kat query --session <session-id> --run <run-id> --sql \
   'SELECT * FROM output.main LIMIT 20'
 kat inspect workflow --session <session-id> --run <run-id>
 kat inspect session --session <session-id>
+kat analysis show --session <session-id>
 kat session delete --session <session-id>
 ```
 
@@ -196,9 +198,16 @@ Session inspection 返回按 Run ID 排序的平坦已发布 Run inventory；每
 Outputs，以及按 Run ID 排序但语义无序的直接 `child_runs`，叶子为 `[]`。它允许空
 `runs: []`，不递归嵌入调用树，也不暴露 inputs、materializations、scratch、失败调用、
 执行计划或物理路径。Session delete 是唯一删除入口，会
-永久删除该 Session 的 Runs、Outputs、materializations 与 scratch；活跃操作持有 lease 时
+永久删除该 Session 的 Runs、Outputs、materializations、scratch 和分析记录；活跃操作持有 lease 时
 删除立即失败。它不删除 Session 外的 Operation logs 或 Query Results，也不提供单 Run
 删除、Session list/current、TTL 或自动 GC。
+
+一个 Session 可以初始化一份 Analysis Record，保存一个目标、一份有序 Run 节点集合、原 Guide、
+关键查询原文、节点解释与当前总报告。AI 串联的 Run 通常是报告根下的兄弟节点，程序父子边由
+真实 `child_runs` 核实；`ctx.run()` 执行期间不调用 AI。恢复先用 `analysis show`，不依赖当前
+PACK 或普通查询文件，也不重跑 Workflow。写入比较预期 revision，实际解释依赖改变后标记受影响
+结论为 stale；保存响应不确定时重新读取确认。请求 JSON 和归档修订合同见
+[公共命令说明](kat/skills/kat/references/command-reference.md#保存和恢复分析)。
 
 这是 `0.1` 阶段的破坏性布局切换。新版本不读取、扫描、迁移或删除旧的 Data Home 顶层
 `runs/` 与 PACK datasource roots；切换 Data Home 后，原 Session 地址在新 Data Home 中

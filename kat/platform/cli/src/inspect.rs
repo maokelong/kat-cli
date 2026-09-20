@@ -56,6 +56,9 @@ struct InspectWorkflowArgs {
         conflicts_with = "pack"
     )]
     session: Option<String>,
+    /// Archive this Workflow detail's Guide in an existing Analysis Record.
+    #[arg(long, value_name = "SESSION_ID")]
+    archive_to_session: Option<String>,
     #[arg(
         long = "pack-dir",
         value_name = "DIRECTORY",
@@ -104,11 +107,13 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             workflow,
             run: None,
             session: None,
+            archive_to_session,
             pack_directories,
         })) => response::publish(super::inspect_target_pack(
             pack,
             joined_pack_directories(arguments.pack_directories, pack_directories),
             super::InspectKnowledgeTarget::Workflow(workflow),
+            archive_to_session,
         )),
         Some(InspectTarget::Provider(InspectProviderArgs {
             pack: Some(pack),
@@ -118,6 +123,7 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             pack,
             joined_pack_directories(arguments.pack_directories, pack_directories),
             super::InspectKnowledgeTarget::Provider(provider),
+            None,
         )),
         Some(InspectTarget::Provider(InspectProviderArgs {
             pack: None,
@@ -133,10 +139,12 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             session: Some(session),
             pack_directories,
             workflow: _,
+            archive_to_session,
         })) => response::publish(super::inspect_run_workflow(
             session,
             run,
             joined_pack_directories(arguments.pack_directories, pack_directories),
+            archive_to_session.is_some(),
         )),
         Some(InspectTarget::Workflow(_)) => {
             unreachable!("clap guarantees exactly one Workflow inspection source")
@@ -153,6 +161,28 @@ fn joined_pack_directories(
 }
 
 fn validate_arguments(arguments: &InspectArgs) -> Result<(), miette::Report> {
+    if let Some(InspectTarget::Workflow(InspectWorkflowArgs {
+        workflow,
+        run,
+        session,
+        archive_to_session: Some(archive_session),
+        ..
+    })) = &arguments.target
+    {
+        if workflow.is_none() && run.is_none() {
+            return Err(miette::miette!(
+                "--archive-to-session requires Workflow detail: --workflow or --session with --run"
+            ));
+        }
+        if session
+            .as_ref()
+            .is_some_and(|session| session != archive_session)
+        {
+            return Err(miette::miette!(
+                "--archive-to-session must match the Run's --session"
+            ));
+        }
+    }
     if let Some(InspectTarget::Provider(InspectProviderArgs {
         pack: None,
         pack_directories,
