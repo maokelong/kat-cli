@@ -10,7 +10,7 @@ description: 开发和维护 KAT 官方 SDK 的 Provider、Workflow、领域公�
 ## 工作流程
 
 1. 确认用户要修改的 SDK 源码仓库，读取仓库工作协议及已有 issue/设计。明确目标能力、领域目录、消费者和验证方式；仅有已安装部署时，先取得源码位置，不直接修改 site-packages 作为交付。
-2. 读取 [SDK 开发指南](references/sdk-development.md)，选择 Provider、Workflow 或公共库分支。三类能力开发前均执行 [开发前复用检查](../kat/references/reuse-check.md)，检查已有同类实现；Workflow/Provider 还须检查公共函数能否支撑构建。Workflow 和 helpers 按领域分目录，只实现已确认的缺口，使用框架公开 API。
+2. 读取 [SDK 开发指南](references/sdk-development.md)，选择 Provider、Workflow 或公共库分支。三类能力开发前均执行 [开发前复用检查](../kat-author/references/reuse-check.md)，检查已有同类实现；Workflow/Provider 还须检查公共函数能否支撑构建。Workflow 和 helpers 按领域分目录，只实现已确认的缺口，使用框架公开 API。
 3. 同步实现、类型注解、docstring 和 SDK 知识；按开发指南在 kat 的 `references/workflows/`、`references/providers/` 或 `references/helpers/` 新增或更新介绍与分类导航。完成标准是 wheel 的源码与随包知识、Skill 的使用介绍均齐全，名称、导入路径及适用版本一致。
 4. 按 [SDK 构建与验收流程](references/sdk-build.md) 构建独立 wheel，在测试部署中验证知识读取、真实使用及升级。复验未安装和卸载 SDK 后，原有框架与不依赖 SDK 的 PACK 仍可用。
 5. 交付代码与文档位置、SDK 版本、wheel/SHA256、实际测试证据和未完成项。是否发布远程资产按用户指令执行。

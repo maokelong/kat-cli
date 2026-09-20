@@ -22,8 +22,6 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 没有匹配 Workflow 时说明能力缺口，未经用户授权不转入 PACK 创作；分析完成后不自动复核。理解、检查、测试或诊断不自动授权修改 PACK。
 
-SDK 与领域 PACK 新增或扩展 Workflow、Provider、公共函数前，先执行 [开发前复用检查](references/reuse-check.md)：检查已有同类实现，开发 Workflow/Provider 时同时检查公共函数能否支撑构建；有缺口时说明依据再实现必要部分。
-
 ## 共享执行边界
 
 五个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。

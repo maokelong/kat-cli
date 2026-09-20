@@ -22,7 +22,7 @@ SDK 只提供跨领域复用的具体 Provider、Workflow、公共函数及知�
 | Workflow | `workflows/<领域>/<入口>.py` | `kat inspect workflow --pack kat-sdk`、`kat run`、`ctx.run()` |
 | 公共函数 | `helpers/<领域>/<模块>.py` | Python 直接导入；AI 从 kat 公共库导航找到用法 |
 
-三类能力动手前均执行 [开发前复用检查](../../kat/references/reuse-check.md)，确认是否已有同类实现；开发 Workflow/Provider 时，还须检查 helpers 中的公共函数能否支撑所需步骤。检查 SDK 源码中的 `workflows/`、`providers/`、`helpers/` 及相关领域 PACK，记录复用选择与具体缺口。当前正式 SDK 的具体内容以源码和当前安装版本为准；示例与测试 fixture 只有经过实际消费者验证后才晋升为正式能力。
+三类能力动手前均执行 [开发前复用检查](../../kat-author/references/reuse-check.md)，确认是否已有同类实现；开发 Workflow/Provider 时，还须检查 helpers 中的公共函数能否支撑所需步骤。检查 SDK 源码中的 `workflows/`、`providers/`、`helpers/` 及相关领域 PACK，记录复用选择与具体缺口。当前正式 SDK 的具体内容以源码和当前安装版本为准；示例与测试 fixture 只有经过实际消费者验证后才晋升为正式能力。
 
 ## 2. 组织源码和知识
 

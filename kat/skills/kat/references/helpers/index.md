@@ -10,4 +10,4 @@
 
 新增公共库时，在本目录按领域添加文档并更新导航，同时维护 SDK 中对应的类型注解和 docstring。
 
-新增或扩展公共函数前，执行 [开发前复用检查](../reuse-check.md)。
+开发领域 PACK 公共函数见 [kat-author](../../../kat-author/SKILL.md)，开发官方 SDK 公共函数见 [kat-dev-sdk](../../../kat-dev-sdk/SKILL.md)。
