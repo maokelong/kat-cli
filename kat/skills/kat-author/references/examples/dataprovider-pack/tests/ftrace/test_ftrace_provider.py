@@ -322,7 +322,7 @@ def test_write_publish_race_preserves_the_competing_catalog_and_keeps_provider_u
         (catalog_root / "competitor.txt").write_text("keep", encoding="utf-8")
         raise FileExistsError("a competing writer published first")
 
-    monkeypatch.setattr(write_module, "_rename_no_replace", lose_publish_race)
+    monkeypatch.setattr(write_module, "publish_materialization", lose_publish_race)
 
     with pytest.raises(FileExistsError, match="competing writer"):
         provider.decode()

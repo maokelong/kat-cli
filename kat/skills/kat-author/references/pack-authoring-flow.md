@@ -65,7 +65,7 @@ Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect P
 ```python
 from pathlib import Path
 
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers.ftrace import FtraceProvider
 
 provider = FtraceProvider(
     source=Path(trace_path),
@@ -82,7 +82,7 @@ Trace Streamer 选择 `trace-streamer-sqlite`，读取 detail 后直接使用公
 ```python
 from pathlib import Path
 
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 
 provider = TraceStreamerProvider(
     source=Path(source_path), executable=Path(parser_path),
@@ -94,6 +94,8 @@ result = provider.query(sql, schema=result_schema, params={"minimum": 1})
 ```
 
 解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。物化使用 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
+
+新增或提取当前 PACK 内可复用函数时，按 [领域公共库开发](pack-libraries.md) 检查 SDK 和已有 helpers，组织实现、导入、库文档及测试。
 
 ## 3. 声明可发现知识
 

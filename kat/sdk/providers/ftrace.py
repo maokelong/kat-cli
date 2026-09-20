@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+__all__ = ["FtraceProvider"]
+
 import unicodedata
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .._provider import provider
+from kat import provider
 
 if TYPE_CHECKING:
     from kat_datasource import text_ftrace
 
-from . import _fusion, _parquet
-from ._table import Table
+from kat import dataprovider as dp
+from kat.dataprovider import Table
 
 _WINDOWS_DEVICE_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
@@ -29,7 +31,20 @@ _WINDOWS_FORBIDDEN_CHARACTERS = frozenset('<>:"/\\|?*')
     guide="providers/ftrace.md",
 )
 class FtraceProvider:
-    """Decode and query one text Ftrace through a reusable Parquet catalog."""
+    """将一份文本 Ftrace 解码成可复用 Parquet 来源，并执行显式 SQL 查询。
+
+    Parameters:
+        source: 文本 Trace 路径；已有有效物化时不再读取原文件。
+        clock_domain: 来源时钟名称；复用的物化必须使用相同名称。
+        workspace_root: 已存在的来源物化根，通常为 ctx.datasource_root。
+
+    Raises:
+        ValueError: 名称或 clock domain 无效。
+        RuntimeError: 解码、来源结构或已存在物化不满足合同。
+
+    导入路径为 `kat_sdk.providers.ftrace.FtraceProvider`。构造会解码或
+    复用来源；Provider inspection 只读取声明，不构造本类。
+    """
 
     def __init__(
         self, *, source: Path, clock_domain: str, workspace_root: Path
@@ -48,7 +63,7 @@ class FtraceProvider:
             raise RuntimeError("Ftrace Provider workspace_root must be a directory")
 
         self._clock_domain = clock_domain
-        self._query_provider: _fusion.DataFusionProvider
+        self._query_provider: dp.DataFusionProvider
         self._decode_report = text_ftrace.DecodeReport(unsupported_event_names=())
         self._tables: tuple[str, ...] = ()
         self._catalog_root = workspace_root.resolve(strict=True) / _source_stem(source)
@@ -79,9 +94,9 @@ class FtraceProvider:
     def _open_catalog(self) -> None:
         from kat_datasource import text_ftrace
 
-        catalog = _parquet.open(root=self._catalog_root)
+        catalog = dp.open(root=self._catalog_root)
         relations = catalog.tables
-        query_provider = _fusion.DataFusionProvider(catalog=catalog)
+        query_provider = dp.DataFusionProvider(catalog=catalog)
         if text_ftrace.EVENT_RELATION in relations:
             domains = {
                 row["clock_domain"]
@@ -111,13 +126,24 @@ class FtraceProvider:
 
     @property
     def decode_report(self) -> text_ftrace.DecodeReport:
+        """返回解码报告，包含当前来源未支持的事件名称。"""
         return self._decode_report
 
     @property
     def tables(self) -> tuple[str, ...]:
+        """返回当前物化实际包含的 relation 名称。"""
         return self._tables
 
     def query(self, sql: str, *, params: Mapping[str, object] | None = None) -> Table:
+        """以 DataFusion SQL 查询当前来源，eager 返回框架 Table。
+
+        Parameters:
+            sql: 只引用当前来源关系的只读 SQL。
+            params: SQL 命名参数；关系与时钟语义见来源 Guide。
+
+        Returns:
+            已完成、可重复读取的表值；零行仍保留明确 Schema。
+        """
         return self._query_provider.query(sql, params=params)
 
 

@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 公共能力的交付位置与 SDK 发现来源已由 [ADR-0085](0085-official-capabilities-ship-as-an-independent-sdk.md) 局部修订；其余边界继续有效。
+
 # 可复用 Trace 分析能力以 `kat.trace` 发布
 
 KAT 把跨多个真实消费者已验证的可复用 Trace 分析语义收敛为 KAT Trace Library，以 `kat.trace` 随同一 KAT Skill 和 Workflow Host wheel 原子发布，并向 Bundled 与 External PACK 提供相同公共 Interface。它建立在 Datasource 产生的稳定 Trace facts 和薄 DataFusion Query Engine 之上，优先复用 SQL、DataFrame、PyArrow 和必要的注册 UDF；不建立可跨 PACK import 的 common PACK，也不仿造 PerfettoSQL module loader 或新 SQL 方言。

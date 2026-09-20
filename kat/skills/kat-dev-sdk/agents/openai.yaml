@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT SDK Developer"
+  short_description: "开发官方 SDK 能力、知识文档并构建验证 wheel"
+  default_prompt: "使用 $kat-dev-sdk 完成我指定的 KAT SDK 开发任务，并提供构建产物和实际验证结果。"

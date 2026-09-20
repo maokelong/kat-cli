@@ -4,7 +4,7 @@ import os
 import subprocess
 
 import pytest
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers.ftrace import FtraceProvider
 
 _TARGET = os.environ.get("KAT_HDC_TARGET")
 _REMOTE_TRACE = "/data/local/tmp/kat-ftrace-provider-real.ftrace"

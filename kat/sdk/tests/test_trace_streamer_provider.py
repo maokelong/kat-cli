@@ -7,7 +7,7 @@ from kat import dataprovider as dp
 
 import pyarrow as pa
 
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 
 
 def test_init_decodes_and_reuses_published_source_without_parser(tmp_path: Path):

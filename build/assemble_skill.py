@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 
-SKILL_NAMES = ("kat", "kat-analyze", "kat-author", "kat-review")
+SKILL_NAMES = ("kat", "kat-analyze", "kat-author", "kat-review", "kat-dev-sdk")
 
 
 class AssemblyError(ValueError):
@@ -46,7 +46,7 @@ def _validate_symlink_closure(root: Path, label: str) -> None:
 
 
 def _validate_skills_source(root: Path) -> None:
-    # 顶层只接受本次成套发布的四个入口，避免把旁路文件意外装入归档。
+    # 顶层只接受本次成套发布的五个入口，避免把旁路文件意外装入归档。
     unexpected = {path.name for path in root.iterdir()} - set(SKILL_NAMES)
     if unexpected:
         raise AssemblyError(f"unexpected entries in Skills source: {sorted(unexpected)}")
@@ -109,7 +109,7 @@ def assemble_skill(
     windows_payload: Path,
     output: Path,
 ) -> Path:
-    """把四个同级 Skill 发布到集合根；调用方须独占缺席的 output 路径。"""
+    """把五个同级 Skill 发布到集合根；调用方须独占缺席的 output 路径。"""
     skills_source, packs, linux_payload, windows_payload, output = _validated_inputs(
         skills_source,
         packs,
@@ -147,7 +147,7 @@ def assemble_skill(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Assemble four KAT Skills, bundled PACKs, and both platform payloads."
+        description="Assemble five KAT Skills, bundled PACKs, and both platform payloads."
     )
     parser.add_argument("--skills-source", required=True, type=Path)
     parser.add_argument("--packs", required=True, type=Path)

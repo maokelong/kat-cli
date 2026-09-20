@@ -17,3 +17,5 @@ status: accepted
 `kat-review` 重查前遵循对应部署的命令合同和 Data Home，缺少可用部署时仍可复核已提供的材料，并明确没有重新查询输出。
 
 首版不新增 Analysis Record、完整历史采集、记录执行入口、CLI 操作、Guide 历史快照、交付完成门禁或跨机器复现能力，也不在每次原分析交付前自动调用第二个 AI。需求与验收见 [Issue #278](https://github.com/maokelong/kat-cli/issues/278)。
+
+后续 SDK 开发入口扩展：按用户明确要求新增同级 `kat-dev-sdk`，承接官方 SDK 能力、知识和 wheel 开发；集合扩为五个入口。它继续复用 kat 的命令合同和运行环境，成套安装与升级原则不变。范围及验收见 [SDK SDD](../specs/public-capability-sdk.md)。

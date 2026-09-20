@@ -1,6 +1,6 @@
 ---
 name: kat-author
-description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provider 与 Workflow。适用于 PACK 创作维护、来源能力接入、固定 Workflow 组合与 PACK 测试。
+description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provider、Workflow 与 PACK 内领域公共库。适用于 PACK 创作维护、来源能力接入、领域函数库开发、固定 Workflow 组合与 PACK 测试。
 ---
 
 # KAT Author
@@ -19,7 +19,7 @@ description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provid
 
 ## 创作与交付
 
-1. 读取 [PACK 创作与维护流程](references/pack-authoring-flow.md)；新增或修改来源接入前先检查公共 Provider，按流程确认复用或自实现的依据。
+1. 读取 [PACK 创作与维护流程](references/pack-authoring-flow.md)；新增或修改来源接入前先检查公共 Provider，按流程确认复用或自实现的依据。新增或提取 PACK 内函数库时读取 [领域公共库开发](references/pack-libraries.md)，先检查 SDK 与当前 PACK 的已有能力，再完成实现、文档及测试。
 2. 理解、检查、测试和诊断不自动授权修改 PACK；只有用户明确要求创建、修改或修复时才写入指定目标。创建骨架时使用自带脚本并保留其拒绝覆盖行为。
 3. 脚本承载确定性执行，Workflow Guide 解释关键输出与推理依据；核对文件归属、Guide 与装饰器的关联及实际 detail 回读内容，再核准输出口径并完成适用的 PACK 测试。
 4. 交付前读取 [作者结果契约](references/result-contract.md)，说明实际变更、验证证据和仍存限制。
