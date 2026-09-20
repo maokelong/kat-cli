@@ -22,7 +22,7 @@ python build/verify_sdk_install.py --kat <当前源码构建的CLI> --workflow-w
 
 ## 维护能力
 
-新增或扩展 Workflow、Provider、公共函数前，执行 [开发前复用检查](../skills/kat/references/helpers/index.md#新开发前的复用检查)，先确认已有同类实现；开发 Workflow/Provider 时同时检查公共函数能否支撑构建，只实现明确的缺口。
+新增或扩展 Workflow、Provider、公共函数前，执行 [开发前复用检查](../skills/kat/references/reuse-check.md)，先确认已有同类实现；开发 Workflow/Provider 时同时检查公共函数能否支撑构建，只实现明确的缺口。
 
 Provider 与 helpers 模块通过 `__all__` 列出公开接口。Provider 的公开类声明名称、用途和 Guide，模块加入根模块的 `PROVIDER_MODULES`。实现通过框架公开 API 复用表工具；知识在 `knowledge/providers/`。
 

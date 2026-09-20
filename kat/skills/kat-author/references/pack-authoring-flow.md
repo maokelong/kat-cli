@@ -44,7 +44,7 @@ PACK 名称：memory-analysis
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
 
-创建或扩展 Workflow、Provider 前，先通过下方 inspection 命令检查正在开发的 PACK，并查阅官方 SDK 的 [Workflow 导航](../../kat/references/workflows/index.md) 和 [Provider 导航](../../kat/references/providers/index.md)，确认是否已有满足需求的实现。同时查阅 [SDK helpers 导航](../../kat/references/helpers/index.md)，以及正在开发的 PACK 的 `helpers/` 和 `knowledge/helpers/`，检查公共函数是否可复用。已有能力满足需求时直接复用，只实现缺少的部分。具体步骤见 [开发前复用检查](../../kat/references/helpers/index.md#新开发前的复用检查)。
+创建或扩展 Workflow、Provider 前，先通过下方 inspection 命令检查正在开发的 PACK，并查阅官方 SDK 的 [Workflow 导航](../../kat/references/workflows/index.md) 和 [Provider 导航](../../kat/references/providers/index.md)，确认是否已有满足需求的实现。同时查阅 [SDK helpers 导航](../../kat/references/helpers/index.md)，以及正在开发的 PACK 的 `helpers/` 和 `knowledge/helpers/`，检查公共函数是否可复用。已有能力满足需求时直接复用，只实现缺少的部分。具体步骤见 [开发前复用检查](../../kat/references/reuse-check.md)。
 
 根据开发目标分别调用：
 
