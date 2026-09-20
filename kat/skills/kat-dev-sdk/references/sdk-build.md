@@ -65,7 +65,7 @@ kat_sdk/
 ├─ pack.toml
 ├─ providers/
 ├─ workflows/<领域>/*.py
-├─ libraries/<领域>/*.py
+├─ helpers/<领域>/*.py
 └─ knowledge/
    ├─ index.md
    ├─ providers/
@@ -73,7 +73,7 @@ kat_sdk/
 kat_sdk-<版本>.dist-info/
 ```
 
-确认新增模块、声明、Guide、生成 API 和导航均已进入 wheel。脚本拒绝测试与构建工具混入，但还需人工核对本次新增能力是否齐全。公共库的使用说明与 API Markdown 全部在 `kat/skills/kat/references/libraries/`，随 kat Skill 交付；它不在 SDK wheel 内，SDK 不生成或携带 `knowledge/libraries/`；修改公共库文档时也要同步交付 Skill。
+确认新增模块、声明、Guide、生成 API 和导航均已进入 wheel。脚本拒绝测试与构建工具混入，但还需人工核对本次新增能力是否齐全。公共库的使用说明与 API Markdown 全部在 `kat/skills/kat/references/helpers/`，随 kat Skill 交付；它不在 SDK wheel 内，SDK 不生成或携带 `knowledge/helpers/`；修改公共库文档时也要同步交付 Skill。
 
 构建 wheel 后还要检查 kat Skill 中的 Workflow、Provider 和公共库介绍及分类导航是否覆盖新增能力，适用版本、命令和导入路径是否一致。这些介绍随 Skill 交付，wheel 构建不会自动更新它们。
 

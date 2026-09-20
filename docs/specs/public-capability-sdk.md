@@ -6,6 +6,18 @@
 
 ## 目标与非目标
 
+### 本轮调整：统一 helpers 与开发前复用检查
+
+沿用 Issue #296，按用户最新决定将本次 SDK 开发中的公共函数目录、导入命名空间、打包配置、验收 fixture 和文档路径统一为历史 PACK 已采用的 `helpers`；不保留双命名兼容层，不改动无关第三方库术语。SDK 公共函数说明继续随 kat Skill 交付，领域函数说明留在各自 PACK。本文路径统一采用当前命名，历史验收仍只代表当时产物，本轮更名需重新验收。
+
+SDK 与领域 PACK 创建 Workflow、Provider、公共函数前均检查已有同类实现。公共函数服务于 Workflow 和 Provider，因此两者开发前还须检查 SDK 与目标 PACK 的公共函数能否直接复用，按语义、输入输出和限制确认，而非仅比较名称。记录已查范围、复用选择与实际缺口，只实现缺口。
+
+最小切片为命名迁移及三个开发入口的指导修正，不新增业务能力或运行时发现机制。验证包括 SDK 函数与 Workflow 调用、真实 wheel 构建和安装升级、Skill 装配及相对链接，以及本次开发文件中旧路径残留检查；实际结果另行记录。
+
+本轮验证（2026-09-20，Windows x86_64 / CPython 3.14.0）：`python -m unittest discover -s build/tests` 的 90 项测试通过；28 份 Skill Markdown 的相对链接有效；从 `pack-helpers.md` 提取的函数与 Workflow 经真实 `kat test` 验证，2 项通过。真实 SDK wheel 的 helpers 布局检查与 `build/verify_sdk_install.py` 均通过，覆盖公共发现、Provider 行为测试、函数导入、直接及跨 PACK Workflow 调用、两次测试版本安装升级、旧文件清理和卸载后框架回归。框架及 Datasource 为 0.1.1rc13，CLI 与框架版本在升级中保持不变。
+
+候选为 `target/issue-296/helpers-sdk-wheel/kat_sdk-0.1.1-py3-none-any.whl`，SHA256 为 `0853966e8446df1f6a19862d502298aacc2e5d6fb115a861917440b2e20bf8dc`。安装验收报告为 `target/issue-296/helpers-sdk-verified/report.json`，构建与指南验证日志分别为 `target/issue-296/helpers-build-tests.log`、`target/issue-296/helpers-guide-check.log`。首次误用旧 CLI 导致未安装 SDK 的基线失败，更换为配套 rc.13 CLI 后完整重跑通过；Linux 本轮未运行，未发布 Release。
+
 将各领域需要复用的具体 Provider、Workflow 和公共 Python 函数收敛为官方 SDK。用户在 KAT 使用的 Python 环境中通过 pip 安装或升级 wheel；Skill 运行时通过现有 `kat` 命令发现公共 Workflow、Provider 及对应知识，通过 KAT 直接执行或组合调用 Workflow。公共函数由 Python 直接导入，AI 阅读 kat Skill 的公共库 Markdown 了解用法。
 
 SDK 不包含 CLI、Runtime、Context、装饰器、执行协议或另一套表类型。框架提供的 `kat` 作者 API 和 Data Provider Toolkit 继续由框架维护；SDK 使用这些接口。首版只支持官方能力，不建立第三方插件体系、自动在线更新、独立执行宿主或新的公共函数发现命令。源码仓库拆分、PyPI 发布、原生解析器合并、额外 Python/平台支持均不属于本切片。
@@ -29,7 +41,7 @@ sdk/
 ├─ pack.toml
 ├─ providers/                 # 具体公共 Provider
 ├─ workflows/                 # 一个公共 PACK 的入口，内部按领域组织
-├─ libraries/                 # 普通公共 Python 模块，按领域分目录
+├─ helpers/                 # 普通公共 Python 模块，按领域分目录
 └─ knowledge/
    ├─ index.md
    ├─ providers/
@@ -40,7 +52,7 @@ sdk/
 
 `pack.toml` 沿用现有 `name/title/description/owner` 合同，不添加 SDK 版本、Workflow 列表或依赖字段。PACK 身份由 manifest name 给出，SDK distribution 版本来自标准包元数据；文中命令使用 `<sdk-pack>` 指代实际名称。
 
-`workflows/` 沿用现有声明式入口规则：每个 Python 入口定义自身的一个 Workflow，目录层次只组织源码，不改变显式 Workflow name；不增加 `__init__.py`，不直接 import 其他 Workflow 入口作为复用方式。公共函数源码位于 `libraries/<领域>/<模块>.py`，父包与领域包均设置 `__init__.py` 并显式登记打包配置。Workflow 与公共库知识保留对应领域层级。公共 Provider 从 `kat_sdk.providers` 导入，公共函数从 `kat_sdk.libraries.<领域>.<模块>` 导入，跨 Workflow 组合使用 `ctx.run()`。
+`workflows/` 沿用现有声明式入口规则：每个 Python 入口定义自身的一个 Workflow，目录层次只组织源码，不改变显式 Workflow name；不增加 `__init__.py`，不直接 import 其他 Workflow 入口作为复用方式。公共函数源码位于 `helpers/<领域>/<模块>.py`，父包与领域包均设置 `__init__.py` 并显式登记打包配置。Workflow 与公共库知识保留对应领域层级。公共 Provider 从 `kat_sdk.providers` 导入，公共函数从 `kat_sdk.helpers.<领域>.<模块>` 导入，跨 Workflow 组合使用 `ctx.run()`。
 
 ## 框架边界与依赖
 
@@ -86,12 +98,12 @@ Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力�
 | 参数和返回类型 | Python 类型注解 |
 | 语义、单位、限制、异常、示例 | Python docstring |
 | Provider/Workflow API 参考 Markdown | SDK 构建时从显式公开接口生成 |
-| 公共库 API 与使用说明 | kat Skill 的 `references/libraries/<领域>/` |
+| 公共库 API 与使用说明 | kat Skill 的 `references/helpers/<领域>/` |
 | 导航、教程、Provider 来源知识、Workflow 分析 Guide | 手写 Markdown |
 
-Provider/Workflow 文档分别在 `knowledge/providers`、`knowledge/workflows` 组织；公共库全部 Markdown 在 kat Skill 的 `references/libraries/<领域>/`，SDK 不设置 `knowledge/libraries/`。API 参考与 Guide 用不同文件维护，生成器不得覆盖手写内容；Guide 仍承担来源语义或输出解释职责，不能由函数签名替代。
+Provider/Workflow 文档分别在 `knowledge/providers`、`knowledge/workflows` 组织；公共库全部 Markdown 在 kat Skill 的 `references/helpers/<领域>/`，SDK 不设置 `knowledge/helpers/`。API 参考与 Guide 用不同文件维护，生成器不得覆盖手写内容；Guide 仍承担来源语义或输出解释职责，不能由函数签名替代。
 
-`knowledge/index.md` 描述能力用途并通过相对链接指向详细文档。公共函数不注册为 KAT 能力；AI 从 kat Skill 的 `references/libraries/index.md` 阅读模块/函数用法，并核对适用 SDK 版本。此入口服务运行过程，不引入 kat-author 开发工作流。
+`knowledge/index.md` 描述能力用途并通过相对链接指向详细文档。公共函数不注册为 KAT 能力；AI 从 kat Skill 的 `references/helpers/index.md` 阅读模块/函数用法，并核对适用 SDK 版本。此入口服务运行过程，不引入 kat-author 开发工作流。
 
 使用成熟工具解析类型和 docstring，不自行实现通用 Python 解析器。实现前验证工具对当前语法、中文和真实 Markdown 输出的支持并固定构建依赖；工具选型属于实施技术验证，不意味着已选择或验证某个生成器。文档生成依赖不进入 SDK 的运行时依赖。
 
@@ -175,11 +187,11 @@ Trace Streamer 验证覆盖实际 SQLite 查询与受控解析器行为，不代
 
 从最终展开目录运行公共 Ftrace Guide/PACK 消费验收，Ftrace 26 项、TraceStreamer 26 项行为测试与 `pip check` 均通过；ZIP CRC 校验通过。产物及报告位于 `target/release-preview-rc13/`。这是 Windows 单平台本地预览；Linux 和双平台正式 Release CI 仍待验证。
 
-领域目录验收：公共库测试改为 `libraries/verification/`，Workflow 与知识均保留 `verification/` 领域层。Windows 真实 wheel 安装、嵌套导入、直接/组合调用、API 文档导航、升级清理及卸载后框架回归全部通过；报告为 `target/release-preview-rc13/verification-domain-layout/report.json`。
+领域目录验收：公共库测试改为 `helpers/verification/`，Workflow 与知识均保留 `verification/` 领域层。Windows 真实 wheel 安装、嵌套导入、直接/组合调用、API 文档导航、升级清理及卸载后框架回归全部通过；报告为 `target/release-preview-rc13/verification-domain-layout/report.json`。
 
 ## 用户授权的 demo 切片
 
-用户要求分别创建 Workflow、公共库 demo 及文档。SDK 0.1.1 新增 `libraries/demo/greeting.py` 与 `workflows/demo/greeting.py`：普通函数生成问候语，`demo-greeting` 返回一行标准结果表。两类 Guide、生成 API 与首页导航随 wheel 一起交付。此示例用于演示 SDK 开发和调用，不扩展框架或引入外部数据源；验证覆盖默认值、Unicode、空白拒绝、真实 CLI 查询、跨 PACK 调用及升级后继续可用。此前“零 Workflow”的记录描述 0.1.0，0.1.1 的正式列表包含此 demo。
+用户要求分别创建 Workflow、公共库 demo 及文档。SDK 0.1.1 新增 `helpers/demo/greeting.py` 与 `workflows/demo/greeting.py`：普通函数生成问候语，`demo-greeting` 返回一行标准结果表。两类 Guide、生成 API 与首页导航随 wheel 一起交付。此示例用于演示 SDK 开发和调用，不扩展框架或引入外部数据源；验证覆盖默认值、Unicode、空白拒绝、真实 CLI 查询、跨 PACK 调用及升级后继续可用。此前“零 Workflow”的记录描述 0.1.0，0.1.1 的正式列表包含此 demo。
 
 Demo 验证结果：89 项构建测试通过。SDK 0.1.1 在 Windows 隔离宿主中完成安装、默认/Unicode/非法参数、查询、跨 PACK 调用、升级与卸载回归，源码公共库测试一并通过；报告为 `target/release-preview-rc13/verification-demo-final/report.json`。候选 SHA256 为 `f48cb150e2f79182fdb29b145beabeb699b64a0d9bb9bb2fde3760da52041832`。
 
@@ -187,15 +199,15 @@ Demo 验证结果：89 项构建测试通过。SDK 0.1.1 在 Windows 隔离宿�
 
 按用户要求将 SDK 开发从 kat reference 抽为 `kat-dev-sdk` 同级任务 Skill。最小切片为独立入口、迁移开发指南、总路由和成套发布清单更新，复用 kat 的命令合同及相邻 Python，不复制 Runtime。验收覆盖 Skill 路由、相对链接、集合装配及归档移动后的可读性。此变更将 ADR-0082 的四入口集合扩为五入口；分析、PACK 创作、复核的职责保持原样。
 
-独立 Skill 验证：89 项构建测试通过，包含五入口装配、公共载荷不重复、归档重定位和相对链接检查。用户随后确认公共库手写介绍迁至 `kat/skills/kat/references/libraries/<领域>/`；生成的 API 参考仍随 SDK wheel 交付。
+独立 Skill 验证：89 项构建测试通过，包含五入口装配、公共载荷不重复、归档重定位和相对链接检查。用户随后确认公共库手写介绍迁至 `kat/skills/kat/references/helpers/<领域>/`；生成的 API 参考仍随 SDK wheel 交付。
 
-公共库介绍入口：kat Skill 提供 `references/libraries/index.md` 与按领域组织的手写介绍；SDK 的知识首页只链接当前版本生成 API，并提示介绍所在 Skill 路径。公共库介绍随 Skill 版本交付，标明适用 SDK 版本，读取时核对已安装 API，避免把旧介绍当成新版本的完整合同。Workflow/Provider Guide 的随包发现机制保持不变。
+公共库介绍入口：kat Skill 提供 `references/helpers/index.md` 与按领域组织的手写介绍；SDK 的知识首页只链接当前版本生成 API，并提示介绍所在 Skill 路径。公共库介绍随 Skill 版本交付，标明适用 SDK 版本，读取时核对已安装 API，避免把旧介绍当成新版本的完整合同。Workflow/Provider Guide 的随包发现机制保持不变。
 
-文档迁移验收：89 项构建测试通过，全部 Skill Markdown 相对链接有效；真实 wheel 构建通过，确认不再携带 `knowledge/libraries/demo/greeting.md` 手写介绍，保留生成的 `greeting.api.md`。本次仅迁移开发/使用文档及 Skill 装配，不改变 SDK 函数、Workflow 或 Runtime 行为。
+文档迁移验收：89 项构建测试通过，全部 Skill Markdown 相对链接有效；真实 wheel 构建通过，确认不再携带 `knowledge/helpers/demo/greeting.md` 手写介绍，保留生成的 `greeting.api.md`。本次仅迁移开发/使用文档及 Skill 装配，不改变 SDK 函数、Workflow 或 Runtime 行为。
 
 ## 公共库知识归属修正
 
-用户确认公共库全部 Markdown（包括 API 参考）归 kat Skill 的 `references/libraries/<领域>/`，SDK 不再生成或携带 `knowledge/libraries/`。最小切片为收敛生成类别、移除随包公共库文档链接、补全 Skill 中的签名和异常说明，并同步构建与安装验收。公共库 Python 实现、类型注解和 docstring 保留，Workflow/Provider 文档仍随 SDK。验证真实 wheel 不含该目录、公共库仍可导入调用、Workflow/Provider 知识仍可发现，更新本地预览产物。此决定替代前述保留公共库生成 API 的阶段性方案。
+用户确认公共库全部 Markdown（包括 API 参考）归 kat Skill 的 `references/helpers/<领域>/`，SDK 不再生成或携带 `knowledge/helpers/`。最小切片为收敛生成类别、移除随包公共库文档链接、补全 Skill 中的签名和异常说明，并同步构建与安装验收。公共库 Python 实现、类型注解和 docstring 保留，Workflow/Provider 文档仍随 SDK。验证真实 wheel 不含该目录、公共库仍可导入调用、Workflow/Provider 知识仍可发现，更新本地预览产物。此决定替代前述保留公共库生成 API 的阶段性方案。
 
 ## Workflow 与 Provider 的 Skill 介绍
 

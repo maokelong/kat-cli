@@ -3,7 +3,7 @@
 import kat
 import pyarrow as pa
 from kat.dataprovider import Table
-from kat_sdk.libraries.demo.greeting import build_greeting
+from kat_sdk.helpers.demo.greeting import build_greeting
 
 
 @kat.workflow(

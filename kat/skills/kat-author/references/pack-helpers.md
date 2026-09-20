@@ -4,30 +4,30 @@
 
 ## 1. 先检查可复用能力
 
-执行 [SDK 公共库复用检查](../../kat/references/libraries/index.md#新开发前的复用检查)，同时检查目标 PACK 已有的 `libraries/`、文档和实际调用点。对比用途、输入输出、语义及限制；满足需求时直接复用，有缺口时说明检查范围与缺口，只实现已授权的必要部分。检查失败时停止该函数开发。
+执行 [开发前复用检查](../../kat/references/helpers/index.md#新开发前的复用检查)，同时检查目标 PACK 已有的 `helpers/`、文档和实际调用点，明确函数服务的 Workflow/Provider。对比用途、输入输出、语义及限制；满足需求时直接复用，有缺口时说明检查范围与缺口，只实现已授权的必要部分。检查失败时停止该函数开发。
 
 ## 2. 在当前 PACK 内组织实现
 
-在 `libraries/` 中按功能分模块；模块较多时按子领域组织。只创建实际需要的文件，例如：
+在 `helpers/` 中按功能分模块；模块较多时按子领域组织。只创建实际需要的文件，例如：
 
 ```text
 <pack>/
 ├─ pack.toml
 ├─ README.md
-├─ libraries/
+├─ helpers/
 │  └─ memory/
 │     └─ units.py
 ├─ workflows/
 │  └─ memory_size.py
 ├─ knowledge/
-│  └─ libraries/
+│  └─ helpers/
 │     ├─ index.md
 │     └─ memory/units.md
 └─ tests/
    └─ test_memory_units.py
 ```
 
-领域库采用普通 Python 函数，写明类型注解、单位、异常与边界。纯计算尽量与文件读取、数据库连接和 Context 分开，通过参数传入必要值，模块导入时不执行业务操作。示例 `libraries/memory/units.py`：
+领域库采用普通 Python 函数，写明类型注解、单位、异常与边界。纯计算尽量与文件读取、数据库连接和 Context 分开，通过参数传入必要值，模块导入时不执行业务操作。示例 `helpers/memory/units.py`：
 
 ```python
 __all__ = ["bytes_to_mib"]
@@ -49,7 +49,7 @@ def bytes_to_mib(value: int) -> float:
 在当前 PACK 的执行环境中：
 
 ```python
-from kat.pack.libraries.memory.units import bytes_to_mib
+from kat.pack.helpers.memory.units import bytes_to_mib
 ```
 
 `kat.pack` 指向当前执行的 PACK；不同 PACK 不通过此路径互相导入辅助库，不手工修改 `sys.path`。普通系统 Python 未绑定 PACK 环境时不能直接使用该导入，运行和测试遵循 KAT 命令合同。
@@ -60,7 +60,7 @@ Workflow 调用示例：
 import kat
 import pyarrow as pa
 from kat import dataprovider as dp
-from kat.pack.libraries.memory.units import bytes_to_mib
+from kat.pack.helpers.memory.units import bytes_to_mib
 
 
 @kat.workflow(
@@ -76,7 +76,7 @@ def memory_size(ctx: kat.Context, *, size_bytes: int):
 
 ## 4. 文档随领域 PACK 交付
 
-在 PACK 自己的 `knowledge/libraries/<子领域>/<模块>.md` 说明导入路径、签名、参数、返回值、单位、异常、示例及复用边界，从 `knowledge/libraries/index.md` 导航，并在 PACK 的 README 链接该导航。简单库可省略子领域层。
+在 PACK 自己的 `knowledge/helpers/<子领域>/<模块>.md` 说明导入路径、签名、参数、返回值、单位、异常、示例及复用边界，从 `knowledge/helpers/index.md` 导航，并在 PACK 的 README 链接该导航。简单库可省略子领域层。
 
 这些文档属于当前 PACK，不写入 kat Skill 的官方 SDK 公共库目录，也不写入 SDK。AI 从 PACK README 和库导航读取；`kat inspect` 不发现普通函数或返回其文档。Workflow/Provider 自身 Guide 仍按 [PACK 创作流程](pack-authoring-flow.md) 关联，不用库文档替代其 Guide。
 
@@ -86,7 +86,7 @@ def memory_size(ctx: kat.Context, *, size_bytes: int):
 
 ```python
 import pytest
-from kat.pack.libraries.memory.units import bytes_to_mib
+from kat.pack.helpers.memory.units import bytes_to_mib
 
 
 def test_bytes_to_mib():

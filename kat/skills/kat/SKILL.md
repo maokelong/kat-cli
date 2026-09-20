@@ -15,14 +15,14 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
 | 查找 SDK Workflow、了解输入输出和调用方式 | [Workflow 导航](references/workflows/index.md) |
 | 查找 SDK Provider、了解适用来源和导入方式 | [Provider 导航](references/providers/index.md) |
-| 查找和使用 SDK 公共函数 | [公共库导航](references/libraries/index.md) |
+| 查找和使用 SDK 公共函数 | [公共库导航](references/helpers/index.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |
 
 相对链接以本文件所在目录为基准，先解析为绝对路径，不依赖当前工作目录。只加载当前任务所需入口；目标缺失或会导向实质不同任务时，询问一个最小必要问题。
 
 没有匹配 Workflow 时说明能力缺口，未经用户授权不转入 PACK 创作；分析完成后不自动复核。理解、检查、测试或诊断不自动授权修改 PACK。
 
-新增函数库或函数前，先执行 [公共库复用检查](references/libraries/index.md#新开发前的复用检查)，满足需求时直接复用，有缺口时说明依据再实现必要部分。
+SDK 与领域 PACK 新增或扩展 Workflow、Provider、公共函数前，先执行 [开发前复用检查](references/helpers/index.md#新开发前的复用检查)：检查已有同类实现，开发 Workflow/Provider 时同时检查公共函数能否支撑构建；有缺口时说明依据再实现必要部分。
 
 ## 共享执行边界
 

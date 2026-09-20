@@ -19,7 +19,7 @@ dependencies = [
 
 [tool.setuptools]
 include-package-data = false
-packages = ["kat_sdk", "kat_sdk.providers", "kat_sdk.libraries", "kat_sdk.libraries.demo"]
+packages = ["kat_sdk", "kat_sdk.providers", "kat_sdk.helpers", "kat_sdk.helpers.demo"]
 package-dir = { kat_sdk = "." }
 
 [tool.setuptools.package-data]

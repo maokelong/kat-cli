@@ -1,8 +1,8 @@
 # KAT SDK 知识导航
 
-本目录与当前安装的 SDK 实现一起发布。需要使用某个来源时，先阅读其 Guide，再按需查 API；公共 Python 函数的使用介绍从 kat Skill 的 references/libraries 查阅，本目录仅提供 Provider 和 Workflow 的 Guide 与生成 API 参考。
+本目录与当前安装的 SDK 实现一起发布。需要使用某个来源时，先阅读其 Guide，再按需查 API；公共 Python 函数的使用介绍从 kat Skill 的 references/helpers 查阅，本目录仅提供 Provider 和 Workflow 的 Guide 与生成 API 参考。
 
-- Demo 公共库：使用方法与 API 说明位于 kat Skill 的 `references/libraries/demo/greeting.md`。
+- Demo 公共库：使用方法与 API 说明位于 kat Skill 的 `references/helpers/demo/greeting.md`。
 - Demo Workflow：[使用说明](workflows/demo/greeting.md)、[API](workflows/demo/greeting.api.md)。
 - 文本 Ftrace：[来源知识](providers/ftrace.md)、[API](providers/ftrace.api.md)。
 - Trace Streamer SQLite：[来源知识](providers/trace-streamer-sqlite.md)、[API](providers/trace_streamer.api.md)。

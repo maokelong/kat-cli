@@ -22,16 +22,18 @@ python build/verify_sdk_install.py --kat <当前源码构建的CLI> --workflow-w
 
 ## 维护能力
 
-Provider 与 libraries 模块通过 `__all__` 列出公开接口。Provider 的公开类声明名称、用途和 Guide，模块加入根模块的 `PROVIDER_MODULES`。实现通过框架公开 API 复用表工具；知识在 `knowledge/providers/`。
+新增或扩展 Workflow、Provider、公共函数前，执行 [开发前复用检查](../skills/kat/references/helpers/index.md#新开发前的复用检查)，先确认已有同类实现；开发 Workflow/Provider 时同时检查公共函数能否支撑构建，只实现明确的缺口。
+
+Provider 与 helpers 模块通过 `__all__` 列出公开接口。Provider 的公开类声明名称、用途和 Guide，模块加入根模块的 `PROVIDER_MODULES`。实现通过框架公开 API 复用表工具；知识在 `knowledge/providers/`。
 
 公共 Workflow 直接位于 SDK 根下的 `workflows/`，按领域分目录。每个入口自己定义一个 `@kat.workflow`，目录中不用 `__init__.py`；公共身份由装饰器声明，跨 Workflow 复用通过框架调用。不要把示例自动发布为正式能力。
 
-公共函数是 `libraries/<领域>/` 中的普通 Python 模块，不注册为 KAT 能力。公共库的父包、领域包设置 `__init__.py`，并在 `pyproject.toml` 的 packages 中显式登记（如 `kat_sdk.libraries`、`kat_sdk.libraries.memory`）。API 参数与返回类型写注解，单位、限制、异常和示例写 docstring；构建为公开模块生成 `knowledge/<类别>/<模块相对路径>.api.md`。手写 Guide、教程和首页链接使用其他文件名，避免覆盖生成文件。
+公共函数是 `helpers/<领域>/` 中的普通 Python 模块，不注册为 KAT 能力。公共库的父包、领域包设置 `__init__.py`，并在 `pyproject.toml` 的 packages 中显式登记（如 `kat_sdk.helpers`、`kat_sdk.helpers.memory`）。API 参数与返回类型写注解，单位、限制、异常和示例写 docstring；公共函数的 API Markdown 与使用说明统一维护在 kat Skill。构建只为 Provider/Workflow 生成 `knowledge/<类别>/<模块相对路径>.api.md`，手写 Guide、教程和首页链接使用其他文件名，避免覆盖生成文件。
 
 安装后的知识入口为 `kat_sdk/knowledge/index.md`，用 KAT 当前 Python 的 `importlib.resources.files("kat_sdk")` 定位，按相对链接读取当前版本。详细契约见仓库 `docs/specs/public-capability-sdk.md`。
 
 ## Demo 入门
 
-SDK 0.1.1 中的 `libraries/demo/greeting.py` 提供 `build_greeting()`；`workflows/demo/greeting.py` 的 `demo-greeting` 调用该函数并返回一行 `message` 表。分别阅读 [公共库文档](../skills/kat/references/libraries/demo/greeting.md) 和 [Workflow 文档](knowledge/workflows/demo/greeting.md)，安装 wheel 后即可跟随示例执行。
+SDK 0.1.1 中的 `helpers/demo/greeting.py` 提供 `build_greeting()`；`workflows/demo/greeting.py` 的 `demo-greeting` 调用该函数并返回一行 `message` 表。分别阅读 [公共库文档](../skills/kat/references/helpers/demo/greeting.md) 和 [Workflow 文档](knowledge/workflows/demo/greeting.md)，安装 wheel 后即可跟随示例执行。
 
-公共库的手写使用介绍由 `kat/skills/kat/references/libraries/<领域>/` 维护并随 Skill 交付，生成的 API 参考继续随 SDK wheel 交付。新增或修改公共库时同时更新 kat 的导航、介绍中的适用 SDK 版本，以及源码注解/docstring。
+公共库的使用介绍与 API Markdown 由 `kat/skills/kat/references/helpers/<领域>/` 维护并随 Skill 交付，SDK wheel 不携带公共库 Markdown。新增或修改公共库时同时更新 kat 的导航、介绍中的适用 SDK 版本，以及源码注解/docstring。

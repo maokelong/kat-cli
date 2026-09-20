@@ -40,11 +40,11 @@ def probe(value: int) -> int:
     def test_library_code_remains_without_sdk_library_knowledge(self):
         with tempfile.TemporaryDirectory() as temporary:
             package = self.package(Path(temporary))
-            library = package / "libraries/demo/greeting.py"
+            library = package / "helpers/demo/greeting.py"
             original = library.read_bytes()
             sdk_build.generate_knowledge(package)
             self.assertEqual(library.read_bytes(), original)
-            self.assertFalse((package / "knowledge/libraries").exists())
+            self.assertFalse((package / "knowledge/helpers").exists())
             self.assertTrue((package / "knowledge/providers/ftrace.api.md").is_file())
             self.assertTrue((package / "knowledge/workflows/demo/greeting.api.md").is_file())
 

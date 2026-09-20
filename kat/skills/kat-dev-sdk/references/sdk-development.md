@@ -6,7 +6,7 @@
 
 ## 可运行的 demo
 
-SDK 0.1.1 提供一组同领域示例：`libraries/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读 kat Skill 的 [公共库介绍](../../kat/references/libraries/demo/greeting.md) 和 [Workflow 介绍](../../kat/references/workflows/demo/greeting.md)，再核对当前 SDK 中的 Workflow Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
+SDK 0.1.1 提供一组同领域示例：`helpers/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读 kat Skill 的 [公共库介绍](../../kat/references/helpers/demo/greeting.md) 和 [Workflow 介绍](../../kat/references/workflows/demo/greeting.md)，再核对当前 SDK 中的 Workflow Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
 
 源码测试位于 `kat/sdk/tests/test_demo_greeting.py`，完整安装验收还验证 CLI 执行、结果查询及跨 PACK 调用。以此为最小例子学习目录、声明、知识、打包和运行链路，再添加具体领域能力。
 
@@ -20,9 +20,9 @@ SDK 只提供跨领域复用的具体 Provider、Workflow、公共函数及知�
 | --- | --- | --- |
 | Provider | `providers/<模块>.py` | Python 导入；`kat inspect provider` 读取公共声明与 Guide |
 | Workflow | `workflows/<领域>/<入口>.py` | `kat inspect workflow --pack kat-sdk`、`kat run`、`ctx.run()` |
-| 公共函数 | `libraries/<领域>/<模块>.py` | Python 直接导入；AI 从 kat 公共库导航找到用法 |
+| 公共函数 | `helpers/<领域>/<模块>.py` | Python 直接导入；AI 从 kat 公共库导航找到用法 |
 
-先确认已有能力是否能满足需求。当前正式 SDK 的具体内容以源码和当前安装版本为准；示例与测试 fixture 只有经过实际消费者验证后才晋升为正式能力。
+三类能力动手前均执行 [开发前复用检查](../../kat/references/helpers/index.md#新开发前的复用检查)，确认是否已有同类实现；开发 Workflow/Provider 时，还须检查 helpers 中的公共函数能否支撑所需步骤。检查 SDK 源码中的 `workflows/`、`providers/`、`helpers/` 及相关领域 PACK，记录复用选择与具体缺口。当前正式 SDK 的具体内容以源码和当前安装版本为准；示例与测试 fixture 只有经过实际消费者验证后才晋升为正式能力。
 
 ## 2. 组织源码和知识
 
@@ -33,7 +33,7 @@ kat/sdk/
 ├─ pack.toml
 ├─ providers/
 ├─ workflows/                 # 按领域分目录
-├─ libraries/                 # 按领域分目录
+├─ helpers/                 # 按领域分目录
 ├─ knowledge/
 │  ├─ index.md
 │  ├─ providers/
@@ -41,11 +41,11 @@ kat/sdk/
 └─ tests/
 ```
 
-`workflows/` 和 `libraries/` 均先按领域分目录，例如 `workflows/memory/summarize.py`、`libraries/memory/units.py`；Workflow Guide 位于 `knowledge/workflows/memory/`；公共库的使用说明与 API Markdown 全部位于 `kat/skills/kat/references/libraries/memory/`，SDK 不生成或携带公共库 Markdown。公共库的父包与领域包均设置 `__init__.py`，并显式登记 `kat_sdk.libraries`、`kat_sdk.libraries.memory` 等包名；Workflow 目录保持无 `__init__.py`。
+`workflows/` 和 `helpers/` 均先按领域分目录，例如 `workflows/memory/summarize.py`、`helpers/memory/units.py`；Workflow Guide 位于 `knowledge/workflows/memory/`；公共库的使用说明与 API Markdown 全部位于 `kat/skills/kat/references/helpers/memory/`，SDK 不生成或携带公共库 Markdown。公共库的父包与领域包均设置 `__init__.py`，并显式登记 `kat_sdk.helpers`、`kat_sdk.helpers.memory` 等包名；Workflow 目录保持无 `__init__.py`。
 
 安装后资源根为 `kat_sdk/`，直接包含 `pack.toml`，不增加 `packs/` 层。框架将该根目录补充到既有 PACK 发现范围，沿用目录去重和同名冲突规则；无需复制到各领域 PACK 或 Data Home。
 
-`pyproject.toml` 当前显式列出 Python packages。新增 `libraries/<领域>/` 或 Provider 子包时，添加对应 `__init__.py`，并将包名纳入 `tool.setuptools.packages`。Workflow 入口目录沿用 PACK 规则，不放 `__init__.py`，通过 `workflows/**/*.py` 资源模式打包。额外运行资源也须显式纳入 package-data。以 wheel 内容确认打包结果，不能只检查源码目录。
+`pyproject.toml` 当前显式列出 Python packages。新增 `helpers/<领域>/` 或 Provider 子包时，添加对应 `__init__.py`，并将包名纳入 `tool.setuptools.packages`。Workflow 入口目录沿用 PACK 规则，不放 `__init__.py`，通过 `workflows/**/*.py` 资源模式打包。额外运行资源也须显式纳入 package-data。以 wheel 内容确认打包结果，不能只检查源码目录。
 
 ### Provider
 
@@ -89,17 +89,17 @@ result = ctx.run("kat-sdk", "目标-workflow", **inputs)
 
 ### 公共函数
 
-编写新函数库或函数前，先完成 [公共库复用检查](../../kat/references/libraries/index.md#新开发前的复用检查)。已有能力满足需求时直接导入复用；确有缺口时说明已检查的函数及具体缺口，再在授权范围内实现必要部分。检查失败时停止该函数开发，不将失败当作能力缺席。
+按第 1 节完成复用检查后，明确公共函数服务的 Workflow/Provider 及其职责；已有函数满足需求时直接导入，只为实际消费者补齐必要缺口。
 
-公共库介绍维护在 `kat/skills/kat/references/libraries/<领域>/<模块>.md`，并更新该目录的 `index.md` 导航。文档说明适用 SDK 版本、导入方式、函数签名、参数、返回值、异常和示例；SDK 中不设置 `knowledge/libraries/`。
+公共库介绍维护在 `kat/skills/kat/references/helpers/<领域>/<模块>.md`，并更新该目录的 `index.md` 导航。文档说明适用 SDK 版本、导入方式、函数签名、参数、返回值、异常和示例；SDK 中不设置 `knowledge/helpers/`。
 
-在 `libraries/<领域>/` 中编写普通 Python 模块，通过 `__all__` 声明公开函数并提供类型注解、docstring 和行为测试。消费者按模块导入：
+在 `helpers/<领域>/` 中编写普通 Python 模块，通过 `__all__` 声明公开函数并提供类型注解、docstring 和行为测试。消费者按模块导入：
 
 ```python
-from kat_sdk.libraries.<领域>.<模块> import <函数>
+from kat_sdk.helpers.<领域>.<模块> import <函数>
 ```
 
-以上是路径占位示意，替换为实际标识符。公共函数不注册为 Workflow 或 Provider，也不增加 CLI 发现命令。AI 从 kat Skill 的 [公共库导航](../../kat/references/libraries/index.md) 阅读方法介绍，再核对当前 SDK 版本，必要时读取已安装函数签名与 docstring。
+以上是路径占位示意，替换为实际标识符。公共函数不注册为 Workflow 或 Provider，也不增加 CLI 发现命令。AI 从 kat Skill 的 [公共库导航](../../kat/references/helpers/index.md) 阅读方法介绍，再核对当前 SDK 版本，必要时读取已安装函数签名与 docstring。
 
 ## 3. 写 API 文档与使用知识
 
@@ -108,7 +108,7 @@ from kat_sdk.libraries.<领域>.<模块> import <函数>
 | 参数及返回类型 | Python 类型注解 |
 | 单位、语义、限制、异常、示例 | Python docstring，使用 Google 风格 |
 | Provider/Workflow API Markdown | 构建时自动生成 `knowledge/<类别>/<领域>/<模块>.api.md`（Provider 按实际模块路径） |
-| 公共库 API Markdown | 与使用说明一起维护在 kat Skill 的 `references/libraries/<领域>/` |
+| 公共库 API Markdown | 与使用说明一起维护在 kat Skill 的 `references/helpers/<领域>/` |
 | Workflow/Provider 使用介绍 | kat Skill 的 `references/workflows/<领域>/`、`references/providers/` |
 | 来源数据合同、分析解释 | SDK 中由装饰器引用的 Guide |
 | 能力用途及文档入口 | 手写 `knowledge/index.md` |

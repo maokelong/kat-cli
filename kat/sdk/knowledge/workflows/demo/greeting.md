@@ -23,7 +23,7 @@ kat query --session <session_id> --run <run_id> --sql "SELECT message FROM outpu
 catalog = ctx.run("kat-sdk", "demo-greeting", name="小明")
 ```
 
-返回框架只读 Catalog，可通过框架表工具读取 `main`。仅需要字符串时，直接导入 公共函数 `kat_sdk.libraries.demo.greeting.build_greeting`（使用方法与 API 说明见 kat Skill 的 `references/libraries/demo/greeting.md`），无需启动子 Workflow。
+返回框架只读 Catalog，可通过框架表工具读取 `main`。仅需要字符串时，直接导入 公共函数 `kat_sdk.helpers.demo.greeting.build_greeting`（使用方法与 API 说明见 kat Skill 的 `references/helpers/demo/greeting.md`），无需启动子 Workflow。
 
 ## 开发与验证
 

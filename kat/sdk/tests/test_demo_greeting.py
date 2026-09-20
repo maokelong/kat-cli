@@ -1,6 +1,6 @@
 import pytest
 
-from kat_sdk.libraries.demo.greeting import build_greeting
+from kat_sdk.helpers.demo.greeting import build_greeting
 
 
 @pytest.mark.parametrize(

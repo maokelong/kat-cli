@@ -34,7 +34,7 @@ def validate_sdk_wheel_archive(path: Path, *, expected_version: str | None = Non
         allowed_root = {"kat_sdk", f"kat_sdk-{version}.dist-info"}
         if any(name.split("/")[0] not in allowed_root for name in names):
             raise ValueError("SDK wheel contains files outside its distribution")
-        if any(name.startswith("kat_sdk/knowledge/libraries/") for name in names):
+        if any(name.startswith("kat_sdk/knowledge/helpers/") for name in names):
             raise ValueError("Library Markdown belongs in kat Skill references, not the SDK wheel")
         required = {
             "kat_sdk/__init__.py",

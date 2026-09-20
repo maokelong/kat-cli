@@ -7,7 +7,7 @@
 在已安装 SDK 的 KAT Python 环境中：
 
 ```python
-from kat_sdk.libraries.demo.greeting import build_greeting
+from kat_sdk.helpers.demo.greeting import build_greeting
 
 assert build_greeting(" KAT ") == "你好，KAT！"
 assert build_greeting("小明") == "你好，小明！"
@@ -17,7 +17,7 @@ assert build_greeting("小明") == "你好，小明！"
 
 ## 源码与 API
 
-源码路径：`kat/sdk/libraries/demo/greeting.py`。本页同时提供函数 API 说明：
+源码路径：`kat/sdk/helpers/demo/greeting.py`。本页同时提供函数 API 说明：
 
 ```python
 def build_greeting(name: str) -> str: ...
@@ -33,7 +33,7 @@ def build_greeting(name: str) -> str: ...
 文档适用于 SDK 0.1.1 的上述接口。SDK 可独立升级；按 [Python 依赖管理](../../python-packages.md) 核对安装版本，必要时读取已安装函数的签名与 docstring：
 
 ```text
-<bundled-python> -I -B -c "import inspect; from kat_sdk.libraries.demo.greeting import build_greeting; print(inspect.signature(build_greeting)); print(inspect.getdoc(build_greeting))"
+<bundled-python> -I -B -c "import inspect; from kat_sdk.helpers.demo.greeting import build_greeting; print(inspect.signature(build_greeting)); print(inspect.getdoc(build_greeting))"
 ```
 
 SDK 的 `demo-greeting` Workflow（通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取 Guide） 调用此函数并将结果包装为框架 Table。修改函数时同步维护行为测试、docstring 和本 Guide；通过 kat 公共库导航发现函数，不增加 CLI 函数发现命令。

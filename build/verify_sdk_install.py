@@ -32,14 +32,14 @@ def fixture(repository: Path, work: Path, revision: int) -> Path:
     original = config.read_text(encoding="utf-8")
     version = tomllib.loads(original)["project"]["version"]
     config.write_text(original.replace(f'version = "{version}"', f'version = "{version}+verify{revision}"')
-                      .replace('"kat_sdk.libraries.demo"]', '"kat_sdk.libraries.demo", "kat_sdk.libraries.verification"]'), encoding="utf-8")
+                      .replace('"kat_sdk.helpers.demo"]', '"kat_sdk.helpers.demo", "kat_sdk.helpers.verification"]'), encoding="utf-8")
     def write(path: str, text: str) -> None:
         target = sdk / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
-    write("libraries/__init__.py", "")
-    write("libraries/verification/__init__.py", "")
-    write("libraries/verification/values.py", f'''__all__ = ["increment"]
+    write("helpers/__init__.py", "")
+    write("helpers/verification/__init__.py", "")
+    write("helpers/verification/values.py", f'''__all__ = ["increment"]
 
 def increment(value: int) -> int:
     """增加输入整数，用于验证中文、类型注解与实际调用。
@@ -53,7 +53,7 @@ def increment(value: int) -> int:
     workflow = '''import kat
 import pyarrow as pa
 from kat import dataprovider as dp
-from kat_sdk.libraries.verification.values import increment
+from kat_sdk.helpers.verification.values import increment
 
 @kat.workflow(name="sdk-probe", description="SDK verification workflow.", parameters={"value": "Input value"}, guide="workflows/verification/probe.md")
 def probe(ctx: kat.Context, value: int = 40):
@@ -65,7 +65,7 @@ def probe(ctx: kat.Context, value: int = 40):
     index = sdk / "knowledge/index.md"
     index.write_text(index.read_text(encoding="utf-8") + "\n- [Verification API](workflows/verification/probe.api.md)\n- [Verification Workflow](workflows/verification/probe.md)\n", encoding="utf-8")
     if revision == 1:
-        write("libraries/verification/removed.py", '"""此旧版本文件必须由 pip 在升级时移除。"""\n')
+        write("helpers/verification/removed.py", '"""此旧版本文件必须由 pip 在升级时移除。"""\n')
     else:
         write("providers/probe.py", '''import kat
 __all__ = ["ProbeProvider"]
@@ -198,7 +198,7 @@ def test_compose(kat_run):
     def verify_demo() -> None:
         detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "demo-greeting")["result"]["workflow"]
         assert "公共库" in detail["guide"] and detail["parameters"], detail
-        assert not (sdk_root / "knowledge/libraries").exists()
+        assert not (sdk_root / "knowledge/helpers").exists()
         assert (sdk_root / "knowledge/workflows/demo/greeting.api.md").is_file()
         session = invoke("session", "create")["result"]["session_id"]
         for arguments, expected in (([], "你好，KAT！"), (["--", "--name", " 小明 "], "你好，小明！")):
@@ -280,9 +280,9 @@ def test_demo(kat_run):
         knowledge = (sdk_root / "knowledge/workflows/verification/probe.api.md").read_text(encoding="utf-8")
         assert "value: int" in knowledge and "SDK verification workflow" in knowledge, knowledge
         assert "workflows/verification/probe.api.md" in (sdk_root / "knowledge/index.md").read_text(encoding="utf-8")
-        assert host_run("from kat_sdk.libraries.verification.values import increment; print(increment(40))").strip() == str(40 + revision)
+        assert host_run("from kat_sdk.helpers.verification.values import increment; print(increment(40))").strip() == str(40 + revision)
         if revision == 2:
-            assert not (sdk_root / "libraries/verification/removed.py").exists()
+            assert not (sdk_root / "helpers/verification/removed.py").exists()
             detail = invoke("inspect", "provider", "--provider", "sdk-probe")["result"]["provider"]
             assert "revision 2" in detail["guide"]
             assert host_run("from kat_sdk.providers.probe import ProbeProvider; print(ProbeProvider().value())").strip() == "42"
