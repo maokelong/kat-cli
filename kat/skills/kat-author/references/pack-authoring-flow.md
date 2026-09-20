@@ -44,7 +44,7 @@ PACK 名称：memory-analysis
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
 
-新增或扩展 Workflow、Provider、公共函数前，均按 [开发前复用检查](../../kat/references/helpers/index.md#新开发前的复用检查) 检查已有同类实现。Workflow 除当前 PACK 外还检查 SDK 与相关 PACK 的 Workflow；Workflow/Provider 开发还须检查 SDK 和当前 PACK 的 helpers 能否承担所需步骤，记录复用选择和具体缺口后再实现。
+新增或扩展 Workflow、Provider 前，均按 [开发前复用检查](../../kat/references/helpers/index.md#新开发前的复用检查) 检查已有同类实现。Workflow 除当前 PACK 外还检查 SDK 与相关 PACK 的 Workflow；Workflow/Provider 开发还须检查 SDK 和当前 PACK 的 helpers 能否承担所需步骤，记录复用选择和具体缺口后再实现。
 
 根据开发目标分别调用：
 
@@ -359,6 +359,6 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
 2. 重新执行对应 Workflow 或 Provider list inspection，再对新增或修改的声明及 Guide 所属对象执行 detail inspection。已编写 Workflow Guide 时，成功 Response 的 `guide` 必须非空且与预期正文一致；返回 `null`、内容不符或文件放错目录都表示作者验收未完成。Runtime 不会自动关联 Markdown，列表成功或 PACK 测试通过不能替代这项检查。没有额外解释需求且未编写 Guide 的 Workflow 仍允许 `guide: null`。对照脚本核准关键输出的含义与口径，确认仅凭公开输出和适用的 Guide 即可理解结果及局限；单位或范围仍缺依据时明确记录缺口。
 3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
-4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider、公共函数时说明已有同类能力及 helpers 的复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
+4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。
