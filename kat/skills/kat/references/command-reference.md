@@ -168,6 +168,8 @@ ORDER BY table_name, ordinal_position
 
 ## 保存和恢复分析
 
+`analysis` 是供 AI/Skill 管理分析状态的公开命令接口。用户通过自然语言发起分析，`kat-analyze` 按[分析流程中的触发时机](../../kat-analyze/references/analysis-flow.md)自动初始化、保存和恢复，不要求用户主动调用这些命令或编写 JSON。CLI 负责持久化与校验，不会因 `run` 成功自动产生 AI 解释或总报告；调用时机由 Skill 负责。`kat-review` 仅按自身复核流程读取记录，不初始化、更新或归档。
+
 ```text
 kat analysis init --session S --file goal.json
 kat analysis show --session S
