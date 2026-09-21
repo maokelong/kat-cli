@@ -1,0 +1,4 @@
+name = "kat-sdk"
+title = "KAT 公共能力"
+description = "由官方维护、供各领域复用的公共 Workflow。"
+owner = "KAT"

@@ -276,7 +276,7 @@ class CiArtifactLifecycleTests(unittest.TestCase):
             for block in upload_blocks(workflow.read_text(encoding="utf-8"))
         ]
 
-        self.assertEqual(len(blocks), 4)
+        self.assertEqual(len(blocks), 5)
         for block in blocks:
             with self.subTest(block=block):
                 self.assertIn("retention-days: 1", block)

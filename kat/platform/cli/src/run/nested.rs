@@ -209,7 +209,7 @@ impl NestedRunCoordinator {
             }
             return Ok(discovered.directory().to_path_buf());
         }
-        let discovered = pack_discovery::discover(self.discovery_paths.clone())
+        let discovered = crate::sdk::discover(self.discovery_paths.clone())
             .map_err(|error| error.to_string())?;
         discovered
             .get(name)

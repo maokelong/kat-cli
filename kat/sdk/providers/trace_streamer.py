@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+__all__ = ["TraceStreamerProvider"]
+
 from collections.abc import Mapping
 from pathlib import Path
 import sqlite3
@@ -13,7 +15,7 @@ import pyarrow as pa
 
 import kat
 from kat import dataprovider as dp
-from ._write import _rename_no_replace
+from kat.dataprovider import publish_materialization
 
 
 _READ_ONLY_SQLITE_ACTIONS = frozenset(
@@ -32,7 +34,21 @@ _READ_ONLY_SQLITE_ACTIONS = frozenset(
     guide="providers/trace-streamer-sqlite.md",
 )
 class TraceStreamerProvider:
-    """Decode or reuse Trace Streamer SQLite, then query read-only."""
+    """解码或打开 Trace Streamer SQLite，并显式执行只读查询。
+
+    Parameters:
+        source: 待解码 Trace；不能与 sqlite_path 同时提供。
+        executable: 调用方提供的 Trace Streamer 可执行文件。
+        workspace_root: 解码物化根，通常为 ctx.datasource_root。
+        sqlite_path: 已有 SQLite 的精确绝对路径；与全部解码参数互斥。
+
+    Raises:
+        ValueError: 路径、参数组合或数据库结构无效。
+        RuntimeError: 外部解析器失败或没有产生完整物化。
+
+    导入路径为 `kat_sdk.providers.trace_streamer.TraceStreamerProvider`。
+    SDK 不附带外部 Trace Streamer；已有有效物化可直接复用。
+    """
 
     def __init__(
         self,
@@ -104,7 +120,7 @@ class TraceStreamerProvider:
                 )
             _verify_materialization(candidate)
             try:
-                _rename_no_replace(candidate, destination)
+                publish_materialization(candidate, destination)
             except OSError:
                 if not os.path.lexists(destination):
                     raise
@@ -118,6 +134,20 @@ class TraceStreamerProvider:
         schema: pa.Schema,
         params: Mapping[str, object] | None = None,
     ) -> dp.Table:
+        """执行单条只读 SQLite SQL，按显式 Arrow Schema 返回 Table。
+
+        Parameters:
+            sql: 当前 SQLite 的只读查询。
+            schema: 完整输出列名、顺序与类型；查询列必须严格匹配。
+            params: SQLite 命名绑定参数。
+
+        Returns:
+            与 schema 一致的 eager 表值。
+
+        Raises:
+            ValueError: 查询列与 schema 不一致。
+            sqlite3.DatabaseError: 非只读操作、SQL 或数据库访问失败。
+        """
         if type(sql) is not str or not sql.strip():
             raise TypeError("Trace Streamer SQL must be a non-empty string")
         if not isinstance(schema, pa.Schema):

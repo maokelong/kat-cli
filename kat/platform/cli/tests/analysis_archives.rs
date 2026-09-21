@@ -431,6 +431,11 @@ fn field(document: &str, field: &str) -> String {
 }
 fn main() {
     let args = env::args().skip(1).collect::<Vec<_>>();
+    if args.get(4).map(String::as_str) == Some("-c") {
+        let location = env::current_exe().unwrap().parent().unwrap().join("sdk-fixture");
+        print!("{:?}", location.to_str().unwrap());
+        return;
+    }
     assert_eq!(args.len(), 11);
     let request = fs::read_to_string(&args[8]).unwrap();
     fs::write(env::var_os("KAT_ARCHIVE_RUNTIME_CALLED").unwrap(), &request).unwrap();

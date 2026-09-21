@@ -48,7 +48,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
             '-C target/kat/release/skills -czf "target/distrib/release/${artifact}"',
             workflow,
         )
-        self.assertIn("            kat kat-analyze kat-author kat-review\n", workflow)
+        self.assertIn("            kat kat-analyze kat-author kat-review kat-dev-sdk\n", workflow)
         self.assertEqual(workflow.count("build/verify_skill_collection.py"), 3)
         self.assertIn('tar -xzf "$ARTIFACT_NAME" -C ../verified-skills', workflow)
         self.assertIn("mv target/kat/smoke-input target/kat/smoke-relocated", workflow)

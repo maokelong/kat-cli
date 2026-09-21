@@ -4,7 +4,7 @@ from pathlib import Path
 import kat
 
 import pyarrow as pa
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 
 
 NATIVE_HOOK_SUMMARY_SQL = """

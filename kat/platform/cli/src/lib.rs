@@ -9,6 +9,7 @@ mod query;
 mod response;
 mod run;
 mod run_manifest;
+mod sdk;
 mod session;
 mod session_store;
 mod test;
@@ -337,7 +338,7 @@ fn inspect_resolved_target(
             return finish_inspect_target_failure(log, InspectTargetPackError::SkillRoot(source));
         }
     };
-    let discovered = match pack_discovery::discover(PackDiscoveryPaths {
+    let discovered = match crate::sdk::discover(PackDiscoveryPaths {
         skill_pack_search_directory: skill_root.join("assets").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
@@ -469,7 +470,7 @@ fn inspect_target_log_failure(
 fn inspect_packs(pack_directories: Vec<PathBuf>) -> Result<InspectPacksResult, InspectPacksError> {
     let skill_root = locate_skill_root()?;
     let data_home = locate_data_home()?;
-    let discovered = pack_discovery::discover(PackDiscoveryPaths {
+    let discovered = crate::sdk::discover(PackDiscoveryPaths {
         skill_pack_search_directory: skill_root.join("assets").join("packs"),
         data_home_pack_search_directory: data_home.join("packs"),
         additional_pack_directories: pack_directories,
@@ -562,6 +563,14 @@ enum SkillRootError {
 
 #[derive(Debug, Error, Diagnostic)]
 enum PackDiscoveryFailure {
+    #[error("KAT SDK installation is unavailable")]
+    #[diagnostic(help(
+        "Repair the SDK installation in the current KAT Python environment and retry"
+    ))]
+    Sdk {
+        #[source]
+        source: Box<pack_discovery::PackDiscoveryError>,
+    },
     #[error("PACK discovery failed")]
     #[diagnostic(help("Correct the first invalid PACK candidate and retry"))]
     Discovery {
@@ -587,6 +596,9 @@ enum PackDiscoveryFailure {
 impl From<pack_discovery::PackDiscoveryError> for PackDiscoveryFailure {
     fn from(source: pack_discovery::PackDiscoveryError) -> Self {
         match source {
+            source @ pack_discovery::PackDiscoveryError::Sdk { .. } => Self::Sdk {
+                source: Box::new(source),
+            },
             source @ pack_discovery::PackDiscoveryError::DuplicatePackName { .. } => {
                 Self::DuplicatePackName {
                     source: Box::new(source),
