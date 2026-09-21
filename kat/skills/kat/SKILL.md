@@ -9,13 +9,10 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
-| 分析数据来源、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
+| 分析数据来源、发现或运行当前部署的 Workflow/Provider、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
 | 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [kat-dev-sdk](../kat-dev-sdk/SKILL.md) |
-| 理解、创建、修改、测试或诊断领域 PACK 及其 Provider、Workflow、领域公共库 | [kat-author](../kat-author/SKILL.md) |
+| 理解、创建、修改、测试或诊断领域 PACK 及其 Provider、Workflow、领域公共库，核对可复用的框架或 SDK API | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
-| 查找 SDK Workflow、了解输入输出和调用方式 | [Workflow 导航](references/workflows/index.md) |
-| 查找 SDK Provider、了解适用来源和导入方式 | [Provider 导航](references/providers/index.md) |
-| 查找和使用 SDK 公共函数 | [公共库导航](references/helpers/index.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |
 
 相对链接以本文件所在目录为基准，先解析为绝对路径，不依赖当前工作目录。只加载当前任务所需入口；目标缺失或会导向实质不同任务时，询问一个最小必要问题。

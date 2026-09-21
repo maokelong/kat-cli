@@ -44,7 +44,7 @@ PACK 名称：memory-analysis
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
 
-创建或扩展 Workflow、Provider 前，先通过下方 inspection 命令检查正在开发的 PACK，并查阅官方 SDK 的 [Workflow 导航](../../kat/references/workflows/index.md) 和 [Provider 导航](../../kat/references/providers/index.md)，确认是否已有满足需求的实现。同时查阅 [SDK helpers 导航](../../kat/references/helpers/index.md)，以及正在开发的 PACK 的 `helpers/` 和 `knowledge/helpers/`，检查公共函数是否可复用。已有能力满足需求时直接复用，只实现缺少的部分。具体步骤见 [开发前复用检查](reuse-check.md)。
+创建或扩展 Workflow、Provider 前，先执行 [开发前复用检查](reuse-check.md)，按框架 API、SDK API reference、公共 inspection 与当前 PACK 的顺序确认是否已有满足需求的实现，并检查公共函数能否支撑构建。已有能力满足需求时直接复用，只实现缺少的部分。
 
 根据开发目标分别调用：
 
@@ -60,42 +60,7 @@ Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect P
 
 ### 复用公共来源
 
-以下是当前公共来源的调用示例，实际可用能力仍以公共 inspection 为准。公共类自身携带声明与平台维护的来源 guide；`--pack` 只查询 PACK 自有 Provider，两个范围允许同名，不合并或自动回退。
-
-文本 Ftrace 选择 `ftrace-text`，读取 detail 后直接使用公共具体实现：
-
-```python
-from pathlib import Path
-
-from kat_sdk.providers.ftrace import FtraceProvider
-
-provider = FtraceProvider(
-    source=Path(trace_path),
-    clock_domain=clock_domain,
-    workspace_root=ctx.datasource_root,
-)
-result = provider.query("SELECT * FROM text_ftrace_header")
-```
-
-来源约束以公共 guide 为准。FtraceProvider 默认信任 datasource 输出，直接使用实际关系和报告，不重复校验关系白名单、Schema 或物化版本；消费 PACK 无需补充准入包装。Source stem 合法性、显式 clock domain 和物化目录复用约束继续生效。
-
-Trace Streamer 选择 `trace-streamer-sqlite`，读取 detail 后直接使用公共类的两个互斥入口：
-
-```python
-from pathlib import Path
-
-from kat_sdk.providers.trace_streamer import TraceStreamerProvider
-
-provider = TraceStreamerProvider(
-    source=Path(source_path), executable=Path(parser_path),
-    workspace_root=ctx.datasource_root,
-)
-# 或直接打开现有数据库：
-provider = TraceStreamerProvider(sqlite_path=sqlite_path)
-result = provider.query(sql, schema=result_schema, params={"minimum": 1})
-```
-
-解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。物化使用 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
+公共 Provider 的存在、名称和来源语义以公共 list/detail inspection 及其 Guide 为准；Python 构造与调用合同以 `kat-author/references/api.md` 链接的候选 SDK reference 为准。先按 [开发前复用检查](reuse-check.md) 核对两者，再使用 reference 给出的公开导入路径。`--pack` 只查询 PACK 自有 Provider；公共与 PACK 范围允许同名，不合并或自动回退。
 
 新增或提取当前 PACK 内可复用函数时，按 [领域公共库开发](pack-helpers.md) 检查 SDK 和已有 helpers，组织实现、导入、库文档及测试。
 

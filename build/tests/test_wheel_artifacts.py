@@ -12,6 +12,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "build"))
 import payload_builder
 import build_linux_payload
+import build_sdk_wheel
 import build_windows_payload
 
 
@@ -73,17 +74,57 @@ def write_datasource_wheel(
         )
 
 
-def write_sdk_wheel(path: Path, version: str = "0.1.0") -> None:
+def write_sdk_wheel(
+    path: Path, version: str = "0.1.0", *, include_guide: bool = True
+) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         for name in ("__init__.py", "providers/__init__.py"):
             archive.writestr(f"kat_sdk/{name}", "")
+        archive.writestr(
+            "kat_sdk/providers/ftrace.py",
+            '@provider(name="ftrace-text", description="Ftrace", '
+            'guide="providers/ftrace.md")\n'
+            "class FtraceProvider:\n"
+            "    pass\n",
+        )
         archive.writestr("kat_sdk/pack.toml", 'name="kat-sdk"\ntitle="SDK"\ndescription="Official capabilities"\nowner="KAT"\n')
-        archive.writestr("kat_sdk/knowledge/index.md", "# SDK knowledge\n")
+        if include_guide:
+            archive.writestr("kat_sdk/knowledge/providers/ftrace.md", "# Ftrace Guide\n")
         archive.writestr(f"kat_sdk-{version}.dist-info/METADATA", f"Metadata-Version: 2.4\nName: kat-sdk\nVersion: {version}\n")
         archive.writestr(f"kat_sdk-{version}.dist-info/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
 
 
 class WheelArtifactTests(unittest.TestCase):
+    def test_sdk_wheel_requires_declared_runtime_guides(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = Path(directory) / "kat_sdk-0.1.0-py3-none-any.whl"
+            write_sdk_wheel(wheel, include_guide=False)
+
+            with self.assertRaisesRegex(ValueError, "Runtime Guide"):
+                build_sdk_wheel.validate_sdk_wheel_archive(
+                    wheel, expected_version="0.1.0"
+                )
+
+    def test_sdk_wheel_rejects_api_documentation(self) -> None:
+        forbidden = (
+            "kat_sdk/docs/api.md",
+            "kat_sdk/docs/reference/providers.ftrace.md",
+            "kat_sdk/api.md",
+            "kat_sdk/reference/providers.ftrace.md",
+            "kat_sdk/knowledge/providers/ftrace.api.md",
+        )
+        for name in forbidden:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                wheel = Path(directory) / "kat_sdk-0.1.0-py3-none-any.whl"
+                write_sdk_wheel(wheel)
+                with zipfile.ZipFile(wheel, "a") as archive:
+                    archive.writestr(name, "# API documentation must stay outside wheel\n")
+
+                with self.assertRaisesRegex(ValueError, "API documentation"):
+                    build_sdk_wheel.validate_sdk_wheel_archive(
+                        wheel, expected_version="0.1.0"
+                    )
+
     def test_payload_keeps_only_installed_sdk_manifest(self) -> None:
         for spec, site in (
             (build_windows_payload.PLATFORM_SPEC, "Lib/site-packages"),

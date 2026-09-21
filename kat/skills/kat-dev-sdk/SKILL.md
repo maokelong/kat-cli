@@ -1,22 +1,24 @@
 ---
 name: kat-dev-sdk
-description: 开发和维护 KAT 官方 SDK 的 Provider、Workflow、领域公共库及知识文档，构建 SDK wheel 并验证独立安装升级。用户要求创建 SDK 能力、修改公共库或 SDK 文档、打包 SDK 时使用。
+description: 开发和维护 KAT 官方 SDK 的 Provider、Workflow、公共 Python API、Runtime Guide 与源码侧 API 文档，并构建和验收独立 SDK wheel。用户要求创建或修改 SDK 能力、生成 SDK API 文档、打包 SDK 时使用。
 ---
 
 # KAT SDK 开发
 
-本 Skill 维护 KAT 源码仓库中的 `kat/sdk/`，交付具体公共能力与知识。使用现成能力进行分析时转到 [kat-analyze](../kat-analyze/SKILL.md)；领域 PACK 开发使用 [kat-author](../kat-author/SKILL.md)。
+本 Skill 维护 KAT 源码仓库中的 `kat/sdk/`。使用现成能力进行分析时转到 [kat-analyze](../kat-analyze/SKILL.md)；领域 PACK 开发使用 [kat-author](../kat-author/SKILL.md)。
 
 ## 工作流程
 
-1. 确认用户要修改的 SDK 源码仓库，读取仓库工作协议及已有 issue/设计。明确目标能力、领域目录、消费者和验证方式；仅有已安装部署时，先取得源码位置，不直接修改 site-packages 作为交付。
-2. 读取 [SDK 开发指南](references/sdk-development.md)，选择 Provider、Workflow 或公共库分支。三类能力开发前均执行 [开发前复用检查](../kat-author/references/reuse-check.md)，检查已有同类实现；Workflow/Provider 还须检查公共函数能否支撑构建。Workflow 和 helpers 按领域分目录，只实现已确认的缺口，使用框架公开 API。
-3. 同步实现、类型注解、docstring 和 SDK 知识；按开发指南在 kat 的 `references/workflows/`、`references/providers/` 或 `references/helpers/` 新增或更新介绍与分类导航。完成标准是 wheel 的源码与随包知识、Skill 的使用介绍均齐全，名称、导入路径及适用版本一致。
-4. 按 [SDK 构建与验收流程](references/sdk-build.md) 构建独立 wheel，在测试部署中验证知识读取、真实使用及升级。复验未安装和卸载 SDK 后，原有框架与不依赖 SDK 的 PACK 仍可用。
-5. 交付代码与文档位置、SDK 版本、wheel/SHA256、实际测试证据和未完成项。是否发布远程资产按用户指令执行。
+1. 定位 SDK 源码仓库，读取仓库工作协议、对应 issue 与设计。明确本次能力、消费者、最小切片和验证方式；不要把已安装的 `site-packages/kat_sdk/` 当作交付源码。
+2. 读取 [SDK 开发指南](references/sdk-development.md)，按其中的源码侧复用检查核对 `kat/sdk/providers/`、`workflows/`、`helpers/`、相关测试与真实消费者，并只读作者侧 `base-api.md` 核对框架已有能力。`base-api.md` 缺失时报告文档缺项；本 Skill 不生成或修改它。
+3. 实现必要的源码、类型注解、docstring、行为测试和 declaration 直接引用的 Runtime Guide。Provider、Workflow、helper 使用各自既有发现方式，不新增平行导航。
+4. 按开发指南从源码静态生成 `kat/sdk/docs/api.md` 与 `kat/sdk/docs/reference/`。以 `_API_MODULES` 和各模块 `__all__` 为唯一 Python API 边界，结合实现、测试和真实消费者形成内容；不 import 或执行 SDK 模块。任一公开符号证据不足时停止正式生成并报告。将生成结果交给人工审核，未经审核不得作为正式 API 文档。
+5. 审核完成后向用户提供源码文档路径，由用户自行把 `docs/api.md` 与整个 `docs/reference/` 复制到 `kat-author/references/`。本 Skill、wheel 构建和 Skill 装配都不得自动执行该复制。
+6. 按 [SDK 构建与验收流程](references/sdk-build.md) 构建独立 wheel，在隔离部署中验证发现、Runtime Guide、真实使用、升级和卸载。构建不得生成、修改、复制或打包 API 文档。
+7. 交付变更位置、SDK 版本、API 文档人工审核状态、wheel/SHA256、实际验证证据和未完成项。是否发布远程资产按用户指令执行。
 
 ## 运行环境
 
 调用 KAT 前读取同级 kat 的 [公共命令合同](../kat/references/command-reference.md)，按该合同定位 CLI、Data Home 和相邻 Python；安装依赖遵循 [Python 依赖管理](../kat/references/python-packages.md)。
 
-开发构建使用源码仓库所要求的工具环境，运行验收使用所选 KAT 部署。SDK 独立版本化，CLI、Runtime、Context、装饰器和表工具继续由框架维护。
+开发构建使用源码仓库所要求的工具环境，运行验收使用所选 KAT 部署。SDK 独立版本化；CLI、Runtime、Context、装饰器和表工具继续由框架维护。

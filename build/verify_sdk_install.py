@@ -62,8 +62,6 @@ def probe(ctx: kat.Context, value: int = 40):
 '''
     write("workflows/verification/probe.py", workflow)
     write("knowledge/workflows/verification/probe.md", f"# SDK probe revision {revision}\n")
-    index = sdk / "knowledge/index.md"
-    index.write_text(index.read_text(encoding="utf-8") + "\n- [Verification API](workflows/verification/probe.api.md)\n- [Verification Workflow](workflows/verification/probe.md)\n", encoding="utf-8")
     if revision == 1:
         write("helpers/verification/removed.py", '"""此旧版本文件必须由 pip 在升级时移除。"""\n')
     else:
@@ -195,11 +193,17 @@ def test_compose(kat_run):
     run(host, "-I", "-B", "-X", "utf8", "-m", "pytest", "-q", "-p", "no:cacheprovider", repository / "kat/sdk/tests")
     library = host_run("from importlib.resources import files; print(files('kat_sdk'))").strip()
     sdk_root = Path(library)
+    def verify_no_api_documentation() -> None:
+        assert not (sdk_root / "docs").exists()
+        assert not (sdk_root / "api.md").exists()
+        assert not (sdk_root / "reference").exists()
+        assert not (sdk_root / "knowledge/index.md").exists()
+        assert not any((sdk_root / "knowledge").rglob("*.api.md"))
     def verify_demo() -> None:
         detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "demo-greeting")["result"]["workflow"]
         assert "公共库" in detail["guide"] and detail["parameters"], detail
         assert not (sdk_root / "knowledge/helpers").exists()
-        assert (sdk_root / "knowledge/workflows/demo/greeting.api.md").is_file()
+        verify_no_api_documentation()
         session = invoke("session", "create")["result"]["session_id"]
         for arguments, expected in (([], "你好，KAT！"), (["--", "--name", " 小明 "], "你好，小明！")):
             executed = invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", *arguments)["result"]
@@ -208,7 +212,6 @@ def test_compose(kat_run):
         invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", "--", "--name", "   ", success=False)
         invoke("session", "delete", "--session", session)
     verify_demo()
-    assert (sdk_root / "knowledge/providers/ftrace.api.md").is_file()
     assert invoke("inspect", "--pack-dir", sdk_root)["result"]["packs"] == packs
     manifest = sdk_root / "pack.toml"
     manifest_bytes = manifest.read_bytes()
@@ -277,9 +280,6 @@ def test_demo(kat_run):
 ''', encoding="utf-8")
         tested = invoke("test", "--pack-dir", consumer)
         assert tested["result"]["summary"]["passed"] == 2, tested
-        knowledge = (sdk_root / "knowledge/workflows/verification/probe.api.md").read_text(encoding="utf-8")
-        assert "value: int" in knowledge and "SDK verification workflow" in knowledge, knowledge
-        assert "workflows/verification/probe.api.md" in (sdk_root / "knowledge/index.md").read_text(encoding="utf-8")
         assert host_run("from kat_sdk.helpers.verification.values import increment; print(increment(40))").strip() == str(40 + revision)
         if revision == 2:
             assert not (sdk_root / "helpers/verification/removed.py").exists()
