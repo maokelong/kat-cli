@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers.ftrace import FtraceProvider
 
 import kat
 

@@ -305,6 +305,7 @@ class AuthoringApiTest(unittest.TestCase):
                 "Catalog",
                 "DataFusionProvider",
                 "write",
+                "publish_materialization",
                 "open",
             },
         )

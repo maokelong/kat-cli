@@ -565,7 +565,7 @@ class DataProviderWriteTest(unittest.TestCase):
 
     def test_publish_race_never_replaces_a_competing_destination(self) -> None:
         schema = dp.Schema({"events": {"value": int}})
-        original_rename = write_module._rename_no_replace
+        original_rename = write_module.publish_materialization
 
         with tempfile.TemporaryDirectory() as parent:
             parent_path = Path(parent)
@@ -578,7 +578,7 @@ class DataProviderWriteTest(unittest.TestCase):
 
             with mock.patch.object(
                 write_module,
-                "_rename_no_replace",
+                "publish_materialization",
                 side_effect=create_competitor_then_rename,
             ), self.assertRaises(OSError):
                 with dp.write(schema, destination=destination) as sink:
@@ -647,7 +647,7 @@ class DataProviderWriteTest(unittest.TestCase):
 
     def test_successful_publish_is_not_rolled_back_by_a_late_interrupt(self) -> None:
         schema = dp.Schema({"events": {"value": int}})
-        original_rename = write_module._rename_no_replace
+        original_rename = write_module.publish_materialization
 
         with tempfile.TemporaryDirectory() as parent:
             parent_path = Path(parent)
@@ -659,7 +659,7 @@ class DataProviderWriteTest(unittest.TestCase):
 
             with mock.patch.object(
                 write_module,
-                "_rename_no_replace",
+                "publish_materialization",
                 side_effect=rename_then_interrupt,
             ), self.assertRaisesRegex(KeyboardInterrupt, "after publication"):
                 with dp.write(schema, destination=destination) as sink:

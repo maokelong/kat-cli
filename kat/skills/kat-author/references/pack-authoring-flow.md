@@ -44,6 +44,8 @@ PACK 名称：memory-analysis
 
 用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
 
+创建或扩展 Workflow、Provider 前，先通过下方 inspection 命令检查正在开发的 PACK，并查阅官方 SDK 的 [Workflow 导航](../../kat/references/workflows/index.md) 和 [Provider 导航](../../kat/references/providers/index.md)，确认是否已有满足需求的实现。同时查阅 [SDK helpers 导航](../../kat/references/helpers/index.md)，以及正在开发的 PACK 的 `helpers/` 和 `knowledge/helpers/`，检查公共函数是否可复用。已有能力满足需求时直接复用，只实现缺少的部分。具体步骤见 [开发前复用检查](reuse-check.md)。
+
 根据开发目标分别调用：
 
 - `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取参数合同和 analysis guide。
@@ -65,7 +67,7 @@ Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect P
 ```python
 from pathlib import Path
 
-from kat.dataprovider.ftrace import FtraceProvider
+from kat_sdk.providers.ftrace import FtraceProvider
 
 provider = FtraceProvider(
     source=Path(trace_path),
@@ -82,7 +84,7 @@ Trace Streamer 选择 `trace-streamer-sqlite`，读取 detail 后直接使用公
 ```python
 from pathlib import Path
 
-from kat.dataprovider.trace_streamer import TraceStreamerProvider
+from kat_sdk.providers.trace_streamer import TraceStreamerProvider
 
 provider = TraceStreamerProvider(
     source=Path(source_path), executable=Path(parser_path),
@@ -94,6 +96,8 @@ result = provider.query(sql, schema=result_schema, params={"minimum": 1})
 ```
 
 解码入口的三个参数为 `Path`；已有 SQLite 入口接受精确绝对路径的 `str` 或 `Path`。构造时准备好 SQLite，`query()` 返回 `dp.Table`，要求显式 PyArrow Schema 与命名参数。解析器遵守 `<executable> <source> -e <sqlite-path>`，配置与二进制配套放置。物化使用 Session source-stem 槽位：命中则复用，损坏则失败，不原位重建。
+
+新增或提取当前 PACK 内可复用函数时，按 [领域公共库开发](pack-helpers.md) 检查 SDK 和已有 helpers，组织实现、导入、库文档及测试。
 
 ## 3. 声明可发现知识
 
@@ -355,6 +359,6 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
 2. 重新执行对应 Workflow 或 Provider list inspection，再对新增或修改的声明及 Guide 所属对象执行 detail inspection。已编写 Workflow Guide 时，成功 Response 的 `guide` 必须非空且与预期正文一致；返回 `null`、内容不符或文件放错目录都表示作者验收未完成。Runtime 不会自动关联 Markdown，列表成功或 PACK 测试通过不能替代这项检查。没有额外解释需求且未编写 Guide 的 Workflow 仍允许 `guide: null`。对照脚本核准关键输出的含义与口径，确认仅凭公开输出和适用的 Guide 即可理解结果及局限；单位或范围仍缺依据时明确记录缺口。
 3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
-4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；涉及来源接入时说明公共能力复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
+4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。

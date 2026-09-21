@@ -4,7 +4,7 @@ from ._fusion import DataFusionProvider
 from ._parquet import Catalog, open
 from ._schema import Schema
 from ._table import Table
-from ._write import write
+from ._write import publish_materialization, write
 
 __all__ = [
     "Catalog",
@@ -12,5 +12,6 @@ __all__ = [
     "Schema",
     "Table",
     "open",
+    "publish_materialization",
     "write",
 ]
