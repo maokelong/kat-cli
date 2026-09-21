@@ -6,7 +6,7 @@
 
 ## 可运行的 demo
 
-SDK 0.1.1 提供一组同领域示例：`helpers/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读 kat Skill 的 [公共库介绍](../../kat/references/helpers/demo/greeting.md) 和 [Workflow 介绍](../../kat/references/workflows/demo/greeting.md)，再核对当前 SDK 中的 Workflow Guide；Workflow Guide 也可通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取。
+SDK 0.1.1 提供一组同领域示例：`helpers/demo/greeting.py` 的 `build_greeting()` 生成问候语，`workflows/demo/greeting.py` 的 `demo-greeting` 调用它并返回一行 `message` 表。阅读 kat Skill 的 [公共库介绍](../../kat/references/helpers/demo/greeting.md) 和 [Workflow 介绍](../../kat/references/workflows/demo/greeting.md)，再核对当前 SDK 源码中的 Workflow Guide 及装饰器关联。`kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取用途和参数；Guide 在执行后从 Run 结果或 `inspect run` 读取。
 
 源码测试位于 `kat/sdk/tests/test_demo_greeting.py`，完整安装验收还验证 CLI 执行、结果查询及跨 PACK 调用。以此为最小例子学习目录、声明、知识、打包和运行链路，再添加具体领域能力。
 
@@ -113,7 +113,7 @@ from kat_sdk.helpers.<领域>.<模块> import <函数>
 | 来源数据合同、分析解释 | SDK 中由装饰器引用的 Guide |
 | 能力用途及文档入口 | 手写 `knowledge/index.md` |
 
-新增、修改或移除能力时同步更新对应介绍及分类导航，检查所有相对链接。Skill 介绍负责选择能力和最小用法；Provider/Workflow 的详细 Guide 与生成 API 仍随 SDK 交付，使用时通过 inspection 核对当前安装版本，避免复制整份数据合同。公共库全部 Markdown 继续只随 Skill 交付。
+新增、修改或移除能力时同步更新对应介绍及分类导航，检查所有相对链接。Skill 介绍负责选择能力和最小用法；Provider/Workflow 的详细 Guide 与生成 API 仍随 SDK 交付。通过 Provider inspection 核对当前来源知识，Workflow inspection 核对用途与参数，解释结果时采用该 Run 保存的 Guide，避免复制整份数据合同。公共库全部 Markdown 继续只随 Skill 交付。
 
 构建工具静态解析源码，不执行业务模块。为公开类、方法和函数写清楚参数、返回值与异常；注解不能替代单位、时钟域和数据含义。
 

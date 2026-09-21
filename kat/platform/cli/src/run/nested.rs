@@ -536,8 +536,11 @@ mod tests {
             "beta".to_owned(),
             "child".to_owned(),
             Vec::new(),
-            BTreeMap::new(),
-            metadata,
+            crate::workflow_runtime::RunWorkflowReport {
+                guide: None,
+                effective_inputs: BTreeMap::new(),
+                outputs: metadata,
+            },
         );
         publish_run_manifest(allocation.candidate(), &manifest).unwrap();
         allocation.mark_run_published();

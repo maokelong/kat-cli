@@ -227,8 +227,7 @@ pub(super) fn execute_and_publish(
             pack.to_owned(),
             workflow.to_owned(),
             child_runs,
-            runtime.effective_inputs,
-            runtime.outputs,
+            runtime,
         ))
     })();
     let manifest = match manifest {

@@ -55,7 +55,7 @@ class WorkflowExecutionProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def pack(self, body: str) -> Path:
+    def pack(self, body: str, *, guide: str | None = None) -> Path:
         pack = self.root / f"pack-{uuid.uuid4().hex}"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "entry.py").write_text(
@@ -66,6 +66,7 @@ import pyarrow as pa
     name="analyze",
     description="Analyze the provided facts.",
     parameters={{"minimum": "Minimum", "window": "Window"}},
+    guide={guide!r},
 )
 def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms"):
     """Analyze the provided facts."""
@@ -147,6 +148,7 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
             completed.stderr.decode(errors="replace"),
         )
         result = response["result"]
+        self.assertIsNone(result["guide"])
         self.assertEqual(
             result["effective_inputs"],
             {"minimum": "2", "window": "5000000"},
@@ -169,6 +171,66 @@ def analyze(ctx: kat.Context, *, minimum: int = 0, window: kat.Duration = "5ms")
         )
         self.assertTrue((session / "scratch" / candidate_id).is_dir())
         self.assertFalse((candidate / "manifest.json").exists())
+
+    def test_run_captures_guide_before_business_execution_and_reloads_for_each_run(self) -> None:
+        pack = self.pack(
+            '''    from pathlib import Path
+    guide = Path(__file__).parents[1] / "knowledge" / "workflows" / "analyze.md"
+    guide.write_text("# Updated during execution\\n", encoding="utf-8", newline="")
+    return None''',
+            guide="workflows/analyze.md",
+        )
+        guide_path = pack / "knowledge" / "workflows" / "analyze.md"
+        guide_path.parent.mkdir(parents=True)
+        original = "# 执行前指南\r\n\r\n先检查关键证据。\r\n"
+        guide_path.write_text(original, encoding="utf-8", newline="")
+
+        for expected in (original, "# Updated during execution\n"):
+            identifier, candidate = self.candidate()
+            completed, response = self.run_runtime(self.request(pack, identifier, candidate))
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+            self.assertEqual(response["status"], "success", response)
+            self.assertEqual(response["result"]["guide"], expected)
+            self.assertEqual(response["result"]["outputs"], {})
+            self.assertEqual(guide_path.read_text(encoding="utf-8"), "# Updated during execution\n")
+
+    def test_declared_unreadable_guide_fails_before_business_execution(self) -> None:
+        for contents in (None, b"", b"\xff\xfe"):
+            with self.subTest(contents=contents):
+                pack = self.pack(
+                    '    ctx.datasource_root.joinpath("executed").touch()\n    return None',
+                    guide="workflows/analyze.md",
+                )
+                guide_path = pack / "knowledge" / "workflows" / "analyze.md"
+                guide_path.parent.mkdir(parents=True)
+                if contents is not None:
+                    guide_path.write_bytes(contents)
+                identifier, candidate = self.candidate()
+
+                completed, response = self.run_runtime(self.request(pack, identifier, candidate))
+
+                self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+                self.assertEqual(response["status"], "failure", response)
+                self.assertNotIn("result", response)
+                self.assertIn("guide", json.dumps(response).lower())
+                self.assertFalse((candidate.parent.parent / "materializations" / "executed").exists())
+                self.assertFalse((candidate / "outputs").exists())
+
+    def test_run_does_not_read_an_unselected_workflow_guide(self) -> None:
+        pack = self.pack("    return None")
+        (pack / "workflows" / "unused.py").write_text(
+            "from kat import Context, workflow\n"
+            "@workflow(name='unused', description='Not selected.', guide='workflows/missing.md')\n"
+            "def unused(ctx: Context):\n    pass\n",
+            encoding="utf-8",
+        )
+        identifier, candidate = self.candidate()
+
+        completed, response = self.run_runtime(self.request(pack, identifier, candidate))
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(response["status"], "success", response)
+        self.assertIsNone(response["result"]["guide"])
 
     def test_run_reserves_standard_streams_for_rpc_before_importing_pack(self) -> None:
         pack = self.pack(

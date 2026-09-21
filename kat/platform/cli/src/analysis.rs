@@ -2,13 +2,13 @@ use std::{fs::File, path::PathBuf};
 
 use clap::{Args, Subcommand};
 use miette::{IntoDiagnostic, Result, WrapErr};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    analysis_record::{AnalysisRecord, Change, Material},
+    analysis_record::{AnalysisRecord, Material, ReportNode},
     analysis_store,
     response::{self, PreparedResponse},
+    run_manifest,
     session_store::SessionStore,
 };
 
@@ -20,13 +20,6 @@ pub(super) struct AnalysisArgs {
 
 #[derive(Subcommand)]
 enum AnalysisCommand {
-    /// Initialize the existing Session's analysis goal exactly once.
-    Init {
-        #[arg(long)]
-        session: String,
-        #[arg(long)]
-        file: PathBuf,
-    },
     /// Restore the saved report, one node, or one original material.
     Show {
         #[arg(long)]
@@ -36,8 +29,8 @@ enum AnalysisCommand {
         #[arg(long, conflicts_with = "run")]
         material: Option<String>,
     },
-    /// Apply a complete batch of domain changes if the revision still matches.
-    Update {
+    /// Save incremental content; revision 0 creates a record with its first goal.
+    Save {
         #[arg(long)]
         session: String,
         #[arg(long)]
@@ -47,17 +40,9 @@ enum AnalysisCommand {
     },
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Changes {
-    changes: Vec<Change>,
-}
-
 pub(super) fn execute(arguments: AnalysisArgs) -> PreparedResponse<Value> {
     let session_id = match &arguments.command {
-        AnalysisCommand::Init { session, .. }
-        | AnalysisCommand::Show { session, .. }
-        | AnalysisCommand::Update { session, .. } => session,
+        AnalysisCommand::Show { session, .. } | AnalysisCommand::Save { session, .. } => session,
     };
     let opened = match crate::locate_data_home()
         .into_diagnostic()
@@ -68,19 +53,14 @@ pub(super) fn execute(arguments: AnalysisArgs) -> PreparedResponse<Value> {
     };
     let result = (|| -> Result<Value> {
         match arguments.command {
-            AnalysisCommand::Init { file, .. } => {
-                let record = analysis_store::init(opened.layout(), input(&file)?)?;
-                Ok(overview(&record))
-            }
-            AnalysisCommand::Update {
+            AnalysisCommand::Save {
                 expected_revision,
                 file,
                 ..
             } => {
-                let changes: Changes = input(&file)?;
-                let record =
-                    analysis_store::update(opened.layout(), expected_revision, changes.changes)?;
-                Ok(overview(&record))
+                let (record, nodes) =
+                    analysis_store::save(opened.layout(), expected_revision, input(&file)?)?;
+                Ok(overview(&record, nodes))
             }
             AnalysisCommand::Show { run, material, .. } => {
                 let record = analysis_store::read(opened.layout())?;
@@ -103,7 +83,9 @@ pub(super) fn execute(arguments: AnalysisArgs) -> PreparedResponse<Value> {
                         json!({"session_id":record.session_id,"revision":record.revision,"material_id":id,"material":material}),
                     )
                 } else {
-                    Ok(overview(&record))
+                    let runs = run_manifest::resolve_all(opened.layout()).into_diagnostic()?;
+                    let nodes = record.report_tree(&runs)?;
+                    Ok(overview(&record, nodes))
                 }
             }
         }
@@ -124,20 +106,23 @@ fn input<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
         .wrap_err("invalid analysis input")
 }
 
-fn overview(record: &AnalysisRecord) -> Value {
-    let materials: serde_json::Map<String, Value> = record.materials.iter().map(|(id, material)| {
-        let summary = match material {
-            Material::Guide {pack,workflow,guide} => json!({"kind":"guide","pack":pack,"workflow":workflow,"has_guide":guide.is_some()}),
-            Material::Query {run_id,..} => json!({"kind":"query","run_id":run_id}),
-        };
-        (id.clone(),summary)
-    }).collect();
+fn overview(record: &AnalysisRecord, nodes: Vec<ReportNode>) -> Value {
+    let materials: serde_json::Map<String, Value> = record
+        .materials
+        .iter()
+        .map(|(id, material)| {
+            let summary = match material {
+                Material::Query { run_id, .. } => json!({"kind":"query","run_id":run_id}),
+            };
+            (id.clone(), summary)
+        })
+        .collect();
     json!({
         "schema_version":record.schema_version,
         "session_id":record.session_id,
         "revision":record.revision,
         "goal":record.goal,
-        "nodes":record.nodes,
+        "nodes":nodes,
         "materials":materials,
         "report":record.report,
     })

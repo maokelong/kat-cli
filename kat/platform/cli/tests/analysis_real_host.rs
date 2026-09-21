@@ -32,19 +32,14 @@ impl AnalysisCli {
         self.call(&["analysis", "show", "--session", &self.session])
     }
 
-    fn update(&self, changes: Vec<Value>) -> Value {
-        let revision = self.show()["revision"].as_u64().unwrap();
-        let path = self.root.join("changes.json");
-        fs::write(
-            &path,
-            serde_json::to_vec(&json!({"changes": changes})).unwrap(),
-        )
-        .unwrap();
+    fn save(&self, revision: u64, content: Value) -> Value {
+        let path = self.root.join("save.json");
+        fs::write(&path, serde_json::to_vec(&content).unwrap()).unwrap();
         success(
             self.command()
                 .args([
                     "analysis",
-                    "update",
+                    "save",
                     "--session",
                     &self.session,
                     "--expected-revision",
@@ -74,24 +69,8 @@ impl AnalysisCli {
             .unwrap()
     }
 
-    fn archive_guide(&self, run: &str) -> Value {
-        success(
-            self.command()
-                .args([
-                    "inspect",
-                    "workflow",
-                    "--session",
-                    &self.session,
-                    "--run",
-                    run,
-                    "--archive-to-session",
-                    &self.session,
-                    "--pack-dir",
-                ])
-                .arg(&self.pack)
-                .output()
-                .unwrap(),
-        )
+    fn inspect_run(&self, run: &str) -> Value {
+        self.call(&["inspect", "run", "--session", &self.session, "--run", run])
     }
 
     fn archive_query(&self, run: &str, sql: &str) -> Value {
@@ -174,6 +153,28 @@ def parent(ctx: Context):
             "# Parent\nUse the subtotal and its child evidence. Parent has no table of its own.\n",
         ),
         (
+            "mutating-guide",
+            r##"from pathlib import Path
+from kat import Context, workflow
+
+@workflow(name="mutating-guide", description="Change the Guide during business execution.", guide="workflows/mutating-guide.md")
+def mutating_guide(ctx: Context):
+    guide = Path(__file__).parents[1] / "knowledge/workflows/mutating-guide.md"
+    guide.write_text("# Changed during execution\n", encoding="utf-8", newline="")
+"##,
+            "# Original method\r\nCaptured before the function starts.\n",
+        ),
+        (
+            "no-guide",
+            r#"from kat import Context, workflow
+
+@workflow(name="no-guide", description="Run without a declared Guide.")
+def no_guide(ctx: Context):
+    return None
+"#,
+            "",
+        ),
+        (
             "failed-parent",
             r#"from kat import Context, workflow
 
@@ -201,42 +202,22 @@ def failed_parent(ctx: Context):
     }
 }
 
-fn select(run: &str, parent: Option<&str>) -> Value {
-    json!({"op": "select_node", "run_id": run, "report_parent": parent, "before": null})
-}
-
-fn interpretation(
-    run: &str,
-    guide: &str,
-    evidence: Vec<&str>,
-    uses: Vec<Value>,
-    conclusion: &str,
-) -> Value {
-    json!({
-        "op": "set_interpretation", "run_id": run,
-        "interpretation": {
-            "facts": ["测量值为 20 ms 和 22 ms，合计 42 ms"],
-            "conclusion": conclusion, "scope": "两次测量",
-            "limitations": ["两条数据不足以推断总体趋势"],
-            "guide": guide, "evidence": evidence, "uses": uses,
-        }
-    })
-}
-
-fn saved_ref(record: &Value, run: &str) -> Value {
-    let node = record["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|node| node["run_id"] == run)
-        .unwrap();
-    assert_eq!(node["interpretation"]["state"], "current");
-    json!({"run_id": run, "interpretation_version": node["interpretation"]["interpretation_version"]})
+fn node<'a>(nodes: &'a Value, run: &str) -> &'a Value {
+    fn find<'a>(nodes: &'a Value, run: &str) -> Option<&'a Value> {
+        nodes.as_array()?.iter().find_map(|node| {
+            if node["run_id"] == run {
+                Some(node)
+            } else {
+                find(&node["children"], run)
+            }
+        })
+    }
+    find(nodes, run).unwrap_or_else(|| panic!("missing Run {run} in {nodes}"))
 }
 
 #[test]
-#[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
-fn analysis_restores_a_real_nested_run_tree_and_surviving_child_of_failed_parent() {
+#[ignore = "requires KAT_TEST_PYTHON and wheels built from the current checkout"]
+fn analysis_restores_nested_run_guides_evidence_and_plain_reports_without_pack() {
     let python = PathBuf::from(std::env::var_os("KAT_TEST_PYTHON").unwrap());
     let wheel = PathBuf::from(std::env::var_os("KAT_TEST_WORKFLOW_WHEEL").unwrap());
     let temporary = tempfile::tempdir().unwrap();
@@ -256,42 +237,26 @@ fn analysis_restores_a_real_nested_run_tree_and_surviving_child_of_failed_parent
         .unwrap()
         .to_owned();
     write_pack(&cli.pack);
-    let goal_path = cli.root.join("goal.json");
-    let goal = json!({"question": "两次测量合计耗时是多少？", "scope": "两次测量", "gaps": []});
-    fs::write(&goal_path, serde_json::to_vec(&goal).unwrap()).unwrap();
-    success(
-        cli.command()
-            .args(["analysis", "init", "--session", &cli.session, "--file"])
-            .arg(&goal_path)
-            .output()
-            .unwrap(),
-    );
 
-    let parent_guide = success(
-        cli.command()
-            .args([
-                "inspect",
-                "workflow",
-                "--pack",
-                "analysis-real-host",
-                "--workflow",
-                "parent",
-                "--archive-to-session",
-                &cli.session,
-                "--pack-dir",
-            ])
-            .arg(&cli.pack)
-            .output()
-            .unwrap(),
-    );
-    let parent_guide_id = parent_guide["analysis"]["material_id"].as_str().unwrap();
     let executed = success(cli.run("parent"));
+    assert_eq!(executed.as_object().unwrap().len(), 5);
     assert_eq!(
         executed["outputs"],
         json!({}),
         "None parent must not gain output.main"
     );
     let parent_id = executed["run_id"].as_str().unwrap();
+    let parent_guide =
+        "# Parent\nUse the subtotal and its child evidence. Parent has no table of its own.\n";
+    assert_eq!(executed["guide"], parent_guide);
+    assert_eq!(cli.inspect_run(parent_id), executed);
+    assert!(
+        !cli.home
+            .join("sessions")
+            .join(&cli.session)
+            .join("analysis")
+            .exists()
+    );
     let inventory = cli.call(&["inspect", "session", "--session", &cli.session]);
     let runs = inventory["runs"].as_array().unwrap();
     assert_eq!(runs.len(), 3);
@@ -300,25 +265,31 @@ fn analysis_restores_a_real_nested_run_tree_and_surviving_child_of_failed_parent
         .find(|run| run["workflow"] == "subtotal")
         .unwrap();
     let facts = runs.iter().find(|run| run["workflow"] == "facts").unwrap();
-    let parent = runs.iter().find(|run| run["run_id"] == parent_id).unwrap();
     let subtotal_id = subtotal["run_id"].as_str().unwrap();
     let facts_id = facts["run_id"].as_str().unwrap();
-    assert_eq!(parent["child_runs"], json!([subtotal_id]));
+    assert_eq!(executed["child_runs"], json!([subtotal_id]));
     assert_eq!(subtotal["child_runs"], json!([facts_id]));
     assert_eq!(facts["child_runs"], json!([]));
+    let facts_snapshot = cli.inspect_run(facts_id);
+    let subtotal_snapshot = cli.inspect_run(subtotal_id);
     assert_eq!(
-        cli.show()["nodes"],
-        json!([]),
-        "ctx.run executes without creating AI conclusions"
+        facts_snapshot["guide"],
+        "# Facts\nTwo measurements in milliseconds; do not infer a population trend.\n"
     );
-    cli.update(vec![
-        select(parent_id, None),
-        select(subtotal_id, Some(parent_id)),
-        select(facts_id, Some(subtotal_id)),
-    ]);
+    assert_eq!(
+        subtotal_snapshot["guide"],
+        "# Subtotal\nSum the child facts in milliseconds; preserve the two-sample limitation.\n"
+    );
+    assert_eq!(subtotal_snapshot["child_runs"], json!([facts_id]));
 
-    let facts_guide = cli.archive_guide(facts_id);
-    let subtotal_guide = cli.archive_guide(subtotal_id);
+    let goal = json!({"question": "两次测量合计耗时是多少？", "scope": "两次测量", "gaps": []});
+    let initialized = cli.save(0, json!({"goal": goal}));
+    assert_eq!(initialized["schema_version"], 2);
+    assert_eq!(
+        initialized["nodes"],
+        json!([]),
+        "ctx.run does not create AI conclusions"
+    );
     let facts_query = cli.archive_query(
         facts_id,
         "SELECT duration_ms FROM output.facts ORDER BY duration_ms",
@@ -343,39 +314,63 @@ fn analysis_restores_a_real_nested_run_tree_and_surviving_child_of_failed_parent
     )
     .unwrap();
     assert_eq!(subtotal_rows, json!({"total_ms":42}));
-    cli.update(vec![interpretation(
-        facts_id,
-        facts_guide["analysis"]["material_id"].as_str().unwrap(),
-        vec![facts_evidence],
-        vec![],
-        "两次测量分别耗时20 ms和22 ms",
-    )]);
 
-    // 每个 CLI 调用都是新进程；只凭 Session ID 恢复已保存子解释，继续向上汇总。
+    let facts_text =
+        format!("材料 {facts_evidence}：两次测量分别耗时 20 ms 和 22 ms，不能推断总体趋势。");
+    let first = cli.save(
+        subtotal_query["analysis"]["revision"].as_u64().unwrap(),
+        json!({"nodes":[{"run_id":facts_id,"content":facts_text}]}),
+    );
+    assert_eq!(
+        first["nodes"],
+        json!([{"run_id":facts_id,"content":facts_text,"children":[]}])
+    );
+    let parent_text = "父 Workflow 无自身 Output，需结合子 Run 的两次测量解释。";
+    let second = cli.save(
+        first["revision"].as_u64().unwrap(),
+        json!({"nodes":[{"run_id":parent_id,"content":parent_text}]}),
+    );
+    assert_eq!(
+        second["nodes"].as_array().unwrap().len(),
+        2,
+        "do not skip an unrecorded immediate parent"
+    );
+    assert_eq!(node(&second["nodes"], parent_id)["children"], json!([]));
+
+    // 每个 CLI 调用都是新进程；从已存正文恢复，补上中间节点后自动归位。
     let resumed = cli.show();
     assert_eq!(resumed["goal"], goal);
-    let facts_ref = saved_ref(&resumed, facts_id);
-    let subtotal_saved = cli.update(vec![interpretation(
-        subtotal_id,
-        subtotal_guide["analysis"]["material_id"].as_str().unwrap(),
-        vec![subtotal_evidence],
-        vec![facts_ref],
-        "两次测量合计42 ms",
-    )]);
-    let subtotal_ref = saved_ref(&subtotal_saved, subtotal_id);
-    let parent_saved = cli.update(vec![interpretation(
-        parent_id,
-        parent_guide_id,
-        vec![],
-        vec![subtotal_ref],
-        "该组合Workflow的两次测量合计42 ms",
-    )]);
-    let parent_ref = saved_ref(&parent_saved, parent_id);
-    let report = "两次测量合计42 ms；父Workflow没有自身Output。样本量为2，不能推断总体趋势。";
-    cli.update(vec![
-        json!({"op":"set_report", "report":{"content":report, "uses":[parent_ref]}}),
-    ]);
-    assert_eq!(cli.show()["report"]["state"], "current");
+    let subtotal_text =
+        format!("材料 {subtotal_evidence}：两次测量合计 42 ms；仅适用于这两个样本。");
+    let nested = cli.save(
+        resumed["revision"].as_u64().unwrap(),
+        json!({"nodes":[{"run_id":subtotal_id,"content":subtotal_text}]}),
+    );
+    assert_eq!(
+        nested["nodes"],
+        json!([{
+            "run_id":parent_id,"content":parent_text,"children":[{
+                "run_id":subtotal_id,"content":subtotal_text,"children":[{
+                    "run_id":facts_id,"content":facts_text,"children":[]
+                }]
+            }]
+        }])
+    );
+    let report = "两次测量合计 42 ms；父 Workflow 没有自身 Output。样本量为 2，不能推断总体趋势。";
+    let saved = cli.save(
+        nested["revision"].as_u64().unwrap(),
+        json!({"report":{"content":report}}),
+    );
+    assert_eq!(saved["report"], json!({"content":report}));
+    let revised = cli.save(saved["revision"].as_u64().unwrap(), json!({"nodes":[{"run_id":facts_id,"content":"两次测量为 20 ms 和 22 ms；下一步需要扩大样本。"}]}));
+    assert_eq!(
+        revised["report"], saved["report"],
+        "editing a node must retain the last saved report"
+    );
+    assert_eq!(
+        node(&revised["nodes"], subtotal_id)["content"],
+        subtotal_text
+    );
 
     let failed = cli.run("failed-parent");
     assert!(!failed.status.success());
@@ -397,50 +392,55 @@ fn analysis_restores_a_real_nested_run_tree_and_surviving_child_of_failed_parent
             .iter()
             .any(|run| run["workflow"] == "failed-parent")
     );
-    let surviving_child = after_runs
+    let surviving_id = after_runs
         .iter()
         .find(|run| run["workflow"] == "facts" && run["run_id"] != facts_id)
+        .unwrap()["run_id"]
+        .as_str()
         .unwrap();
-    let surviving_id = surviving_child["run_id"].as_str().unwrap();
-    let surviving_evidence = cli.archive_query(
-        surviving_id,
-        "SELECT SUM(duration_ms) AS total_ms FROM output.facts",
+    assert_eq!(
+        cli.inspect_run(surviving_id)["guide"],
+        facts_snapshot["guide"]
+    );
+    let survivor = cli.save(revised["revision"].as_u64().unwrap(), json!({"nodes":[{"run_id":surviving_id,"content":"父执行失败后保留下来的独立测量；失败父执行没有成功结论。"}]}));
+    assert_eq!(survivor["nodes"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        node(&survivor["nodes"], surviving_id)["children"],
+        json!([])
+    );
+    assert_eq!(survivor["report"], json!({"content":report}));
+
+    let mutated = success(cli.run("mutating-guide"));
+    assert_eq!(
+        mutated["guide"],
+        "# Original method\r\nCaptured before the function starts.\n"
     );
     assert_eq!(
-        cli.material(
-            surviving_evidence["analysis"]["material_id"]
-                .as_str()
-                .unwrap()
-        )["run_id"],
-        surviving_id
-    );
-    let selected = cli.update(vec![select(surviving_id, None)]);
-    let selected_child = selected["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|node| node["run_id"] == surviving_id)
-        .unwrap();
-    assert!(selected_child["report_parent"].is_null());
-    assert!(
-        selected_child["selection"].is_null(),
-        "unknown AI choices must not be invented"
+        fs::read_to_string(cli.pack.join("knowledge/workflows/mutating-guide.md")).unwrap(),
+        "# Changed during execution\n"
     );
     assert_eq!(
-        selected["report"]["state"], "stale",
-        "a changed report tree needs a fresh report"
+        cli.inspect_run(mutated["run_id"].as_str().unwrap()),
+        mutated
+    );
+    let no_guide = success(cli.run("no-guide"));
+    assert_eq!(no_guide.get("guide"), Some(&Value::Null));
+    assert_eq!(
+        cli.inspect_run(no_guide["run_id"].as_str().unwrap()),
+        no_guide
     );
 
     fs::rename(&cli.pack, cli.root.join("pack-removed-from-discovery")).unwrap();
     fs::remove_file(facts_query["path"].as_str().unwrap()).unwrap();
     fs::remove_file(subtotal_query["path"].as_str().unwrap()).unwrap();
     let restored = cli.show();
-    assert_eq!(restored["report"]["content"], report);
-    assert_eq!(restored["nodes"].as_array().unwrap().len(), 4);
+    assert_eq!(restored, survivor);
     assert_eq!(cli.material(facts_evidence)["ndjson"], original_ndjson);
+    assert_eq!(cli.inspect_run(parent_id), executed);
+    assert_eq!(cli.inspect_run(facts_id), facts_snapshot);
+    assert_eq!(cli.inspect_run(subtotal_id), subtotal_snapshot);
     assert_eq!(
-        cli.material(parent_guide_id)["guide"],
-        "# Parent\nUse the subtotal and its child evidence. Parent has no table of its own.\n"
+        cli.inspect_run(mutated["run_id"].as_str().unwrap()),
+        mutated
     );
-    assert_eq!(saved_ref(&restored, facts_id)["interpretation_version"], 1);
 }

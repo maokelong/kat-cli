@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use serde::Serialize;
 
 use crate::{
-    analysis_record::{AnalysisRecord, Change, Goal, Material},
+    analysis_record::{AnalysisRecord, Material, ReportNode, SCHEMA_VERSION, SaveInput},
     run_manifest,
     session_store::{
         SessionLayout, ensure_direct_directory, read_direct_file, resolve_direct_directory,
@@ -29,11 +29,10 @@ pub(super) struct ArchiveReceipt {
 }
 
 pub(super) fn read(session: &SessionLayout) -> Result<AnalysisRecord> {
+    require_record(session)?;
     let directory = resolve_direct_directory(session.root(), DIRECTORY)
         .into_diagnostic()
-        .wrap_err(
-            "Analysis Record is unavailable; initialize it explicitly if it does not exist",
-        )?;
+        .wrap_err("Analysis Record is inaccessible")?;
     // Windows 上打开旧记录与替换文件可能竞争，读者也在同一稳定锁下读取完整版本。
     let _lock = lock_record(&directory, false)?;
     read_record(session, &directory)
@@ -49,7 +48,7 @@ fn read_record(session: &SessionLayout, directory: &Path) -> Result<AnalysisReco
     if value
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
-        != Some(1)
+        != Some(u64::from(SCHEMA_VERSION))
     {
         bail!("unsupported Analysis Record schema_version");
     }
@@ -63,36 +62,36 @@ fn read_record(session: &SessionLayout, directory: &Path) -> Result<AnalysisReco
     Ok(record)
 }
 
-pub(super) fn init(session: &SessionLayout, goal: Goal) -> Result<AnalysisRecord> {
-    let record = AnalysisRecord::new(session.session_id().as_str().to_owned(), goal)?;
-    let directory = ensure_direct_directory(session.root(), DIRECTORY)
-        .into_diagnostic()
-        .wrap_err("cannot create Analysis Record directory")?;
-    let _lock = lock_record(&directory, true)?;
-    match fs::symlink_metadata(directory.join(RECORD)) {
-        Ok(_) => bail!("Analysis Record already exists; init never overwrites a record"),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error)
-                .into_diagnostic()
-                .wrap_err("cannot inspect Analysis Record");
-        }
-    }
-    persist(&directory, &record)?;
-    Ok(record)
-}
-
-pub(super) fn update(
+pub(super) fn save(
     session: &SessionLayout,
     expected_revision: u64,
-    changes: Vec<Change>,
-) -> Result<AnalysisRecord> {
-    let directory = resolve_direct_directory(session.root(), DIRECTORY)
-        .into_diagnostic()
-        .wrap_err("Analysis Record is unavailable")?;
+    input: SaveInput,
+) -> Result<(AnalysisRecord, Vec<ReportNode>)> {
+    let directory = if expected_revision == 0 {
+        ensure_direct_directory(session.root(), DIRECTORY)
+            .into_diagnostic()
+            .wrap_err("cannot create Analysis Record directory")?
+    } else {
+        require_record(session)?;
+        resolve_direct_directory(session.root(), DIRECTORY)
+            .into_diagnostic()
+            .wrap_err("Analysis Record is inaccessible")?
+    };
     let _lock = lock_record(&directory, true)?;
-    let mut record = read_record(session, &directory)?;
-    if record.revision != expected_revision {
+    let exists = record_exists(&directory.join(RECORD))?;
+    let mut record = if exists {
+        read_record(session, &directory)?
+    } else {
+        if expected_revision != 0 {
+            bail!("Analysis Record does not exist; first save requires --expected-revision 0");
+        }
+        let goal = input
+            .goal
+            .clone()
+            .ok_or_else(|| miette::miette!("First analysis save must include the analysis goal"))?;
+        AnalysisRecord::new(session.session_id().as_str().to_owned(), goal)?
+    };
+    if exists && record.revision != expected_revision {
         bail!(
             "Analysis Record revision conflict: expected {}, current {}; read analysis show before retrying",
             expected_revision,
@@ -101,10 +100,13 @@ pub(super) fn update(
     }
     let runs = run_manifest::resolve_all(session).into_diagnostic()?;
     // 候选只存在当前进程中，整个批次通过校验后才替换已保存记录。
-    record.apply(changes, &runs)?;
-    advance_revision(&mut record)?;
+    let tree = record.apply(input, &runs)?;
+    if exists {
+        advance_revision(&mut record)?;
+    }
     persist(&directory, &record)?;
-    Ok(record)
+    // 回执复用提交前校验的树，不再扫描可能已发生变化的 Session。
+    Ok((record, tree))
 }
 
 pub(super) fn append_material(
@@ -113,7 +115,7 @@ pub(super) fn append_material(
 ) -> Result<ArchiveReceipt> {
     let directory = resolve_direct_directory(session.root(), DIRECTORY)
         .into_diagnostic()
-        .wrap_err("Analysis Record is unavailable; initialize it before archiving")?;
+        .wrap_err("Analysis Record is unavailable; save its goal before archiving")?;
     let _lock = lock_record(&directory, true)?;
     let mut record = read_record(session, &directory)?;
     let previous_revision = record.revision;
@@ -128,6 +130,35 @@ pub(super) fn append_material(
         revision: record.revision,
         material_id,
     })
+}
+
+fn require_record(session: &SessionLayout) -> Result<()> {
+    let directory = session.root().join(DIRECTORY);
+    if !record_exists(&directory)? {
+        bail!(
+            "Analysis Record does not exist; first save requires --expected-revision 0 and a goal"
+        );
+    }
+    // 先验证目录，避免把错误布局中的记录误报成普通缺失。
+    let directory = resolve_direct_directory(session.root(), DIRECTORY)
+        .into_diagnostic()
+        .wrap_err("Analysis Record is inaccessible")?;
+    if !record_exists(&directory.join(RECORD))? {
+        bail!(
+            "Analysis Record does not exist; first save requires --expected-revision 0 and a goal"
+        );
+    }
+    Ok(())
+}
+
+fn record_exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error)
+            .into_diagnostic()
+            .wrap_err("cannot inspect Analysis Record"),
+    }
 }
 
 fn advance_revision(record: &mut AnalysisRecord) -> Result<()> {

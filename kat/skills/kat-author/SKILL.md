@@ -21,5 +21,5 @@ description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provid
 
 1. 读取 [PACK 创作与维护流程](references/pack-authoring-flow.md)；Workflow、Provider、公共函数开发前均执行 [开发前复用检查](references/reuse-check.md)，核对 SDK 与当前 PACK 已有同类实现，开发 Workflow/Provider 时同时检查公共函数能否支撑构建。新增或提取 PACK 内函数库时读取 [领域公共库开发](references/pack-helpers.md)，完成实现、文档及测试。
 2. 理解、检查、测试和诊断不自动授权修改 PACK；只有用户明确要求创建、修改或修复时才写入指定目标。创建骨架时使用自带脚本并保留其拒绝覆盖行为。
-3. 脚本承载确定性执行，Workflow Guide 解释关键输出与推理依据；核对文件归属、Guide 与装饰器的关联及实际 detail 回读内容，再核准输出口径并完成适用的 PACK 测试。
+3. 脚本承载确定性执行，用途和参数说明提供执行前信息，Workflow Guide 解释执行后的结果；核对文件归属、Guide 与装饰器关联、inspection 参数和输出口径，完成适用的 PACK 测试。已获授权执行时，核对 Run 返回的 Guide 快照；Provider Guide 仍从 detail 回读。
 4. 交付前读取 [作者结果契约](references/result-contract.md)，说明实际变更、验证证据和仍存限制。

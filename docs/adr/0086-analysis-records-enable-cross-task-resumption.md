@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0087
 ---
 
 # 分析记录支持只凭 Session ID 跨任务恢复
+
+2026-09-21：本决定由 [ADR-0087](0087-run-guides-and-plain-analysis-content.md) 替代。下文保留旧模型的决策背景；当前目标采用 Run 自动 Guide 快照、正文保存、自动派生树与按需恢复，不再实施旧的结构化解释和依赖失效要求。
 
 [Issue #298](https://github.com/maokelong/kat-cli/issues/298) 要求用户离开原 AI 任务后，仅提供 Session ID 就能找回原问题、报告组织、AI 串联依据、已形成解释及原 Guide 和关键证据。现有 Run Manifest 只能证明成功执行及直接 `child_runs`；模型上下文和 Session 外的查询文件不足以满足恢复要求，因此新增 Analysis Record 作为正式持久状态，不能把它当作可重建缓存。
 

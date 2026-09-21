@@ -29,7 +29,7 @@ NATIVE_HOOK_SUMMARY_SCHEMA = pa.schema(
 
 @kat.workflow(
     name="summarize-native-hook",
-    description="物化 Trace Streamer SQLite，并直接返回来源内聚合结果。",
+    description="物化 Trace Streamer SQLite，并直接返回来源内聚合结果；执行前须将 KAT_TRACE_STREAMER_EXECUTABLE 配置为已批准的解析器路径。",
     parameters={
         "source_path": "HiTrace file to decode.",
     },

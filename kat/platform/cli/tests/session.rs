@@ -107,6 +107,7 @@ fn write_run(
             "run_id": run_id,
             "pack": pack,
             "workflow": workflow,
+            "guide": null,
             "child_runs": if run_id == RUN_A { vec![RUN_B] } else { vec![] },
             "inputs": {},
             "outputs": {
@@ -773,7 +774,7 @@ fn public_session_and_run_ids_reject_path_traversal() {
         (
             vec![
                 "inspect",
-                "workflow",
+                "run",
                 "--session",
                 SESSION_ID,
                 "--run",

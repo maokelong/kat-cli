@@ -12,13 +12,11 @@ mod support;
 
 const SESSION: &str = "019f6e00-0000-7000-8000-000000000398";
 const RUN: &str = "019f6e00-0000-7000-8000-000000000399";
-const OTHER_SESSION: &str = "019f6e00-0000-7000-8000-000000000400";
 
 struct Fixture {
     root: tempfile::TempDir,
     binary: PathBuf,
     data: PathBuf,
-    pack: PathBuf,
 }
 
 impl Fixture {
@@ -46,19 +44,11 @@ impl Fixture {
         .unwrap();
         parquet_fixture::write_i64(&run.join("outputs/main.parquet"), "value", &[1]);
         fs::write(run.join("manifest.json"), serde_json::to_vec(&serde_json::json!({
-            "session_id":SESSION,"run_id":RUN,"pack":"alpha","workflow":"analyze",
+            "session_id":SESSION,"run_id":RUN,"pack":"alpha","workflow":"analyze","guide":null,
             "child_runs":[],"inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":1}}
         })).unwrap()).unwrap();
-        let pack = root.path().join("pack");
-        fs::create_dir_all(&pack).unwrap();
-        fs::write(pack.join("pack.toml"), "name = \"alpha\"\ntitle = \"Alpha\"\ndescription = \"Archive test\"\nowner = \"Test\"\n").unwrap();
         stage_host(&binary);
-        Self {
-            root,
-            binary,
-            data,
-            pack,
-        }
+        Self { root, binary, data }
     }
 
     fn command(&self) -> Command {
@@ -75,39 +65,24 @@ impl Fixture {
         let goal = self.root.path().join("goal.json");
         fs::write(
             &goal,
-            r#"{"question":"Locate the bottleneck","scope":"this trace","gaps":[]}"#,
+            r#"{"goal":{"question":"Locate the bottleneck","scope":"this trace","gaps":[]}}"#,
         )
         .unwrap();
         success(
             self.command()
-                .args(["analysis", "init", "--session", SESSION, "--file"])
+                .args([
+                    "analysis",
+                    "save",
+                    "--session",
+                    SESSION,
+                    "--expected-revision",
+                    "0",
+                    "--file",
+                ])
                 .arg(goal)
                 .output()
                 .unwrap(),
         );
-    }
-
-    fn inspect(&self, guide: serde_json::Value) -> Command {
-        let mut command = self.command();
-        command
-            .args([
-                "inspect",
-                "workflow",
-                "--pack",
-                "alpha",
-                "--workflow",
-                "analyze",
-                "--pack-dir",
-            ])
-            .arg(&self.pack)
-            .env(
-                "KAT_ARCHIVE_RUNTIME_RESPONSE",
-                serde_json::json!({"status":"success","result":{"workflow":{
-                    "name":"analyze","description":"Analysis","parameters":[],"guide":guide
-                }}})
-                .to_string(),
-            );
-        command
     }
 
     fn query(&self, sql: &str, ndjson: &str) -> Command {
@@ -163,44 +138,6 @@ fn failure(output: Output) -> serde_json::Value {
 }
 
 #[test]
-fn inspection_archives_exact_nullable_guide_and_survives_pack_removal() {
-    let fixture = Fixture::new();
-    fixture.init();
-    let guide = "# Original Guide\r\nInterpret measured values.\n";
-    let ordinary = success(fixture.inspect(guide.into()).output().unwrap());
-    assert!(ordinary.get("analysis").is_none());
-    let archived = success(
-        fixture
-            .inspect(guide.into())
-            .args(["--archive-to-session", SESSION])
-            .output()
-            .unwrap(),
-    );
-    assert_eq!(archived["workflow"]["guide"], guide);
-    assert_eq!(archived["analysis"]["session_id"], SESSION);
-    assert_eq!(archived["analysis"]["previous_revision"], 1);
-    assert_eq!(archived["analysis"]["revision"], 2);
-    let material_id = archived["analysis"]["material_id"].as_str().unwrap();
-    let missing = success(
-        fixture
-            .inspect(serde_json::Value::Null)
-            .args(["--archive-to-session", SESSION])
-            .output()
-            .unwrap(),
-    );
-    assert_eq!(missing["analysis"]["previous_revision"], 2);
-    assert_eq!(missing["analysis"]["revision"], 3);
-    fs::remove_dir_all(&fixture.pack).unwrap();
-    let material = fixture.material(material_id);
-    assert_eq!(material["material"]["kind"], "guide");
-    assert_eq!(material["material"]["pack"], "alpha");
-    assert_eq!(material["material"]["workflow"], "analyze");
-    assert_eq!(material["material"]["guide"], guide);
-    let absent = fixture.material(missing["analysis"]["material_id"].as_str().unwrap());
-    assert!(absent["material"]["guide"].is_null());
-}
-
-#[test]
 fn query_archives_original_ndjson_and_sql_without_numeric_reencoding() {
     let fixture = Fixture::new();
     fixture.init();
@@ -208,9 +145,44 @@ fn query_archives_original_ndjson_and_sql_without_numeric_reencoding() {
     let rows = "{\"value\":9223372036854775807}\r\n{\"value\":-9223372036854775808}\n";
     let ordinary = success(fixture.query(sql, rows).output().unwrap());
     assert!(ordinary.get("analysis").is_none());
+    let saved_path = fixture.root.path().join("saved-report.json");
+    fs::write(
+        &saved_path,
+        serde_json::to_vec(&serde_json::json!({
+            "nodes": [{"run_id": RUN, "content": "Existing explanation"}],
+            "report": {"content": "Previously saved report"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let saved = success(
+        fixture
+            .command()
+            .args([
+                "analysis",
+                "save",
+                "--session",
+                SESSION,
+                "--expected-revision",
+                "1",
+                "--file",
+            ])
+            .arg(saved_path)
+            .output()
+            .unwrap(),
+    );
     let archived = success(fixture.query(sql, rows).arg("--archive").output().unwrap());
-    assert_eq!(archived["analysis"]["previous_revision"], 1);
-    assert_eq!(archived["analysis"]["revision"], 2);
+    assert_eq!(archived["analysis"]["previous_revision"], 2);
+    assert_eq!(archived["analysis"]["revision"], 3);
+    let restored = success(
+        fixture
+            .command()
+            .args(["analysis", "show", "--session", SESSION])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(restored["nodes"], saved["nodes"]);
+    assert_eq!(restored["report"], saved["report"]);
     assert_eq!(
         fs::read_to_string(archived["path"].as_str().unwrap()).unwrap(),
         rows
@@ -224,21 +196,6 @@ fn query_archives_original_ndjson_and_sql_without_numeric_reencoding() {
     assert_eq!(material["material"]["columns"], archived["columns"]);
     assert_eq!(material["material"]["outputs"], serde_json::json!(["main"]));
     assert!(!material.to_string().contains(".parquet"));
-}
-
-#[test]
-fn guide_archive_by_run_uses_its_published_workflow_identity() {
-    let fixture = Fixture::new();
-    fixture.init();
-    let archived = success(fixture.command()
-        .args(["inspect", "workflow", "--session", SESSION, "--run", RUN, "--archive-to-session", SESSION, "--pack-dir"])
-        .arg(&fixture.pack)
-        .env("KAT_ARCHIVE_RUNTIME_RESPONSE", r#"{"status":"success","result":{"workflow":{"name":"analyze","description":"Analysis","parameters":[],"guide":"run guide"}}}"#)
-        .output().unwrap());
-    let material = fixture.material(archived["analysis"]["material_id"].as_str().unwrap());
-    assert_eq!(material["material"]["pack"], "alpha");
-    assert_eq!(material["material"]["workflow"], "analyze");
-    assert_eq!(material["material"]["guide"], "run guide");
 }
 
 #[test]
@@ -352,52 +309,8 @@ fn archiving_requires_existing_analysis_before_invoking_runtime() {
     let fixture = Fixture::new();
     failure(
         fixture
-            .inspect("guide".into())
-            .args(["--archive-to-session", SESSION])
-            .output()
-            .unwrap(),
-    );
-    failure(
-        fixture
             .query("SELECT 1", "{\"value\":1}\n")
             .arg("--archive")
-            .output()
-            .unwrap(),
-    );
-    assert!(!fixture.root.path().join("runtime-called").exists());
-}
-
-#[test]
-fn guide_archive_rejects_catalog_and_mismatched_session_selectors() {
-    let fixture = Fixture::new();
-    fixture.init();
-    failure(
-        fixture
-            .command()
-            .args([
-                "inspect",
-                "workflow",
-                "--pack",
-                "alpha",
-                "--archive-to-session",
-                SESSION,
-            ])
-            .output()
-            .unwrap(),
-    );
-    failure(
-        fixture
-            .command()
-            .args([
-                "inspect",
-                "workflow",
-                "--session",
-                SESSION,
-                "--run",
-                RUN,
-                "--archive-to-session",
-                OTHER_SESSION,
-            ])
             .output()
             .unwrap(),
     );

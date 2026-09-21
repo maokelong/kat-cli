@@ -213,8 +213,8 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <h3>换一个对话继续</h3>
     <p>报告保存成功后，保留 Session ID。新对话访问同一 Data Home，即可恢复已保存的原问题、报告组织、节点解释及当时使用的分析指南和关键证据；不必再提供旧对话或原报告。读取这些归档内容不依赖原 PACK 仍安装。只复制 ID 到另一台机器，不会带走原来的数据。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 恢复已有分析</div><pre tabindex="0"><code>/kat 继续 Session【完整 ID】的分析，帮我确认【新的问题】。</code></pre></div>
-    <p>需要定位某次结果时再附上 Run ID；需要新计算或新策略时，再使用相应 PACK。已有有效结论可以直接复用，缺少或过期的必要解释按需补齐。后续追问更新当前分析，独立新问题创建新 Session。</p>
-    <p>只有 Session ID 时先恢复分析记录；若该 Session 从未保存记录，仍可查询已有 Run，但不能还原未保存的 AI 结论。只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。重新读取 PACK 得到的是当前指南，采用它形成新判断时会与原归档依据区分。</p>
+    <p>需要定位某次结果时再附上 Run ID；需要新计算时，再使用相应 PACK。AI 根据当前问题与证据判断已有正文是否适用，按需补充或修订。程序保存最近成功写入的正文，不自动判断或标记结论是否过期。后续追问更新当前分析，独立新问题创建新 Session。</p>
+    <p>新对话只有 Session ID，或当前上下文缺少必要信息时，先恢复分析记录；同一对话保留了足够内容时，直接继续或汇总，不重复读取。若该 Session 从未保存记录，仍可查询已有 Run，但不能还原未保存的 AI 结论。只有 Run ID 时，还需要所属 Session ID。KAT 不提供全局 Session 列表、隐式“上一次分析”或跨 Data Home 搜索。每次成功执行都会保存当时的指南，读取历史结果无需当前 PACK。</p>
     <h3>请另一轮分析独立复核报告</h3>
     <div class="example"><div class="label">在 Claude Code 中 · 按需复核</div><pre tabindex="0"><code>/kat 帮我复核【报告路径】。</code></pre></div>
     <p>Claude 会从报告和当前对话取得原问题与证据入口，必要时再向你询问。复核检查现有证据，不重新运行分析或改写原报告；新查询属于本次复核，不能证明原分析当时做过同样的查询。</p>

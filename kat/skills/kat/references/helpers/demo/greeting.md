@@ -36,6 +36,6 @@ def build_greeting(name: str) -> str: ...
 <bundled-python> -I -B -c "import inspect; from kat_sdk.helpers.demo.greeting import build_greeting; print(inspect.signature(build_greeting)); print(inspect.getdoc(build_greeting))"
 ```
 
-SDK 的 `demo-greeting` Workflow（通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取 Guide） 调用此函数并将结果包装为框架 Table。修改函数时同步维护行为测试、docstring 和本 Guide；通过 kat 公共库导航发现函数，不增加 CLI 函数发现命令。
+SDK 的 `demo-greeting` Workflow 调用此函数并将结果包装为框架 Table；通过 `kat inspect workflow --pack kat-sdk --workflow demo-greeting` 读取用途与参数，执行后从 Run 获取 Guide。修改函数时同步维护行为测试、docstring 和本 Guide；通过 kat 公共库导航发现函数，不增加 CLI 函数发现命令。
 
 返回 [公共库导航](../index.md)。

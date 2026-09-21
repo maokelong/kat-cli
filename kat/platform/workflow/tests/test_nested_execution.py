@@ -147,6 +147,7 @@ class NestedWorkflowContextTest(unittest.TestCase):
         workflow = compile_declared_workflow(function)
         return run_loaded_workflow(
             workflow,
+            guide=None,
             pack_name="parent-pack",
             workflow_name=workflow.interface["name"],
             arguments=[],
@@ -273,6 +274,7 @@ class NestedWorkflowContextTest(unittest.TestCase):
             execution = pool.submit(
                 run_loaded_workflow,
                 compile_declared_workflow(_parent_with_active_call),
+                guide=None,
                 pack_name="parent-pack",
                 workflow_name="parent-active",
                 arguments=[],

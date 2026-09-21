@@ -95,12 +95,7 @@ struct InspectSessionRun {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum InspectKnowledgeResult {
-    Workflow {
-        #[serde(flatten)]
-        workflow: workflow_runtime::WorkflowInspectionResult,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        analysis: Option<analysis_store::ArchiveReceipt>,
-    },
+    Workflow(workflow_runtime::WorkflowInspectionResult),
     Provider(workflow_runtime::ProviderInspectionResult),
 }
 
@@ -178,7 +173,6 @@ fn inspect_target_pack(
     pack_name: String,
     pack_directories: Vec<PathBuf>,
     target: InspectKnowledgeTarget,
-    archive_to_session: Option<String>,
 ) -> response::PreparedResponse<InspectKnowledgeResult> {
     let data_home = match locate_data_home() {
         Ok(data_home) => data_home,
@@ -195,39 +189,7 @@ fn inspect_target_pack(
         Ok(log) => log,
         Err(error) => return inspect_target_log_failure(error),
     };
-    let opened = match archive_to_session {
-        Some(session) => match session_store::SessionStore::new(&data_home).open(&session) {
-            Ok(opened) => Some(opened),
-            Err(error) => {
-                return finish_inspect_target_failure(
-                    log,
-                    InspectTargetPackError::SessionStore(error),
-                );
-            }
-        },
-        None => None,
-    };
-    let prepared = if let Some(opened) = &opened
-        && let Err(error) = analysis_store::read(opened.layout())
-    {
-        finish_inspect_target_failure(
-            log,
-            InspectTargetPackError::AnalysisArchive(error.to_string()),
-        )
-    } else {
-        inspect_resolved_target(
-            &data_home,
-            log,
-            pack_name,
-            pack_directories,
-            target,
-            opened.as_ref().map(session_store::OpenedSession::layout),
-        )
-    };
-    match opened {
-        Some(opened) => response::retain_session_lease(prepared, opened.into_lease()),
-        None => prepared,
-    }
+    inspect_resolved_target(&data_home, log, pack_name, pack_directories, target)
 }
 
 fn inspect_public_provider(
@@ -250,78 +212,29 @@ fn inspect_public_provider(
     };
     let outcome = workflow_runtime::inspect_provider(log, None, provider_name.as_deref())
         .map(|outcome| outcome.map(InspectKnowledgeResult::Provider));
-    finish_knowledge_inspection(outcome, None)
+    finish_knowledge_inspection(outcome)
 }
 
-fn inspect_run_workflow(
-    session_id: String,
-    run_id: String,
-    pack_directories: Vec<PathBuf>,
-    archive: bool,
-) -> response::PreparedResponse<InspectKnowledgeResult> {
+fn inspect_run(session_id: String, run_id: String) -> response::PreparedResponse<run::RunResult> {
     let data_home = match locate_data_home() {
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let log = match OperationLog::create(&data_home, "inspect", |file| {
-        writeln!(file, "operation: kat inspect workflow")?;
-        writeln!(file, "session: {}", session_id.escape_debug())?;
-        writeln!(file, "run: {}", run_id.escape_debug())
-    }) {
-        Ok(log) => log,
-        Err(error) => return inspect_target_log_failure(error),
-    };
     let opened = match session_store::SessionStore::new(&data_home).open(&session_id) {
         Ok(opened) => opened,
-        Err(error) => {
-            return finish_inspect_target_failure(log, InspectTargetPackError::SessionStore(error));
-        }
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let prepared =
-        inspect_opened_run_workflow(&data_home, log, run_id, pack_directories, &opened, archive);
+    let prepared = match run_manifest::resolve(opened.layout(), &run_id) {
+        Ok(published) => response::prepare_success(run::RunResult {
+            session_id: opened.layout().session_id().as_str().to_owned(),
+            run_id: published.run_id,
+            guide: published.guide,
+            child_runs: published.child_runs,
+            outputs: published.outputs,
+        }),
+        Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+    };
     response::retain_session_lease(prepared, opened.into_lease())
-}
-
-fn inspect_opened_run_workflow(
-    data_home: &Path,
-    mut log: OperationLog,
-    run_id: String,
-    pack_directories: Vec<PathBuf>,
-    opened: &session_store::OpenedSession,
-    archive: bool,
-) -> response::PreparedResponse<InspectKnowledgeResult> {
-    if archive && let Err(error) = analysis_store::read(opened.layout()) {
-        return finish_inspect_target_failure(
-            log,
-            InspectTargetPackError::AnalysisArchive(error.to_string()),
-        );
-    }
-    let published_run = match run_manifest::resolve(opened.layout(), &run_id) {
-        Ok(run) => run,
-        Err(error) => {
-            return finish_inspect_target_failure(log, InspectTargetPackError::PublishedRun(error));
-        }
-    };
-    let pack_name = published_run.pack;
-    let workflow_name = published_run.workflow;
-    if let Err(error) = log.append(
-        format!(
-            "pack: {}\nworkflow: {}\n",
-            pack_name.escape_debug(),
-            workflow_name.escape_debug()
-        )
-        .as_bytes(),
-    ) {
-        return inspect_target_log_failure(error);
-    }
-    inspect_resolved_target(
-        data_home,
-        log,
-        pack_name,
-        pack_directories,
-        InspectKnowledgeTarget::Workflow(Some(workflow_name)),
-        archive.then_some(opened.layout()),
-    )
 }
 
 fn inspect_resolved_target(
@@ -330,7 +243,6 @@ fn inspect_resolved_target(
     pack_name: String,
     pack_directories: Vec<PathBuf>,
     target: InspectKnowledgeTarget,
-    archive: Option<&session_store::SessionLayout>,
 ) -> response::PreparedResponse<InspectKnowledgeResult> {
     let skill_root = match locate_skill_root() {
         Ok(path) => path,
@@ -368,12 +280,7 @@ fn inspect_resolved_target(
             pack.directory(),
             workflow_name.as_deref(),
         )
-        .map(|outcome| {
-            outcome.map(|workflow| InspectKnowledgeResult::Workflow {
-                workflow,
-                analysis: None,
-            })
-        }),
+        .map(|outcome| outcome.map(InspectKnowledgeResult::Workflow)),
         InspectKnowledgeTarget::Provider(provider_name) => workflow_runtime::inspect_provider(
             log,
             Some((pack.name(), pack.directory())),
@@ -381,7 +288,7 @@ fn inspect_resolved_target(
         )
         .map(|outcome| outcome.map(InspectKnowledgeResult::Provider)),
     };
-    finish_knowledge_inspection(outcome, archive.map(|session| (session, pack.name())))
+    finish_knowledge_inspection(outcome)
 }
 
 fn finish_knowledge_inspection(
@@ -389,41 +296,9 @@ fn finish_knowledge_inspection(
         workflow_runtime::RuntimeOutcome<InspectKnowledgeResult>,
         workflow_runtime::InspectPackInfrastructureError,
     >,
-    archive: Option<(&session_store::SessionLayout, &str)>,
 ) -> response::PreparedResponse<InspectKnowledgeResult> {
     match outcome {
-        Ok(workflow_runtime::RuntimeOutcome::Success {
-            mut result,
-            log_path,
-        }) => {
-            if let Some((session, pack)) = archive {
-                let InspectKnowledgeResult::Workflow {
-                    workflow: workflow_runtime::WorkflowInspectionResult::Detail(detail),
-                    analysis,
-                } = &mut result
-                else {
-                    return response::prepare_cli_failure_with_log(
-                        miette::miette!("only Workflow detail can archive a Guide"),
-                        Some(log_path),
-                    );
-                };
-                let material = analysis_record::Material::Guide {
-                    pack: pack.to_owned(),
-                    workflow: detail.workflow.name.clone(),
-                    guide: detail.workflow.guide.clone(),
-                };
-                match analysis_store::append_material(session, material) {
-                    Ok(receipt) => *analysis = Some(receipt),
-                    Err(error) => {
-                        return response::prepare_cli_failure_with_log(
-                            error.wrap_err(
-                                "Workflow inspection succeeded, but Guide archival failed",
-                            ),
-                            Some(log_path),
-                        );
-                    }
-                }
-            }
+        Ok(workflow_runtime::RuntimeOutcome::Success { result, log_path }) => {
             response::prepare_success_with_log(result, Some(log_path))
         }
         Ok(workflow_runtime::RuntimeOutcome::Failure {
@@ -639,15 +514,6 @@ enum InspectPacksError {
 
 #[derive(Debug, Error, Diagnostic)]
 enum InspectTargetPackError {
-    #[error("Guide archive is unavailable: {0}")]
-    #[diagnostic(help("Initialize or repair the Session's Analysis Record before archiving"))]
-    AnalysisArchive(String),
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    SessionStore(#[from] session_store::SessionStoreError),
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    PublishedRun(#[from] run_manifest::PublishedRunError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
@@ -705,7 +571,7 @@ mod tests {
             vec![
                 "kat",
                 "inspect",
-                "workflow",
+                "run",
                 "--session",
                 "session-id",
                 "--run",

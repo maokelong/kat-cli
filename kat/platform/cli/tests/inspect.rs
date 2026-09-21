@@ -158,6 +158,7 @@ fn write_inspect_session(root: &Path) -> PathBuf {
             "run_id": INSPECT_RUN_ID,
             "pack": "alpha",
             "workflow": "analyze",
+            "guide": null,
             "child_runs": [],
             "dataset": {
                 "historical": ["shape", "is", "irrelevant", "to", "inspect"]
@@ -253,7 +254,7 @@ fn workflow_inspection_forwards_the_exact_request_and_public_result() {
     );
     detail.env(
         "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"success","result":{"workflow":{"name":"cpu-time","description":"Analyze CPU time.","parameters":[],"guide":null}}}"#,
+        r#"{"status":"success","result":{"workflow":{"name":"cpu-time","description":"Analyze CPU time.","parameters":[]}}}"#,
     );
     let detail = detail.output().expect("inspect one Workflow");
     assert_eq!(
@@ -268,46 +269,37 @@ fn workflow_inspection_forwards_the_exact_request_and_public_result() {
             "workflow": {
                 "name": "cpu-time",
                 "description": "Analyze CPU time.",
-                "parameters": [],
-                "guide": null
+                "parameters": []
             }
         })
     );
 }
 
 #[test]
-fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
-    let temporary = tempfile::tempdir().expect("create temporary directory");
+fn run_inspection_reads_its_snapshot_without_pack_runtime_or_analysis() {
+    let temporary = tempfile::tempdir().unwrap();
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    stage_knowledge_inspection_host(&binary);
-    let pack = temporary.path().join("external-checkout");
-    write_pack(&pack, "alpha", "External PACK");
-    write_inspect_session(temporary.path());
-    let mut command = Command::new(binary);
-    command
-        .arg("inspect")
-        .arg("workflow")
-        .args([
-            "--session",
-            INSPECT_SESSION_ID,
-            "--run",
-            INSPECT_RUN_ID,
-        ])
-        .arg("--pack-dir")
-        .arg(&pack)
-        .env("KAT_EXPECT_OPERATION", "inspect_workflow")
-        .env("KAT_EXPECT_NAME_FIELD", "workflow_name")
-        .env("KAT_EXPECT_NAME", "analyze")
-        .env(
-            "KAT_FAKE_RUNTIME_RESPONSE",
-            r##"{"status":"success","result":{"workflow":{"name":"analyze","description":"Analyze current Run facts.","parameters":[],"guide":"# Current guide\n"}}}"##,
-        );
+    let session = write_inspect_session(temporary.path());
+    let manifest_path = session
+        .join("runs")
+        .join(INSPECT_RUN_ID)
+        .join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    let guide = "# Original guide\r\nRetain the execution-time method.\n";
+    manifest["guide"] = guide.into();
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let mut command = Command::new(&binary);
+    command.args([
+        "inspect",
+        "run",
+        "--session",
+        INSPECT_SESSION_ID,
+        "--run",
+        INSPECT_RUN_ID,
+    ]);
     test_home::configure(&mut command, temporary.path());
-
-    let output = command
-        .output()
-        .expect("inspect one Run's current Workflow");
-
+    let output = command.output().unwrap();
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -318,20 +310,57 @@ fn run_workflow_inspection_resolves_the_current_pack_and_workflow() {
     assert_eq!(
         response["result"],
         serde_json::json!({
-            "workflow": {
-                "name": "analyze",
-                "description": "Analyze current Run facts.",
-                "parameters": [],
-                "guide": "# Current guide\n"
-            }
+            "session_id": INSPECT_SESSION_ID, "run_id": INSPECT_RUN_ID,
+            "guide": guide, "child_runs": [],
+            "outputs": {"main": {"columns": [{"name": "value", "type": "int64"}], "row_count": 0}}
         })
     );
-    let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
-    assert!(log.contains("operation: kat inspect workflow"));
-    assert!(log.contains(&format!("session: {INSPECT_SESSION_ID}")));
-    assert!(log.contains(&format!("run: {INSPECT_RUN_ID}")));
-    assert!(log.contains("pack: alpha"));
-    assert!(log.contains("workflow: analyze"));
+    assert!(!session.join("analysis").exists());
+    manifest["guide"] = serde_json::Value::Null;
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let response: serde_json::Value =
+        serde_json::from_slice(&command.output().unwrap().stdout).unwrap();
+    assert_eq!(
+        response["result"].get("guide"),
+        Some(&serde_json::Value::Null)
+    );
+    manifest.as_object_mut().unwrap().remove("guide");
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let missing = command.output().unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    let response: serde_json::Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert_eq!(response["status"], "failure");
+    assert!(response.get("result").is_none());
+    assert!(response["error"].to_string().contains("guide"));
+}
+
+#[test]
+fn workflow_inspection_rejects_removed_run_and_archive_selectors() {
+    for arguments in [
+        vec![
+            "inspect",
+            "workflow",
+            "--session",
+            INSPECT_SESSION_ID,
+            "--run",
+            INSPECT_RUN_ID,
+        ],
+        vec![
+            "inspect",
+            "workflow",
+            "--pack",
+            "alpha",
+            "--workflow",
+            "analyze",
+            "--archive-to-session",
+            INSPECT_SESSION_ID,
+        ],
+    ] {
+        let output = Command::new(cargo_kat()).args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
 }
 
 fn stage_knowledge_inspection_host(binary: &Path) {
@@ -398,12 +427,9 @@ fn main() {
 }
 
 #[test]
-fn active_run_workflow_inspection_blocks_delete_while_its_response_is_being_written() {
+fn active_run_inspection_blocks_delete_while_its_response_is_being_written() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
-    stage_knowledge_inspection_host(&binary);
-    let pack = temporary.path().join("external-checkout");
-    write_pack(&pack, "alpha", "External PACK");
     let session = write_inspect_session(temporary.path());
     let legacy_run = test_home::data_home(temporary.path())
         .join("runs")
@@ -415,35 +441,25 @@ fn active_run_workflow_inspection_blocks_delete_while_its_response_is_being_writ
     fs::create_dir_all(legacy_datasource.parent().unwrap()).unwrap();
     fs::write(&legacy_run, b"legacy root must not be read").unwrap();
     fs::write(&legacy_datasource, b"legacy datasource").unwrap();
-    let runtime_response = temporary.path().join("large-runtime-response.json");
-    fs::write(
-        &runtime_response,
-        serde_json::to_vec(&serde_json::json!({
-            "status": "success",
-            "result": {
-                "workflow": {
-                    "name": "analyze",
-                    "description": "Analyze current Run facts.",
-                    "parameters": [],
-                    "guide": "g".repeat(8 * 1024 * 1024)
-                }
-            }
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+    let manifest_path = session
+        .join("runs")
+        .join(INSPECT_RUN_ID)
+        .join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["guide"] = "g".repeat(8 * 1024 * 1024).into();
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
 
     let mut inspecting = Command::new(&binary);
     inspecting
-        .arg("inspect")
-        .arg("workflow")
-        .args(["--session", INSPECT_SESSION_ID, "--run", INSPECT_RUN_ID])
-        .arg("--pack-dir")
-        .arg(&pack)
-        .env("KAT_EXPECT_OPERATION", "inspect_workflow")
-        .env("KAT_EXPECT_NAME_FIELD", "workflow_name")
-        .env("KAT_EXPECT_NAME", "analyze")
-        .env("KAT_FAKE_RUNTIME_RESPONSE_FILE", &runtime_response)
+        .args([
+            "inspect",
+            "run",
+            "--session",
+            INSPECT_SESSION_ID,
+            "--run",
+            INSPECT_RUN_ID,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     test_home::configure(&mut inspecting, temporary.path());
@@ -484,7 +500,10 @@ fn active_run_workflow_inspection_blocks_delete_while_its_response_is_being_writ
     let status = inspecting.wait().unwrap();
     assert_eq!(status.code(), Some(0));
     let response: serde_json::Value = serde_json::from_slice(&frame).unwrap();
-    assert_eq!(response["result"]["workflow"]["name"], "analyze");
+    assert_eq!(
+        response["result"]["guide"].as_str().unwrap().len(),
+        8 * 1024 * 1024
+    );
 
     let mut deleting = Command::new(&binary);
     deleting.args(["session", "delete", "--session", INSPECT_SESSION_ID]);
@@ -588,7 +607,7 @@ fn provider_inspection_forwards_the_exact_request_and_public_result() {
 }
 
 #[test]
-fn workflow_detail_rejects_a_missing_guide_field_but_accepts_null() {
+fn provider_detail_still_rejects_a_missing_guide_field() {
     let temporary = tempfile::tempdir().expect("create temporary directory");
     let (_skill, binary) = stage_minimum_skill_layout(temporary.path());
     stage_knowledge_inspection_host(&binary);
@@ -598,12 +617,12 @@ fn workflow_detail_rejects_a_missing_guide_field_but_accepts_null() {
         &binary,
         temporary.path(),
         &pack,
-        "workflow",
-        Some("cpu-time"),
+        "provider",
+        Some("postgresql"),
     );
     command.env(
         "KAT_FAKE_RUNTIME_RESPONSE",
-        r#"{"status":"success","result":{"workflow":{"name":"cpu-time","description":"Analyze CPU time.","parameters":[]}}}"#,
+        r#"{"status":"success","result":{"provider":{"name":"postgresql","description":"Query PostgreSQL.","module":"postgresql","qualname":"Provider"}}}"#,
     );
 
     let output = command.output().expect("reject missing guide field");
@@ -1299,7 +1318,13 @@ fn absent_default_directories_leave_only_the_sdk_and_are_not_created() {
 
     let output = command.output().expect("run empty inspection");
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "empty inspection failed; stdout: {}; stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "{\"status\":\"success\",\"result\":{\"packs\":[{\"name\":\"kat-sdk\",\"title\":\"SDK\",\"description\":\"Official SDK fixture\",\"owner\":\"KAT tests\"}]}}\n"

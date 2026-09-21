@@ -57,7 +57,13 @@ _Avoid_: `kat.stdlib`
 PACK 中回答一个具体分析问题的显式可调用入口，定义用户输入并产生零个或多个 Run Output。它可以直接形成证据，也可以用普通程序控制流显式调用其他 Workflow、按需查询这些子 Run 的只读 Catalog 并组装自己的输出；只负责调用与 Guide 汇总时返回 `None`，不制造占位表；有明确 Schema 的零行 Table 仍是独立的正常 Output。Workflow declaration 不重复声明 Output name 或 Schema，已发布 Catalog 与 Parquet footer 是消费方的唯一运行时合同。执行期间不接受 AI 解释或改写，PACK 仍是所有权与发布边界。
 
 **Workflow guide**:
-Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，说明所属 Workflow 结果的含义、适用边界和继续取证方向；父 Guide 负责父级解释与必需子证据，子 Guide 保留各自的解释边界。Guide 不自动合并，不是 Output Schema 或可执行计划；普通 inspection 读取当前 PACK，Analysis Record 保存解释实际使用的原文。
+Workflow declaration 可选引用的 PACK 自有 Markdown 分析策略，供 AI 在执行后解释所属 Workflow 的结果、判断证据边界及选择后续取证方向。父 Guide 负责父级解释与必需子证据，子 Guide 保留各自边界；执行前的能力选择和输入准备由 Workflow 的用途与参数合同表达，Guide 不自动合并，也不是 Output Schema 或可执行计划。
+
+**Workflow inspection**:
+面向当前 PACK 中可调用能力的发现与输入合同，提供 Workflow 的身份、用途及参数语义。它服务执行前的选择和准备，不承担已发布 Run 的历史 Guide 读取。
+
+**Run Guide snapshot（执行时指南快照）**:
+程序在一次 Workflow 执行前捕获、随成功 Run 保留的 Guide 正文或未声明 Guide 的事实，顶层调用和程序子调用具有相同归属。它是 AI 对该 Run 进行后续解释时的原始方法依据，独立于当前 PACK 后续修改和 AI 是否已经形成解释。
 
 **Workflow Context**:
 KAT 在一次 Workflow 调用内提供的窄能力对象，通过 `datasource_root` 暴露当前 Analysis Session 的共享来源物化范围，通过 `scratch_root` 暴露当前候选执行的临时工作范围，并允许用线程安全的 `ctx.run(pack_name, workflow_name, /, **inputs)` 显式调用另一个完整命名的 Workflow、取得其已发布 Run Output 的只读 `dp.Catalog`。PACK 与 Workflow name 是仅限位置的路由参数，目标输入全部使用具名参数；目标只能从顶层命令已经确定的 PACK discovery roots 中解析，Context 不能增加目录、直接传入路径或绕过 KAT 执行边界直接调用另一个 Workflow 函数。Context 不直接提供 Session 身份或根目录能力，不查询来源、不持有查询 Session，也不创建、发现、包装或自动关闭 Provider；它只在当前调用期间有效，不是用户输入，不存在隐式全局当前 Context。子 Run 物理路径不进入受支持的 Catalog 公共接口、CLI Response 或公共诊断；向受信任 PACK 提供的普通路径不构成文件系统沙箱。Context 拒绝再次调用当前活动调用链中已经出现的 Workflow，但允许在上一次调用完成后重复调用同一 Workflow；每次允许的调用都会形成独立 Run。父 Workflow 返回时必须已经结束并等待自己启动的全部子调用，否则父 Run 不会发布。
@@ -156,13 +162,16 @@ Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多�
 围绕一个分析目标、可以跨 PACK 的多 Workflow 分析边界，归集其中相互独立的 Run、可复用来源物化与临时工作数据，并可通过唯一的当前 Analysis Record 保留分析进展与报告。它具有独立于其中各 Run 和 PACK 的身份，统一这些内容的分析归属和生命周期，但不把不可变 Run Output、可重建 Datasource materialization 与临时数据变成同一种事实。Session 在任何生产 Workflow 执行前显式创建并允许为空；成功或失败的 `kat run` 都不会自动删除它，只有用户显式删除才结束其生命周期。最外层 `kat run` 执行在整个嵌套执行、Catalog 查询和完成收拢期间持有 Session 共享租约；显式删除必须取得独占租约，遇到活动执行时快速失败，不等待也不取消 Workflow。Session inspection 以平坦 Run inventory 返回每个 Run 的直接 `child_runs`，供调用方按需遍历，不递归嵌入整棵树。父 Workflow 失败不会使其中已经发布的子 Run 失效，也不保证能把没有已发布父级的 Run 精确归因到某次失败调用。
 
 **Run**:
-Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest 和零个或多个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
+Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest、执行时 Guide 快照和零个或多个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
 
 **Run Manifest**:
 一个 Run 的唯一持久清单，记录其 Session 与 Run 身份，以及 PACK、Workflow、有效输入和 Run Output 元数据。组合 Workflow 的 Manifest 还以按 Run ID 稳定排序、但语义无序的集合记录执行期间实际成功发布的直接子 Run；子 Run 发布成功后即属于该集合，即使随后向父 Runtime 交付或构造 Catalog 失败。失败调用没有 Run Manifest，因此其已发布后代只保留在 Session inventory 中，既不记录失败父级，也不提升为更高祖先的直接子 Run。Manifest 不记录 Datasource materialization provenance，也不表达调用先后、分支、线程关系、计划、未来分支、失败尝试或执行状态，不承载 Analysis Result。
 
 **Session inspection**:
-一个 Analysis Session 的平坦已发布 Run inventory。每个 Run 精确投影 `run_id`、`pack`、`workflow`、按 Run ID 排序的直接 `child_runs` 和公开 Output inventory；叶子 Run 的 `child_runs` 是空数组。它验证 Manifest 身份、文件存在和布局，展示发布时元数据，不遍历 Parquet footer 承诺此刻可查询；内容损坏由实际 PyArrow/DataFusion 读取拒绝。它不递归嵌入子 Run，也不公开 effective inputs、物理路径、执行计划或失败调用。调用方用选中 Run 的双 ID 继续执行 Workflow Guide inspection 和 Output Query。
+一个 Analysis Session 的平坦已发布 Run inventory。每个 Run 精确投影 `run_id`、`pack`、`workflow`、按 Run ID 排序的直接 `child_runs` 和公开 Output inventory；叶子 Run 的 `child_runs` 是空数组。它验证 Manifest 身份、文件存在和布局，展示发布时元数据，不遍历 Parquet footer 承诺此刻可查询；内容损坏由实际 PyArrow/DataFusion 读取拒绝。它不递归嵌入子 Run，也不公开 effective inputs、物理路径、执行计划或失败调用。调用方用选中 Run 的双 ID 读取其执行时 Guide 快照并查询 Output。
+
+**Run inspection**:
+由 Session 与 Run 共同定位的单个已发布 Run 事实视图，包含该 Run 的执行时 Guide 快照、公开 Output 元数据和直接子 Run 关系，与执行成功时交付的核心事实一致。它不依赖当前 PACK，也不重新执行 Workflow；子节点通过各自身份按需读取。
 
 **Run Output**:
 随 Run 持久发布的具名不可变表格事实，只能来源于 Workflow 返回的精确 `dp.Table`，或非空普通 `dict[str, dp.Table]` 中的精确 Table；单值命名为 `main`，多值由 dict key 显式命名，并完整写为该 Run 自己的 Parquet。子 Run Catalog、物理文件、任意 Python 对象、裸路径、Markdown 或 JSON 都不是 Run Output；它也不是 Datasource materialization、Query Result 或面向用户的 Analysis Result。
@@ -178,10 +187,10 @@ _Avoid_: Artifact、Result
 KAT 分析入口围绕用户问题，基于 Run Output 和必要的查询证据综合形成的面向用户判断或报告。多个 Run 的轻量解释通过 Analysis Record 保留，不要求分别交付独立报告；Analysis Result 不由 Workflow 生成，也不属于 Run Manifest。
 
 **Analysis Record**:
-Analysis Session 中为跨任务恢复而持久保留的当前分析目标、所选 Run 节点、AI 选择依据、解释及总报告，包含实际采用的 Guide 原文和关键查询材料。它是可更新的正式分析状态，区别于不可变 Run 执行事实，不代表完整调用审计、所有历史报告版本或模型内部推理过程。
+Analysis Session 中为跨任务或上下文压缩后恢复分析而持久保留的当前分析目标、所选 Run 的解释正文、总报告和归档查询材料。选择原因、证据出处与结论限制由解释正文表达，不单独建立结构化选择记录或解释依赖图；执行时 Guide 由对应 Run 保留。它是可更新的正式分析记录，程序保存正文而不判定解释或报告的有效性，复用与重新汇总由 AI 判断；它区别于不可变 Run 执行事实，不代表完整调用审计、所有历史报告版本或模型内部推理过程。
 
 **Report tree（报告树）**:
-当前分析以用户问题为隐含根、以选用的具体 Run 为节点的组织视图，由 Analysis Record 中有序节点的报告父引用派生。报告归属、AI 选择依据和解释实际采用的依赖分别表达，不能凭树形位置判断执行先后或结论有效性。
+当前分析以用户问题为隐含根、以 Analysis Record 中选用的具体 Run 为节点，由这些 Run 的真实直接父子关系派生的组织视图；直接父 Run 未选入时节点挂报告根，父后来选入后自动归位。它组织已保存的解释正文，不表达 AI 临时串联的选择关系或结论依赖，不能凭树形位置判断执行先后或结论有效性。
 
 **Analysis review**:
-用户在分析完成后按需通过独立 `kat-review` Skill，对原问题、Analysis Result 与现存证据进行总结和复核。它可对已有 Run Output 补充只读查询，区分证据支持、证据不足、与证据矛盾和无法验证；复核产生的查询与说明不是原分析历史。现存材料不保证覆盖全部调用或当时的 Guide，复核明确证据缺口，不补造历史过程，也不改变原分析的完成状态。
+用户在分析完成后按需通过独立 `kat-review` Skill，对原问题、Analysis Result 与现存证据进行总结和复核。它可对已有 Run Output 补充只读查询，区分证据支持、证据不足、与证据矛盾和无法验证；复核产生的查询与说明不是原分析历史。现存材料不保证覆盖全部调用或当时的 Guide，复核明确证据缺口，不补造历史过程，也不更新原分析记录。

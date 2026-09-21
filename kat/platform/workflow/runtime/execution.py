@@ -24,6 +24,7 @@ from .request import RunCandidateRef, RunWorkflowRequest
 class RunWorkflowRuntimeResult:
     effective_inputs: dict[str, object]
     outputs: dict[str, dict[str, object]]
+    guide: str | None
 
 
 class WorkflowExecutionFailure(Exception):
@@ -141,9 +142,10 @@ def run_workflow(
     with _workflow_operation(
         request.datasource_root, request.scratch_root
     ) as operation:
-        workflow = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
+        workflow, guide = ProductionPack.open(pack_name, request.pack_path).load(workflow_name)
         return _run_loaded_workflow(
             workflow,
+            guide=guide,
             operation=operation,
             pack_name=pack_name,
             workflow_name=workflow_name,
@@ -157,6 +159,7 @@ def run_workflow(
 def run_loaded_workflow(
     workflow: CompiledWorkflow,
     *,
+    guide: str | None,
     pack_name: str,
     workflow_name: str,
     arguments: list[str] | None,
@@ -169,6 +172,7 @@ def run_loaded_workflow(
     with _workflow_operation(datasource_root, scratch_root) as operation:
         return _run_loaded_workflow(
             workflow,
+            guide=guide,
             operation=operation,
             pack_name=pack_name,
             workflow_name=workflow_name,
@@ -182,6 +186,7 @@ def run_loaded_workflow(
 def _run_loaded_workflow(
     workflow: CompiledWorkflow,
     *,
+    guide: str | None,
     operation: WorkflowOperation,
     pack_name: str,
     workflow_name: str,
@@ -225,6 +230,7 @@ def _run_loaded_workflow(
             name: _project_effective_input(value) for name, value in effective.items()
         },
         outputs=outputs,
+        guide=guide,
     )
 
 

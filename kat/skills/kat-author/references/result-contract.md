@@ -5,10 +5,10 @@
 ## 已完成
 
 - 只读理解：按用户问题选择必要的 Workflow、输入、输出含义或 Provider 合同，引用实际证据并说明限制；不机械罗列全部对象。
-- 写入变更：说明变更摘要、受影响文件、实际 Workflow/Provider inspection 和 PACK pytest 证据、仍存限制。涉及来源接入时说明复用的公共 Provider，或已核对的能力缺口；涉及输出或 Guide 时说明已核准的关键口径与仍缺依据的事项。已编写 Workflow Guide 时，报告对应 detail 实际读回非空正文并核对一致的结果；文档位置错误、装饰器遗漏关联或读回不符时不能标为完成。仅创建骨架时展示脚本返回的目录树与用途，明确空声明列表只证明骨架可被发现。
+- 写入变更：说明变更摘要、受影响文件、实际 Workflow/Provider inspection 和 PACK pytest 证据、仍存限制。涉及来源接入时说明复用的公共 Provider，或已核对的能力缺口；涉及输出或 Guide 时说明已核准的关键口径与仍缺依据的事项。Workflow Guide 报告文件及装饰器关联检查，已有获授权的执行时再报告 Run 快照核对结果；Provider Guide 报告 detail 回读结果。文档位置错误、关联遗漏或快照不符时不能标为完成，未执行的验证如实说明。仅创建骨架时展示脚本返回的目录树与用途，明确空声明列表只证明骨架可被发现。
 - 安装依赖：说明安装的包、实际版本和验证结果；pip 成功不等于 PACK 验证通过，结果判定见 [Python 依赖管理](../../kat/references/python-packages.md)。
 
-KAT 命令只引用成功 Response 中存在的公开字段。Workflow list 项只有 `name`、`description`；Workflow detail 只有 `name`、`description`、`parameters`、`guide`。Provider list 项只有 `name`、`description`；Provider detail 只有 `name`、`description`、`module`、`qualname`、`guide`。不要补造 guide 路径或其他内部字段。
+KAT 命令只引用成功 Response 中存在的公开字段。Workflow list 项只有 `name`、`description`，detail 只有 `name`、`description`、`parameters`；Run success 和 Run inspection 返回 `session_id`、`run_id`、`guide`、`outputs`、`child_runs`。Provider list 项只有 `name`、`description`，detail 只有 `name`、`description`、`module`、`qualname`、`guide`。不要补造 Guide 路径或其他内部字段。
 
 ## 需要补充信息
 

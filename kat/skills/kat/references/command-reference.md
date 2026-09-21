@@ -48,32 +48,20 @@ kat inspect [--pack-dir <PACK目录> ...]
 
 裸 `kat inspect` 通过当前 KAT Python 定位已安装 SDK 根，再读取候选 `pack.toml`，返回 `result.packs` 中的 PACK manifest 概要。官方 SDK 作为 `kat-sdk` PACK 自动加入发现范围，无需 `--pack-dir`；未安装 SDK 时只发现原有 PACK，已安装 SDK 的资源损坏时报告错误。它不导入 PACK Python，不扫描 Workflow 或 Provider，也不读取 guide。`--pack-dir` 可重复，每个目录必须直接包含 `pack.toml`。
 
-## 发现和读取 Workflow 知识
+## 发现 Workflow 并准备输入
 
 ```text
 kat inspect workflow --pack <PACK名称> [--pack-dir <PACK目录> ...]
 kat inspect workflow --pack <PACK名称> --workflow <Workflow名称> \
   [--pack-dir <PACK目录> ...]
-kat inspect workflow --session <Session ID> --run <Run ID> \
-  [--pack-dir <PACK目录> ...]
 ```
 
 - 第一条列出 PACK 的 Workflow。成功 `result.workflows` 按 `name` 排序；每项恰好只有 `name`、`description`。
-- 第二条返回一个精确 Workflow。成功 `result.workflow` 恰好只有 `name`、`description`、`parameters`、`guide`；未声明 guide 时 `guide` 是 JSON `null`。
-- 第三条从 `(Session ID, Run ID)` 定位 Workflow，并读取当前安装或指定 PACK 中该 Workflow 的 detail；它不会读取 Run 中的 guide 快照。`--session` 与 `--run` 必须一起提供，该定位与 `--pack`、`--workflow` 互斥。
+- 第二条返回一个精确 Workflow。成功 `result.workflow` 恰好只有 `name`、`description`、`parameters`，不返回分析 Guide。
 
-Workflow list 用于低成本筛选分析能力；只在选定一个 Workflow 后请求 detail。`guide` 是 Runtime 已读取的原始 Markdown 字符串，用于指导分析策略、结果发散和下一步方向。Agent 不自行拼接或打开 guide 路径。
+Workflow list 用于低成本筛选能力，detail 用于执行前核对用途与参数。Guide 在执行时由程序捕获，AI 在执行后从 Run 成功结果或 `inspect run` 读取，不自行拼接或打开文件路径。
 
-Workflow list 仍会校验所有声明的 guide。任一 Workflow 导入、声明、重名或 guide 无效都会使本次 inspection 原子失败，不返回部分列表。
-
-为分析显式保存本次实际 Guide 时，在 detail inspection 上增加归档参数：
-
-```text
-kat inspect workflow --pack P --workflow W --archive-to-session S
-kat inspect workflow --session S --run R --archive-to-session S
-```
-
-需要外部 PACK 时仍可提供 `--pack-dir`。归档目标必须已有 Analysis Record；按 Run 定位时两个 Session 必须一致。程序保存本次真实 Guide 字符串或 `null`、PACK/Workflow 身份，原 `result.workflow` 保持不变，并附加 `result.analysis` 回执。执行前可以尚无 Run，之后节点引用材料时核对 Workflow 身份。没有显式归档参数时仍只读取当前知识；恢复历史依据使用下文 `analysis show --material`，不重新读取当前 PACK。
+Workflow inspection 校验导入、声明与名称唯一性，不读取 Guide 文件；任一导入、声明或重名错误都会使本次 inspection 原子失败，不返回部分列表。只有执行选定 Workflow 时才读取并验证它声明的 Guide，读取失败会阻止该 Run 的业务执行与发布，不阻止其他 Workflow 的能力发现。
 
 ## 发现和读取 Provider 知识
 
@@ -101,7 +89,7 @@ Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL
 <当前 KAT Python> -I -B -c "from importlib.resources import files; print(files('kat_sdk').joinpath('knowledge/index.md'))"
 ```
 
-读取输出的首页，按相对链接加载 Provider/Workflow API 文档；其 Guide 优先通过上述 inspection 获取。公共函数的 Markdown 全部由 Skill 维护；SDK 升级后核对介绍标注的适用版本及已安装函数，不依赖旧路径或缓存内容。SDK 更新使用当前 KAT Python 的 `-m pip install --upgrade <wheel路径或URL>`，安装权限与环境检查遵循 [Python 依赖管理](python-packages.md)。
+读取输出的首页，按相对链接加载 Provider/Workflow API 文档。Provider Guide 通过 Provider inspection 获取；Workflow Guide 在执行后从对应 Run 获取。公共函数的 Markdown 全部由 Skill 维护；SDK 升级后核对介绍标注的适用版本及已安装函数，不依赖旧路径或缓存内容。SDK 更新使用当前 KAT Python 的 `-m pip install --upgrade <wheel路径或URL>`，安装权限与环境检查遵循 [Python 依赖管理](python-packages.md)。
 
 ## 创建一个 Session
 
@@ -120,7 +108,9 @@ kat run --session <已有 Session ID> \
   <来自 workflow detail.parameters 的参数>
 ```
 
-只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。每次生产 Run 的 `--session` 都必填，并且必须引用已经存在的 Session；缺少、错误、不存在或损坏的 Session 都不会隐式创建、复用或猜测 Session。成功后从 `result.session_id`、`result.run_id` 和 `result.outputs` 取得本次顶层可查询 Run 及其输出名称、columns 与行数；Response 不递归展开 `child_runs`。失败时不返回本次顶层 Run 的部分 `result` 或 Run ID，已存在的 Session 及其中已经独立发布的 Run 仍可 inspection。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
+只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。每次生产 Run 的 `--session` 都必填，并且必须引用已经存在的 Session；缺少、错误、不存在或损坏的 Session 都不会隐式创建、复用或猜测 Session。成功 `result` 恰含 `session_id`、`run_id`、`guide`、`outputs`、`child_runs`：`outputs` 提供输出名称、columns 与行数；`guide` 是本 Run 执行前捕获的 Markdown，未声明时为 `null`；`child_runs` 只给出直接成功子 Run ID，不展开子 Guide。顶层和 `ctx.run()` 子调用使用同一快照规则，不依赖 Analysis Record；Guide 读取失败不会发布缺失快照的成功 Run。
+
+失败时不返回本次顶层 Run 的部分 `result` 或 Run ID，已存在的 Session 及其中已经独立发布的子 Run、Guide 仍可读取。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。`ctx.run()` 向父程序返回 Catalog 的合同不变。
 
 例如，若 Workflow detail 明示 `--source-path` 和 `--limit`：
 
@@ -129,6 +119,16 @@ kat run --session <Session ID> --pack example --workflow analyze \
   --pack-dir <PACK目录> -- \
   --source-path <本地来源路径> --limit 20
 ```
+
+## 读取一个已发布 Run
+
+```text
+kat inspect run --session <Session ID> --run <Run ID>
+```
+
+成功 `result` 与该 Run 的执行成功结果有相同核心字段：`session_id`、`run_id`、`guide`、`outputs`、`child_runs`。读取执行时快照，无需当前 PACK 或 Analysis Record；历史快照缺失或损坏时报告错误，不用当前 PACK 补造。无输出为 `outputs: {}`，叶子为 `child_runs: []`。
+
+刚执行完直接使用 Run Response，无需重复读取。历史或子 Run 的必要信息缺失时按需调用本命令；要恢复已保存的 AI 正文和总报告则使用下文 `analysis show`。
 
 ## 查看一个 Session
 
@@ -160,7 +160,7 @@ WHERE table_schema = 'output'
 ORDER BY table_name, ordinal_position
 ```
 
-随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Workflow inspection 提供分析策略，不替代 Output relation 发现。
+随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Run Guide 提供分析方法，不替代 Output relation 发现。
 
 普通查询的成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
 
@@ -168,95 +168,72 @@ ORDER BY table_name, ordinal_position
 
 ## 保存和恢复分析
 
-`analysis` 是供 AI/Skill 管理分析状态的公开命令接口。用户通过自然语言发起分析，`kat-analyze` 按[分析流程中的触发时机](../../kat-analyze/references/analysis-flow.md)自动初始化、保存和恢复，不要求用户主动调用这些命令或编写 JSON。CLI 负责持久化与校验，不会因 `run` 成功自动产生 AI 解释或总报告；调用时机由 Skill 负责。`kat-review` 仅按自身复核流程读取记录，不初始化、更新或归档。
+`analysis` 由 `kat-analyze` 在已授权的分析中自动管理，不要求用户主动调用或编写 JSON。CLI 保存执行事实和正文，不生成 AI 解释、不判断正文有效性。保存点和按需恢复规则见[分析 Skill](../../kat-analyze/SKILL.md#问题分析流程必须遵守)；`kat-review` 只读取，不保存或归档。
 
 ```text
-kat analysis init --session S --file goal.json
 kat analysis show --session S
 kat analysis show --session S --run R
 kat analysis show --session S --material M
-kat analysis update --session S --expected-revision N --file changes.json
+kat analysis save --session S --expected-revision N --file payload.json
 ```
 
-这些命令操作已存在 Session 内唯一的 Analysis Record，不创建 Run。`init` 只创建尚不存在的记录，已有记录拒绝覆盖，初始 `revision` 为 1。`--file` 指向 UTF-8 JSON 请求文件；下例的 S/R/G/Q/N 是说明用占位符，实际使用成功 Response 中的完整 Session、Run、材料身份及整数 revision，不能照抄占位值。
+这些命令操作已有 Session 内唯一的 Analysis Record，不创建 Run。`--file` 指向 UTF-8 JSON 请求。首次 `save` 使用 `--expected-revision 0` 且必须包含 `goal`，成功创建 `revision: 1`；已有记录使用最近已核对的实际 revision。损坏或未知格式不能按不存在处理或覆盖。示例中的 S/R/M/N 均是占位符，实际使用成功 Response 中的身份与整数 revision。
 
-`goal.json` 直接保存目标对象：
+请求只含本次需要保存的内容：
 
-```json
-{"question":"这个时间范围内出现了什么现象？","scope":"用户指定的来源与时间范围","gaps":[]}
-```
-
-`init`、默认 `show`、`update` 的成功 `result` 包含 `schema_version`、`session_id`、`revision`、`goal`、有序 `nodes`、材料 ID 到元数据的 `materials` 映射和 `report`。概览不展开所有 Guide/NDJSON 正文。`show --run R` 返回 `result.{session_id,revision,node}`；`show --material M` 返回 `result.{session_id,revision,material_id,material}`，其中有保存的原材料。两个选择器互斥；恢复读取不加载当前 PACK。没有记录、损坏或未知格式按 Diagnostic 处理，不当作空分析覆盖。
-
-每个节点只有一个 `run_id`，通过 `report_parent` 指向已选入的真实直接程序父 Run；`null` 挂隐含报告根。同父节点的数组相对顺序就是报告顺序，没有另存的 `tree` 或 `choices`。节点还保存可空 `selection` 与 `interpretation`，前者记录已知 AI 选择依据，后者保存解释及实际依赖。
-
-`changes.json` 的唯一外层字段是 `changes` 数组。可用的领域更新如下；不得提交整份记录或通用 JSON Patch：
-
-| `op` | 字段与含义 |
+| 可选字段 | 内容 |
 |---|---|
-| `set_goal` | `goal:{question,scope,gaps}`；更新同一目标的范围与缺口，独立新目标新建 Session |
-| `select_node` | `run_id,report_parent,before`；选入或移动原节点；`before` 是同父节点的 Run ID，`null` 放末尾；保留原选择依据和解释 |
-| `set_selection` | `run_id,selection`；值为 `null` 或 `{source_runs:[],materials:[],finding,reason,input_sources:{}}`；`input_sources` 按输入名记录来源说明 |
-| `set_interpretation` | `run_id,interpretation:{facts:[],conclusion,scope,limitations:[],guide,evidence:[],uses:[]}`；Guide/证据使用程序返回的材料 ID |
-| `set_report` | `report:{content,uses:[]}`；保存一份综合报告及实际采用的解释引用 |
+| `goal` | `{question,scope,gaps}`，首次必填；更新当前问题的范围与缺口，独立新目标新建 Session。 |
+| `nodes` | `[{run_id,content}]`，按 Run 新建或替换该节点的 Markdown 正文，Run 必须属于本 Session 且已发布。 |
+| `report` | `{content}`，保存当前综合报告的 Markdown 正文。 |
 
-每个 `uses` 项都是 `{"run_id":"R","interpretation_version":1}`，版本必须来自成功保存的解释。CLI 生成 `interpretation_version`、解释/报告的 `state` 和记录 revision；请求不能自写这些字段、Guide 正文或原始证据。Guide 材料匹配节点 Workflow，证据可来自同 Session 的其他 Run，不强制把材料来源选入报告；`uses` 引用已有节点解释，也允许跨分支引用。AI 选择来源不自动成为解释依赖。
+省略的字段和未提交的节点保留；不提交整份记录或派生树。节点正文保留必要结论、事实、证据出处、取证原因、范围和缺口，不拆分为选择或依赖字段。程序不解析正文重建依赖，也不要求固定标题或嵌套 JSON。
 
-以下三个更新文件按顺序分别提交，每次使用最近读写的 revision；真实结论和证据 ID 必须来自本次分析。
-
-先用 `select.json` 选入一个独立报告节点：
+首次保存目标 `goal.json`：
 
 ```json
-{"changes":[{"op":"select_node","run_id":"R","report_parent":null,"before":null}]}
+{"goal":{"question":"这个时间范围内出现了什么现象？","scope":"用户指定的来源与时间范围","gaps":[]}}
 ```
 
-运行 `kat analysis update --session S --expected-revision N --file select.json`。程序子节点把 `report_parent` 换为已选入的真实父 Run，CLI 按 Manifest 核对；同一 Run 重挂不复制节点。AI 选择后续根 Run 时可在同批追加 `set_selection`：
+执行 `kat analysis save --session S --expected-revision 0 --file goal.json`。形成一个节点解释后，以最近已核对的 revision 保存 `node.json`：
 
 ```json
-{"changes":[{"op":"set_selection","run_id":"R2","selection":{"source_runs":["R1"],"materials":["Q1"],"finding":"证据 Q1 中记录的发现摘要","reason":"进一步核对该现象","input_sources":{"thread_id":"来自 Q1 的实际 thread_id 值"}}}]}
+{"nodes":[{"run_id":"R","content":"根据本 Run 的 Guide 和查询材料 M，发现……。结论……，适用范围与限制……。"}]}
 ```
 
-选入节点并归档实际 Guide G、证据 Q 后，用 `interpretation.json` 保存解释：
+执行 `kat analysis save --session S --expected-revision N --file node.json`。成功后沿用返回的 revision；当前上下文已保留必要正文时，直接汇总并保存 `report.json`：
 
 ```json
-{
-  "changes": [{
-    "op": "set_interpretation",
-    "run_id": "R",
-    "interpretation": {
-      "facts": ["按证据 Q 记录的事实"],
-      "conclusion": "由实际证据支持的局部结论",
-      "scope": "本次查询覆盖的来源、对象和范围",
-      "limitations": [],
-      "guide": "G",
-      "evidence": ["Q"],
-      "uses": []
-    }
-  }]
-}
+{"report":{"content":"回答用户问题的综合报告，包含关键证据、范围与限制。"}}
 ```
 
-运行相同的 `analysis update`，替换 JSON 文件名与 revision。需要采用其他节点解释时，将它成功返回的 Run ID/解释版本加入 `uses`；没有自己的表时可以直接采用必要子证据或子解释。未声明 Guide 时仍引用那份记录 `guide=null` 的材料。
+正常成功 Response 即确认保存，无需另行 `show`。程序保留其他节点和旧总报告原文，不自动标记或清空；AI 判断是否需要修订或重新汇总。
 
-从返回节点读取实际 `interpretation_version`，再用 `report.json` 汇总（下例的 1 也须换成真实版本）：
+### 读取正文和派生树
+
+默认 `show` 与 `save` 的成功 `result` 包含 `schema_version`、`session_id`、`revision`、`goal`、`nodes`、材料 ID 到元数据的 `materials` 映射及可空 `report`。概览不展开 Guide 或 NDJSON 原文。`nodes` 是程序派生的嵌套报告树，每项为 `{run_id,content,children}`，叶子 `children: []`，每个 Run 只出现一次：
 
 ```json
-{"changes":[{"op":"set_report","report":{"content":"回答用户问题的综合报告，包含关键证据、范围与限制。","uses":[{"run_id":"R","interpretation_version":1}]}}]}
+{"nodes":[{"run_id":"R0","content":"父级解释","children":[{"run_id":"R1","content":"子级解释","children":[]}]}]}
 ```
 
-`update` 在预期 revision 不一致时拒绝旧写；重新 `show` 核对其他任务的修改后再决定更新，不能仅换成新数字重提。新解释令实际消费者和总报告失效；重排节点使旧总报告失效。`current` 只表示登记依赖有效，不保证文字判断正确。依赖新解释的消费者分次提交：先保存子解释取得版本，再保存父解释，最后报告；同批不得引用这次尚未生成的新版本，也不能让新的消费者使用本批被替换的旧版本。
+首次保存 Run 正文即选入树。程序只按真实直接父关系组织已选节点：父已选入时挂该父之下，否则挂隐含的问题根；父之后保存时子自动归位，保留正文。不跨越未选中的中间父，也不将 AI 临时串联或时间先后变成调用边。没有解释的 Run 仍在 Session inventory 中，不要求先保存占位节点。
+
+`show --run R` 返回 `result.{session_id,revision,node}`，其中 `node` 为 `{run_id,content}`；它读取已保存解释，不是 Run Guide。`show --material M` 返回 `result.{session_id,revision,material_id,material}`，含实际归档的查询来源、SQL、列与 NDJSON 原文。两个选择器互斥。读取不加载当前 PACK；没有记录、损坏和未知格式分别诊断。
+
+当前上下文足够时，不为汇总或确认保存重复读取。新任务、缺少必要上下文、获知外部修改、保存冲突或响应不确定时，才 `show` 恢复或确认。记录仅保证最近成功保存的内容可恢复，不保证正文已随其他修改同步或结论正确。
 
 ### 材料归档回执与修订
 
-显式 Guide/query 归档保持原结果并附加以下结构：
+`query --archive` 保持普通查询结果并附加：
 
 ```json
 {"analysis":{"session_id":"S","previous_revision":3,"revision":4,"material_id":"M"}}
 ```
 
-该片段位于成功 Response 的 `result` 内。材料追加不要求 `--expected-revision`，但会锁住最新记录追加并增加 revision。只有 `previous_revision` 等于 Agent 先前读/写的 revision 时，才能直接接受新 revision；否则先 `analysis show` 并核对变化，再提交解释。新材料尚未被解释采用时，不使旧解释失效，也不自动成为结论依据。
+该片段位于成功 Response 的 `result` 内。材料追加要求已有分析记录，不要求 `--expected-revision`，但在锁下追加并增加 revision。仅当 `previous_revision` 等于 Agent 先前已读或自行保存的 revision 时，才能直接沿用新 revision；否则先 `analysis show` 核对并发修改，不能用归档回执跳过未读变更。原材料恢复不依赖 Session 外的查询文件；Guide 由 Run 保存，不归入查询材料。
 
-保存成功才承诺本次状态可恢复；损坏不能作为缓存丢弃。保存响应不确定时重新 `show` 检查，不能盲重提、重复归档或重跑 Workflow。普通 query/inspection 不带归档参数时行为不变，材料恢复不依赖 Session 外的查询文件。
+`save` 整体校验并提交，预期 revision 不一致时拒绝旧写。冲突后重读核对，不能只换数字重提。保存失败不能覆盖先前完整记录；响应不确定时先读取确认，不盲目重复保存、归档或重跑 Workflow。保存成功才承诺本次内容可恢复。
 
 ## 删除一个 Session
 

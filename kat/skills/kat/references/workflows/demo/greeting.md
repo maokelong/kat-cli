@@ -18,7 +18,7 @@ kat run --session <session_id> --pack kat-sdk --workflow demo-greeting -- --name
 kat query --session <session_id> --run <run_id> --sql "SELECT message FROM output.main"
 ```
 
-Session 和 Run ID 分别取自对应成功 Response；查询结果读取 query Response 的文件路径。inspection 返回当前 SDK 的参数和 Guide，执行前以其核对本介绍。
+Session 和 Run ID 分别取自对应成功 Response；查询结果读取 query Response 的文件路径。执行前通过 Workflow inspection 核对当前 SDK 的用途与参数，执行后从 Run 结果读取 Guide；历史 Run 使用 `inspect run` 读取原快照。
 
 在其他 Workflow 中用 `ctx.run("kat-sdk", "demo-greeting", name="小明")` 组合调用，返回只读 Catalog。只需要字符串时使用 [build_greeting 公共函数](../../helpers/demo/greeting.md)。
 
