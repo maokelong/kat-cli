@@ -14,7 +14,7 @@ KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，
 KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别承接对应任务。问题分析入口可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
 
 **KAT Agent Knowledge**:
-由 KAT Skills 各入口拥有的公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、Runtime 结构化事实共同组成的渐进知识面。各内容随其所有者版本化；KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
+由 KAT Skills 各入口拥有的公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、Runtime 结构化事实共同组成的渐进知识面。公共 API reference 是由 `kat-author` 持有的受控作者快照，Provider/Workflow guide 仍随其所有者交付。KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
 
 **KAT Response**:
 一次已经形成的操作交付给 KAT Skill 的结构化成功或失败事实。它是短命产品视图，不是 Run 的持久事实源，也不是 Analysis Result。
@@ -38,10 +38,10 @@ _Avoid_: Built-in PACK、System PACK
 由用户或第三方在受信任本地环境中独立部署的 PACK。它与 Bundled PACK 使用同一作者接口与运行模型，External 同样只说明交付来源。
 
 **KAT SDK**:
-由官方独立版本化的具体公共 Provider、Workflow、普通 Python 函数及其知识，导入命名空间为 `kat_sdk`。SDK 是可选能力包，未安装时不影响框架和既有 PACK；安装后的 SDK 根作为一个公共 PACK 被当前 KAT 发现；公共函数由 Python 直接调用，使用说明与 API Markdown 由 kat Skill 的 references/helpers 持有，Provider/Workflow 知识随 SDK 交付。框架执行能力与标准表类型不属于 SDK。
+由官方独立版本化的具体公共 Provider、Workflow、普通 Python 函数及其知识，导入命名空间为 `kat_sdk`。SDK 是可选能力包，未安装时不影响框架和既有 PACK；安装后的 SDK 根作为一个公共 PACK 被当前 KAT 发现。公共 Python API 由与 SDK 版本绑定、经人工审核的 API 文档描述，并作为 `kat-author` reference 供作者查阅，不进入 SDK wheel；Provider/Workflow guide 随 SDK 交付并由 inspection 发现。框架执行能力与标准表类型不属于 SDK。
 
 **Pack Authoring API**:
-KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。
+KAT 面向 PACK 作者提供的公共编程界面，用于声明 Workflow 与 Provider inspection 元数据、构造标准表值，并使用 KAT 管理的执行能力和领域类型。私有纯 Python distribution `kat-workflow` 同时承载顶层 `kat` API 和 Runtime；它随 KAT Skills 原子交付，不是可独立安装或兼容的通用 SDK。其作者 API 由与该 wheel 版本绑定的 `base-api.md` 描述，文档作为 `kat-author` reference 交付而不进入 wheel。
 _Avoid_: Python SDK、Pack API
 
 **Datasource wheel**:

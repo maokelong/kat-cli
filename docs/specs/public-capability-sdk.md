@@ -1,8 +1,22 @@
 # 官方公共能力 SDK：发现、知识与独立交付
 
-状态：实现已落地，Windows 本地验证通过；Linux 与完整发布载荷验收待 CI，详见文末证据。
+状态：Issue #296 已由 PR #297 落地；独立 SDK、发现、inspection 与 Runtime Guide 决定继续有效。API 文档的生成、交付和作者使用部分已由 [Issue #300](https://github.com/maokelong/kat-cli/issues/300)、[ADR-0086](../adr/0086-api-documents-are-reviewed-author-references.md) 与 [Workflow 作者 API 文档 SDD](workflow-authoring-api-discovery.md) 局部替代；下文冲突段落只保留为 #297 的实施历史。
 代码依据：`8d0a74e2c11569e4e36daeaa23d4a92e76b79cce`。
 关联：[Issue #296](https://github.com/maokelong/kat-cli/issues/296)。
+
+## Issue #300 的当前 API 文档边界
+
+SDK 源码侧文档使用以下布局，由 `kat-dev-sdk` 从源码生成并在仓库中接受人工审核：
+
+```text
+kat/sdk/docs/
+├─ api.md
+└─ reference/
+```
+
+审核完成后，用户手工把 `api.md` 与整个 `reference/` 复制到 `kat/skills/kat-author/references/`；框架开发流程另行维护同目录的 `base-api.md`。构建脚本、wheel 构建和 Skill 装配都不自动复制这些文件，`kat-workflow` 与 `kat-sdk` wheel 也都不包含 API 文档。
+
+`kat/sdk/knowledge/` 只保留 declaration 直接引用并随 SDK wheel 交付的 Provider/Workflow Guide。Runtime 通过 declaration 的 `guide=` 发现具体文件，不读取目录首页，因此删除 `knowledge/index.md`；API 文档离开 wheel 不改变 inspection 与 Guide 的现有合同。`kat-author` 通过自身的 `base-api.md`、短 `api.md` 和按需 reference 判断 Python API 复用，Workflow/Provider 仍通过 inspection 核对。#297 中有关 `references/helpers/` 权威入口、构建期 Griffe/Griffe2MD 生成、`knowledge/**/*.api.md` 和 API Markdown 进入 wheel 的描述均不再是当前合同。
 
 ## 目标与非目标
 
@@ -79,7 +93,9 @@ SDK 拥有公共 Provider 模块清单；框架从固定 SDK 入口取得清单�
 
 Workflow 与 Provider 的实现、声明和知识一起版本化。新增能力的发现、文档读取和实际调用必须相互一致。每次命令读取当前安装版本，不将知识复制进 Skill 或另建持久索引。
 
-## Markdown 与 AI 阅读入口
+## Markdown 与 AI 阅读入口（#297 历史设计）
+
+本节记录 #297 当时的设计与验证背景；当前合同以本文件顶部的 Issue #300 替代说明及 ADR-0086 为准。
 
 | 内容 | 权威来源与交付方式 |
 | --- | --- |
@@ -96,6 +112,8 @@ Provider/Workflow 文档分别在 `knowledge/providers`、`knowledge/workflows` 
 使用成熟工具解析类型和 docstring，不自行实现通用 Python 解析器。实现前验证工具对当前语法、中文和真实 Markdown 输出的支持并固定构建依赖；工具选型属于实施技术验证，不意味着已选择或验证某个生成器。文档生成依赖不进入 SDK 的运行时依赖。
 
 ## 构建与发布
+
+本节的独立 wheel、安装和发布决定继续有效；其中“构建时生成 API MD”及“API MD 进入 wheel”的内容已由 ADR-0086 局部替代。
 
 拟议脚本职责：
 

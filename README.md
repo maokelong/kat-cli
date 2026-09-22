@@ -62,7 +62,7 @@ PACK 可以来自内置目录、平台数据目录、显式的 `--pack-dir`，�
 源码位于 [`kat/sdk`](kat/sdk/README.md)，导入 namespace 为 `kat_sdk`；它使用框架 API，
 不包含 Runtime。当前新基线从 `0.1.1-rc.13` 开始接入 SDK，SDK 初版为 `0.1.0`。
 公共 PACK 自动进入发现范围，公共 Provider 仍由 `kat inspect provider` 单独发现；
-普通函数通过 Python import 使用，AI 从 kat Skill 的 [公共库导航](kat/skills/kat/references/helpers/index.md) 阅读使用说明与 API Markdown，并按需核对已安装函数的签名和 docstring。
+普通函数与 Provider 的 Python API 先在 [`kat/sdk/docs`](kat/sdk/docs/api.md) 从源码生成并接受人工审核，再由用户手工复制到 `kat/skills/kat-author/references/`，`kat-author` 只读取复制后的能力目录；框架作者 API 见 [`base-api.md`](kat/skills/kat-author/references/base-api.md)。两种 API 文档都不进入 wheel。Workflow/Provider 的 declaration 与 Guide 继续通过 inspection 发现。
 经过兼容验证的 SDK wheel 可通过当前 KAT Python 的 pip 单独升级。
 
 完整的 Skills 集合装配和 Platform Payload 发布拓扑遵循

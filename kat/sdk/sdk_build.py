@@ -1,22 +1,15 @@
-"""SDK 构建期知识生成；不进入安装包。"""
+"""SDK 构建期 Runtime Guide 静态校验。"""
 
 from ast import literal_eval
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from griffe import visit
-from griffe2md import render_object_docs
 from markdown_it import MarkdownIt
 from setuptools.command.build_py import build_py
 
 
-def generate_knowledge(package: Path) -> None:
-    config = {
-        "show_signature_annotations": True,
-        "show_submodules": False,
-        "show_root_heading": True,
-        "heading_level": 1,
-    }
+def validate_knowledge(package: Path) -> None:
     for category in ("providers", "workflows"):
         source = package / category
         if not source.is_dir():
@@ -28,11 +21,6 @@ def generate_knowledge(package: Path) -> None:
             obj = visit(".".join(("kat_sdk", *relative.parts)), path,
                         path.read_text(encoding="utf-8"), docstring_parser="google")
             validate_declarations(obj, package, category)
-            target = package / "knowledge" / relative.with_suffix(".api.md")
-            if target.exists():
-                raise ValueError(f"Generated API document would overwrite a source: {target}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(render_object_docs(obj, config), encoding="utf-8", newline="\n")
     validate_links(package / "knowledge")
 
 
@@ -94,4 +82,4 @@ class BuildPy(build_py):
 
     def run(self) -> None:
         super().run()
-        generate_knowledge(Path(self.build_lib) / "kat_sdk")
+        validate_knowledge(Path(self.build_lib) / "kat_sdk")
