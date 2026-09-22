@@ -1,0 +1,34 @@
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_4c12d172cd3695 371
+kat/skill/SKILL.md
+  s_d1744aeb41c9d7::t_e6bb5686f842ce 42,46,48,50,52-53,55,57-59,68,79-83,92-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "206514f844d60088debc0ee0362addd665299f8f",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 21,
+      "total_deletions": 12,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

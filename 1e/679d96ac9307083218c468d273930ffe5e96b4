@@ -1,0 +1,44 @@
+docs/release-rehearsal.md
+  s_45df1dcfb46ea6::t_4e422c10a47c28 80-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1e679d96ac9307083218c468d273930ffe5e96b4",
+  "prompts": {
+    "s_45df1dcfb46ea6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff518-11c3-7942-bc2c-1d3de86d79ce",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2,
+      "total_deletions": 7,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "s_c4a1b16db74815": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff519-70b3-7f82-8e88-97ff90d7056a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 319,
+      "total_deletions": 16,
+      "accepted_lines": 319,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_45df1dcfb46ea6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff518-11c3-7942-bc2c-1d3de86d79ce",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

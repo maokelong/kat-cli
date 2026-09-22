@@ -1,0 +1,38 @@
+kat/platform/datasource/build.rs
+  s_83afcc57bb2711::t_b0212a49e91b01 185-188
+kat/platform/datasource/tests/fixtures/protobuf_source/valid_shapes.proto
+  s_83afcc57bb2711::t_b0212a49e91b01 61-73
+kat/platform/datasource/tests/protobuf_source_contract/roundtrip.rs
+  s_83afcc57bb2711::t_b6d7fdc5892c6f 596-721
+kat/platform/datasource/build/protobuf_source_codegen/plan.rs
+  s_83afcc57bb2711::t_36ee6377aa0372 584-586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "097e368ce05a791073eccd1fa94af10a529d06fe",
+  "prompts": {
+    "s_83afcc57bb2711": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fface-9b24-7c91-913a-b576257ccd9e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 146,
+      "total_deletions": 13,
+      "accepted_lines": 146,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_83afcc57bb2711": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fface-9b24-7c91-913a-b576257ccd9e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

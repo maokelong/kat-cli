@@ -1,0 +1,35 @@
+tools/bench/storage_backends.py
+  s_5a98ce44cbcaef::t_9fc64a4ec2e186 16,230-266,286-297,300,332-336
+python/tests/test_storage_benchmark_script.py
+  s_5a98ce44cbcaef::t_964bacafdab574 2,47-55
+  s_5a98ce44cbcaef::t_1136ce59442c13 56-71,154-172,569-646
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "84507cb67317b5d84a67201b651c5308c813e852",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 179,
+      "total_deletions": 29,
+      "accepted_lines": 179,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

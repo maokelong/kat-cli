@@ -1,0 +1,40 @@
+kat/packs/kat-openharmony-critical-path/datasources/trace_streamer.py
+  s_01b850c15b18af::t_d293f79f455281 24-26,120-129,157-191
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_d293f79f455281 1,5,10-13,138-151
+kat/packs/kat-openharmony-critical-path/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_d293f79f455281 1,5,10-13,127-140
+docs/adr/0076-datasource-streaming-materialization-uses-a-background-writer.md
+  s_01b850c15b18af::t_9365d064321a07 19-20
+kat/packs/kat-openharmony-thread-cpu-time/datasources/trace_streamer.py
+  s_01b850c15b18af::t_d293f79f455281 24-26,120-129,157-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "8097907df4723d08b8784c5ccc36c4c1c0751943",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 138,
+      "total_deletions": 6,
+      "accepted_lines": 138,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

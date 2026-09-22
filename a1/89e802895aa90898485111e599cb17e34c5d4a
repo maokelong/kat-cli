@@ -1,0 +1,31 @@
+examples/packs/postgresql-parquet-fusion/tests/test_fuse_observations.py
+  s_8d37eb24b885b8::t_de9cfd99da681b 2-25,27-28,49-54,56-89
+  s_8d37eb24b885b8::t_c1c310ae8e9b67 90-136,138,141-193
+  s_8d37eb24b885b8::t_0cb5f47d5f82f4 1,26,29-48,55,139-140
+examples/packs/postgresql-parquet-fusion/tests/conftest.py
+  s_8d37eb24b885b8::t_46c49ff9cb307c 1-2
+  s_8d37eb24b885b8::t_bd8975caaf2a41 3-89
+kat/platform/cli/tests/postgresql_parquet_fusion_demo.rs
+  s_8d37eb24b885b8::t_4782344d20cb94 1-114,228-238
+  s_8d37eb24b885b8::t_644822693d9807 239-314,178,180,184,186,202,208,222
+  s_8d37eb24b885b8::t_94e7a85bd84e40 315-357
+  s_8d37eb24b885b8::t_6094a509c9b147 358-397,410-411,163,185,199,226
+  s_8d37eb24b885b8::t_e0e638a7eb12f2 398-399,139,141-142,164,175,191-198,200-201,203-207,209-221,223-225,227,400-409
+  s_8d37eb24b885b8::t_23dfd07026dc43 115-138,140,143-162,165-174,176-177,179,181-183,187-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a189e802895aa90898485111e599cb17e34c5d4a",
+  "prompts": {},
+  "sessions": {
+    "s_8d37eb24b885b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0381e-2908-7b60-ae11-6f16bdb9c9f5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

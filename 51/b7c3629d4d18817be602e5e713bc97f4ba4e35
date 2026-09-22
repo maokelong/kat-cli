@@ -1,0 +1,38 @@
+docs/adr/0076-datasource-streaming-materialization-uses-a-background-writer.md
+  s_01b850c15b18af::t_325e6bb4b76f4d 9
+kat/skill/references/examples/dataprovider-pack/datasources/ftrace.py
+  s_01b850c15b18af::t_b922696bc1db62 197-203,205-214,219-225
+  s_01b850c15b18af::t_aa19de39209844 49-50,84,87,139,148-149,195-196
+kat/skill/references/examples/dataprovider-pack/tests/ftrace/test_ftrace_provider.py
+  s_01b850c15b18af::t_8e302607beb83c 225-247,305,316,318-323,325-327,330
+  s_01b850c15b18af::t_fd0545bc6bf026 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "51b7c3629d4d18817be602e5e713bc97f4ba4e35",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 70,
+      "total_deletions": 25,
+      "accepted_lines": 70,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

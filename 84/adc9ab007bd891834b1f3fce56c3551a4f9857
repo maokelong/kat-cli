@@ -1,0 +1,137 @@
+kat/skills/kat/SKILL.md
+  s_082eeb39d11813::t_1f778562d53890 12,14
+kat/sdk/sdk_build.py
+  s_082eeb39d11813::t_93897647051306 1,12,85
+kat/skills/kat-dev-sdk/references/sdk-development.md
+  s_082eeb39d11813::t_bcb8dba2858356 17,19-22,24
+  s_082eeb39d11813::t_58ab5a1bc18169 3,9,11,13,15-16,25-26,34-36,39-41,45,47,49,53,55,57,61,63,65,67,69,72-76,79,81,83,85,87-91,94,96-101,103,105,107,109,111,114-115,118,120,122
+  s_082eeb39d11813::t_792d7b4ebbe240 59
+kat/sdk/docs/api.md
+  s_082eeb39d11813::t_158533bf7012a5 1-7
+kat/skills/kat-author/SKILL.md
+  s_082eeb39d11813::t_b3929774ba6c17 22
+kat/sdk/knowledge/workflows/demo/greeting.md
+  s_082eeb39d11813::t_124535988be2d3 26,30
+build/build_sdk_wheel.py
+  s_082eeb39d11813::t_100351cfc75488 99-100,120-132
+  s_082eeb39d11813::t_e7d860c12c875f 7,12,21-98,145
+kat/sdk/docs/reference/providers/trace_streamer.md
+  s_082eeb39d11813::t_a5f9b7d1bbd0b5 22,24-28,30-33,46,48-49,54,62-64
+  s_082eeb39d11813::t_158533bf7012a5 1,3,5,7-21,23,34-43,47,50-53
+  s_082eeb39d11813::t_7ade3a96ac6a7c 29
+kat/skills/kat-dev-sdk/references/sdk-build.md
+  s_082eeb39d11813::t_634c93f816d400 3,7,17,19,28,30,32,42,55,70-75,77,85-87,91,99,111,113,119,121
+kat/sdk/docs/reference/providers/ftrace.md
+  s_082eeb39d11813::t_7ade3a96ac6a7c 29
+  s_082eeb39d11813::t_158533bf7012a5 1,3,5,7-15,17,20-24,31,33-60,64-65
+  s_082eeb39d11813::t_a5f9b7d1bbd0b5 16,18-19,25-28,30,32,63
+build/tests/test_wheel_artifacts.py
+  s_082eeb39d11813::t_e7d860c12c875f 77-79,83-89,91-92,98-107
+  s_082eeb39d11813::t_cebfd6678a4dca 15,108-125
+  s_082eeb39d11813::t_66b6853f743da8 126-127
+docs/specs/workflow-authoring-api-discovery.md
+  s_082eeb39d11813::t_5d9d0a590fb4a1 1-252,254-275
+  s_082eeb39d11813::t_9a7b819eac64c1 253
+.github/workflows/prepare-payload-ci.yml
+  s_082eeb39d11813::t_7d6695177caf3b 143
+kat/sdk/__init__.py
+  s_082eeb39d11813::t_158533bf7012a5 3-9
+kat/sdk/docs/reference/helpers/demo/greeting.md
+  s_082eeb39d11813::t_158533bf7012a5 1,3,5,8,11,13,16,18
+kat/platform/workflow/api/_workflow.py
+  s_082eeb39d11813::t_d1e48f2a8e914a 119-122
+kat/skills/kat-author/references/base-api.md
+  s_082eeb39d11813::t_b3929774ba6c17 1-2,5-10,12-16,18-30,32-33
+  s_082eeb39d11813::t_b2225d9995cec3 3-4,11
+  s_082eeb39d11813::t_82e3b8c703a037 17,31
+kat/skills/kat-author/references/pack-authoring-flow.md
+  s_082eeb39d11813::t_b3929774ba6c17 47,63
+docs/adr/0086-api-documents-are-reviewed-author-references.md
+  s_082eeb39d11813::t_ebbcc0a4e7ffdc 11
+  s_082eeb39d11813::t_43ef017e2e1d7c 9
+  s_082eeb39d11813::t_5d9d0a590fb4a1 1-8,10,12-17
+kat/skills/kat/references/command-reference.md
+  s_082eeb39d11813::t_1f778562d53890 87,89,91
+kat/skills/kat-dev-sdk/SKILL.md
+  s_082eeb39d11813::t_bcb8dba2858356 13
+  s_082eeb39d11813::t_14658e0df1e29d 3,8,12,14-18,24
+docs/specs/public-capability-sdk.md
+  s_082eeb39d11813::t_5d9d0a590fb4a1 3,7-20,96-98,116-117
+build/tests/test_sdk_build.py
+  s_082eeb39d11813::t_7729da33f18953 10-12,20-26,29-36,41-44,46,48-49,56,58-59,62-63,65
+build/verify_sdk_install.py
+  s_082eeb39d11813::t_a0f7336f1e5fa0 196-201,206
+README.md
+  s_082eeb39d11813::t_272c7b6e4cd8cb 65
+kat/sdk/README.md
+  s_082eeb39d11813::t_6238c9c6956065 1,3,5,7,10-20,23,25,27,29,31,33,35-37,39,41,43-48,50,52
+CONTEXT.md
+  s_082eeb39d11813::t_43ef017e2e1d7c 17
+  s_082eeb39d11813::t_5d9d0a590fb4a1 41,44
+kat/skills/kat-author/references/reuse-check.md
+  s_082eeb39d11813::t_b3929774ba6c17 3,5-20
+docs/adr/0085-official-capabilities-ship-as-an-independent-sdk.md
+  s_082eeb39d11813::t_5d9d0a590fb4a1 7
+  s_082eeb39d11813::t_f8e8a1e38151a8 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "84adc9ab007bd891834b1f3fce56c3551a4f9857",
+  "prompts": {},
+  "sessions": {
+    "s_082eeb39d11813": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c3c0-b7f1-7033-a3c0-81b06dc54105",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1121,
+      "total_deletions": 692,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_08eefe97f5b1e3": "gpt-5.6-sol",
+        "t_100351cfc75488": "gpt-5.6-sol",
+        "t_124535988be2d3": "gpt-5.6-sol",
+        "t_14658e0df1e29d": "gpt-5.6-sol",
+        "t_158533bf7012a5": "gpt-5.6-sol",
+        "t_1f778562d53890": "gpt-5.6-sol",
+        "t_272c7b6e4cd8cb": "gpt-5.6-sol",
+        "t_43ef017e2e1d7c": "gpt-5.6-sol",
+        "t_4775985e186065": "gpt-5.6-sol",
+        "t_5671327d6d4201": "gpt-5.6-sol",
+        "t_58ab5a1bc18169": "gpt-5.6-sol",
+        "t_59a4b6070b18f0": "gpt-5.6-sol",
+        "t_5d9d0a590fb4a1": "gpt-5.6-sol",
+        "t_6238c9c6956065": "gpt-5.6-sol",
+        "t_623bc7cb669ca8": "gpt-5.6-sol",
+        "t_634c93f816d400": "gpt-5.6-sol",
+        "t_7729da33f18953": "gpt-5.6-sol",
+        "t_792d7b4ebbe240": "gpt-5.6-sol",
+        "t_7ade3a96ac6a7c": "gpt-5.6-sol",
+        "t_7d6695177caf3b": "gpt-5.6-sol",
+        "t_826fd10c2ad04f": "gpt-5.6-sol",
+        "t_82e3b8c703a037": "gpt-5.6-sol",
+        "t_93897647051306": "gpt-5.6-sol",
+        "t_9a7b819eac64c1": "gpt-5.6-sol",
+        "t_a0f7336f1e5fa0": "gpt-5.6-sol",
+        "t_a5f9b7d1bbd0b5": "gpt-5.6-sol",
+        "t_b04332a5c6be7e": "gpt-5.6-sol",
+        "t_b2225d9995cec3": "gpt-5.6-sol",
+        "t_b3929774ba6c17": "gpt-5.6-sol",
+        "t_bcb8dba2858356": "gpt-5.6-sol",
+        "t_cebfd6678a4dca": "gpt-5.6-sol",
+        "t_d1e48f2a8e914a": "gpt-5.6-sol",
+        "t_e7d860c12c875f": "gpt-5.6-sol",
+        "t_ebbcc0a4e7ffdc": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 1121,
+          "deletions": 692
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,130 @@
+kat/packs/kat-openharmony-critical-path/workflows/extract_critical_path.py
+  s_888ee3b2e67672::t_829720ec6092f4 3,30
+kat/platform/workflow/tests/test_skill_reference_pack_process.py
+  s_888ee3b2e67672::t_829720ec6092f4 118
+kat/skill/references/command-reference.md
+  s_888ee3b2e67672::t_e84fd1cb68e1fc 71-72,78-80,82
+kat/packs/kat-openharmony-critical-path/workflows/locate_first_actual_frame.py
+  s_888ee3b2e67672::t_829720ec6092f4 3,22
+kat/platform/workflow/runtime/request.py
+  s_888ee3b2e67672::t_8c7a0da51fce8d 30-31,141-142,144,146-147,156
+kat/platform/workflow/api/dataprovider/trace_streamer.py
+  s_888ee3b2e67672::t_830ad38d9338df 1-26
+  s_888ee3b2e67672::t_9cd5e1523aad97 27-226
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_888ee3b2e67672::t_a9de53e8b716ef 428-429
+kat/packs/kat-openharmony-thread-cpu-time/workflows/thread_cpu_time.py
+  s_888ee3b2e67672::t_829720ec6092f4 4,56
+docs/specs/public-trace-streamer-provider.md
+  s_888ee3b2e67672::t_6ff5affc3487d0 67-102
+  s_888ee3b2e67672::t_a4e840e67c13ce 1-66
+kat/platform/cli/src/inspect.rs
+  s_888ee3b2e67672::t_1186e4808ace49 23,69,71-72,77,118-125,162-173,186-214
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_888ee3b2e67672::t_7c1ff25f43fb5e 11,106-111
+kat/platform/cli/src/workflow_runtime.rs
+  s_888ee3b2e67672::t_a9de53e8b716ef 235,238-248,253
+kat/platform/workflow/tests/test_trace_streamer_provider.py
+  s_888ee3b2e67672::t_829720ec6092f4 1-35
+  s_888ee3b2e67672::t_9cd5e1523aad97 36-170
+  s_888ee3b2e67672::t_3e0fa0738932c4 171-312
+kat/platform/workflow/tests/test_runtime_process.py
+  s_888ee3b2e67672::t_144d17bade82f0 223-245
+kat/platform/workflow/api/dataprovider/providers/trace-streamer-sqlite.md
+  s_888ee3b2e67672::t_8c7a0da51fce8d 1-17
+kat/skill/references/examples/dataprovider-pack/tests/trace_streamer/real_trace_streamer.py
+  s_888ee3b2e67672::t_829720ec6092f4 5-6,33,36-37,40-41
+kat/skill/references/examples/dataprovider-pack/workflows/summarize_native_hook.py
+  s_888ee3b2e67672::t_829720ec6092f4 6-27,48-53
+kat/platform/cli/tests/inspect.rs
+  s_888ee3b2e67672::t_1186e4808ace49 357-361,363,1307-1336
+kat/skill/references/pack-authoring-flow.md
+  s_888ee3b2e67672::t_7c1ff25f43fb5e 50,296-316
+kat/platform/workflow/pyproject.toml
+  s_888ee3b2e67672::t_a4e840e67c13ce 19,22-24
+kat/packs/kat-openharmony-critical-path/tests/test_critical_path.py
+  s_888ee3b2e67672::t_829720ec6092f4 7,106
+kat/skill/references/examples/dataprovider-pack/tests/trace_streamer/test_trace_streamer_summary.py
+  s_888ee3b2e67672::t_829720ec6092f4 4-5,33,36-37,39-40
+kat/platform/cli/src/lib.rs
+  s_888ee3b2e67672::t_1186e4808ace49 164-195,326
+kat/platform/workflow/runtime/provider_inspection.py
+  s_888ee3b2e67672::t_8c7a0da51fce8d 6,84-85,90-96,119,138,342-354
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "88bbca6c1cbb70300fd6aa217fea70553cc85c07",
+  "prompts": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 280,
+      "total_deletions": 8,
+      "accepted_lines": 280,
+      "overriden_lines": 0
+    },
+    "s_21c56a0a80f764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07192-8bb7-7a10-9198-e5cfb9a7f8d3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 452,
+      "total_deletions": 0,
+      "accepted_lines": 452,
+      "overriden_lines": 0
+    },
+    "s_888ee3b2e67672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085ee-822d-7d12-a41e-d1341441f361",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 941,
+      "total_deletions": 161,
+      "accepted_lines": 941,
+      "overriden_lines": 0
+    },
+    "s_b381e255fe8020": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07fd2-e1dc-7b92-9982-1be5a0814e14",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 613,
+      "total_deletions": 40,
+      "accepted_lines": 590,
+      "overriden_lines": 23
+    },
+    "s_c4a1b16db74815": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff519-70b3-7f82-8e88-97ff90d7056a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 319,
+      "total_deletions": 0,
+      "accepted_lines": 319,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_888ee3b2e67672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085ee-822d-7d12-a41e-d1341441f361",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

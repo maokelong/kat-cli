@@ -1,0 +1,48 @@
+docs/superpowers/plans/2026-07-10-kat-rs-critical-path-pack-redesign.md
+  s_3296c622f3e425::t_d931f761cdff80 166-661
+  s_3296c622f3e425::t_7f9902be08a226 765-1326
+  s_3296c622f3e425::t_1bbe66e78ccc14 662-745
+  s_3296c622f3e425::t_62734e1835b850 1-165
+  s_3296c622f3e425::t_9b412c62ec5c5a 746-764
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f9f39043fbcade244725d221e58bdad6d42667b6",
+  "prompts": {
+    "s_3296c622f3e425": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4b02-1ac4-74d0-85dc-705bb2fc32c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1326,
+      "total_deletions": 29,
+      "accepted_lines": 1326,
+      "overriden_lines": 0
+    },
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 108,
+      "total_deletions": 0,
+      "accepted_lines": 108,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_3296c622f3e425": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4b02-1ac4-74d0-85dc-705bb2fc32c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

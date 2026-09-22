@@ -1,0 +1,62 @@
+kat/platform/workflow/api/_workflow.py
+  s_450935cb905f4d::t_b2bcb264c46bd2 44-46,54-56,69-78,128-135
+docs/research/industry-multi-clock-observability.md
+  s_450935cb905f4d::t_269c5df12d422e 203,205,207,209,219,221,229,246-248,267,297,307
+  s_450935cb905f4d::t_632fd0542ca0b2 3-5
+docs/adr/0043-analysis-capabilities-live-above-a-thin-query-engine.md
+  s_450935cb905f4d::t_c1a9ef40377f5b 7-10
+kat/platform/workflow/tests/test_clock.py
+  s_450935cb905f4d::t_cf6a7ac97ae819 1-164
+docs/adr/0005-kat-managed-workflow-capabilities-require-an-execution-lease.md
+  s_450935cb905f4d::t_33985e01dac67d 7-10
+docs/adr/0051-clock-conversion-is-exposed-only-through-workflow-context.md
+  s_450935cb905f4d::t_c1a9ef40377f5b 1-6
+  s_450935cb905f4d::t_33985e01dac67d 7-38
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_450935cb905f4d::t_c1a9ef40377f5b 7-10
+kat/platform/workflow/runtime/clock.py
+  s_450935cb905f4d::t_33985e01dac67d 27,29,31-37
+  s_450935cb905f4d::t_f01018af1aafed 8
+  s_450935cb905f4d::t_02f0d7a46166b1 48,50-51,64
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_450935cb905f4d::t_33985e01dac67d 7-9
+kat/platform/workflow/tests/test_execution_process.py
+  s_450935cb905f4d::t_ccaef484679ee0 453-465,467-469,472-474,487,490-498,500,502-503,506-508,511-513,526
+  s_450935cb905f4d::t_16b48cd183ef4f 206,231
+  s_450935cb905f4d::t_8a66fef98926c4 561-608
+docs/adr/0042-hitrace-events-preserve-clock-domain-and-value.md
+  s_450935cb905f4d::t_c1a9ef40377f5b 7-10
+kat/platform/workflow/runtime/execution.py
+  s_450935cb905f4d::t_f01018af1aafed 107
+kat/platform/workflow/pyproject.toml
+  s_450935cb905f4d::t_f01018af1aafed 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6c6f75ffa3dace44aa2921c89d6f734a95d3da41",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 366,
+      "total_deletions": 363,
+      "accepted_lines": 366,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+kat/platform/cli/src/workflow_runtime.rs
+  s_d7162fef06f726::t_b590d723623685 877
+kat/platform/workflow/runtime/__main__.py
+  s_d7162fef06f726::t_b590d723623685 55,70-73,78-80,114-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e11f562371889de12bcfbca707bd2f553df739a3",
+  "prompts": {
+    "s_d7162fef06f726": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c96-f638-7bb1-911c-85bab27d61cb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 12,
+      "total_deletions": 52,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d7162fef06f726": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c96-f638-7bb1-911c-85bab27d61cb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

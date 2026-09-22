@@ -1,0 +1,79 @@
+kat/platform/workflow/tests/test_execution_process.py
+  s_21c56a0a80f764::t_c86435b8c6c0e0 170,582-583,615-616,648-649,694,696-699,705-706,780-781
+kat/platform/cli/src/workflow_runtime.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 122-123,309,312,315,318
+  s_21c56a0a80f764::t_7a848acc6d3eb6 320,324,330,332,342,344,1240
+kat/platform/workflow/tests/test_nested_execution.py
+  s_21c56a0a80f764::t_7a848acc6d3eb6 29-40,198-214
+kat/platform/cli/tests/fixtures/scratch_parent.py
+  s_21c56a0a80f764::t_e35ce6f2a8e9e1 1
+  s_21c56a0a80f764::t_776b0ee3713ac0 2-19
+kat/platform/cli/tests/fixtures/scratch_workflows.py
+  s_21c56a0a80f764::t_776b0ee3713ac0 1-24
+kat/platform/cli/tests/fixtures/scratch_helpers.py
+  s_21c56a0a80f764::t_776b0ee3713ac0 1-16
+kat/platform/workflow/runtime/execution.py
+  s_21c56a0a80f764::t_88f598e60b85e4 238
+kat/platform/cli/tests/fixtures/scratch_pack_test.py
+  s_21c56a0a80f764::t_29e1ea69df88f7 1-29
+.github/workflows/full-ci.yml
+  s_21c56a0a80f764::t_29e1ea69df88f7 108
+kat/platform/cli/tests/run.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 190-192,1044-1173,1254-1263
+kat/platform/cli/src/run/execution.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 4,9-11,33-48,98-136,139,181,183-188,190-202,205,236-280
+kat/platform/cli/src/session_store.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 439-476,518-525,528,936-1089
+kat/platform/workflow/runtime/datasource.py
+  s_21c56a0a80f764::t_88f598e60b85e4 11,28,34,39-40
+kat/platform/cli/src/run.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 128,144-149,160-165,169,171,175-176,183,270-272
+kat/platform/cli/tests/scratch.rs
+  s_21c56a0a80f764::t_e3498690e3bc05 7-200
+  s_21c56a0a80f764::t_29e1ea69df88f7 1-2
+  s_21c56a0a80f764::t_2a2ef5551bb570 3-6
+docs/adr/0079-one-run-execution-and-publication-core.md
+  s_21c56a0a80f764::t_619ccbbcb8bb28 3,19-24
+  s_21c56a0a80f764::t_e4166a4d8b69b8 25-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9055fa8ba9df818feaf53ec2c7a6204a1e980118",
+  "prompts": {
+    "s_21c56a0a80f764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07192-8bb7-7a10-9198-e5cfb9a7f8d3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 853,
+      "total_deletions": 380,
+      "accepted_lines": 853,
+      "overriden_lines": 0
+    },
+    "s_c4a1b16db74815": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff519-70b3-7f82-8e88-97ff90d7056a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 319,
+      "total_deletions": 0,
+      "accepted_lines": 319,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_21c56a0a80f764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07192-8bb7-7a10-9198-e5cfb9a7f8d3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

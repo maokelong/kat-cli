@@ -1,0 +1,54 @@
+kat/platform/cli/tests/inspect.rs
+  s_7fdb7d2aa9b65a::t_16a7b5fbf62d3b 68-69
+kat/platform/cli/src/configuration.rs
+  s_7fdb7d2aa9b65a::t_9085e32b80003a 2,7,10,12,14,17
+  s_7fdb7d2aa9b65a::t_95833e9780d5d7 27-29,31-34,37-40,43,47-48,50,54-59,74-80,82-83,85,89,115-117,120,122,125,127-129
+docs/adr/0060-file-and-environment-select-kat-data-home.md
+  s_7fdb7d2aa9b65a::t_a5d592aa7e4f4b 5,7,9,11,13-15,17,19,21-26
+  s_7fdb7d2aa9b65a::t_95833e9780d5d7 27-39
+kat/platform/cli/tests/query.rs
+  s_7fdb7d2aa9b65a::t_2bb0ca2a6f3023 27-33
+kat/platform/cli/tests/config.rs
+  s_7fdb7d2aa9b65a::t_f19b4d557ba09d 1-5,17-21,23-42,44,46,48-49,51-58,60-77,80-86,91-100,102-117,119-130,133,135,144,147-153,155-163,166-167,169-170,172,174-176
+  s_7fdb7d2aa9b65a::t_a7f779dd75d0bb 177-186,188-189,191-194,196,199-200,202,207-218,220-227,230-231,233,236,238,240-245,248
+kat/platform/cli/tests/import.rs
+  s_7fdb7d2aa9b65a::t_16a7b5fbf62d3b 128,136-138
+CONTEXT.md
+  s_7fdb7d2aa9b65a::t_a5d592aa7e4f4b 72
+  s_7fdb7d2aa9b65a::t_fbf89008f0a1ba 68
+kat/platform/cli/tests/run.rs
+  s_7fdb7d2aa9b65a::t_16a7b5fbf62d3b 121-122
+kat/platform/cli/tests/support/mod.rs
+  s_7fdb7d2aa9b65a::t_9085e32b80003a 19-20,48-49
+kat/platform/cli/tests/support/test_home.rs
+  s_7fdb7d2aa9b65a::t_16a7b5fbf62d3b 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "aa9c3a5fb074d310ff6daa1b1a3f169af3c7fd54",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 282,
+      "total_deletions": 371,
+      "accepted_lines": 282,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

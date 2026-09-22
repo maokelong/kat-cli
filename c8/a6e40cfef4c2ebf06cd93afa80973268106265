@@ -1,0 +1,76 @@
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_450935cb905f4d::t_2fdc8e345e3335 16
+kat/platform/cli/tests/run.rs
+  s_450935cb905f4d::t_9e733104bc1ddd 81,87-88
+kat/platform/workflow/tests/test_execution_process.py
+  s_450935cb905f4d::t_08cf0a0390bacf 646-687
+  s_450935cb905f4d::t_e0017c9db1a0ca 6,98,314,337-339,613-645
+kat/platform/cli/src/response.rs
+  s_450935cb905f4d::t_9867e1ea4fe7a9 82-92
+kat/platform/workflow/runtime/clock.py
+  s_450935cb905f4d::t_fbb78359d669d2 33-39,58-64,73-80,84-89,92-93,214-228
+docs/research/industry-multi-clock-observability.md
+  s_450935cb905f4d::t_12aa4f1f2ae103 205,229,244,269
+kat/platform/workflow/api/_workflow.py
+  s_450935cb905f4d::t_12aa4f1f2ae103 71-74
+kat/platform/workflow/runtime/__main__.py
+  s_450935cb905f4d::t_e0017c9db1a0ca 15,83,89-101
+kat/platform/workflow/tests/test_clock.py
+  s_450935cb905f4d::t_fbb78359d669d2 82-83
+kat/platform/cli/src/workflow_runtime.rs
+  s_450935cb905f4d::t_9867e1ea4fe7a9 171,175,191-214,285,639
+  s_450935cb905f4d::t_9fba6a3233d4ce 640-664
+  s_450935cb905f4d::t_9e733104bc1ddd 63,149
+kat/platform/workflow/runtime/execution.py
+  s_450935cb905f4d::t_9e733104bc1ddd 90,114
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_450935cb905f4d::t_2fdc8e345e3335 13,15
+kat/platform/workflow/runtime/request.py
+  s_450935cb905f4d::t_9867e1ea4fe7a9 5,12,95,120,156,159-162,165,187-189
+docs/adr/0051-clock-conversion-is-exposed-only-through-workflow-context.md
+  s_450935cb905f4d::t_c09c1ca3039192 30-34
+kat/platform/cli/src/lib.rs
+  s_450935cb905f4d::t_9e733104bc1ddd 486,508
+docs/adr/0043-analysis-capabilities-live-above-a-thin-query-engine.md
+  s_450935cb905f4d::t_2fdc8e345e3335 15,17
+kat/platform/workflow/tests/test_runtime_process.py
+  s_450935cb905f4d::t_9fba6a3233d4ce 284-288,301
+kat/platform/workflow/tests/test_authoring_api.py
+  s_450935cb905f4d::t_c5e03130bfc194 268-269
+docs/adr/0042-hitrace-events-preserve-clock-domain-and-value.md
+  s_450935cb905f4d::t_e274a5aa64b30e 49,51,55,59
+  s_450935cb905f4d::t_c09c1ca3039192 47
+kat/platform/workflow/runtime/outputs.py
+  s_450935cb905f4d::t_e0017c9db1a0ca 8,22-24,26,42-47,49,83,87-93,96-99,101-113,121-127
+docs/adr/0005-kat-managed-workflow-capabilities-require-an-execution-lease.md
+  s_450935cb905f4d::t_e3c866d0618034 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c8a6e40cfef4c2ebf06cd93afa80973268106265",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 305,
+      "total_deletions": 67,
+      "accepted_lines": 305,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

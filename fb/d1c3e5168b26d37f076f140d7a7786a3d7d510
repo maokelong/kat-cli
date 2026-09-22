@@ -1,0 +1,32 @@
+.github/workflows/full-ci.yml
+  s_8d5fc833dd9bca::t_0a90c2d8c3e2b4 54,56-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "fbd1c3e5168b26d37f076f140d7a7786a3d7d510",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

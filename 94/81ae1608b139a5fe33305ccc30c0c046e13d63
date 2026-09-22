@@ -1,0 +1,50 @@
+docs/adr/0075-postgresql-common-uses-a-closed-arrow-type-mapping.md
+  s_436b5043b2b42d::t_5988b29a005f07 7
+examples/postgresql-pack-devkit/scripts/Invoke-LiveValidation.ps1
+  s_436b5043b2b42d::t_5988b29a005f07 341
+build/tests/test_excel_host.py
+  s_436b5043b2b42d::t_5988b29a005f07 32-35,40,86-90,104-105
+docs/adr/0066-ad-hoc-queries-run-through-workflows.md
+  s_436b5043b2b42d::t_5988b29a005f07 7
+build/payload_builder.py
+  s_436b5043b2b42d::t_5988b29a005f07 681-703,746,890
+kat/platform/workflow/common/sql/postgresql.py
+  s_436b5043b2b42d::t_5988b29a005f07 33,89,108
+build/tests/test_postgresql_host.py
+  s_436b5043b2b42d::t_5988b29a005f07 1-53
+examples/packs/postgresql-query/tests/test_live_postgresql.py
+  s_436b5043b2b42d::t_5988b29a005f07 75-85
+docs/adr/0062-public-pack-capabilities-incubate-inside-owning-packs.md
+  s_436b5043b2b42d::t_5988b29a005f07 7-9
+docs/adr/0086-postgresql-common-supports-a-minimal-closed-type-set.md
+  s_436b5043b2b42d::t_5988b29a005f07 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9481ae1608b139a5fe33305ccc30c0c046e13d63",
+  "prompts": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 111,
+      "total_deletions": 13,
+      "accepted_lines": 111,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

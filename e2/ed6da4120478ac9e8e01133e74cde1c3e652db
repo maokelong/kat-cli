@@ -1,0 +1,86 @@
+kat/platform/workflow/tests/test_authoring_api.py
+  s_28f12e292b4bdc::t_74feaaf0fe8aa5 4-117
+  s_28f12e292b4bdc::t_4afba1fbcf8ad4 1-3
+  s_28f12e292b4bdc::t_83240761c54d69 118-228
+kat/platform/workflow/api/_temporal.py
+  s_28f12e292b4bdc::t_a10f19f49c078a 1-70
+kat/platform/workflow/pyproject.toml
+  s_28f12e292b4bdc::t_a10f19f49c078a 1-13
+kat/platform/workflow/api/__init__.py
+  s_28f12e292b4bdc::t_a10f19f49c078a 1-4
+kat/platform/workflow/runtime/inspection.py
+  s_28f12e292b4bdc::t_83240761c54d69 13-289
+  s_28f12e292b4bdc::t_a10f19f49c078a 1-12
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_47ba43de732bb0 1,4-5,8,10,16,34-36,38-42,94-127,167-172,184-307,330-335,341,353,364,373,667-695,758,765,772-812
+kat/platform/cli/src/response.rs
+  s_28f12e292b4bdc::t_72db80db3b0f93 4-5
+  s_28f12e292b4bdc::t_b8d7d0120d3904 6,29-31,33,36,39,44-65,72-84,148-181,435-459
+kat/platform/workflow/api/_workflow.py
+  s_28f12e292b4bdc::t_83240761c54d69 5-82
+  s_28f12e292b4bdc::t_a10f19f49c078a 1-4
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_6cde9ceccf8425 13,16-17,19
+kat/platform/cli/src/workflow_runtime.rs
+  s_28f12e292b4bdc::t_be80cc9b1a34af 1
+  s_28f12e292b4bdc::t_58bd2682b99173 21-261
+  s_28f12e292b4bdc::t_93b4a368759921 262-271
+  s_28f12e292b4bdc::t_49ba53986986d8 2-6
+  s_28f12e292b4bdc::t_9f7aa780759b5a 7-20
+  s_28f12e292b4bdc::t_3470626f0f1729 272-957
+kat/platform/cli/tests/inspect.rs
+  s_28f12e292b4bdc::t_a4c1cc30f3ab8b 31-82,109-135
+  s_28f12e292b4bdc::t_121654d1f886d1 136-292
+kat/platform/workflow/runtime/__main__.py
+  s_28f12e292b4bdc::t_48ccc8282195fe 1-17
+  s_28f12e292b4bdc::t_b7ec4990490558 55-97
+  s_28f12e292b4bdc::t_2424b9cb0edf86 18-54
+kat/platform/workflow/runtime/__init__.py
+  s_28f12e292b4bdc::t_a10f19f49c078a 1
+kat/platform/workflow/tests/test_runtime_process.py
+  s_28f12e292b4bdc::t_4fc86818391775 10-56
+  s_28f12e292b4bdc::t_1d61b64a4c96db 240-294
+  s_28f12e292b4bdc::t_3ed9b547739ab0 1-9
+  s_28f12e292b4bdc::t_3b2f16569d5fb1 57-239
+kat/platform/workflow/runtime/pack.py
+  s_28f12e292b4bdc::t_48ccc8282195fe 1-2
+  s_28f12e292b4bdc::t_b7ec4990490558 3-62
+  s_28f12e292b4bdc::t_3b2f16569d5fb1 63-64
+  s_28f12e292b4bdc::t_1d61b64a4c96db 65-219
+Cargo.toml
+  s_28f12e292b4bdc::t_6cde9ceccf8425 39,44,50
+kat/platform/cli/src/text_projection.rs
+  s_28f12e292b4bdc::t_47ba43de732bb0 1-111
+kat/platform/cli/src/operation_log.rs
+  s_28f12e292b4bdc::t_f80be44c7bdb14 1-53
+  s_28f12e292b4bdc::t_97ea666c5f268b 54-159,161-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e2ed6da4120478ac9e8e01133e74cde1c3e652db",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3147,
+      "total_deletions": 517,
+      "accepted_lines": 3146,
+      "overriden_lines": 1
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

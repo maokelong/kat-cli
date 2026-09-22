@@ -1,0 +1,44 @@
+docs/adr/0060-file-and-environment-select-kat-data-home.md
+  s_95c368522abdd0::t_e2778dcb5e90b2 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ba254e9a6be9a1f5e7393c56f57a481a7ad03863",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 88,
+      "total_deletions": 0,
+      "accepted_lines": 88,
+      "overriden_lines": 0
+    },
+    "s_95c368522abdd0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019facc7-9bd3-7d23-b8e8-7193d3a16987",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_95c368522abdd0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019facc7-9bd3-7d23-b8e8-7193d3a16987",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

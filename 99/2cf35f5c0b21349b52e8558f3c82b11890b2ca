@@ -1,0 +1,34 @@
+kat/platform/cli/tests/inspect.rs
+  s_8d5fc833dd9bca::t_22b3789e86d5f5 96,118-119,121-125,290-326,328-329
+.github/workflows/full-ci.yml
+  s_8d5fc833dd9bca::t_22b3789e86d5f5 46-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "992cf35f5c0b21349b52e8558f3c82b11890b2ca",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 50,
+      "total_deletions": 4,
+      "accepted_lines": 49,
+      "overriden_lines": 1
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,44 @@
+kat/platform/cli/tests/guide_chain.rs
+  s_01b850c15b18af::t_cb4b105d69e248 1-6
+  s_01b850c15b18af::t_df0a3b149a21c6 7-108
+  s_01b850c15b18af::t_c7c98e2a817f69 109-356
+kat/packs/kat-openharmony-critical-path/workflows/locate_first_actual_frame.py
+  s_01b850c15b18af::t_842c8fb6e28677 14
+.github/workflows/full-ci.yml
+  s_01b850c15b18af::t_df0a3b149a21c6 80-82
+kat/packs/kat-openharmony-critical-path/workflows/extract_critical_path.py
+  s_01b850c15b18af::t_842c8fb6e28677 18
+kat/packs/kat-openharmony-critical-path/knowledge/workflows/locate-first-actual-frame.md
+  s_01b850c15b18af::t_842c8fb6e28677 1-61
+kat/packs/kat-openharmony-critical-path/knowledge/workflows/extract-critical-path.md
+  s_01b850c15b18af::t_842c8fb6e28677 1-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "479f4a74819eac6a2fdca8b993f4141f1e78b6f0",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 479,
+      "total_deletions": 17,
+      "accepted_lines": 479,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

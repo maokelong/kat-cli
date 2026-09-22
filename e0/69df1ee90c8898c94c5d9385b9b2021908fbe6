@@ -1,0 +1,57 @@
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_43e8186dedf3d1::t_c6e95fef465aa0 31
+kat/platform/datasource/src/lib.rs
+  s_43e8186dedf3d1::t_0658fda549108a 71
+kat/platform/datasource/src/materializer.rs
+  s_43e8186dedf3d1::t_d3d485d663156a 465-467
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_43e8186dedf3d1::t_b122ab15ecdc5c 42,84-99,229-230
+  s_43e8186dedf3d1::t_8e4ba52e0a6794 6-11,21-22
+Cargo.toml
+  s_43e8186dedf3d1::t_81cc97102f715d 36
+kat/platform/datasource/tests/hitrace_import_contract.rs
+  s_43e8186dedf3d1::t_9be48a203437bd 7,149-271,309,350-367,372-373,379,382,388,393,412-413,420,429,453-456,458-460,462-463,465-472,474-480,484,495-497,598,608-609,637-643,647,662-663,701,729-730,755,773
+  s_43e8186dedf3d1::t_3c29dabc349630 2
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_43e8186dedf3d1::t_037a8823b621ef 15
+kat/platform/datasource/Cargo.toml
+  s_43e8186dedf3d1::t_81cc97102f715d 46
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_43e8186dedf3d1::t_4f61509c60ee86 23
+kat/platform/datasource/proto/ftrace_data/README.md
+  s_43e8186dedf3d1::t_c6e95fef465aa0 1-36
+kat/platform/datasource/tests/native_hook_source_capture_contract/ftrace.rs
+  s_43e8186dedf3d1::t_81cc97102f715d 2-214
+  s_43e8186dedf3d1::t_eb018730fd6668 215-271
+  s_43e8186dedf3d1::t_037a8823b621ef 1
+  s_43e8186dedf3d1::t_88bdf313604904 272-564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e069df1ee90c8898c94c5d9385b9b2021908fbe6",
+  "prompts": {
+    "s_43e8186dedf3d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01937-766f-7610-9751-fc0e36131da6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 836,
+      "total_deletions": 4883,
+      "accepted_lines": 836,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_43e8186dedf3d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01937-766f-7610-9751-fc0e36131da6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

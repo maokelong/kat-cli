@@ -1,0 +1,32 @@
+kat/platform/workflow/api/_workflow.py
+  s_7fdb7d2aa9b65a::t_394a9e6e2574ba 83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "63a4b8dd548394c29d8e86924496524f7a42723b",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 39,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

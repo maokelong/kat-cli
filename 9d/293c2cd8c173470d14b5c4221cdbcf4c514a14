@@ -1,0 +1,86 @@
+kat/platform/workflow/runtime/outputs.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 10,68,80
+docs/adr/0067-catalog-only-describes-parquet-relations.md
+  s_68cb1a3d53c6a1::t_ad6adb724129bc 17
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,11,13,15
+examples/packs/local-parquet-fusion/workflows/fuse_local_parquet.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 4,47,49
+docs/adr/0066-datafusion-provider-owns-new-datasource-fusion.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+  s_68cb1a3d53c6a1::t_ad6adb724129bc 9,11,13-17
+kat/platform/workflow/tests/test_dataprovider_api.py
+  s_68cb1a3d53c6a1::t_60da2fd9064e36 1-480
+kat/platform/workflow/pyproject.toml
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 12
+examples/packs/local-parquet-fusion/datasources/parquet.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 4,15-16,23
+examples/packs/local-parquet-fusion/README.md
+  s_68cb1a3d53c6a1::t_c7ef3b85210bb9 5-7,10,20
+README.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 144-146
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 1-68
+  s_68cb1a3d53c6a1::t_c328a999d0c360 69-261
+CONTEXT.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 80-82,84,87,93,99
+docs/adr/0064-fusion-sql-uses-explicit-tables-and-eager-results.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,9,13
+kat/platform/workflow/tests/test_authoring_api.py
+  s_68cb1a3d53c6a1::t_cbceae68bebf9d 230,240-241,262-263
+  s_68cb1a3d53c6a1::t_9bca2f7d4c986d 226-228
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 378
+docs/adr/0068-datafusion-provider-has-immutable-bindings.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+kat/platform/workflow/tests/test_testing_process.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 272,286,313,324
+kat/platform/workflow/api/dataprovider/_parquet.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1-274
+kat/platform/workflow/api/dataprovider/__init__.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1-15
+kat/platform/workflow/api/dataprovider/_fusion.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1-83
+kat/platform/workflow/tests/test_dataprovider_parquet.py
+  s_68cb1a3d53c6a1::t_f4c1fe0de6e236 1-16
+  s_68cb1a3d53c6a1::t_c328a999d0c360 17-382
+docs/adr/0069-file-provider-materialization-is-workflow-scoped.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+kat/platform/workflow/api/__init__.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1,9
+docs/adr/0063-pack-owns-datasource-providers.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+docs/adr/0065-datasource-schema-creates-mutable-tables.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,9,11,17
+kat/platform/workflow/api/_workflow.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 144
+docs/adr/0062-pack-datasources-use-kat-managed-providers.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9d293c2cd8c173470d14b5c4221cdbcf4c514a14",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1561,
+      "total_deletions": 2151,
+      "accepted_lines": 1561,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

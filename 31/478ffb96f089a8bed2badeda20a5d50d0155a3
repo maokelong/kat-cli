@@ -1,0 +1,21 @@
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d5fc833dd9bca::t_d136649f238ab8 6,8,10,26-27,226-233,277-280,294-346,371-378,792-803,992-1008,1014-1031
+  s_8d5fc833dd9bca::t_8d081ae6339588 971
+  s_8d5fc833dd9bca::t_ab02c4216201f6 1032-1045
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "31478ffb96f089a8bed2badeda20a5d50d0155a3",
+  "prompts": {},
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

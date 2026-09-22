@@ -1,0 +1,39 @@
+.github/workflows/prepare-payload-ci.yml
+  s_cb46b5c443e3f5::t_b04b093f7c9150 38
+.github/workflows/cleanup-actions-artifacts.yml
+  s_cb46b5c443e3f5::t_b04b093f7c9150 1-33
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_cb46b5c443e3f5::t_ad2fe7c17928cc 9
+  s_cb46b5c443e3f5::t_f071939969bb21 11
+build/tests/test_ci_artifact_lifecycle.py
+  s_cb46b5c443e3f5::t_b04b093f7c9150 1-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a851b77d2e1e1fd87620c09f5be6af108e1683cf",
+  "prompts": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 110,
+      "total_deletions": 2,
+      "accepted_lines": 110,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

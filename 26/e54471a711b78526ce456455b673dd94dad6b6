@@ -1,0 +1,35 @@
+kat/skill/references/analysis-flow.md
+  s_d1744aeb41c9d7::t_cb4831c05c7007 11-12
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_e52592032f2282 322
+  s_d1744aeb41c9d7::t_cb4831c05c7007 266-270,277,281,287-288,294-295,303,312-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "26e54471a711b78526ce456455b673dd94dad6b6",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 20,
+      "total_deletions": 0,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

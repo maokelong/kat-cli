@@ -1,0 +1,32 @@
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_039ac5d007fd78::t_e14eb6158691d1 17-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "54014e0c694c22a079c1751c7aca69792aa82dec",
+  "prompts": {
+    "s_039ac5d007fd78": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffa6a-ef57-7801-9ef7-719a511d9cfc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 8,
+      "total_deletions": 2,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_039ac5d007fd78": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffa6a-ef57-7801-9ef7-719a511d9cfc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

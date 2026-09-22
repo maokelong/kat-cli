@@ -1,0 +1,25 @@
+kat/platform/datasource/proto/ftrace_data/README.md
+  s_1366363dce4eaf::t_64912582ddcebe 1-36
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_1366363dce4eaf::t_64912582ddcebe 13-14
+kat/platform/datasource/tests/profiler_source_capture_contract/mod.rs
+  s_1366363dce4eaf::t_99fa94930e882a 15-17
+kat/platform/datasource/tests/profiler_source_capture_contract/ftrace.rs
+  s_1366363dce4eaf::t_99fa94930e882a 1-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e319717e5e3b8b0f985a4d29c2b62d1a6b04401a",
+  "prompts": {},
+  "sessions": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+kat/packs/kat-openharmony-demo/tests/test_critical_path.py
+  s_a0e5d233ca6adc::t_8941ff901c02d6 157-161
+kat/packs/kat-openharmony-demo/helpers/critical_path.py
+  s_a0e5d233ca6adc::t_bc2402e1af3def 316-317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f2a6df1af299616f8308d4d0bb9f6af55faa9f65",
+  "prompts": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 7,
+      "total_deletions": 13,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

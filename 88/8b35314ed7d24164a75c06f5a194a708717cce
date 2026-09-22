@@ -1,0 +1,49 @@
+kat/platform/workflow/pyproject.toml
+  s_450935cb905f4d::t_2eeb5f62444204 2,14-18
+Cargo.toml
+  s_450935cb905f4d::t_2eeb5f62444204 7
+kat/platform/workflow/tests/test_execution_process.py
+  s_450935cb905f4d::t_b57623805f5b97 200-232,495-526
+kat/platform/workflow/native/Cargo.toml
+  s_450935cb905f4d::t_620c4945f70f4b 3-18
+  s_450935cb905f4d::t_2eeb5f62444204 1-2
+kat/platform/workflow/runtime/clock.py
+  s_450935cb905f4d::t_d253ff78879800 65,211-218
+  s_450935cb905f4d::t_2eeb5f62444204 8-9,11,37
+kat/platform/workflow/runtime/execution.py
+  s_450935cb905f4d::t_2eeb5f62444204 63
+kat/platform/workflow/MANIFEST.in
+  s_450935cb905f4d::t_2eeb5f62444204 1-2
+kat/platform/workflow/native/src/lib.rs
+  s_450935cb905f4d::t_2a9ea297d9a80b 11-18,20-25,27-31,33-37,39,41-45,47-65,68-72,74-77,79-107,109-138
+  s_450935cb905f4d::t_2eeb5f62444204 1-5,7-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "888b35314ed7d24164a75c06f5a194a708717cce",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 234,
+      "total_deletions": 148,
+      "accepted_lines": 232,
+      "overriden_lines": 2
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

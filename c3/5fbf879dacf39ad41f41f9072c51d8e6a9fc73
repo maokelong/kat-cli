@@ -1,0 +1,35 @@
+docs/superpowers/specs/2026-07-30-kat-skill-contract-design.md
+  s_d1744aeb41c9d7::t_551ac140e6ad80 5-117
+  s_d1744aeb41c9d7::t_2830d6a374c300 1-4
+CONTEXT.md
+  s_d1744aeb41c9d7::t_23dd24ed2becc0 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c35fbf879dacf39ad41f41f9072c51d8e6a9fc73",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 118,
+      "total_deletions": 87,
+      "accepted_lines": 118,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

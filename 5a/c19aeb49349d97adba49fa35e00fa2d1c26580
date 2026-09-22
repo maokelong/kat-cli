@@ -1,0 +1,57 @@
+kat/platform/cli/src/workflow_runtime.rs
+  s_450935cb905f4d::t_9d18e1dc9fa05a 2,54,57-59,205,271
+  s_450935cb905f4d::t_58b7c667f68140 295,730,740,750,752,756,766,768,798,807,814,821-830,837-846
+kat/platform/workflow/runtime/outputs.py
+  s_450935cb905f4d::t_9d18e1dc9fa05a 40,70
+kat/platform/cli/tests/run.rs
+  s_450935cb905f4d::t_e9680f382664fd 248,283,285-286,337,447-448,480,557,561,565,569,573
+  s_450935cb905f4d::t_1ab213076e117b 654,692,741
+kat/platform/cli/src/run.rs
+  s_450935cb905f4d::t_baab9f490caa17 544
+  s_450935cb905f4d::t_9d18e1dc9fa05a 49,56,71
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_450935cb905f4d::t_c184d8df7a1bd1 29
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_450935cb905f4d::t_c184d8df7a1bd1 29
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_450935cb905f4d::t_c184d8df7a1bd1 13,15
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_450935cb905f4d::t_2f4cf7da8349a1 28,34
+docs/adr/0008-run-outputs-reach-models-through-bounded-queries.md
+  s_450935cb905f4d::t_6a3295a5469787 7-9,11-13,17
+kat/platform/workflow/tests/test_execution_process.py
+  s_450935cb905f4d::t_5dbba02c204b73 188-190,197-200,383,460,502,708,810
+docs/adr/0036-skill-first-cli-results-use-json.md
+  s_450935cb905f4d::t_f3ea82a786c5c4 16,50
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_450935cb905f4d::t_f3ea82a786c5c4 9,14-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5ac19aeb49349d97adba49fa35e00fa2d1c26580",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 92,
+      "total_deletions": 407,
+      "accepted_lines": 92,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

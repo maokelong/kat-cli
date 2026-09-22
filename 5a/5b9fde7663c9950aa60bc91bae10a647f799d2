@@ -1,0 +1,37 @@
+build/tests/test_smoke_skill.py
+  s_0d074feffda5fd::t_35d04ffc8ace2e 1-42
+build/smoke_skill.py
+  s_0d074feffda5fd::t_35d04ffc8ace2e 72-74,150-172,200
+kat/platform/datasource/src/hitrace.rs
+  s_0d074feffda5fd::t_a7a2f4d036c6d2 260-261,269-270,284,287-288,303-305,309-310,329,333-335,337-339,341-343,345-347,349-351,717,858,872,878,881,884,890-891,1766,1778,1782,1790-1791
+  s_0d074feffda5fd::t_3eb93a95ff2340 92-96,100,135-136,257-259,262-268,271-283,285-286,289-302,306-308,311-328,330-332,336,340,344,348,369-370,715-716,718-726,845-846,856-857,859-863,868-871,873-877,879-880,882-883,885-889,1251-1262,1767-1777,1779-1781,1783-1789
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5a5b9fde7663c9950aa60bc91bae10a647f799d2",
+  "prompts": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 258,
+      "total_deletions": 0,
+      "accepted_lines": 258,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

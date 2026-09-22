@@ -1,0 +1,136 @@
+docs/adr/0049-reusable-trace-analysis-lives-in-kat-trace.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0001-workflow-runtime-owns-workflow-execution.md
+  s_8bb0759af7364e::t_0acf86669f86bd 7
+docs/adr/0027-first-version-packs-are-self-contained.md
+  s_8bb0759af7364e::t_4369d717e27e7d 7,9-11
+docs/adr/0036-skill-first-cli-results-use-json.md
+  s_8bb0759af7364e::t_bdc2cf42058c43 7,9,11
+docs/adr/0042-hitrace-events-preserve-clock-domain-and-value.md
+  s_8bb0759af7364e::t_d69f91bcb46cee 7
+docs/adr/0004-supported-execution-requires-the-bundled-python-host.md
+  s_8bb0759af7364e::t_7e9bd4c816bb90 7
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_8bb0759af7364e::t_fdb6ce4664ea0d 7
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_8bb0759af7364e::t_5662f5daca5578 7
+docs/adr/0048-first-bundled-pack-analyzes-thread-cpu-time.md
+  s_8bb0759af7364e::t_6539668bea0dd9 7
+docs/adr/0031-pack-manifest-carries-a-non-authoritative-owner.md
+  s_8bb0759af7364e::t_4002cc1fd6e2fc 7-9
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_8bb0759af7364e::t_a3093c5f019f28 11
+  s_8bb0759af7364e::t_4002cc1fd6e2fc 7,9
+docs/adr/0008-run-outputs-reach-models-through-bounded-queries.md
+  s_8bb0759af7364e::t_1490b48d6116c0 7
+docs/adr/0057-runtime-diagnostics-do-not-preserve-standard-stream-identity.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_8bb0759af7364e::t_fd86abe93a6f67 7
+docs/adr/0040-query-result-rejects-non-finite-floats.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0050-trace-analysis-follows-perfetto-semantics.md
+  s_8bb0759af7364e::t_6539668bea0dd9 7
+docs/adr/0051-clock-conversion-is-exposed-only-through-workflow-context.md
+  s_8bb0759af7364e::t_d69f91bcb46cee 7
+docs/adr/0047-current-pack-is-exposed-as-kat-pack.md
+  s_8bb0759af7364e::t_d69f91bcb46cee 7
+docs/adr/0056-cli-runtime-and-bundled-python-host-use-trusted-local-ipc.md
+  s_8bb0759af7364e::t_d694df8b67c386 7
+docs/adr/0016-pack-inspect-and-test-separate-production-and-test-constraints.md
+  s_8bb0759af7364e::t_fe347ff88e79f1 7
+docs/adr/0043-analysis-capabilities-live-above-a-thin-query-engine.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0022-datasource-types-are-closed-and-bundled.md
+  s_8bb0759af7364e::t_143d9fe8542dab 7,9-11
+docs/adr/0024-hitrace-datasource-owns-reusable-trace-facts.md
+  s_8bb0759af7364e::t_4369d717e27e7d 7,9
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8bb0759af7364e::t_4be945abdcdcb1 7
+docs/adr/0041-query-result-quotes-decimals.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0003-external-packs-are-a-first-class-deployment-unit.md
+  s_8bb0759af7364e::t_86f512f6ee3d4d 7
+docs/adr/0025-hitrace-distinguishes-unknown-content-from-invalid-data.md
+  s_8bb0759af7364e::t_4369d717e27e7d 7,9
+docs/adr/0028-pack-boundaries-follow-organizational-ownership.md
+  s_8bb0759af7364e::t_4369d717e27e7d 7,9
+docs/adr/0044-query-result-formats-utc-nanosecond-timestamps.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0033-workflows-derive-data-without-mutating-datasets.md
+  s_8bb0759af7364e::t_4002cc1fd6e2fc 7-9
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_8bb0759af7364e::t_5dffa62a7c2337 7,9,11
+docs/adr/0026-pack-converts-arrow-through-kat-managed-execution.md
+  s_8bb0759af7364e::t_4369d717e27e7d 7-9
+docs/adr/0015-workflows-declare-enforced-table-grants.md
+  s_8bb0759af7364e::t_231efe94e8b363 7
+docs/adr/0021-one-data-import-uses-one-datasource.md
+  s_8bb0759af7364e::t_143d9fe8542dab 7,9,11
+docs/adr/0045-workflow-api-and-runtime-share-one-private-wheel.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0039-query-result-quotes-64-bit-integers.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0055-run-publication-requires-portable-output-names.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0017-pack-source-layout-is-fixed.md
+  s_8bb0759af7364e::t_39d57ae6facf17 7
+docs/adr/0007-pack-discovery-requires-a-static-manifest.md
+  s_8bb0759af7364e::t_231efe94e8b363 7
+docs/adr/0018-pack-name-owns-a-private-python-namespace.md
+  s_8bb0759af7364e::t_1fdc07496a6fe4 9
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_8bb0759af7364e::t_99e9e2ba2dda77 7,9,11
+docs/adr/0005-kat-managed-workflow-capabilities-require-an-execution-lease.md
+  s_8bb0759af7364e::t_b0e6a7c7ccf574 7
+docs/adr/0006-pack-dependencies-use-explicit-exported-capabilities.md
+  s_8bb0759af7364e::t_b0e6a7c7ccf574 7
+docs/adr/0014-analysis-automatically-selects-pack-and-workflow.md
+  s_8bb0759af7364e::t_b0e6a7c7ccf574 7
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_8bb0759af7364e::t_231efe94e8b363 7
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_8bb0759af7364e::t_4be945abdcdcb1 7
+docs/adr/0046-query-result-preserves-arrow-string-values.md
+  s_8bb0759af7364e::t_596f0af2ea0065 7
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_8bb0759af7364e::t_1081019d3bc609 7
+  s_8bb0759af7364e::t_d694df8b67c386 9,11
+docs/adr/0038-query-results-use-compact-positional-json.md
+  s_8bb0759af7364e::t_1081019d3bc609 7,9,11
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_8bb0759af7364e::t_39d57ae6facf17 7
+docs/adr/0053-runtime-lifecycle-is-owned-by-the-direct-host-and-private-workers.md
+  s_8bb0759af7364e::t_938fb31d37325f 7
+docs/adr/0034-temporal-meanings-are-not-interchangeable.md
+  s_8bb0759af7364e::t_4002cc1fd6e2fc 7,9,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "830c638eb84b5cc1e9e8edd08a2b9a14b130a17a",
+  "prompts": {
+    "s_8bb0759af7364e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fafa9-0a28-7f83-8435-c5796fa1b1b9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 83,
+      "total_deletions": 969,
+      "accepted_lines": 83,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8bb0759af7364e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fafa9-0a28-7f83-8435-c5796fa1b1b9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+kat/platform/workflow/tests/test_testing_process.py
+  s_c336adb0e8ad95::t_b1143710dd7908 272-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9e47dd52f59b2f15ed5299b976188561ae31272f",
+  "prompts": {
+    "s_c336adb0e8ad95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d97-e8b6-79d1-8b75-39adbbcb5329",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 15,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_c336adb0e8ad95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d97-e8b6-79d1-8b75-39adbbcb5329",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

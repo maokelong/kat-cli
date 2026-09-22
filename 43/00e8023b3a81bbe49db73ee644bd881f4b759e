@@ -1,0 +1,43 @@
+kat/platform/cli/Cargo.toml
+  s_95c368522abdd0::t_d5ccdcf4096432 9
+Cargo.toml
+  s_95c368522abdd0::t_d5ccdcf4096432 23
+kat/platform/cli/src/configuration.rs
+  s_95c368522abdd0::t_9853bf5aa37247 6,12,28-56,65,68-72,76-87,89-110,150,152-155
+docs/adr/0060-file-and-environment-select-kat-data-home.md
+  s_95c368522abdd0::t_4ed687a65d5e1e 5,9,13,15,19-21,23
+kat/platform/cli/tests/config.rs
+  s_95c368522abdd0::t_fcf7238f43f18e 4,85-95,104,125,133,138-145
+  s_95c368522abdd0::t_b527f3ef8565d3 146-164,166-170,241-261
+README.md
+  s_95c368522abdd0::t_3cc5e023021910 51-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "4300e8023b3a81bbe49db73ee644bd881f4b759e",
+  "prompts": {
+    "s_95c368522abdd0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019facc7-9bd3-7d23-b8e8-7193d3a16987",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 159,
+      "total_deletions": 33,
+      "accepted_lines": 159,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_95c368522abdd0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019facc7-9bd3-7d23-b8e8-7193d3a16987",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,29 @@
+docs/adr/0057-runtime-diagnostics-do-not-preserve-standard-stream-identity.md
+  s_4c9b23b9708f9e::t_f1d6ebd2b07da9 1-7
+kat/platform/cli/tests/test.rs
+  s_4c9b23b9708f9e::t_616df04f03b523 15-16,32-40,65-78,138,163,229-286,403,415,600,648-653,663
+  s_4c9b23b9708f9e::t_7c758e49aa004d 3,5-8
+kat/platform/cli/tests/support/test_home.rs
+  s_4c9b23b9708f9e::t_ac29390c97c1fd 1-42
+kat/platform/cli/src/workflow_runtime.rs
+  s_4c9b23b9708f9e::t_67d286313f7b13 572-576,584-585,589-591,653,659,662-666,668,670-680,685,966-971
+kat/platform/cli/src/workflow_runtime/output_spool.rs
+  s_4c9b23b9708f9e::t_7b29f5f483f2d1 23,78,82-83,85,89-92,94,242
+  s_4c9b23b9708f9e::t_7c758e49aa004d 243-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "21ce540fa8f909f2b3f467dd7382daed63f64ead",
+  "prompts": {},
+  "sessions": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

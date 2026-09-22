@@ -1,0 +1,25 @@
+build/build_workflow_wheel.py
+  s_28f12e292b4bdc::t_09d842ebeb7605 1-9
+  s_28f12e292b4bdc::t_b43d36b08f7cfc 10-84,88-96
+  s_28f12e292b4bdc::t_5c643aec67142c 98-104,107-112,114-118,120-122,132,134,136-161
+  s_28f12e292b4bdc::t_1d755b7821917f 85-87,97,105-106,113,119,123-131,133,135
+build/tests/test_workflow_wheel.py
+  s_28f12e292b4bdc::t_09d842ebeb7605 1-57,62-78
+  s_28f12e292b4bdc::t_1d755b7821917f 58-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "850e8992a927d1c6b593a6131cd0a031db890931",
+  "prompts": {},
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

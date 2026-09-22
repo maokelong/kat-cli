@@ -1,0 +1,33 @@
+docs/superpowers/specs/2026-07-24-pr-151-kat-run-deepening-design.md
+  s_450935cb905f4d::t_4ca5691d74247c 201-206
+  s_450935cb905f4d::t_29eacd1097bd78 3,5,9-11,13-17,19-43,47-48,50-54,56,58,60-62,64,66-70,72-73,75,77-80,82,84-106,108-109,111,113-152,154-193,197-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2fb881e866192f2a37d098d835d579dafd05f369",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 177,
+      "total_deletions": 8,
+      "accepted_lines": 177,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

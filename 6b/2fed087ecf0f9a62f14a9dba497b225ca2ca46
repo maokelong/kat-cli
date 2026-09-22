@@ -1,0 +1,242 @@
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_01b850c15b18af::t_bea0cabd164a69 76,78-83,89,98-99
+examples/packs/mem-pack/README.md
+  s_01b850c15b18af::t_ac9c101dc1b481 59
+  s_01b850c15b18af::t_f3d486b2795012 60-71
+kat/skill/references/command-reference.md
+  s_01b850c15b18af::t_842c0c100b405c 56-57,62,87,92,99-108,111-112,116,119,139-145
+  s_01b850c15b18af::t_19a87cf7e4c909 146-148
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_01b850c15b18af::t_3f6ca8f07dd54c 199
+kat/platform/workflow/api/_workflow.py
+  s_01b850c15b18af::t_3fa9e8c02046aa 17-39
+kat/platform/cli/src/session.rs
+  s_01b850c15b18af::t_2d26f7a6786133 1-51
+kat/platform/workflow/tests/test_dataprovider_parquet.py
+  s_01b850c15b18af::t_3a6bd1fc1a66f9 5,7,55-89
+kat/skill/references/analysis-flow.md
+  s_01b850c15b18af::t_842c0c100b405c 8-9,25,31,33,37
+build/fixtures/payload-smoke-consumer-pack/pack.toml
+  s_01b850c15b18af::t_59728f8b3be7f4 1-4
+.github/workflows/payload-ci.yml
+  s_01b850c15b18af::t_ea785a64c195a3 132,161-162,166-172,174-175,178-179
+  s_01b850c15b18af::t_483bcf8ecfa878 180-187,217,230-231,244,246,249-256,263-264,267-273
+kat/platform/cli/src/query.rs
+  s_01b850c15b18af::t_270fc7b032fb06 8,15-16,23-25,50,53-57,62-76,80-82,84,92
+  s_01b850c15b18af::t_19f869e92b77e8 95,222-227
+kat/skill/references/examples/dataprovider-pack/workflows/summarize_ftrace_events.py
+  s_01b850c15b18af::t_ac9c101dc1b481 24
+kat/skill/references/pack-authoring-flow.md
+  s_01b850c15b18af::t_842c0c100b405c 51,53-54
+  s_01b850c15b18af::t_f3d486b2795012 55-57,101-104,107,181
+examples/packs/mem-pack/knowledge/providers/ftrace.md
+  s_01b850c15b18af::t_ac9c101dc1b481 9
+  s_01b850c15b18af::t_41d36b4a8f6579 10
+  s_01b850c15b18af::t_f3d486b2795012 11-20,115-119
+kat/platform/cli/Cargo.toml
+  s_01b850c15b18af::t_17fbcd4f1f9b31 13,21
+build/fixtures/payload-smoke-consumer-pack/workflows/reuse_hitrace_clock.py
+  s_01b850c15b18af::t_3818fced6379f4 16-91
+  s_01b850c15b18af::t_323fa723dfa1e2 7-15
+  s_01b850c15b18af::t_59728f8b3be7f4 1-6
+kat/platform/datasource/src/relation_writer.rs
+  s_01b850c15b18af::t_c5b96a135592e0 13-14,19,24,27,50-56
+kat/platform/datasource/src/text_ftrace/mod.rs
+  s_01b850c15b18af::t_c5b96a135592e0 8-10,22,43-51,76,78
+kat/platform/workflow/runtime/datasource.py
+  s_01b850c15b18af::t_68bc8f00a86fde 5,17,20,29-35,39,44-45,47,50-52
+  s_01b850c15b18af::t_36bed3986f9b42 53-71
+examples/packs/mem-pack/datasources/ftrace.py
+  s_01b850c15b18af::t_f28461ebc69ccc 3
+  s_01b850c15b18af::t_9e8825ba9083fc 7,14-21
+  s_01b850c15b18af::t_33106541c6aada 236-273,322-343
+  s_01b850c15b18af::t_0a3b405b158957 22-152,187-192,197,199-201,203-207,218-223
+build/fixtures/verify_payload_smoke.py
+  s_01b850c15b18af::t_5694f66f2e9290 2,15,18,22,31-41
+kat/skill/references/result-contract.md
+  s_01b850c15b18af::t_842c0c100b405c 12-13,35
+kat/platform/cli/tests/session.rs
+  s_01b850c15b18af::t_330b725076ffed 6-439
+  s_01b850c15b18af::t_17efdc8511e829 3-5
+  s_01b850c15b18af::t_301dac25cc5acc 440-467
+  s_01b850c15b18af::t_8f6508fdb912fc 468-768
+  s_01b850c15b18af::t_182f007d6cde80 1-2
+kat/platform/datasource/tests/ftrace_source_activation_contract.rs
+  s_01b850c15b18af::t_8fdb5f611fbb44 10-13,50
+kat/platform/datasource/src/lib.rs
+  s_01b850c15b18af::t_c5b96a135592e0 3
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_01b850c15b18af::t_ac9c101dc1b481 18-21,107
+kat/platform/datasource/tests/python/test_hitrace_api.py
+  s_01b850c15b18af::t_4318800bb781e8 27-33,35-36
+  s_01b850c15b18af::t_c5b96a135592e0 37-39
+kat/platform/workflow/api/dataprovider/_parquet.py
+  s_01b850c15b18af::t_f60bfbb17f8249 5,7,31-33,36,38-48,50,195-209
+docs/adr/0077-analysis-session-groups-multi-workflow-state.md
+  s_01b850c15b18af::t_2d99d96485ae86 1
+  s_01b850c15b18af::t_8f1dd056e592eb 69-119
+  s_01b850c15b18af::t_e95a7b4dba64ce 2-68
+README.md
+  s_01b850c15b18af::t_c3ca6a1dacd2ba 174-177,181-184,196-198
+  s_01b850c15b18af::t_f3d486b2795012 199-203
+  s_01b850c15b18af::t_842c0c100b405c 110,112-114,137-140,142,144-153,159-173
+kat/skill/references/examples/dataprovider-pack/workflows/summarize_native_hook.py
+  s_01b850c15b18af::t_ac9c101dc1b481 28
+kat/platform/cli/src/response.rs
+  s_01b850c15b18af::t_270fc7b032fb06 15,23,193,217,244,248-255,288,527,538-542,556-560,606-630,677-706
+kat/platform/datasource/src/hitrace_decode.rs
+  s_01b850c15b18af::t_8c97d827010075 341-363,366-405,407-414,416-430,432-451,454-481,483-492,494,496-499,501-503,505-542
+  s_01b850c15b18af::t_93614467720282 12,18,58-65,76,144-147,168,194,206,210-216,221,232-253
+  s_01b850c15b18af::t_7e3d662c4531e5 254-272,274-300,302-340
+  s_01b850c15b18af::t_c5b96a135592e0 2
+kat/platform/cli/tests/inspect.rs
+  s_01b850c15b18af::t_fb5c877ab94a3c 3
+  s_01b850c15b18af::t_a87104510f7908 6-7,17,121-166,273,278-283,319,360-364,383-513
+kat/skill/SKILL.md
+  s_01b850c15b18af::t_10f84191888afc 13
+kat/platform/datasource/tests/python/test_text_ftrace_api.py
+  s_01b850c15b18af::t_4318800bb781e8 41-42,55-56
+  s_01b850c15b18af::t_c5b96a135592e0 57-59
+kat/platform/datasource/python/kat_datasource/hitrace.py
+  s_01b850c15b18af::t_c5b96a135592e0 7-16
+build/fixtures/verify_payload_materialization_race.py
+  s_01b850c15b18af::t_941df05f68f380 12-62
+  s_01b850c15b18af::t_09a3c41ae7fe4e 63-325
+  s_01b850c15b18af::t_bd441e358266a2 326-450
+  s_01b850c15b18af::t_e375b1afd2b252 1-11
+kat/platform/datasource/src/directory_publish.rs
+  s_01b850c15b18af::t_5713a02edc5738 135-143
+  s_01b850c15b18af::t_c5b96a135592e0 1-6
+  s_01b850c15b18af::t_1bb133e5def2a6 102-134
+  s_01b850c15b18af::t_d1ccecfb03935e 144-306
+  s_01b850c15b18af::t_9f2fad54ad4661 7-101
+kat/platform/workflow/tests/test_execution_process.py
+  s_01b850c15b18af::t_46f1636c6f0897 77,79-84,94,103-104,107,114-116,121-123,163-168
+  s_01b850c15b18af::t_12789855ef15c1 289-340,343,375-377,384-385,403-405,436-438,469-614,688-690
+  s_01b850c15b18af::t_c7aec7ca504977 251,256-259,261,264,275-288
+kat/platform/cli/src/session_store.rs
+  s_01b850c15b18af::t_93bd65c518efa6 128-189
+  s_01b850c15b18af::t_706e53edcd21f2 670-996
+  s_01b850c15b18af::t_8017147b413903 1039-1044
+  s_01b850c15b18af::t_8dd1aa9454c661 190-415
+  s_01b850c15b18af::t_270fc7b032fb06 76-127
+  s_01b850c15b18af::t_de4465cb9258b0 997-1038
+  s_01b850c15b18af::t_7a30b96211cdce 1-75
+  s_01b850c15b18af::t_05ad8a5fe4c328 416-669
+kat/platform/cli/tests/run.rs
+  s_01b850c15b18af::t_baaba594cea4d3 85-99,102-108,140-142,191,194-195,199-201,207-210,251-257,270,285,287-291,301-302,308,313-316,331-333,337-376,389-420
+  s_01b850c15b18af::t_270fc7b032fb06 70
+  s_01b850c15b18af::t_048d506548f768 421-428
+  s_01b850c15b18af::t_312432e776648b 429-910,945,947-951,1082,1084-1088,1170,1172-1173,1229,1249,1251,1289,1294,1302-1306,1339,1373,1377-1378
+kat/platform/datasource/python/kat_datasource/text_ftrace.py
+  s_01b850c15b18af::t_c5b96a135592e0 15-16,23-24
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/ftrace-text.md
+  s_01b850c15b18af::t_ac9c101dc1b481 7-10
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_01b850c15b18af::t_4318800bb781e8 15-18,72
+CONTEXT.md
+  s_01b850c15b18af::t_cae322aa29c171 57
+  s_01b850c15b18af::t_c9992ac5601ad7 60-66,121,124,143-145,147,150,157
+kat/platform/cli/src/lib.rs
+  s_01b850c15b18af::t_270fc7b032fb06 9-10
+  s_01b850c15b18af::t_f9efddc132893d 54-55,73-86,130,135-161,186,194,196,202-219,238,504-506,564-573,601-602,617-625
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/trace-streamer-sqlite.md
+  s_01b850c15b18af::t_3a49cfa505d89c 12-13
+kat/platform/cli/src/run_manifest.rs
+  s_01b850c15b18af::t_ae380056707bd1 136-160,163-171
+  s_01b850c15b18af::t_cf2eb8e280b75e 1-5,8,11
+  s_01b850c15b18af::t_8d7ab330780681 12-20,23-31,34-52,62-94,96-113,115-117,119-120,122,125-126,130-135
+  s_01b850c15b18af::t_8017147b413903 174-255,258,262-284,288-299,302-306,322-350
+kat/platform/cli/src/run.rs
+  s_01b850c15b18af::t_98f33a31e49cda 51,54,66-82,91-96,111-126,128-151,185,188-193,196-198,210,215,218,233-236,238-239,242-243,245,253,256-261,263,326-328,384-385,450-456,463,476,480-481,492
+  s_01b850c15b18af::t_22f3acb54ae61c 18-19,26-28
+kat/platform/cli/tests/query.rs
+  s_01b850c15b18af::t_c37243fe0a3dde 3,5-7,16-17,39,45-57,89,140-143,145-151,175-186,188-192,201,229-236,253-261,359-363,426-528
+  s_01b850c15b18af::t_c8793bcc143449 529-641
+build/fixtures/payload-smoke-pack/datasources/hitrace.py
+  s_01b850c15b18af::t_fa70c9bd52f4eb 4-5,7,9,14-32
+  s_01b850c15b18af::t_865579144bb526 3
+  s_01b850c15b18af::t_a1d9b796c22a82 33-36,40-45,47,50-98,102,104-169
+build/tests/test_payload_ci_workflows.py
+  s_01b850c15b18af::t_f38634ae1845aa 69,71-83,128,130-142
+  s_01b850c15b18af::t_59728f8b3be7f4 237,239-241
+  s_01b850c15b18af::t_3f971a403e110d 242-268,287-290,301-308,311-328
+kat/platform/workflow/tests/test_testing_process.py
+  s_01b850c15b18af::t_375a776a3f1c8e 167
+  s_01b850c15b18af::t_12789855ef15c1 171-174,176,178-179,191-192,202-203,382,387,402,406-408,417,426-442,446,449-453
+examples/packs/mem-pack/tests/test_real_hdc_ftrace.py
+  s_01b850c15b18af::t_0ed0a51416321d 38,108
+kat/platform/workflow/runtime/execution.py
+  s_01b850c15b18af::t_445b3db919770c 44-47
+  s_01b850c15b18af::t_bca7f5b99b7400 52-63,74-94,104-112,121-142
+  s_01b850c15b18af::t_779816197be752 143-163
+examples/packs/mem-pack/tests/test_summarize_ftrace.py
+  s_01b850c15b18af::t_b55517f73c6dbd 12-27,32-34,42-44,52-54,73-75,83-85,90-92,94-95,100-104,106-107,109,116-118
+  s_01b850c15b18af::t_46f3be9ede8989 8-11
+kat/platform/cli/src/inspect.rs
+  s_01b850c15b18af::t_4fc751edd47b90 25-26,44-49,51-64,75-87,91-93,106-107,110,113-123,128-135,141-237
+kat/platform/datasource/tests/text_ftrace_decode_contract.rs
+  s_01b850c15b18af::t_5713a02edc5738 287-342
+  s_01b850c15b18af::t_9f2fad54ad4661 6-40,151,261-286
+kat/platform/workflow/tests/test_runtime_process.py
+  s_01b850c15b18af::t_8848b83638d095 1187,1189-1195,1206-1207
+examples/packs/local-parquet-fusion/README.md
+  s_01b850c15b18af::t_2b5fa942efa63f 51,54
+kat/platform/cli/src/workflow_runtime.rs
+  s_01b850c15b18af::t_923d1d8e60cef4 119,127,140,443,449-450
+  s_01b850c15b18af::t_4d9ee47d747e3a 531,1108,1110,1118,1133-1134,1137
+  s_01b850c15b18af::t_9a07d25d57ed8e 1143,1151,1154,1160-1161,1176,1184,1192-1193,1213-1242,1250,1258,1269,1277,1297,1305,1334,1342
+kat/platform/datasource/src/text_ftrace/relations.rs
+  s_01b850c15b18af::t_c5b96a135592e0 9,175
+kat/platform/workflow/runtime/testing.py
+  s_01b850c15b18af::t_11205dba797e6e 82-86,96-97
+  s_01b850c15b18af::t_e68083d4829d04 63-68
+kat/platform/datasource/tests/support/mod.rs
+  s_01b850c15b18af::t_4318800bb781e8 1-4
+  s_01b850c15b18af::t_9f2fad54ad4661 14-47
+examples/packs/mem-pack/tests/test_ftrace_provider.py
+  s_01b850c15b18af::t_d709aa22a8306f 14-26
+  s_01b850c15b18af::t_52f47805bd7b14 27-59,70-72,75-77,86-88,93-95,113-115
+  s_01b850c15b18af::t_ca576ea1b5b5e3 12-13
+  s_01b850c15b18af::t_33106541c6aada 462,490-701
+  s_01b850c15b18af::t_af2af65023d9db 134-136,139-141,143-155
+  s_01b850c15b18af::t_56889192b10315 156-158,172,179,206-207,257,274,277,297-349,374,393-394,415-416,427-428,430-431,435,445,454
+kat/platform/workflow/tests/test_authoring_api.py
+  s_01b850c15b18af::t_84f736660dcf99 324,326-340,344-346,348-349,351-367
+build/fixtures/payload-smoke-pack/workflows/summarize_hitrace_clock.py
+  s_01b850c15b18af::t_bb5d9e4d883d53 17-26
+kat/platform/workflow/runtime/__main__.py
+  s_01b850c15b18af::t_c8d9dba98f5e4d 165-166,169,174-177
+kat/platform/workflow/runtime/request.py
+  s_01b850c15b18af::t_b21f29e1385a43 47,169,189-193
+  s_01b850c15b18af::t_12789855ef15c1 195-202,204,206,212,265,275-282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6b2fed087ecf0f9a62f14a9dba497b225ca2ca46",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 7100,
+      "total_deletions": 3682,
+      "accepted_lines": 7100,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

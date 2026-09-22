@@ -1,0 +1,32 @@
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_12ed213903efb0::t_8b6ff1e178849b 7,21,25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9a155b143f7d777011b2e184394a409637e07402",
+  "prompts": {
+    "s_12ed213903efb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01ee9-bb4b-7df2-8f9d-2bfbd8ea2892",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_12ed213903efb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01ee9-bb4b-7df2-8f9d-2bfbd8ea2892",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

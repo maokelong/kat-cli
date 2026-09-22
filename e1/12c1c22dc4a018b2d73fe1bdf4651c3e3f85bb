@@ -1,0 +1,50 @@
+kat/platform/datasource/src/protobuf_source/mod.rs
+  s_34ca7cf0ef5d15::t_848a04bd6d7eb7 12-13
+kat/platform/datasource/src/protobuf_source/spool.rs
+  s_34ca7cf0ef5d15::t_848a04bd6d7eb7 17,22,30,43-44,48,56-66,94-99
+kat/platform/datasource/tests/protobuf_source_contract.rs
+  s_34ca7cf0ef5d15::t_d910880c8719a6 368-377,384
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_34ca7cf0ef5d15::t_1155a05fe21ef5 121,123,148,157-174
+  s_34ca7cf0ef5d15::t_3c1e7577769467 7,74-77,83,89
+kat/platform/datasource/src/protobuf_source/row.rs
+  s_34ca7cf0ef5d15::t_3c1e7577769467 1-2,4-5,8-11,13-14,16-18,20,22-27,29,31-33,36-37,39,41-43,46-47,49,51-58,62-63,65,67-72,74-76,78,81-92,96-98
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_34ca7cf0ef5d15::t_cbaa9da899b62b 179-229,307,346,350,353-354,360,362,364-367,437-438,441-442,447,449-450,452,459,462,468-469,471-483,485-490,495-496,498,501,505-510,512-516,519-524
+  s_34ca7cf0ef5d15::t_5e75282c6e15a2 138-171
+  s_34ca7cf0ef5d15::t_848a04bd6d7eb7 20,44-137
+  s_34ca7cf0ef5d15::t_1ea6beb8f9666f 172-178
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_34ca7cf0ef5d15::t_baae5a128248db 19,23-25
+.github/workflows/ci.yml
+  s_34ca7cf0ef5d15::t_baae5a128248db 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e112c1c22dc4a018b2d73fe1bdf4651c3e3f85bb",
+  "prompts": {
+    "s_34ca7cf0ef5d15": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffaf8-ec93-7e80-b985-48becad151a2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 390,
+      "total_deletions": 599,
+      "accepted_lines": 390,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_34ca7cf0ef5d15": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffaf8-ec93-7e80-b985-48becad151a2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

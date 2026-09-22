@@ -1,0 +1,38 @@
+python/kat-python-runtime/kat_runtime/dataset.py
+  s_5a98ce44cbcaef::t_cf95958db5a3d9 4,9-19,21-28
+python/tests/test_sdk_runtime_contract.py
+  s_5a98ce44cbcaef::t_591a66685f59ac 11-21,331-342,350-352,354-364,385-386,403-413,470-477
+python/kat-python-runtime/kat_runtime/benchmark_storage.py
+  s_5a98ce44cbcaef::t_cf95958db5a3d9 4,9,12,14,23,27,29-37,41-46,51-52,59,64,77-86,90,95-96,99-100,115-119,152-155,159-164
+python/kat-python-runtime/kat_runtime/benchmark_arrow.py
+  s_5a98ce44cbcaef::t_cf95958db5a3d9 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f3ec4da3d7974044cb5656ac1f4b19911245bdc2",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 164,
+      "total_deletions": 71,
+      "accepted_lines": 164,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

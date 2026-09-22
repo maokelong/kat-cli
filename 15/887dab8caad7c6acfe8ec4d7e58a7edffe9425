@@ -1,0 +1,45 @@
+docs/adr/0041-query-result-quotes-decimals.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0039-query-result-quotes-64-bit-integers.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0046-query-result-preserves-arrow-string-values.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0044-query-result-formats-utc-nanosecond-timestamps.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0040-query-result-rejects-non-finite-floats.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0038-query-results-use-compact-positional-json.md
+  s_4d41488b244c7f::t_fc493d7c2e8405 2
+docs/adr/0075-pack-owned-datasources-retire-dataset-execution.md
+  s_4d41488b244c7f::t_e7521cf95e3c71 99
+  s_4d41488b244c7f::t_fc493d7c2e8405 29-35,63-65,80-85,92-93,95,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "15887dab8caad7c6acfe8ec4d7e58a7edffe9425",
+  "prompts": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 27,
+      "total_deletions": 64,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+build/tests/test_datasource_wheel.py
+  s_4d41488b244c7f::t_bbca296605cbae 60-62,82,109
+build/build_datasource_wheel.py
+  s_4d41488b244c7f::t_16e0970ddd3730 52-53
+  s_4d41488b244c7f::t_2b6d19487c43b4 21-22,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "23293cdcb1483a5ae61b5202bc17eff0d9664018",
+  "prompts": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

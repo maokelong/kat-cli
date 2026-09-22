@@ -1,0 +1,38 @@
+docs/superpowers/specs/2026-07-30-kat-skill-contract-design.md
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 65
+kat/skill/references/result-contract.md
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 42
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 362,371-377
+kat/skill/SKILL.md
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 50-52,67-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7f30dbf83a7d036c7ce09478fa7802868bab11aa",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 23,
+      "total_deletions": 9,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

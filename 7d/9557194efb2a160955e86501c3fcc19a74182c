@@ -1,0 +1,35 @@
+kat/packs/kat-openharmony-demo/helpers/scheduling_dependencies.py
+  s_a0e5d233ca6adc::t_309491a1615432 149-150,152-156,160,174-177,370-372,379-384,454-463
+kat/packs/kat-openharmony-demo/tests/test_scheduling_dependencies.py
+  s_a0e5d233ca6adc::t_aa8bdedcbb5fd4 4-8,147
+  s_a0e5d233ca6adc::t_c1ac4173cd7fc1 148-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7d9557194efb2a160955e86501c3fcc19a74182c",
+  "prompts": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 76,
+      "total_deletions": 11,
+      "accepted_lines": 75,
+      "overriden_lines": 1
+    }
+  },
+  "sessions": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+python/tests/test_sdk_runtime_contract.py
+  s_5a98ce44cbcaef::t_9ba9346a1f1bca 212-233
+packs/openharmony-critical-path/pack.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1-4
+packs/openharmony-critical-path/__init__.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1
+packs/openharmony-critical-path/workflows/first_frame.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1-86
+packs/openharmony-critical-path/facts/trace_streamer.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1-36
+packs/openharmony-critical-path/facts/__init__.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1
+packs/openharmony-critical-path/compute/__init__.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1
+packs/openharmony-critical-path/compute/critical_path.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1-27
+  s_5a98ce44cbcaef::t_03deb3c22d0792 28-168
+packs/openharmony-critical-path/workflows/__init__.py
+  s_5a98ce44cbcaef::t_4266889e21a56d 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6514887d53b40926c3fda9ee2c75807414b571c5",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 320,
+      "total_deletions": 13,
+      "accepted_lines": 320,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

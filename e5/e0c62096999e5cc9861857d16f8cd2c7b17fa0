@@ -1,0 +1,32 @@
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_23070fae6c232f::t_8604e3ee17076c 25,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e5e0c62096999e5cc9861857d16f8cd2c7b17fa0",
+  "prompts": {
+    "s_23070fae6c232f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fccaa-5f8f-7631-a3cb-92c8b5b98075",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_23070fae6c232f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fccaa-5f8f-7631-a3cb-92c8b5b98075",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

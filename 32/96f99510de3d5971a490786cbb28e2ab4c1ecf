@@ -1,0 +1,52 @@
+examples/packs/trace-streamer-sqlite-provider/tests/test_summarize_native_hook.py
+  s_68cb1a3d53c6a1::t_641044c338e31a 1-57
+examples/packs/trace-streamer-sqlite-provider/tests/real_trace_streamer.py
+  s_68cb1a3d53c6a1::t_5944167316fe79 1-50
+examples/packs/trace-streamer-sqlite-provider/datasources/trace_streamer.py
+  s_68cb1a3d53c6a1::t_3b30dd5b43c753 1-4
+  s_68cb1a3d53c6a1::t_a376d1cb064e72 5-7
+  s_68cb1a3d53c6a1::t_3d8030cf2e88c5 8-200
+examples/packs/trace-streamer-sqlite-provider/pack.toml
+  s_68cb1a3d53c6a1::t_d156cd7f00c845 1-4
+examples/packs/trace-streamer-sqlite-provider/workflows/summarize_native_hook.py
+  s_68cb1a3d53c6a1::t_31086377623c50 1-31
+examples/packs/trace-streamer-sqlite-provider/README.md
+  s_68cb1a3d53c6a1::t_4a7832ca734aeb 1-38
+  s_68cb1a3d53c6a1::t_1ec99389e47d91 39-113
+examples/packs/trace-streamer-sqlite-provider/tests/test_trace_streamer_provider.py
+  s_68cb1a3d53c6a1::t_443cf25201f7b2 62-126
+  s_68cb1a3d53c6a1::t_353405aa8bf309 39-61
+  s_68cb1a3d53c6a1::t_d9604c65801a50 2-38
+  s_68cb1a3d53c6a1::t_07cda014891d83 127-129
+  s_68cb1a3d53c6a1::t_5785879750fbb9 130-312
+  s_68cb1a3d53c6a1::t_d156cd7f00c845 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3296f99510de3d5971a490786cbb28e2ab4c1ecf",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 767,
+      "total_deletions": 56,
+      "accepted_lines": 767,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+.agents/skills/role-based-review/SKILL.md
+  s_0607c5f60e571b::t_a0eb7e5a93f9c1 75
+  s_2ce83a0697b158::t_8da2124f9a7c86 76,78,80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "48b81fbb3dc771342dcf4b4e7c3a3d3683b87621",
+  "prompts": {
+    "s_0607c5f60e571b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadbc-89f7-78a2-8036-106b588e6e89",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 4,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "s_2ce83a0697b158": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadcb-9a52-7182-baaa-b27ca96a9b36",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 2,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0607c5f60e571b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadbc-89f7-78a2-8036-106b588e6e89",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    },
+    "s_2ce83a0697b158": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadcb-9a52-7182-baaa-b27ca96a9b36",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+Cargo.toml
+  s_28f12e292b4bdc::t_9ca7a9811ad44b 34
+kat/platform/datasource/Cargo.toml
+  s_28f12e292b4bdc::t_1ae7ac39ae1ed1 8,12
+kat/platform/datasource/src/lib.rs
+  s_28f12e292b4bdc::t_9ca7a9811ad44b 17-22,173
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_8f7c3c5b686184 51-58,83-93,117-158,369-397,417-420,434-476
+  s_28f12e292b4bdc::t_1419ab3840d6ec 6,21-22,37-50
+kat/platform/datasource/src/dataset_writer.rs
+  s_28f12e292b4bdc::t_8f7c3c5b686184 12-395
+  s_28f12e292b4bdc::t_9ca7a9811ad44b 1-11
+kat/platform/cli/tests/import.rs
+  s_1d309a3aaf9927::t_9b790bc2ae9850 1-29
+  s_1d309a3aaf9927::t_e540d05e136cec 30-240
+kat/platform/datasource/src/trace_streamer.rs
+  s_28f12e292b4bdc::t_6fe5e9629cac86 533-561
+  s_28f12e292b4bdc::t_fe85010cd98186 96-532
+  s_28f12e292b4bdc::t_8f7c3c5b686184 15-95
+  s_28f12e292b4bdc::t_25730340748379 1-2
+  s_28f12e292b4bdc::t_e8363e532d0ea2 3-14
+kat/platform/datasource/tests/trace_streamer_import.rs
+  s_28f12e292b4bdc::t_1ae7ac39ae1ed1 1-16
+  s_28f12e292b4bdc::t_8f7c3c5b686184 17-271
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_1ae7ac39ae1ed1 17,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "89a3eca96cef2691077d87b6d6fd60618c0cd9dd",
+  "prompts": {
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 240,
+      "total_deletions": 16,
+      "accepted_lines": 240,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

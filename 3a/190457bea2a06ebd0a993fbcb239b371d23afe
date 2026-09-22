@@ -1,0 +1,38 @@
+docs/adr/0016-pack-inspect-and-test-separate-production-and-test-constraints.md
+  s_8d5fc833dd9bca::t_53544e0bb894c3 7
+docs/adr/0047-current-pack-is-exposed-as-kat-pack.md
+  s_8d5fc833dd9bca::t_53544e0bb894c3 7-8
+docs/adr/0017-pack-source-layout-is-fixed.md
+  s_8d5fc833dd9bca::t_53544e0bb894c3 7
+docs/adr/0053-pack-helper-absolute-names-are-canonical-not-exclusive.md
+  s_8d5fc833dd9bca::t_53544e0bb894c3 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3a190457bea2a06ebd0a993fbcb239b371d23afe",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 17,
+      "total_deletions": 2,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

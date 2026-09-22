@@ -1,0 +1,41 @@
+Cargo.toml
+  s_28f12e292b4bdc::t_10f8d5d9f7bdca 6,40-41
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_10f8d5d9f7bdca 1-7
+  s_28f12e292b4bdc::t_e8968b5923bde8 8-14
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_a539f0636d2589 1-3
+kat/platform/cli/src/pack_discovery.rs
+  s_28f12e292b4bdc::t_b372c9a98db834 93-659
+  s_28f12e292b4bdc::t_e8968b5923bde8 1-67
+  s_28f12e292b4bdc::t_a539f0636d2589 68-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "844bfd33493f6b85db1bb4401163347ff16e0101",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 679,
+      "total_deletions": 8,
+      "accepted_lines": 679,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,45 @@
+kat/platform/cli/tests/trace_streamer_demo.rs
+  s_7fdb7d2aa9b65a::t_1766073d14bf35 7-175
+  s_7fdb7d2aa9b65a::t_cffd6a6851b25b 1-6
+docs/adr/0048-first-bundled-pack-analyzes-thread-cpu-time.md
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 2
+kat/platform/datasource/tests/fixtures/trace-streamer-thread-cpu-time.json
+  s_7fdb7d2aa9b65a::t_cffd6a6851b25b 1-23
+kat/packs/kat-openharmony-demo/pack.toml
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 1-4
+docs/adr/0058-trace-streamer-slices-drive-thread-cpu-time.md
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 5,7,9-13,17-19
+docs/superpowers/specs/2026-07-28-trace-streamer-thread-cpu-time-design.md
+  s_7fdb7d2aa9b65a::t_6d395abcf0b57b 1,5,10,18-20
+.github/workflows/ci.yml
+  s_7fdb7d2aa9b65a::t_cffd6a6851b25b 56-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "03f48a11ff722b5ed493c72f2d29c3a0908217ef",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 222,
+      "total_deletions": 18,
+      "accepted_lines": 222,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

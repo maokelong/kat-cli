@@ -1,0 +1,40 @@
+build/tests/test_payload_ci_workflows.py
+  s_0bb7e8dc4ac9ef::t_1574966d286d69 36-54
+  s_0bb7e8dc4ac9ef::t_fd8e274b4aaaf2 1-35
+  s_0bb7e8dc4ac9ef::t_ebeef1a78aa9e7 55-77
+.github/workflows/build-windows-payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_ebeef1a78aa9e7 10-13,51-65,97-101
+.github/workflows/build-linux-payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_ebeef1a78aa9e7 10-13,44-58,79-83
+.github/workflows/payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_ebeef1a78aa9e7 7-12,149,159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ab4001a65b0d9e289e59014f1b894e798430ef29",
+  "prompts": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 133,
+      "total_deletions": 3,
+      "accepted_lines": 133,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+docs/adr/0050-trace-analysis-follows-perfetto-semantics.md
+  s_a0e5d233ca6adc::t_964e9c417fa8b8 2
+kat/packs/kat-openharmony-demo/workflows/extract_critical_path.py
+  s_a0e5d233ca6adc::t_5e0292ac1ccec8 1-18
+kat/packs/kat-openharmony-demo/helpers/critical_path.py
+  s_a0e5d233ca6adc::t_8c80811bced07f 5-6,12-46,49-57,59-62,64-74,76-77,79-89,91-92,95-105,108-145,147-269,271-277,279-313,318,321,323,327-330,333,335,337-341
+  s_a0e5d233ca6adc::t_5e0292ac1ccec8 1
+CONTEXT.md
+  s_a0e5d233ca6adc::t_18f13eec0e4dc8 53-56
+  s_a0e5d233ca6adc::t_99b180b5cdc5dc 57-72
+  s_a0e5d233ca6adc::t_4622df17c6af00 81-92
+  s_a0e5d233ca6adc::t_a00ab8ac416c4a 73-80
+docs/adr/0058-critical-path-extraction-is-a-pack-workflow.md
+  s_a0e5d233ca6adc::t_964e9c417fa8b8 1-9
+kat/packs/kat-openharmony-demo/workflows/locate_first_actual_frame.py
+  s_a0e5d233ca6adc::t_5e0292ac1ccec8 3,7-10,12-14
+kat/packs/kat-openharmony-demo/tests/test_critical_path.py
+  s_a0e5d233ca6adc::t_8c80811bced07f 1,3-5,9,11-14,16-17,20,23-32,38-39,42-46,49-52,55-57,60,62-67,69-71,73-74,77-79,81-85,87,89-106,108-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "850b3f742a1cbd5d8cf62a091226abdf09c8b3bc",
+  "prompts": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": null,
+      "total_additions": 461,
+      "total_deletions": 23,
+      "accepted_lines": 461,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": null
+    }
+  }
+}

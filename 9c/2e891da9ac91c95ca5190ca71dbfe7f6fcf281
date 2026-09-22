@@ -1,0 +1,32 @@
+kat/platform/datasource/src/formats/hitrace/mod.rs
+  s_9147e6a44a1c22::t_d3edef94bb9811 42,75-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9c2e891da9ac91c95ca5190ca71dbfe7f6fcf281",
+  "prompts": {
+    "s_9147e6a44a1c22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8299-77b9-7291-a7a3-033f5334c241",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 5,
+      "total_deletions": 2,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_9147e6a44a1c22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8299-77b9-7291-a7a3-033f5334c241",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

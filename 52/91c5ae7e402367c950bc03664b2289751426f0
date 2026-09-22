@@ -1,0 +1,196 @@
+docs/adr/0066-ad-hoc-queries-run-through-workflows.md
+  s_436b5043b2b42d::t_ca97f9542bea23 1-7
+kat/platform/workflow/common/sql/postgresql.py
+  s_436b5043b2b42d::t_09eed1717e0df8 1-5
+  s_436b5043b2b42d::t_7a45a27e79b1cc 6-132
+examples/packs/postgresql-query/workflows/query_postgresql.py
+  s_436b5043b2b42d::t_c5bd292138db97 2,15-18,20
+docs/adr/0086-postgresql-common-supports-a-minimal-closed-type-set.md
+  s_436b5043b2b42d::t_10de5921397fea 1-17
+  s_436b5043b2b42d::t_dfe34a316c74e7 18-25
+examples/packs/postgresql-query/tests/test_live_postgresql.py
+  s_436b5043b2b42d::t_9c0e204d28c3b5 137-157
+  s_436b5043b2b42d::t_c2df95c9cccfde 1-3,47-58,88-136
+CONTEXT.md
+  s_436b5043b2b42d::t_24ae5d4c7bb46b 22,38
+  s_436b5043b2b42d::t_a01c9a4460b8d9 39-52
+docs/adr/0072-common-query-api-hides-resource-and-driver-objects.md
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-7
+  s_436b5043b2b42d::t_0140e82c9a8fa9 1
+docs/adr/0068-workflow-build-unit-has-a-peer-common-source-directory.md
+  s_436b5043b2b42d::t_7f5210aab42480 1-7
+docs/adr/0075-postgresql-common-uses-a-closed-arrow-type-mapping.md
+  s_436b5043b2b42d::t_15033f70b23d73 1-7
+kat/platform/workflow/pyproject.toml
+  s_436b5043b2b42d::t_9e077389a6b8b8 9-19,22-23
+README.md
+  s_57880169cbb0e5::t_2a10401fad29ff 126-129
+  s_436b5043b2b42d::t_4f5896b049f230 132-134,149-152
+docs/adr/0064-data-source-knowledge-has-static-per-source-manifests.md
+  s_436b5043b2b42d::t_d9d04eb6238be0 1
+  s_436b5043b2b42d::t_24ae5d4c7bb46b 2-11
+docs/adr/0077-postgresql-common-uses-autocommit-without-cross-query-transactions.md
+  s_436b5043b2b42d::t_b64d8ac664ae1f 7
+  s_436b5043b2b42d::t_cda784e3420f00 1-6
+docs/adr/0069-data-source-knowledge-is-an-independent-shared-deployment-unit.md
+  s_436b5043b2b42d::t_24ae5d4c7bb46b 1
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-11
+docs/postgresql-pack-development.md
+  s_436b5043b2b42d::t_f533a0916282e8 8-9,20-22,30,32-35,37-63
+  s_436b5043b2b42d::t_ec021a521f0846 64-79,95-97,100-102,134,136-137,168-169,182-187,190-203,230-233,239-242
+docs/adr/0070-source-knowledge-ships-as-wheel-external-resources.md
+  s_436b5043b2b42d::t_1ed57ac17760c0 1
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-9
+docs/adr/0088-postgresql-common-is-cross-platform-with-first-windows-live-validation.md
+  s_436b5043b2b42d::t_84e1bb3ec44c0b 1-9
+docs/adr/0062-public-pack-capabilities-incubate-inside-owning-packs.md
+  s_436b5043b2b42d::t_8830709efbc1c8 1-6
+  s_436b5043b2b42d::t_a6a12b61692df4 7
+docs/adr/0087-postgresql-temporal-outputs-do-not-expand-kat-query.md
+  s_436b5043b2b42d::t_870185625cec33 1-9
+docs/adr/0065-fixed-sql-is-a-first-class-query-asset.md
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-13
+  s_436b5043b2b42d::t_2160e791017b5c 1
+docs/adr/0089-workflow-host-preinstalls-basic-excel-libraries.md
+  s_436b5043b2b42d::t_a731b5129731b3 1-9
+docs/adr/0081-postgresql-common-distinguishes-sql-file-and-text-execution.md
+  s_436b5043b2b42d::t_b64d8ac664ae1f 1-9
+examples/postgresql-pack-devkit/scripts/Invoke-LiveValidation.ps1
+  s_436b5043b2b42d::t_6148032a5f247c 235-240,304-314,317,341-343,354-360
+  s_436b5043b2b42d::t_10df5a3ba255db 33-34,175-178,180-185,187,200-202,220-224,226-228,230
+  s_436b5043b2b42d::t_fc22e4a9c4a270 231-234
+docs/adr/0076-postgresql-common-opens-one-short-lived-connection-per-query.md
+  s_436b5043b2b42d::t_5ae3094c289418 1-6
+  s_436b5043b2b42d::t_b64d8ac664ae1f 7
+build/requirements-linux.lock.txt
+  s_436b5043b2b42d::t_7bc69fe7b4b7d6 12-19,23-26,33-93,105-108
+build/requirements-windows.lock.txt
+  s_436b5043b2b42d::t_7bc69fe7b4b7d6 17-24,28-31,38-98,110-119
+examples/packs/postgresql-query/pack.toml
+  s_436b5043b2b42d::t_04d92761c106de 3
+docs/pack-development.md
+  s_57880169cbb0e5::t_63516b20f5c459 1-6
+  s_436b5043b2b42d::t_e12de6f4df6c04 603-605
+  s_436b5043b2b42d::t_339bc71f86fb0e 7-146
+  s_436b5043b2b42d::t_fa5922ebf15bfe 606-948
+  s_436b5043b2b42d::t_f29a382a5e3af1 147-602
+docs/adr/0063-ai-loads-selected-data-source-knowledge-lazily.md
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-13
+  s_436b5043b2b42d::t_c2d49d42092d0b 1
+docs/adr/0074-postgresql-query-assets-use-named-pyformat-binding.md
+  s_436b5043b2b42d::t_b64d8ac664ae1f 2-7
+  s_436b5043b2b42d::t_aa2737d62b185d 1
+docs/adr/0083-postgresql-common-preserves-native-error-types.md
+  s_436b5043b2b42d::t_d01883b6877872 1-9
+kat/platform/workflow/tests/test_postgresql_common.py
+  s_436b5043b2b42d::t_844e14c3e7b37b 1-3
+  s_436b5043b2b42d::t_7edf699564811a 4-156
+  s_436b5043b2b42d::t_3dbaa1519ecf95 157-478
+docs/adr/0071-resource-aware-common-capabilities-require-context.md
+  s_436b5043b2b42d::t_21fb83f1f66962 1
+  s_436b5043b2b42d::t_a01c9a4460b8d9 2-7
+docs/adr/0078-postgresql-common-requires-exactly-one-rowset.md
+  s_436b5043b2b42d::t_b64d8ac664ae1f 7
+  s_436b5043b2b42d::t_e4e916b50bb4d2 1-6
+build/build_postgresql_pack_devkit.py
+  s_436b5043b2b42d::t_3f2ba1a1412bdf 433-436,440,444-458,478-481,484
+  s_436b5043b2b42d::t_37828c8e26c0ab 417-432
+  s_436b5043b2b42d::t_553c388ae0b9a2 23-28,340-342,345-348,366-369
+docs/adr/0080-postgresql-query-file-requires-an-absolute-path.md
+  s_436b5043b2b42d::t_73799a2309c2e2 1-6
+  s_436b5043b2b42d::t_b64d8ac664ae1f 7
+examples/packs/postgresql-query/workflows/query_postgresql_file.py
+  s_436b5043b2b42d::t_c5bd292138db97 1-20
+kat/platform/workflow/common/__init__.py
+  s_436b5043b2b42d::t_09eed1717e0df8 1
+examples/postgresql-pack-devkit/scripts/Verify-Devkit.ps1
+  s_436b5043b2b42d::t_7eeb27b5cf6448 321-327,334-341,358-363,365,384-388,391
+  s_436b5043b2b42d::t_d5869a228a0b0e 15-16,19-21,236-239,241-246,249,262-264,295-297,304-305,308-309,312-313,316-320
+build/tests/test_postgresql_pack_devkit.py
+  s_436b5043b2b42d::t_c91a60c36bf312 153-156,219-224,248-253
+  s_436b5043b2b42d::t_0d5d2599d8020a 310-324,466-469,475-478,501-604
+docs/adr/0084-postgresql-sql-files-use-explicit-utf8-path-inputs.md
+  s_436b5043b2b42d::t_ee255dbcc08d75 1-9
+docs/adr/0079-workflows-select-fixed-postgresql-sql-by-file-path.md
+  s_436b5043b2b42d::t_b64d8ac664ae1f 7-11
+  s_436b5043b2b42d::t_a01c9a4460b8d9 1-6
+build/tests/test_workflow_wheel.py
+  s_436b5043b2b42d::t_9cdf8581d3d0f9 34,40-43,178-185
+docs/adr/0073-postgresql-common-uses-process-libpq-environment.md
+  s_436b5043b2b42d::t_5044857d6fb26b 1-9
+kat/platform/workflow/common/sql/__init__.py
+  s_436b5043b2b42d::t_09eed1717e0df8 1-5
+examples/postgresql-pack-devkit/ENVIRONMENT.md
+  s_436b5043b2b42d::t_dc7385b6edc1c0 76-78,100-101,115-117,119-120
+  s_436b5043b2b42d::t_6e4c3ac18b1204 11-13
+  s_436b5043b2b42d::t_caecb742a56f73 51-54
+examples/postgresql-pack-devkit/README.md
+  s_436b5043b2b42d::t_b50f921407c6c6 22,30-31,37-40,54-56,64-65
+  s_436b5043b2b42d::t_ed5db96c6fcfe1 66-67
+  s_436b5043b2b42d::t_dc7385b6edc1c0 71-73,114-116,119,134,136-164,175-204
+examples/packs/postgresql-query/queries/smoke.sql
+  s_436b5043b2b42d::t_c5bd292138db97 1-4
+build/payload_builder.py
+  s_436b5043b2b42d::t_d627a8da3977eb 681-728
+  s_436b5043b2b42d::t_9e077389a6b8b8 581-583
+  s_436b5043b2b42d::t_2c10e5088746a4 867
+docs/adr/0067-public-common-loads-current-pack-resources.md
+  s_436b5043b2b42d::t_24ae5d4c7bb46b 2-9
+  s_436b5043b2b42d::t_d01a95ac013533 1
+build/tests/test_excel_host.py
+  s_436b5043b2b42d::t_553c388ae0b9a2 8-102
+  s_436b5043b2b42d::t_b97faff32fd37c 1-7
+docs/adr/0082-public-common-is-imported-under-kat-common.md
+  s_436b5043b2b42d::t_4c3d0718440824 1-9
+docs/adr/0085-runs-do-not-record-external-sql-file-provenance.md
+  s_436b5043b2b42d::t_200964df9ca04f 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5291c5ae7e402367c950bc03664b2289751426f0",
+  "prompts": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2806,
+      "total_deletions": 478,
+      "accepted_lines": 2806,
+      "overriden_lines": 0
+    },
+    "s_57880169cbb0e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02739-27c4-7880-91c8-c74d899abdd7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 10,
+      "total_deletions": 96,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_436b5043b2b42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a023cc-ee84-7c81-a942-722708c59c4c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_57880169cbb0e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02739-27c4-7880-91c8-c74d899abdd7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

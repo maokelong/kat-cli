@@ -1,0 +1,34 @@
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_12ed213903efb0::t_3e2c667e7b94ff 33
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_12ed213903efb0::t_3e2c667e7b94ff 7,21,25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "67915c79ca00928736fa5f46fdbc30b0123dd79c",
+  "prompts": {
+    "s_12ed213903efb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01ee9-bb4b-7df2-8f9d-2bfbd8ea2892",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_12ed213903efb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01ee9-bb4b-7df2-8f9d-2bfbd8ea2892",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+kat/platform/datasource/tests/python/test_hitrace_api.py
+  s_0dbbaca6405a56::t_670c8ee2b4f05e 147-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f08e6a66b8f0ae56fc1c03676718c34456ea7648",
+  "prompts": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

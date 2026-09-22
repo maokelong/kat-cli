@@ -1,0 +1,38 @@
+kat/platform/cli/src/workflow_runtime/stream_capture.rs
+  s_8d5fc833dd9bca::t_fc23f63479502e 17,61,82,84,98,122,151-153
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d5fc833dd9bca::t_850355fdddc46d 588-619,626,643-646
+  s_8d5fc833dd9bca::t_fc23f63479502e 290,544
+  s_8d5fc833dd9bca::t_e394bec8cc10ef 647-675,681-710,714
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8d5fc833dd9bca::t_26d68a13f44451 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a4bd9ce0931b1fc6f86604090b3e211af9d8469c",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 109,
+      "total_deletions": 44,
+      "accepted_lines": 109,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+kat/platform/datasource/src/profiler_source_capture.rs
+  s_ce99857c39d134::t_3a400220b5dec0 1-4,6,35,41-45,50-66,82-86,108,115,122,128-129,134,166-406
+kat/platform/datasource/tests/hitrace_import_contract.rs
+  s_ce99857c39d134::t_a2f282415c70e1 6,185,226-243,248-249,255,258,264,269,288-289,296,305,329-332,334-336,338-339,341-348,350-356,542-548,682,700
+kat/platform/cli/tests/import.rs
+  s_ce99857c39d134::t_fa71ed1b9b0dd2 281-292
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_ce99857c39d134::t_22ed886281d37f 528-530,535-552,555,602-605,664,688,693-699,753,758-763,791,892,944,982,1089,2300,2405
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2d69732de51d72661b1e21040fcce58698a8078e",
+  "prompts": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 404,
+      "total_deletions": 212,
+      "accepted_lines": 404,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

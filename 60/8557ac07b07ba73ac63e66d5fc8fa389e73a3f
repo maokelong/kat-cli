@@ -1,0 +1,47 @@
+kat/platform/datasource/tests/plugin_flow_contract.rs
+  s_1366363dce4eaf::t_7f5ec48f878f06 1,215,223,242,252-262,264-266,268-269
+  s_1366363dce4eaf::t_6177baddee4263 263,267,270-271
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_1366363dce4eaf::t_7ab2bad79055ae 59,69
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_1366363dce4eaf::t_3dcc2f7de94768 3,14,29
+  s_1366363dce4eaf::t_9933b3ce863643 33
+kat/platform/datasource/src/dataset_writer.rs
+  s_1366363dce4eaf::t_df0175bfa02b62 180-187
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_1366363dce4eaf::t_6c94f0839a2de7 15-19,79-80,102-103
+kat/platform/datasource/tests/native_hook_source_capture_contract/real_sample.rs
+  s_1366363dce4eaf::t_a80c7c6f55ee06 5,51-87
+  s_1366363dce4eaf::t_ee02a2a24ca46d 89,94-96,104,109,146,161,181
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_1366363dce4eaf::t_df0175bfa02b62 8,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "608557ac07b07ba73ac63e66d5fc8fa389e73a3f",
+  "prompts": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 96,
+      "total_deletions": 359,
+      "accepted_lines": 96,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

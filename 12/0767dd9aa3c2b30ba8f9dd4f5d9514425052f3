@@ -1,0 +1,70 @@
+build/assemble_skill.py
+  s_d1744aeb41c9d7::t_a06995264a089d 58-63,119-123
+kat/skill/references/analysis-flow.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-6,10,13-16,18-41
+  s_d1744aeb41c9d7::t_e3a39ae1d053f7 7-8,17
+  s_d1744aeb41c9d7::t_079898ff285de6 9
+  s_d1744aeb41c9d7::t_cb4831c05c7007 11-12
+build/tests/test_assemble_skill.py
+  s_28f12e292b4bdc::t_31752c10f2fb5f 1-26,35-81,85-120,129-237,246-250,380-381
+  s_d1744aeb41c9d7::t_a06995264a089d 27-34,82-84,121-127
+  s_d1744aeb41c9d7::t_4bdd32f90c0f56 238,242-245,251-268,274-279,281-283,285-289,292-296,299-305,307-314,356-361,379
+  s_d1744aeb41c9d7::t_7eb846f9ddd217 239-241,363-367,370,378
+  s_d1744aeb41c9d7::t_cb4831c05c7007 269-273,280,290-291,297-298,306,315-319
+  s_d1744aeb41c9d7::t_079898ff285de6 284,348-355
+  s_d1744aeb41c9d7::t_3e2db7fe8b959d 320-324,326-347
+  s_d1744aeb41c9d7::t_e52592032f2282 325
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 362,372-377
+  s_d1744aeb41c9d7::t_4bdb724e064c10 368-369
+  s_d1744aeb41c9d7::t_4c12d172cd3695 371
+kat/skill/agents/openai.yaml
+  s_28f12e292b4bdc::t_e2c05e2350622b 1-2
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 3-4
+kat/skill/SKILL.md
+  s_28f12e292b4bdc::t_e2c05e2350622b 1-2,4-7,9,60-63,71,73,78,80,82,84,86,90,92,94
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 3,8,10-40,43-45,56
+  s_d1744aeb41c9d7::t_e6bb5686f842ce 42,46,48,50,52-53,55,57-59,68,79,81,83,93,95
+  s_d1744aeb41c9d7::t_7eb846f9ddd217 47,49,54,69
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 51,70,72,74-77
+  s_d1744aeb41c9d7::t_8ff55431bbe2be 64-66,85,87-89,91
+kat/skill/references/pack-authoring-flow.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-4,6-12,14-25
+  s_d1744aeb41c9d7::t_e3a39ae1d053f7 5,13
+docs/superpowers/specs/2026-07-30-kat-skill-contract-design.md
+  s_d1744aeb41c9d7::t_2830d6a374c300 1-3
+  s_d1744aeb41c9d7::t_9585fb9a8333f4 5
+  s_d1744aeb41c9d7::t_551ac140e6ad80 7-64,67-79,81-119
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 65
+kat/skill/references/result-contract.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-40
+  s_d1744aeb41c9d7::t_7eb846f9ddd217 41
+  s_d1744aeb41c9d7::t_80c0d9c7a71f53 42
+build/smoke_skill.py
+  s_28f12e292b4bdc::t_45902dc855e7a5 1-42
+  s_28f12e292b4bdc::t_3b56748136b488 43-58,65-250
+  s_d1744aeb41c9d7::t_a06995264a089d 59-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "120767dd9aa3c2b30ba8f9dd4f5d9514425052f3",
+  "prompts": {},
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

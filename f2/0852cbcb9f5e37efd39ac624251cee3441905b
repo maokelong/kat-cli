@@ -1,0 +1,115 @@
+docs/adr/0065-datasource-schema-creates-mutable-tables.md
+  s_01b850c15b18af::t_63f989eb6a2f29 2
+README.md
+  s_01b850c15b18af::t_01c7f443a79638 160-161
+kat/platform/workflow/tests/test_dataprovider_parquet.py
+  s_01b850c15b18af::t_8eb4a0e3aa9e58 53,56,65,102-104,117,140-142,187-189,256
+kat/platform/workflow/tests/test_dataprovider_write.py
+  s_01b850c15b18af::t_f7ea0eace5f9e9 569-590
+  s_01b850c15b18af::t_6a9e49553e6802 1-2
+  s_01b850c15b18af::t_d1a279b8efc61f 3-568
+  s_01b850c15b18af::t_80d48b80b22048 591-863
+docs/adr/0066-datafusion-provider-owns-new-datasource-fusion.md
+  s_01b850c15b18af::t_27bbb36982ef14 11
+kat/packs/kat-openharmony-critical-path/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_0d1570c5953df9 79
+  s_01b850c15b18af::t_fe8b8a7d815600 84-119
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/trace-streamer-sqlite.md
+  s_01b850c15b18af::t_3d489fe36d085d 16-18
+kat/platform/workflow/tests/test_execution_process.py
+  s_01b850c15b18af::t_d6e847355689f9 325-326,328-329,351-380,394-396,417-418,422,427-428,433
+  s_01b850c15b18af::t_5585a283b9f1a7 12-13,61,109-112,155-196,199,219,237,289
+kat/skill/references/pack-authoring-flow.md
+  s_01b850c15b18af::t_e74878ce3f433a 72-75,112-139
+kat/platform/workflow/api/dataprovider/_fusion.py
+  s_01b850c15b18af::t_8aa902ab8503fe 68-69,72-74
+kat/platform/workflow/api/dataprovider/_table.py
+  s_01b850c15b18af::t_77bd7308d6269c 7,15-20,33,42,46,58-60
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_01b850c15b18af::t_5b16317b780b5d 60,101,107-108,147-148
+  s_01b850c15b18af::t_4b709a11e43a79 149-160,163,168,170-173
+kat/platform/workflow/tests/test_authoring_api.py
+  s_01b850c15b18af::t_a8a9d9627b421c 283-290,305
+docs/adr/0068-datafusion-provider-has-immutable-bindings.md
+  s_01b850c15b18af::t_27bbb36982ef14 7,9,11
+kat/skill/references/examples/dataprovider-pack/datasources/trace_streamer.py
+  s_01b850c15b18af::t_0e1ea1c886ba9f 210-235,237-248
+  s_01b850c15b18af::t_18e3c72605647f 4-5,10-11,15,170-190
+  s_01b850c15b18af::t_0750dd7f0c9820 191-209
+kat/platform/workflow/api/dataprovider/__init__.py
+  s_01b850c15b18af::t_d9450223a45586 4,7
+kat/skill/references/examples/dataprovider-pack/datasources/ftrace.py
+  s_01b850c15b18af::t_53561e989707e4 7,84-108,110-123,125-132,175-178,180,189
+kat/platform/workflow/runtime/outputs.py
+  s_01b850c15b18af::t_c2c79bdfd959f8 7,9,77,79-101,103
+CONTEXT.md
+  s_01b850c15b18af::t_01c7f443a79638 60,87,90,93,99,118-122,144
+kat/skill/references/examples/dataprovider-pack/tests/ftrace/test_ftrace_provider.py
+  s_01b850c15b18af::t_2ddb82a80a35e1 292-293
+kat/platform/workflow/tests/test_testing_process.py
+  s_01b850c15b18af::t_0509f40597679c 84,95,310-311,325,388,402
+kat/platform/workflow/tests/test_dataprovider_api.py
+  s_01b850c15b18af::t_144269a2e0115a 4,67-68,70,73-76,78-80,82-95,104,109,111-112,114-115,117-119
+kat/packs/kat-openharmony-thread-cpu-time/datasources/trace_streamer.py
+  s_01b850c15b18af::t_94ef3c43e4c3d0 144-170
+  s_01b850c15b18af::t_fe8b8a7d815600 4-6,95-143
+kat/platform/workflow/api/dataprovider/_write.py
+  s_01b850c15b18af::t_80d48b80b22048 358-436
+  s_01b850c15b18af::t_90bd4e5c8181bd 17-357
+  s_01b850c15b18af::t_c2c5ed86b4a0ac 1-15
+  s_01b850c15b18af::t_51c12f226c0c3c 16
+kat/platform/workflow/api/dataprovider/_schema.py
+  s_01b850c15b18af::t_a5239f327936c9 134-144
+  s_01b850c15b18af::t_01b70acb14952b 8,115-133
+docs/adr/0067-catalog-only-describes-parquet-relations.md
+  s_01b850c15b18af::t_27bbb36982ef14 11,17
+kat/platform/workflow/api/dataprovider/_parquet_writer.py
+  s_01b850c15b18af::t_34ce3605ded76f 3-56
+  s_01b850c15b18af::t_6b08f9131683a8 60-65
+  s_01b850c15b18af::t_c98e273179cccb 1-2
+  s_01b850c15b18af::t_b51faf5c354c9e 57-59
+docs/adr/0076-datasource-streaming-materialization-uses-a-background-writer.md
+  s_01b850c15b18af::t_51034f71a82bdf 2-4
+  s_01b850c15b18af::t_9275c8fda43744 27-31
+  s_01b850c15b18af::t_a1bf09435accde 1
+  s_01b850c15b18af::t_63f989eb6a2f29 5-26
+kat/packs/kat-openharmony-critical-path/datasources/trace_streamer.py
+  s_01b850c15b18af::t_fe8b8a7d815600 4-6,95-143
+  s_01b850c15b18af::t_94ef3c43e4c3d0 144-170
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_01b850c15b18af::t_1577357b1dd1a3 16-17,89-91,109
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/ftrace-text.md
+  s_01b850c15b18af::t_1577357b1dd1a3 4-6,24-27
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_fe8b8a7d815600 95-130
+  s_01b850c15b18af::t_0d1570c5953df9 90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f20852cbcb9f5e37efd39ac624251cee3441905b",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2096,
+      "total_deletions": 4269,
+      "accepted_lines": 2096,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

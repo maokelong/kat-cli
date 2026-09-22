@@ -1,0 +1,32 @@
+README.md
+  s_95f748c9dd6141::t_cecd62fb9b0082 3-5,30-48,78,80,103-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5d4254a498738d909d3d1012a3d2f805757b7ddb",
+  "prompts": {
+    "s_95f748c9dd6141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd613-475e-7cf1-a495-cd6c44e41c0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 28,
+      "total_deletions": 0,
+      "accepted_lines": 26,
+      "overriden_lines": 2
+    }
+  },
+  "sessions": {
+    "s_95f748c9dd6141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd613-475e-7cf1-a495-cd6c44e41c0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

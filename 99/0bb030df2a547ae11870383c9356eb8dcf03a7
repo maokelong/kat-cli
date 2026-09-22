@@ -1,0 +1,57 @@
+kat/platform/datasource/src/protobuf_source/profiler_occurrence.rs
+  s_1b8ad6ca768945::t_873a6df2cab5b4 12,41,43-58,69-72
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_1b8ad6ca768945::t_5aa31cc8220b7c 124-200
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_1b8ad6ca768945::t_af11690f483f9c 32-33
+kat/platform/datasource/src/protobuf_source/capture.rs
+  s_1b8ad6ca768945::t_873a6df2cab5b4 6-7,51-59,67,76,91,128,132-136
+  s_1b8ad6ca768945::t_980ca109ca0de9 169-172,176-180,184-186
+kat/platform/datasource/tests/hitrace_import_contract.rs
+  s_1b8ad6ca768945::t_e0d1b208d2913e 555-556,617-618
+kat/platform/datasource/src/materializer.rs
+  s_1b8ad6ca768945::t_873a6df2cab5b4 31,35,119-120,122-125,157,161-164,188,221-224,226,228,886,894,913
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_1b8ad6ca768945::t_af11690f483f9c 24-25
+kat/platform/cli/tests/import.rs
+  s_1b8ad6ca768945::t_e0d1b208d2913e 432
+kat/platform/datasource/src/dataset_writer.rs
+  s_1b8ad6ca768945::t_9d42861571badc 2
+  s_1b8ad6ca768945::t_2e926539dddb4f 76
+  s_1b8ad6ca768945::t_e0d1b208d2913e 77-173,194-226,229-237,241-259,261-264,269-270,272-278,285,296-306
+  s_1b8ad6ca768945::t_873a6df2cab5b4 7,73-75
+  s_1b8ad6ca768945::t_5aa31cc8220b7c 368-411,506-535,578-583,636-642
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_1b8ad6ca768945::t_873a6df2cab5b4 4,28,37-44
+kat/platform/datasource/src/protobuf_source/spool.rs
+  s_1b8ad6ca768945::t_873a6df2cab5b4 15,21,29-33,35-67,125-146,152,160-171,254,258,270,385
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "990bb030df2a547ae11870383c9356eb8dcf03a7",
+  "prompts": {
+    "s_1b8ad6ca768945": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01d45-7d87-75b3-8b26-20e15abe923b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 528,
+      "total_deletions": 212,
+      "accepted_lines": 528,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1b8ad6ca768945": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01d45-7d87-75b3-8b26-20e15abe923b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

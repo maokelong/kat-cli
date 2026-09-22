@@ -1,0 +1,38 @@
+kat/platform/cli/tests/config.rs
+  s_2e4ee2c01499f3::t_ffd08cdefdbf4f 9-10,37,131,152-156,174-178,205-207,263-268,316-321,341-346,368-372,390-394,409-410
+kat/platform/cli/tests/process_output.rs
+  s_2e4ee2c01499f3::t_1c9dcd2e6959b1 94-132
+  s_2e4ee2c01499f3::t_f5c98413ea53f0 1-9
+  s_2e4ee2c01499f3::t_0c51ab1fc96008 10-93
+kat/platform/cli/tests/support/process.rs
+  s_2e4ee2c01499f3::t_330eeddadf35cf 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "0aeba6e4dd66ee1d79a72dd7e27e82ec88e5c9d3",
+  "prompts": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 226,
+      "total_deletions": 0,
+      "accepted_lines": 226,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,29 @@
+examples/packs/dataprovider-examples/tests/trace_streamer/real_trace_streamer.py
+  s_68cb1a3d53c6a1::t_272ae8c7a3fa8d 1-64
+kat/platform/workflow/tests/test_testing_process.py
+  s_68cb1a3d53c6a1::t_3ad840a1eb9652 263,265-271,274,280,282,284-285,291-292,301,306-307,314,317,319,321-323,325-326
+  s_8d37eb24b885b8::t_cd85cc3dc74130 264,273,275-279,281,283,289-290,293-300,302-305,308-312,315-316,318,320,327-331
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 272,286,313,324
+  s_68cb1a3d53c6a1::t_1836284ca36a4c 287-288
+  s_8d37eb24b885b8::t_fe7167660ae785 340-397
+kat/platform/workflow/runtime/testing.py
+  s_8d37eb24b885b8::t_ca6e9c5a204082 106-108
+kat/platform/workflow/pyproject.toml
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "caa9363ed23805a1e170dd066b680d79739fe7a8",
+  "prompts": {},
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

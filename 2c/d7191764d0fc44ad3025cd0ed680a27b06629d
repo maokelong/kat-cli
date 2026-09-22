@@ -1,0 +1,34 @@
+.github/workflows/ci.yml
+  s_7a390b8e798330::t_cadd91b135103c 20-22,38,40
+.github/workflows/full-ci.yml
+  s_7a390b8e798330::t_cadd91b135103c 15-18,56,63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2cd7191764d0fc44ad3025cd0ed680a27b06629d",
+  "prompts": {
+    "s_7a390b8e798330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fae78-1abf-7c01-aa98-2f0a5171cddf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 11,
+      "total_deletions": 24,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7a390b8e798330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fae78-1abf-7c01-aa98-2f0a5171cddf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

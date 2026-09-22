@@ -1,0 +1,49 @@
+docs/adr/0048-first-bundled-pack-analyzes-thread-cpu-time.md
+  s_7fdb7d2aa9b65a::t_5d420ea2eaba08 2
+docs/superpowers/specs/2026-07-28-trace-streamer-thread-cpu-time-design.md
+  s_7fdb7d2aa9b65a::t_5d420ea2eaba08 1-23
+kat/packs/kat-kernel/workflows/thread_cpu_time.py
+  s_7fdb7d2aa9b65a::t_a200aa8264d448 7,11,14,16-21,23-29,37
+kat/platform/datasource/src/trace_streamer.rs
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 109,158
+kat/platform/cli/tests/import.rs
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 219
+docs/adr/0058-trace-streamer-slices-drive-thread-cpu-time.md
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 9-13
+  s_7fdb7d2aa9b65a::t_5d420ea2eaba08 1-8
+kat/platform/datasource/tests/trace_streamer_import.rs
+  s_7fdb7d2aa9b65a::t_5f8116536ec2d0 26,34,60,177,316
+  s_7fdb7d2aa9b65a::t_2c6dbd4fff8e8b 317-330,332-339
+kat/packs/kat-kernel/tests/test_thread_cpu_time.py
+  s_7fdb7d2aa9b65a::t_f7fd8a163cbbba 14,20,22
+  s_7fdb7d2aa9b65a::t_1ae88b6abc03c6 45,60-61,63-64,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2eaf4fe0221dbe052939a41e1022f4b9a9ee83c1",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 93,
+      "total_deletions": 169,
+      "accepted_lines": 93,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
