@@ -140,7 +140,7 @@ jobs:
           --require-hashes
           -r build/requirements-builder.lock.txt
 
-      - name: Install SDK documentation build dependencies
+      - name: Install SDK Guide validation dependencies
         run: python -c "import subprocess, sys, tomllib; deps = tomllib.load(open('kat/sdk/pyproject.toml', 'rb'))['build-system']['requires']; subprocess.run([sys.executable, '-m', 'pip', 'install', *deps], check=True)"
 
       - name: Test Builder and Assembly contracts

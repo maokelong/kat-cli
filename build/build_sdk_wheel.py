@@ -4,17 +4,98 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from email import policy
 from email.parser import BytesParser
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
 import zipfile
+
+
+def validate_declaration_guides(
+    archive: zipfile.ZipFile, names: set[str]
+) -> None:
+    for category in ("providers", "workflows"):
+        prefix = f"kat_sdk/{category}/"
+        for name in sorted(names):
+            if (
+                not name.startswith(prefix)
+                or not name.endswith(".py")
+                or PurePosixPath(name).name.startswith("_")
+            ):
+                continue
+            try:
+                module = ast.parse(
+                    archive.read(name).decode("utf-8"), filename=name
+                )
+            except (SyntaxError, UnicodeDecodeError) as error:
+                raise ValueError(f"SDK module cannot be inspected: {name}") from error
+            for member in module.body:
+                if not isinstance(
+                    member, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    continue
+                for decorator in member.decorator_list:
+                    if not isinstance(decorator, ast.Call):
+                        continue
+                    function = decorator.func
+                    decorator_name = (
+                        function.id
+                        if isinstance(function, ast.Name)
+                        else function.attr
+                        if isinstance(function, ast.Attribute)
+                        else None
+                    )
+                    if decorator_name not in {"provider", "workflow"}:
+                        continue
+                    guide = next(
+                        (
+                            keyword.value
+                            for keyword in decorator.keywords
+                            if keyword.arg == "guide"
+                        ),
+                        None,
+                    )
+                    if guide is None:
+                        if category == "providers":
+                            raise ValueError(
+                                f"SDK Provider must declare a Runtime Guide: {name}"
+                            )
+                        continue
+                    try:
+                        reference = ast.literal_eval(guide)
+                    except (ValueError, TypeError) as error:
+                        raise ValueError(
+                            f"SDK declaration has an invalid Runtime Guide: {name}"
+                        ) from error
+                    if reference is None and category == "workflows":
+                        continue
+                    relative = (
+                        PurePosixPath(reference)
+                        if isinstance(reference, str)
+                        else PurePosixPath()
+                    )
+                    target = f"kat_sdk/knowledge/{relative.as_posix()}"
+                    if (
+                        not isinstance(reference, str)
+                        or relative.is_absolute()
+                        or not relative.parts
+                        or ".." in relative.parts
+                        or relative.parts[0] != category
+                        or relative.suffix != ".md"
+                        or target not in names
+                        or not archive.read(target).decode("utf-8").strip()
+                    ):
+                        raise ValueError(
+                            f"SDK declaration Runtime Guide is missing or invalid: "
+                            f"{name}: {reference!r}"
+                        )
 
 
 def validate_sdk_wheel_archive(path: Path, *, expected_version: str | None = None) -> str:
@@ -36,11 +117,23 @@ def validate_sdk_wheel_archive(path: Path, *, expected_version: str | None = Non
             raise ValueError("SDK wheel contains files outside its distribution")
         if any(name.startswith("kat_sdk/knowledge/helpers/") for name in names):
             raise ValueError("Library Markdown belongs in kat Skill references, not the SDK wheel")
+        if any(
+            name == "kat_sdk/docs"
+            or name.startswith("kat_sdk/docs/")
+            or name == "kat_sdk/api.md"
+            or name == "kat_sdk/reference"
+            or name.startswith("kat_sdk/reference/")
+            or (
+                name.startswith("kat_sdk/knowledge/")
+                and name.endswith(".api.md")
+            )
+            for name in names
+        ):
+            raise ValueError("SDK API documentation must stay outside the wheel")
         required = {
             "kat_sdk/__init__.py",
             "kat_sdk/providers/__init__.py",
             "kat_sdk/pack.toml",
-            "kat_sdk/knowledge/index.md",
         }
         if missing := sorted(required - names):
             raise ValueError(f"SDK wheel is incomplete: {missing}")
@@ -49,6 +142,7 @@ def validate_sdk_wheel_archive(path: Path, *, expected_version: str | None = Non
             for name in names
         ):
             raise ValueError("SDK wheel contains build or test files")
+        validate_declaration_guides(archive, names)
         manifest = tomllib.loads(archive.read("kat_sdk/pack.toml").decode("utf-8"))
         if set(manifest) != {"name", "title", "description", "owner"}:
             raise ValueError("SDK PACK manifest has unexpected fields")

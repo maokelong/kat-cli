@@ -23,12 +23,8 @@ kat query --session <session_id> --run <run_id> --sql "SELECT message FROM outpu
 catalog = ctx.run("kat-sdk", "demo-greeting", name="小明")
 ```
 
-返回框架只读 Catalog，可通过框架表工具读取 `main`。仅需要字符串时，直接导入 公共函数 `kat_sdk.helpers.demo.greeting.build_greeting`（使用方法与 API 说明见 kat Skill 的 `references/helpers/demo/greeting.md`），无需启动子 Workflow。
+返回框架只读 Catalog，可通过框架表工具读取 `main`。仅需要字符串时，直接导入公共函数 `kat_sdk.helpers.demo.greeting.build_greeting`，无需启动子 Workflow；公共签名和边界以 `kat-author` 当前绑定的 SDK API 文档为准。
 
 ## 开发与验证
 
-入口源码：`kat/sdk/workflows/demo/greeting.py`，领域目录中不放 `__init__.py`。入口调用公共函数，再通过 `Table.from_arrow` 返回标准结果表。
-
-[Workflow API 参考](greeting.api.md) 由注解和 docstring 生成。验收应检查默认称呼、自定义 Unicode 称呼、全空白输入，以及从其他 PACK 的组合调用。该例不解析真实数据，也不需要新增 Provider。
-
-返回 [SDK 知识首页](../../index.md)。
+入口源码：`kat/sdk/workflows/demo/greeting.py`，领域目录中不放 `__init__.py`。入口调用公共函数，再通过 `Table.from_arrow` 返回标准结果表。验收应检查默认称呼、自定义 Unicode 称呼、全空白输入，以及从其他 PACK 的组合调用。该例不解析真实数据，也不需要新增 Provider。

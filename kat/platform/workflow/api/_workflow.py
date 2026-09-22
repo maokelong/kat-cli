@@ -116,10 +116,10 @@ def workflow(
     production input Interface is valid. Inspection does not evaluate or
     publish the return annotation.
 
-    At execution, the function must return one exact ``kat.dataprovider.Table``,
-    or an exact, non-empty ``dict`` mapping Output names to exact Tables. Every
-    single value becomes the ``main`` Output; a Table does not carry an Output
-    name.
+    At execution, the function may return ``None`` for no Outputs, one exact
+    ``kat.dataprovider.Table``, or an exact, non-empty ``dict`` mapping Output
+    names to exact Tables. Every single Table becomes the ``main`` Output; a
+    Table does not carry an Output name.
     Output names must match ``[a-z][a-z0-9]*(?:_[a-z0-9]+)*`` and must not
     be the Windows device names ``con``, ``prn``, ``aux``, ``nul``,
     ``com1`` through ``com9``, or ``lpt1`` through ``lpt9``. KAT validates
