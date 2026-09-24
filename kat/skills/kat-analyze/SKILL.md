@@ -13,6 +13,22 @@ description: 使用 KAT 发现并执行已有 Workflow，查询 Run Output 并�
 
 每次调用按公共合同选择 CLI 的绝对路径，直接沿用当前 Data Home，不主动询问是否修改目录；按 Response 与失败边界交付。四个 Skill 必须来自同一套部署；缺少共享目录或载荷时说明部署缺项，不从其他版本或 `PATH` 拼装。直接使用本 Skill 无需先调用总路由。
 
+## 分析硬约束
+
+新分析必须依次完成以下阶段：
+
+1. 根据用户目标发现并选定 Workflow。
+2. 读取所选 Workflow 的公开参数与分析合同。
+3. 根据合同准备输入；可以按需读取、提取、转换或组合用户提供的材料。
+4. 执行 Workflow，并取得回答问题所需的 Run Output 证据；必要时按分析流程检查相关子 Run。
+5. 基于 Workflow Guide（如有）与查询证据形成结论。
+
+不得跳过、颠倒或绕过上述阶段。输入准备只用于满足所选 Workflow 的参数合同，不能代替 Workflow 完成分析。
+
+没有匹配 Workflow、Workflow inspection 失败或输入无法满足合同时，停止并说明能力边界或请求最小必要信息；不得改用通用工具自行完成分析。
+
+已有 Session/Run 从对应 Workflow 合同与既有证据继续，不重新执行新分析的全局发现流程。
+
 ## 分析与交付
 
 1. 读取 [分析流程](references/analysis-flow.md)，确认问题和新分析或已有 Session/Run 起点，渐进选择 Workflow、执行并查询最少证据。
