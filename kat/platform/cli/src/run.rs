@@ -51,42 +51,23 @@ pub(super) struct RunArgs {
     workflow_arguments: Vec<String>,
 }
 
-/// Metadata-only projection returned after the Run Manifest is published.
-///
-/// `run_id` publishes the identity for later Run operations; this slice returns
-/// Run metadata only.
-/// Output rows are addressed by the Session ID, Run ID, and Output name, not a physical path.
+/// 新执行与历史读取共享同一 Run 视图，不递归加载子 Guide 或返回数据行。
 #[derive(Serialize)]
 pub(super) struct RunResult {
-    session_id: String,
-    run_id: String,
-    outputs: BTreeMap<String, PublicOutput>,
-}
-
-/// Public metadata for one named Run Output.
-#[derive(Serialize)]
-struct PublicOutput {
-    columns: Vec<workflow_runtime::Column>,
-    row_count: u64,
+    pub(super) session_id: String,
+    pub(super) run_id: String,
+    pub(super) guide: Option<String>,
+    pub(super) child_runs: Vec<String>,
+    pub(super) outputs: BTreeMap<String, workflow_runtime::RunOutputMetadata>,
 }
 
 fn public_result(manifest: &RunManifest) -> RunResult {
     RunResult {
         session_id: manifest.session_id.clone(),
         run_id: manifest.run_id.clone(),
-        outputs: manifest
-            .outputs
-            .iter()
-            .map(|(name, output)| {
-                (
-                    name.clone(),
-                    PublicOutput {
-                        columns: output.columns.clone(),
-                        row_count: output.row_count,
-                    },
-                )
-            })
-            .collect(),
+        guide: manifest.guide.clone(),
+        child_runs: manifest.child_runs.clone(),
+        outputs: manifest.outputs.clone(),
     }
 }
 
@@ -424,14 +405,17 @@ mod tests {
             "alpha".to_owned(),
             "analyze".to_owned(),
             Vec::new(),
-            BTreeMap::new(),
-            BTreeMap::from([(
-                "main".to_owned(),
-                workflow_runtime::RunOutputMetadata {
-                    columns: Vec::new(),
-                    row_count: 0,
-                },
-            )]),
+            workflow_runtime::RunWorkflowReport {
+                guide: None,
+                effective_inputs: BTreeMap::new(),
+                outputs: BTreeMap::from([(
+                    "main".to_owned(),
+                    workflow_runtime::RunOutputMetadata {
+                        columns: Vec::new(),
+                        row_count: 0,
+                    },
+                )]),
+            },
         );
 
         assert!(matches!(
@@ -453,8 +437,11 @@ mod tests {
                 "019f6e00-0000-7000-8000-000000000013".to_owned(),
                 "019f6e00-0000-7000-8000-000000000012".to_owned(),
             ],
-            BTreeMap::new(),
-            BTreeMap::new(),
+            workflow_runtime::RunWorkflowReport {
+                guide: None,
+                effective_inputs: BTreeMap::new(),
+                outputs: BTreeMap::new(),
+            },
         );
 
         publish_run_manifest(temporary.path(), &manifest).unwrap();
@@ -469,6 +456,7 @@ mod tests {
                 "run_id": "019f6e00-0000-7000-8000-000000000011",
                 "pack": "alpha",
                 "workflow": "analyze",
+                "guide": null,
                 "child_runs": [
                     "019f6e00-0000-7000-8000-000000000012",
                     "019f6e00-0000-7000-8000-000000000013"

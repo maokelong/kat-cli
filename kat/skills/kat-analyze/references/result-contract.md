@@ -1,22 +1,29 @@
 # 分析结果契约
 
-每次分析只以以下三种状态之一交付。先陈述状态，再给足以复核的最少事实；不输出完整 KAT Response、完整表、原始 guide 或原始日志。公共失败与补问规则见 [命令合同](../../kat/references/command-reference.md)。
+每次分析只以以下三种状态之一交付。先陈述状态，再给足以复核的最少事实；不输出完整 KAT Response、完整表、原始 Guide 或原始日志。公共失败与补问规则见[命令合同](../../kat/references/command-reference.md)。
 
 ## 已完成
 
 按以下顺序交付：
 
-1. 对用户问题的直接结论。
-2. 少量可追溯证据：选中的 PACK/Workflow、Session ID 与 Run ID、Run Output 名称，以及调用方主动约束范围的 Query columns 与 NDJSON 对象行。
-3. 结论的适用范围、假设与不确定性；若使用 `--session ... --run ...` 读取当前 Workflow guide，避免把当前策略声称为历史 Run 的快照。
-4. 基于 Workflow analysis guide 和已有证据形成的可选下一步探索方向。
+1. 一份直接回答用户问题的综合结论，复用仍适用的节点正文，不逐节点交付独立报告或直接拼接 Guide。
+2. 少量可追溯证据：所选 PACK/Workflow、Session ID 与 Run ID、Run Output 名称，以及实际采用的查询证据和材料引用。处理不同范围、矛盾或重叠的证据，不重复计数。
+3. 适用范围、假设与不确定性；区分恢复的原解释与新增证据形成的后续判断。Run 的 Guide 是执行时快照，当前 PACK 的文件不能冒充历史依据。
+4. 报告保存状态及可继续分析的 Session ID。新报告保存成功后才承诺该正文可跨任务恢复，交付结论应与保存内容一致。成功 Response 已完成确认，不再为交付重读记录；已有适用报告不必重复保存。
+5. 基于 Guide 和现存证据形成的可选下一步；证据足够即停止。
 
-Workflow guide 指导分析方法，但不是数据证据。不要把 Provider guide、Provider 实现或未执行的 SQL 当作分析结论。
+Workflow Guide 指导分析方法，不是数据证据。不要把 Provider Guide、Provider 实现或未执行 SQL 当作结论依据。
+
+Run 发布、节点解释保存与总报告保存是不同完成点。节点正文可以记录部分进展，但缺少必需解释时不能声称总报告完整。程序只保留最近成功保存的正文，不管理有效性；AI 判断内容是否适用、证据是否充分以及是否需要修订其他节点或总报告。
 
 ## 需要补充信息
 
-已有 Run 只有 Session ID 与 Run ID 时不属于缺少用户信息：`kat inspect workflow --session ... --run ...` 取得当前 Workflow 知识，`kat query` 的 `information_schema` 取得实际 Output relation 与 columns。只提供 Run ID 时缺少公共地址所需的 Session ID；KAT 不跨 Session 扫描或维护 locator，应请求这一项最小补充信息。只有 Session ID 时可先用 Session inspection 列出其中已发布 Run。
+只有 Session ID 或缺少继续所需上下文时，先用 `analysis show` 恢复目标、报告和依据，不要求用户重述旧对话。当前上下文足够时无需重读。明确没有记录时，说明可以查询现存 Run，但不能恢复未保存的 AI 结论；目标确实未知时才询问。只有 Run ID 且无法确定 Session 时，只请求所属 Session ID，不跨 Session 搜索。
+
+需要解释历史 Run 时，使用 `inspect run` 读取其 Guide 和 Output 元数据；需要查询时可用 `information_schema` 核对结构，不要求用户提供表结构。未声明 Guide 可以依据实际输出分析并说明限制，快照读取失败不能以当前 PACK 正文替代。
 
 ## 执行失败或受阻
 
-没有匹配 PACK/Workflow、Workflow inspection 的原子失败、来源准入或解码失败、失败 Run 和实际执行失败的 Query 都属于这一状态。说明已确认的能力或执行边界，以及最小下一步；不能把部分输出描述为分析已完成，也不自动转为 PACK 创作或重新执行整个分析。
+没有匹配 PACK/Workflow、inspection 失败、来源准入或解码失败、失败 Run、失败 Query，以及无法继续的记录损坏或保存失败都属于这一状态。说明已确认事实、最后成功保存的进展与最小下一步，不能把部分输出或未保存报告描述为完整且可恢复。
+
+修订冲突先重读并核对实际修改；保存响应不确定时读取记录确认，不能盲重提或重跑 Workflow。区分“分析判断已经形成”和“本次保存尚未确认”。已确认缺口或部分判断能够保存时及时保存；不自动转为 PACK 创作或独立复核。

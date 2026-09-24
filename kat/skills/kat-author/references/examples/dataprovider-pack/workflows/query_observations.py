@@ -9,7 +9,7 @@ from kat.pack.datasources.postgresql import PostgreSQLProvider
     parameters={
         "service": "libpq service name.",
         "database": "Database containing observations.",
-        "clock_domain": "Clock domain of observation.observed_at.",
+        "clock_domain": "Caller-supplied label for observation.observed_at; does not validate or convert clocks.",
         "start_clock_value": "Inclusive observation window start.",
         "end_clock_value": "Exclusive observation window end.",
     },

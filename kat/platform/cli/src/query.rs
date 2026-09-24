@@ -9,7 +9,10 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
-    SkillRootError, locate_data_home, locate_skill_root,
+    SkillRootError,
+    analysis_record::Material,
+    analysis_store::{self, ArchiveReceipt},
+    locate_data_home, locate_skill_root,
     operation_log::{OperationLog, OperationLogError},
     response::{self, PendingResponseFile},
     run_manifest,
@@ -26,12 +29,15 @@ pub(super) struct QueryArgs {
     /// Select one exact published Run ID.
     #[arg(long, value_name = "RUN_ID")]
     run: String,
-    /// Execute one unmodified DataFusion SQL query without changing KAT-managed state.
+    /// Execute one unmodified DataFusion SQL query over published Run Outputs.
     ///
     /// Only this Run's registered output.* relations are available. The complete SQL
     /// value is retained in the Query Operation log.
     #[arg(long, value_name = "SQL")]
     sql: String,
+    /// Archive the exact SQL, column metadata and returned NDJSON as analysis evidence.
+    #[arg(long)]
+    archive: bool,
 }
 
 #[derive(Serialize)]
@@ -39,6 +45,8 @@ pub(super) struct QueryResult {
     format: &'static str,
     path: String,
     columns: Vec<workflow_runtime::Column>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    analysis: Option<ArchiveReceipt>,
 }
 
 pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryResult> {
@@ -74,6 +82,14 @@ fn execute_opened_query(
     mut log: OperationLog,
     operation_id: &str,
 ) -> response::PreparedResponse<QueryResult> {
+    if arguments.archive
+        && let Err(error) = analysis_store::read(opened.layout())
+    {
+        return finish_failure(
+            log,
+            QueryOperationError::AnalysisArchiveUnavailable(error.to_string()),
+        );
+    }
     if let Err(source) = locate_skill_root() {
         return finish_failure(log, QueryOperationError::SkillRoot(source));
     }
@@ -103,8 +119,8 @@ fn execute_opened_query(
     let outcome = workflow_runtime::execute_query_runtime(
         log,
         workflow_runtime::QueryRunInvocation {
-            outputs,
-            sql: arguments.sql,
+            outputs: outputs.clone(),
+            sql: arguments.sql.clone(),
             result_path: result_path_text.clone(),
         },
     );
@@ -138,10 +154,39 @@ fn execute_opened_query(
     if let Err(error) = validate_result_file(&result_path) {
         return finish_failure(log, error);
     }
+    let analysis = if arguments.archive {
+        let ndjson = match fs::read_to_string(&result_path) {
+            Ok(ndjson) => ndjson,
+            Err(error) => {
+                return finish_failure(log, QueryOperationError::ArchiveResultRead(error));
+            }
+        };
+        match analysis_store::append_material(
+            opened.layout(),
+            Material::Query {
+                run_id: arguments.run,
+                sql: arguments.sql,
+                outputs: output_names,
+                columns: runtime.columns.clone(),
+                ndjson,
+            },
+        ) {
+            Ok(receipt) => Some(receipt),
+            Err(error) => {
+                return finish_failure(
+                    log,
+                    QueryOperationError::AnalysisArchiveFailed(error.to_string()),
+                );
+            }
+        }
+    } else {
+        None
+    };
     let result = QueryResult {
         format: "ndjson",
         path: result_path_text,
         columns: runtime.columns,
+        analysis,
     };
     if let Err(error) = log.append(b"status: success\n") {
         return log_failure(error);
@@ -219,6 +264,14 @@ fn log_failure(error: OperationLogError) -> response::PreparedResponse<QueryResu
 
 #[derive(Debug, Error, Diagnostic)]
 enum QueryOperationError {
+    #[error("Query archive is unavailable: {0}")]
+    #[diagnostic(help("Initialize or repair the Session's Analysis Record before archiving"))]
+    AnalysisArchiveUnavailable(String),
+    #[error("Query succeeded, but reading its result for archival failed")]
+    ArchiveResultRead(#[source] io::Error),
+    #[error("Query succeeded, but evidence archival failed: {0}")]
+    #[diagnostic(help("Inspect the Analysis Record and storage error before retrying archival"))]
+    AnalysisArchiveFailed(String),
     #[error(transparent)]
     #[diagnostic(transparent)]
     SessionStore(#[from] SessionStoreError),

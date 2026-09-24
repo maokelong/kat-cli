@@ -37,7 +37,6 @@ class WorkflowDetail(TypedDict):
     name: str
     description: str
     parameters: list[WorkflowParameter]
-    guide: str | None
 
 
 @dataclass(frozen=True)
@@ -87,7 +86,6 @@ class _InspectedEntry:
     module_name: str
     interface: WorkflowInputInterface
     guide_ref: str | None
-    guide: str | None
 
 
 @dataclass(frozen=True)
@@ -126,26 +124,12 @@ class ProductionPack:
                 error = ValueError(f"duplicate Workflow name: {name}")
                 raise _pack_failure(error, root)
             names.add(name)
-            try:
-                guide = (
-                    None
-                    if outcome.guide_ref is None
-                    else read_guide(
-                        root,
-                        outcome.guide_ref,
-                        declaration=f"Workflow {name!r}",
-                        category="workflows",
-                    )
-                )
-            except (OSError, ValueError) as error:
-                raise _pack_failure(error, root) from error
             entries.append(
                 _InspectedEntry(
                     source=source,
                     module_name=module_name,
                     interface=outcome.interface,
                     guide_ref=outcome.guide_ref,
-                    guide=guide,
                 )
             )
         entries.sort(key=lambda entry: entry.interface["name"])
@@ -182,11 +166,10 @@ class ProductionPack:
                 "name": entry.interface["name"],
                 "description": entry.interface["description"],
                 "parameters": list(entry.interface["parameters"]),
-                "guide": entry.guide,
             }
         )
 
-    def load(self, workflow_name: str) -> CompiledWorkflow:
+    def load(self, workflow_name: str) -> tuple[CompiledWorkflow, str | None]:
         entry = next(
             (
                 entry
@@ -209,7 +192,18 @@ class ProductionPack:
                 f"Workflow entry {entry.source.relative_to(self.root).as_posix()} "
                 "changed between inspection and execution loading"
             )
-        return compiled
+        # Guide 属于这次执行；在业务函数调用前捕获，不在执行后重读可变 PACK。
+        guide = (
+            None
+            if compiled.guide_ref is None
+            else read_guide(
+                self.root,
+                compiled.guide_ref,
+                declaration=f"Workflow {workflow_name!r}",
+                category="workflows",
+            )
+        )
+        return compiled, guide
 
     def mount_for_tests(self) -> None:
         # helper 单测属于 pytest；实际 Workflow 在独立 Runtime 内正式加载。

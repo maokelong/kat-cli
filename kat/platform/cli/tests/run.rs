@@ -461,7 +461,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{"limit":"5","session":"__SESSION_ID__"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{"limit":"5","session":"__SESSION_ID__"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -477,6 +477,12 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
     assert_eq!(response["result"]["session_id"], session_id);
+    assert_eq!(response["result"].as_object().unwrap().len(), 5);
+    assert_eq!(
+        response["result"].get("guide"),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(response["result"]["child_runs"], serde_json::json!([]));
     let session_id = session_id.as_str();
     let run_id = response["result"]["run_id"].as_str().unwrap();
     assert_ne!(session_id, run_id);
@@ -504,6 +510,7 @@ fn run_publishes_one_manifest_and_only_public_output_facts() {
     assert_eq!(manifest["run_id"], run_id);
     assert_eq!(manifest["pack"], "alpha");
     assert_eq!(manifest["workflow"], "analyze");
+    assert_eq!(manifest.get("guide"), Some(&serde_json::Value::Null));
     assert_eq!(manifest["child_runs"], serde_json::json!([]));
     assert!(manifest.get("dataset").is_none());
     assert_eq!(
@@ -613,7 +620,7 @@ fn sequential_nested_runs_publish_each_child_before_the_parent_records_them() {
         .env("KAT_CAPTURE_NESTED_RESPONSE", &nested_response)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -711,7 +718,7 @@ fn nested_manifests_record_only_direct_children_and_do_not_promote_orphans() {
             .env("KAT_FAKE_SECOND_NESTED_WORKFLOW", "grandchild")
             .env(
                 "KAT_FAKE_RUNTIME_RESPONSE",
-                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+                r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
             );
         if child_fails {
             command
@@ -789,7 +796,7 @@ fn nested_execution_validates_targets_without_an_extra_inspection_runtime() {
             .env("KAT_FAKE_NESTED_VALIDATION_FAILURE", private_diagnostic)
             .env(
                 "KAT_FAKE_RUNTIME_RESPONSE",
-                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+                r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
             );
         configure(&mut command, temporary.path());
 
@@ -850,7 +857,7 @@ fn published_child_survives_when_the_parent_runtime_fails() {
         .env("KAT_FAKE_PARENT_RUNTIME_FAILURE", "1")
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -912,7 +919,7 @@ fn run_session_continues_the_same_materialization_scope_with_a_new_run() {
         .env("KAT_CAPTURE_REQUEST", &first_capture)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut first, temporary.path());
     let first = first.output().unwrap();
@@ -947,7 +954,7 @@ fn run_session_continues_the_same_materialization_scope_with_a_new_run() {
         .env("KAT_CAPTURE_REQUEST", &second_capture)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut second, temporary.path());
     let second = second.output().unwrap();
@@ -1029,7 +1036,7 @@ fn explicit_missing_session_fails_without_starting_runtime_or_creating_it() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -1060,7 +1067,7 @@ fn successful_host_cannot_publish_after_replacing_scratch_with_a_file() {
         .arg("--pack-dir").arg(pack)
         .env("KAT_CAPTURE_REQUEST", &capture)
         .env("KAT_FAKE_REPLACE_SCRATCH_WITH_FILE", "1")
-        .env("KAT_FAKE_RUNTIME_RESPONSE", r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#);
+        .env("KAT_FAKE_RUNTIME_RESPONSE", r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#);
     configure(&mut command, temporary.path());
     let output = command.output().unwrap();
     assert_eq!(
@@ -1211,7 +1218,7 @@ fn existing_session_failure_removes_replaced_candidate_and_scratch_entries() {
         .env("KAT_CAPTURE_REQUEST", &initial_capture)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut initial, temporary.path());
     let initial = initial.output().unwrap();
@@ -1328,7 +1335,7 @@ fn active_run_blocks_session_delete_until_its_response_is_published() {
         .env("KAT_CAPTURE_REQUEST", &first_capture)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut first, temporary.path());
     let first = first.output().unwrap();
@@ -1360,7 +1367,7 @@ fn active_run_blocks_session_delete_until_its_response_is_published() {
         .env("KAT_FAKE_RUNTIME_RELEASE", &runtime_release)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1441,7 +1448,7 @@ fn two_runs_in_one_session_can_execute_concurrently() {
         .env("KAT_CAPTURE_REQUEST", &initial_capture)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut initial, temporary.path());
     let initial = initial.output().unwrap();
@@ -1480,7 +1487,7 @@ fn two_runs_in_one_session_can_execute_concurrently() {
             .env("KAT_FAKE_RUNTIME_RELEASE", &release)
             .env(
                 "KAT_FAKE_RUNTIME_RESPONSE",
-                r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+                r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
             )
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1552,7 +1559,7 @@ fn runtime_declared_outputs_must_exist_before_manifest_publication() {
         .env("KAT_FAKE_SKIP_OUTPUTS", "1")
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -1603,7 +1610,7 @@ fn run_waits_for_the_direct_runtime_to_exit_before_publishing() {
         .env("KAT_FAKE_RUNTIME_RELEASE", &runtime_release)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1897,7 +1904,7 @@ fn run_log_projects_user_controlled_text() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -2068,24 +2075,32 @@ fn untrusted_runtime_response_never_exposes_the_candidate() {
     let pack = pack(temporary.path());
     for (case, runtime_response) in [
         (
+            "missing-guide",
+            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        ),
+        (
+            "invalid-guide",
+            r#"{"status":"success","result":{"guide":{},"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+        ),
+        (
             "effective-input-name",
-            r#"{"status":"success","result":{"effective_inputs":{"__CANDIDATE_ID__":"value"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{"__CANDIDATE_ID__":"value"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         ),
         (
             "effective-input-value",
-            r#"{"status":"success","result":{"effective_inputs":{"value":"__CANDIDATE_ID__"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{"value":"__CANDIDATE_ID__"},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         ),
         (
             "output-name",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"__CANDIDATE_ID__":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"__CANDIDATE_ID__":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         ),
         (
             "column-name",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"__CANDIDATE_ID__","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"__CANDIDATE_ID__","type":"int64"}],"row_count":0}}}}"#,
         ),
         (
             "column-type",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"__CANDIDATE_ID__"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"__CANDIDATE_ID__"}],"row_count":0}}}}"#,
         ),
         (
             "response-status",
@@ -2177,7 +2192,7 @@ fn operation_log_creation_failure_never_starts_runtime_or_publishes() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -2229,7 +2244,7 @@ fn session_allocation_failure_is_completed_through_its_run_log() {
         .env("KAT_CAPTURE_REQUEST", &captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 
@@ -2282,7 +2297,7 @@ fn manifest_publication_failure_never_returns_or_publishes_a_run() {
         .env("KAT_FAKE_MANIFEST_DIRECTORY", "1")
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
+            r#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#,
         );
     configure(&mut command, temporary.path());
 

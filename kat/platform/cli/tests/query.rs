@@ -195,6 +195,7 @@ fn write_manifest(root: &Path, dataset: Option<serde_json::Value>) -> PathBuf {
         "run_id": RUN_ID,
         "pack": "alpha",
         "workflow": "analyze",
+        "guide": null,
         "child_runs": [],
         "inputs": {},
         "outputs": {

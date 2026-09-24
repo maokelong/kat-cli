@@ -9,7 +9,7 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
-| 分析数据来源、发现或运行当前部署的 Workflow/Provider、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
+| 分析数据来源、发现或运行当前部署的 Workflow/Provider、凭 Session ID 恢复报告与依据、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
 | 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [kat-dev-sdk](../kat-dev-sdk/SKILL.md) |
 | 理解、创建、修改、测试或诊断领域 PACK 及其 Provider、Workflow、领域公共库，核对可复用的框架或 SDK API | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |

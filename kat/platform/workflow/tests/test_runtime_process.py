@@ -164,7 +164,6 @@ def analyze(ctx: Context, *, limit: int = 10):
                                 "default": "10",
                             }
                         ],
-                        "guide": "# CPU time\r\n\r\nInspect the largest rows first.\r\n",
                     }
                 },
             },
@@ -173,7 +172,7 @@ def analyze(ctx: Context, *, limit: int = 10):
         self.assertEqual(after, before)
         self.assertFalse(any(path.name == "__pycache__" for path in pack.rglob("*")))
 
-    def test_workflow_guide_is_nullable_and_the_complete_tree_is_atomic(self) -> None:
+    def test_workflow_inspection_does_not_read_guides(self) -> None:
         pack = self.root / "workflow-guides"
         (pack / "workflows").mkdir(parents=True)
         (pack / "workflows" / "plain.py").write_text(
@@ -194,7 +193,7 @@ def analyze(ctx: Context, *, limit: int = 10):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(response["status"], "success")
-        self.assertIsNone(response["result"]["workflow"]["guide"])
+        self.assertNotIn("guide", response["result"]["workflow"])
 
         (pack / "workflows" / "broken.py").write_text(
             "from kat import Context, workflow\n"
@@ -202,7 +201,7 @@ def analyze(ctx: Context, *, limit: int = 10):
             "def analyze(ctx: Context):\n    pass\n",
             encoding="utf-8",
         )
-        for workflow_name in (None, "plain"):
+        for workflow_name in (None, "plain", "broken"):
             with self.subTest(workflow_name=workflow_name):
                 completed, response = self.run_runtime(
                     {
@@ -217,8 +216,9 @@ def analyze(ctx: Context, *, limit: int = 10):
                     0,
                     completed.stderr.decode(errors="replace"),
                 )
-                self.assertEqual(response["status"], "failure")
-                self.assertNotIn("result", response)
+                self.assertEqual(response["status"], "success")
+                if workflow_name is not None:
+                    self.assertNotIn("guide", response["result"]["workflow"])
 
     def test_public_trace_streamer_inspection_needs_no_pack(self) -> None:
         request = {

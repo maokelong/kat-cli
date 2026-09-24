@@ -1,3 +1,6 @@
+mod analysis;
+mod analysis_record;
+mod analysis_store;
 mod configuration;
 mod inspect;
 mod operation_log;
@@ -36,6 +39,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
+    /// Save and restore one Session's report tree, interpretations, and evidence.
+    Analysis(analysis::AnalysisArgs),
     /// Inspect available PACKs or one PACK's Workflow and Provider knowledge.
     Inspect(inspect::InspectArgs),
     /// Execute one Workflow and atomically publish one Run.
@@ -47,7 +52,8 @@ enum Operation {
     ///
     /// Python/DataFusion writes Arrow's native object-row JSON mapping directly
     /// to one NDJSON result file. A successful Response returns its format,
-    /// path, and column metadata; the CLI does not read or re-encode query rows.
+    /// path, and column metadata. --archive also retains the exact NDJSON as
+    /// analysis evidence, without re-encoding query rows.
     ///
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.
@@ -126,6 +132,7 @@ pub fn run() -> ExitCode {
     };
 
     match cli.operation {
+        Operation::Analysis(arguments) => response::publish(analysis::execute(arguments)),
         Operation::Inspect(arguments) => inspect::execute(arguments),
         Operation::Run(arguments) => response::publish(run::execute(arguments)),
         Operation::Query(arguments) => response::publish(query::execute(arguments)),
@@ -208,65 +215,26 @@ fn inspect_public_provider(
     finish_knowledge_inspection(outcome)
 }
 
-fn inspect_run_workflow(
-    session_id: String,
-    run_id: String,
-    pack_directories: Vec<PathBuf>,
-) -> response::PreparedResponse<InspectKnowledgeResult> {
+fn inspect_run(session_id: String, run_id: String) -> response::PreparedResponse<run::RunResult> {
     let data_home = match locate_data_home() {
         Ok(data_home) => data_home,
         Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let log = match OperationLog::create(&data_home, "inspect", |file| {
-        writeln!(file, "operation: kat inspect workflow")?;
-        writeln!(file, "session: {}", session_id.escape_debug())?;
-        writeln!(file, "run: {}", run_id.escape_debug())
-    }) {
-        Ok(log) => log,
-        Err(error) => return inspect_target_log_failure(error),
-    };
     let opened = match session_store::SessionStore::new(&data_home).open(&session_id) {
         Ok(opened) => opened,
-        Err(error) => {
-            return finish_inspect_target_failure(log, InspectTargetPackError::SessionStore(error));
-        }
+        Err(error) => return response::prepare_cli_failure(miette::Report::new(error)),
     };
-    let prepared = inspect_opened_run_workflow(&data_home, log, run_id, pack_directories, &opened);
+    let prepared = match run_manifest::resolve(opened.layout(), &run_id) {
+        Ok(published) => response::prepare_success(run::RunResult {
+            session_id: opened.layout().session_id().as_str().to_owned(),
+            run_id: published.run_id,
+            guide: published.guide,
+            child_runs: published.child_runs,
+            outputs: published.outputs,
+        }),
+        Err(error) => response::prepare_cli_failure(miette::Report::new(error)),
+    };
     response::retain_session_lease(prepared, opened.into_lease())
-}
-
-fn inspect_opened_run_workflow(
-    data_home: &Path,
-    mut log: OperationLog,
-    run_id: String,
-    pack_directories: Vec<PathBuf>,
-    opened: &session_store::OpenedSession,
-) -> response::PreparedResponse<InspectKnowledgeResult> {
-    let published_run = match run_manifest::resolve(opened.layout(), &run_id) {
-        Ok(run) => run,
-        Err(error) => {
-            return finish_inspect_target_failure(log, InspectTargetPackError::PublishedRun(error));
-        }
-    };
-    let pack_name = published_run.pack;
-    let workflow_name = published_run.workflow;
-    if let Err(error) = log.append(
-        format!(
-            "pack: {}\nworkflow: {}\n",
-            pack_name.escape_debug(),
-            workflow_name.escape_debug()
-        )
-        .as_bytes(),
-    ) {
-        return inspect_target_log_failure(error);
-    }
-    inspect_resolved_target(
-        data_home,
-        log,
-        pack_name,
-        pack_directories,
-        InspectKnowledgeTarget::Workflow(Some(workflow_name)),
-    )
 }
 
 fn inspect_resolved_target(
@@ -546,12 +514,6 @@ enum InspectPacksError {
 
 #[derive(Debug, Error, Diagnostic)]
 enum InspectTargetPackError {
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    SessionStore(#[from] session_store::SessionStoreError),
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    PublishedRun(#[from] run_manifest::PublishedRunError),
     #[error("KAT Skill is unavailable")]
     #[diagnostic(help("Run the kat executable from a complete KAT Skill deployment"))]
     SkillRoot(#[source] SkillRootError),
@@ -609,7 +571,7 @@ mod tests {
             vec![
                 "kat",
                 "inspect",
-                "workflow",
+                "run",
                 "--session",
                 "session-id",
                 "--run",

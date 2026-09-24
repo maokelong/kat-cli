@@ -4,6 +4,8 @@ status: accepted
 
 # Workflow 通过 Context 显式调用其他 Workflow
 
+后续调整：[ADR-0087](0087-run-guides-and-plain-analysis-content.md) 局部替代本文的 Guide 读取路径、中间解释仅存在于上下文、无 `inspect run` 及顶层结果只含 Output inventory 的条款。执行时 Guide 随 Run 固化，AI 正文可独立保存，当前上下文完整时无需重新读取；本文其余执行与 Catalog 合同按既有后续 ADR 继续适用。
+
 KAT 只保留一个 Workflow 概念：Workflow 既可以直接形成表格证据，也可以在普通 Python 控制流中通过同步 `ctx.run()` 调用其他 Workflow，再按需查询子 Run Catalog 并组装自己的输出。调用期间不插入 AI 决策；AI 只在 Workflow 已发布输出之后依据 Guide 解释证据。KAT 不提供 DAG、调度器、异步 Workflow 或专用并行语法，执行顺序、条件和异常处理遵循普通 Python 语义。
 
 每个可执行 Workflow 都必须具有受 inspection 约束的 Python 入口。自由格式 Markdown 只能作为该 Workflow 可选引用的 Guide，不能单独声明、调用或执行一个 Workflow；需要确定性组合多个 Workflow 的分析任务必须用一个普通 Python 入口表达调用和返回，再用 Guide 保留证据解释空间。

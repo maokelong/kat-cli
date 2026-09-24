@@ -48,7 +48,7 @@ PACK 名称：memory-analysis
 
 根据开发目标分别调用：
 
-- `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取参数合同和 analysis guide。
+- `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取用途与参数合同。分析 Guide 从成功 Run 读取，作者另检查正在维护的文件及装饰器关联。
 - `kat inspect provider`：发现平台公共来源能力；选中一个后追加 `--provider <名称>` 读取 `module`、`qualname` 和来源 guide，无需先选择 PACK。
 - `kat inspect provider --pack <名称>`：了解 PACK 已有的 Provider；选中一个后追加 `--provider <名称>` 读取代码位置和数据库、SQL、Schema 或接入 guide。
 
@@ -195,6 +195,7 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 面向 AI 的知识只保留当前任务判断必需的信息，按以下归属编写和核对：
 
 - 脚本完成可重复验证的输入校验、采集、转换、计算及必要子调用；固定步骤不能交给 AI 按 Guide 补做。输出提供所需结构化事实与可追溯证据，明细按需查询，不将完整日志或执行叙述作为分析上下文。
+- 执行前必须知道的能力用途、输入语义和环境前提写入 Workflow description 与 parameters，不能只藏在执行后才读取的 Guide 中。优先补齐现有描述，不另建前置条件框架。
 - Workflow Guide 解释容易误读或影响结论的输出：指标含义、单位、统计口径、适用范围，以及零值、空结果和缺失值的含义。计算定义、聚合或关联对证据范围的影响属于结果语义；不复述函数调用、数据搬运和脚本执行顺序。
 - 逐项对照实现核准输出解释；没有来源依据时不编造单位、阈值或覆盖范围。实际表与列以 Runtime inventory 为准，Guide 不复制完整 Schema、参数清单或源码。
 - 推理知识保留判断依据、替代解释、结论局限及由证据触发的下一步。仅使用已发布 Output 或适用 Workflow 补证据；缺少能力时说明缺口，不引导分析 AI 直接访问 Provider、中间数据库或私有文件。
@@ -202,11 +203,15 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 
 Guide 的文件位置与 decorator 路径按第 3 节对应。声明必须指向知识目录内已有、非空、有效 UTF-8 的普通 `.md` 文件；绝对路径、路径穿越和解析后逃逸 `knowledge/` 都会被拒绝。普通 README 不要求关联为 Guide，框架也不限制 Markdown 的章节和写法。
 
-List inspection 会校验全部声明及 guide，但只返回 `name`、`description`，不会把所有 Markdown 放进上下文。选中 detail 后，Runtime 才把对应文件按原样读成 Response 的 `guide` 字符串；Agent 直接使用该字段，不自行组合路径或实现 include。Workflow 未声明 guide 时 detail 返回 `null`；Provider guide 始终返回字符串。
+Workflow list inspection 校验导入、声明和名称唯一性，只返回 `name`、`description`；detail 返回用途与参数，两者均不读取 Guide 文件。只有执行选定 Workflow 时，程序才在业务执行前读取、验证并捕获它的 Guide，随成功 Run 保存；顶层成功 Response 返回自身 `guide` 字符串，未声明时为 `null`。子 Guide 经 `inspect run` 按需读取，PACK 变更不改写历史快照。Provider inspection 仍校验所选范围的 Guide，detail 返回非空字符串。分析 Agent 使用公开字段，不自行组合路径或实现 include；作者检查本次获授权编辑的 Guide 文件与装饰器关联。
 
-Workflow guide 只解释声明它的 Workflow 所发布的 Run，不自动继承、拼接或替代子 Guide。组合父 Guide 如果需要子结论，应明确要求 KAT Skill 沿父 Run 的 `child_runs` 选择相关子 Run，分别使用各子 Run 自己的 Guide 和最少 Output 证据，再回到父级汇总；这是自由 Markdown 指导，不是新的可执行语法。缺省 Guide 表示该 Run 不要求独立解释。
+Workflow guide 只解释声明它的 Workflow 所发布的 Run，不自动继承、拼接或替代子 Guide。父 Guide 应说明自身 Output 的单位、范围、关键限制和足够作结论的条件。需要子结论时，说明哪些子证据支持哪个父判断，以及缺失、矛盾或重叠证据如何影响汇总；引导分析 Skill 沿真实 `child_runs` 选择相关子 Run，分别使用自己的 Guide 和最少证据，再回到父级汇总。父证据足够时不要求解释全部叶子；这是自由 Markdown 指导，不是新的可执行语法。
+
+无输出父 Workflow 要说明如何综合必要子证据，不能把编排成功解释为没有问题。子结果继续遵守各自 Guide 的语义边界，复用同一证据时不要重复计数。缺省 Guide 不要求独立解释，也不需要为保存分析而补占位 Guide、固定章节或独立子报告模板。
 
 Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Session 中形成新的独立根 Run，不会事后加入或修改已经发布的父 `child_runs`。若某个子调用是父结果成立所必需的确定性步骤，必须把它写入父 Workflow 的 Python 控制流，不能依赖 Guide 追认调用关系。
+
+后续取证建议说明目的和参数来源；分析 Skill 将必要原因与解释直接保存为 Analysis Record 的正文，程序自动维护 Run Guide 快照与报告树。Guide 作者无需给 Markdown 增加记录字段或保存命令，也不让 Python Workflow 写 AI 解释。更新 PACK 不会改写已有快照；本合同不提供替换旧 Run Guide 的入口。
 
 ## 7. Provider inspection 的执行边界
 
@@ -322,8 +327,8 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 写入后按变更面验证：
 
 1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
-2. 重新执行对应 Workflow 或 Provider list inspection，再对新增或修改的声明及 Guide 所属对象执行 detail inspection。已编写 Workflow Guide 时，成功 Response 的 `guide` 必须非空且与预期正文一致；返回 `null`、内容不符或文件放错目录都表示作者验收未完成。Runtime 不会自动关联 Markdown，列表成功或 PACK 测试通过不能替代这项检查。没有额外解释需求且未编写 Guide 的 Workflow 仍允许 `guide: null`。对照脚本核准关键输出的含义与口径，确认仅凭公开输出和适用的 Guide 即可理解结果及局限；单位或范围仍缺依据时明确记录缺口。
+2. 重新执行对应 Workflow 或 Provider list/detail inspection，核对用途、参数或 Provider Guide。Workflow detail 不返回 Guide：直接核对本次修改的文件及装饰器关联；已有获授权的生产执行时，从 Run 成功结果或 `inspect run` 核对快照与执行时正文一致，不为回读 Guide 自动扩大执行范围。声明遗漏、文件放错位置或快照不符都须修正，不能用列表成功替代关联检查。对照脚本核准关键输出的含义与口径，确认公开输出和 Guide 足以解释结果与局限；单位或范围缺依据时记录缺口。
 3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
-4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口，涉及 Guide 时说明实际 detail 回读核对结果。
+4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口。涉及 Guide 时区分文件关联检查、PACK 测试、实际 Run 快照与 Provider detail 回读证据，未执行的验证如实说明。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。

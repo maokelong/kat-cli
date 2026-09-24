@@ -130,6 +130,7 @@ pub(crate) enum RunWorkflowOutcome {
 /// named Outputs were written.
 #[derive(Serialize)]
 pub(crate) struct RunWorkflowReport {
+    pub(crate) guide: Option<String>,
     pub(crate) effective_inputs: BTreeMap<String, serde_json::Value>,
     pub(crate) outputs: BTreeMap<String, RunOutputMetadata>,
 }
@@ -538,6 +539,7 @@ fn validate_run_workflow_report(
         }
     }
     Ok(RunWorkflowReport {
+        guide: result.guide,
         effective_inputs: result.effective_inputs,
         outputs: result
             .outputs
@@ -1546,11 +1548,11 @@ mod tests {
         }
 
         for invalid in [
-            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[]}}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[],"guide":null,"extra":true}}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }],"guide":null}}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }],"guide":null}}}"#.as_slice(),
-            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}],"guide":null}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[],"guide":null}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[],"extra":true}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":[] }]}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{} }]}}}"#.as_slice(),
+            br#"{"status":"success","result":{"workflow":{"name":"w","description":"W.","parameters":[{"name":"value","option":"--value","type":"path","required":true,"description":"Value"}]}}}"#.as_slice(),
         ] {
             assert!(
                 serde_json::from_slice::<RuntimeResponse<InspectWorkflowResult>>(invalid).is_err()
@@ -1569,7 +1571,7 @@ mod tests {
             "wall_clock_timestamp",
         ] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}],"guide":null}}}}}}"#
+                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"{parameter_type}","required":true,"description":"Value"}}]}}}}}}"#
             );
             assert!(
                 serde_json::from_str::<RuntimeResponse<InspectWorkflowResult>>(&response).is_ok(),
@@ -1582,7 +1584,7 @@ mod tests {
     fn runtime_response_accepts_only_scalar_parameter_defaults() {
         for default in [r#""value""#, "42", "1.5", "true", "null"] {
             let response = format!(
-                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}],"guide":null}}}}}}"#
+                r#"{{"status":"success","result":{{"workflow":{{"name":"w","description":"W.","parameters":[{{"name":"value","option":"--value","type":"string","required":false,"description":"Value","default":{default}}}]}}}}}}"#
             );
             assert!(
                 serde_json::from_str::<RuntimeResponse<InspectWorkflowResult>>(&response).is_ok(),
@@ -1704,6 +1706,7 @@ mod tests {
             let response = serde_json::to_vec(&serde_json::json!({
                 "status": "success",
                 "result": {
+                    "guide": null,
                     "effective_inputs": {"value": private},
                     "outputs": {
                         "main": {
@@ -1735,6 +1738,7 @@ mod tests {
         let response = serde_json::to_vec(&serde_json::json!({
             "status": "success",
             "result": {
+                "guide": null,
                 "effective_inputs": {"session": invocation.session_id},
                 "outputs": {
                     "main": {
@@ -1766,7 +1770,7 @@ mod tests {
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
             scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
-        let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
+        let response = br#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
         assert!(decode_and_validate_run_workflow_response(response, &invocation).is_ok());
     }
@@ -1785,7 +1789,7 @@ mod tests {
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
             scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
-        let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
+        let response = br#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
         assert!(decode_and_validate_run_workflow_response(response, &invocation).is_ok());
     }
@@ -1813,7 +1817,7 @@ mod tests {
             datasource_root: "C:\\data\\datasources\\example".to_owned(),
             scratch_root: "C:\\data\\scratch\\candidate".to_owned(),
         };
-        let response = br#"{"status":"success","result":{"effective_inputs":{},"outputs":{"main":{"output_id":"0123456789abcdef0123456789abcdef","columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
+        let response = br#"{"status":"success","result":{"guide":null,"effective_inputs":{},"outputs":{"main":{"output_id":"0123456789abcdef0123456789abcdef","columns":[{"name":"value","type":"int64"}],"row_count":0}}}}"#;
 
         assert!(decode_and_validate_run_workflow_response(response, &invocation).is_err());
     }
@@ -1826,12 +1830,13 @@ mod tests {
         assert!(
             decode(serde_json::json!({
                 "status":"success",
-                "result":{"effective_inputs":{},"outputs":{},"extra":true}
+                "result":{"guide":null,"effective_inputs":{},"outputs":{},"extra":true}
             }))
             .is_err()
         );
 
         let result = |outputs| RawRunWorkflowResult {
+            guide: None,
             effective_inputs: BTreeMap::new(),
             outputs,
         };

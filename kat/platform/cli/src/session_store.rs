@@ -298,6 +298,10 @@ pub(super) struct SessionLayout {
 }
 
 impl SessionLayout {
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub(super) fn session_id(&self) -> &SessionId {
         &self.session_id
     }
@@ -718,7 +722,10 @@ fn rename_no_replace(_source: &Path, _destination: &Path) -> io::Result<()> {
     ))
 }
 
-fn ensure_direct_directory(parent: &Path, name: &str) -> Result<PathBuf, DirectPathError> {
+pub(super) fn ensure_direct_directory(
+    parent: &Path,
+    name: &str,
+) -> Result<PathBuf, DirectPathError> {
     match fs::create_dir(parent.join(name)) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -733,7 +740,10 @@ fn create_direct_directory(parent: &Path, name: &str) -> Result<PathBuf, DirectP
     canonical_direct_directory(&path, parent, name)
 }
 
-fn resolve_direct_directory(parent: &Path, name: &str) -> Result<PathBuf, DirectPathError> {
+pub(super) fn resolve_direct_directory(
+    parent: &Path,
+    name: &str,
+) -> Result<PathBuf, DirectPathError> {
     canonical_direct_directory(&parent.join(name), parent, name)
 }
 
@@ -764,7 +774,7 @@ fn canonical_direct_directory(
     Ok(canonical)
 }
 
-fn validate_direct_file(
+pub(super) fn validate_direct_file(
     path: &Path,
     parent: &Path,
     name: &str,
@@ -791,7 +801,11 @@ fn validate_direct_file(
     Ok(canonical)
 }
 
-fn read_direct_file(path: &Path, parent: &Path, name: &str) -> Result<File, DirectPathError> {
+pub(super) fn read_direct_file(
+    path: &Path,
+    parent: &Path,
+    name: &str,
+) -> Result<File, DirectPathError> {
     File::open(validate_direct_file(path, parent, name)?).map_err(DirectPathError::Io)
 }
 

@@ -103,6 +103,13 @@ fn scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs() {
                 success,
                 "{workflow}/{mode}: {response}"
             );
+            if success {
+                assert_eq!(response["result"].as_object().unwrap().len(), 5);
+                assert_eq!(
+                    response["result"].get("guide"),
+                    Some(&serde_json::Value::Null)
+                );
+            }
             let log = fs::read_to_string(response["log_path"].as_str().unwrap()).unwrap();
             assert!(log.contains("scratch_cleanup:"), "{log}");
             if workflow == "child" {
@@ -168,6 +175,7 @@ fn scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs() {
                     let manifest: serde_json::Value =
                         serde_json::from_slice(&fs::read(candidate.join("manifest.json")).unwrap())
                             .unwrap();
+                    assert_eq!(manifest.get("guide"), Some(&serde_json::Value::Null));
                     manifests.insert(
                         path.file_stem().unwrap().to_str().unwrap().to_owned(),
                         manifest,

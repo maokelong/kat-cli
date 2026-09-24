@@ -20,6 +20,8 @@ pub(super) struct RunManifest {
     pub(super) run_id: String,
     pub(super) pack: String,
     pub(super) workflow: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub(super) guide: Option<String>,
     pub(super) child_runs: Vec<String>,
     #[serde(
         default,
@@ -39,8 +41,7 @@ impl RunManifest {
         pack: String,
         workflow: String,
         mut child_runs: Vec<String>,
-        inputs: BTreeMap<String, serde_json::Value>,
-        outputs: BTreeMap<String, RunOutputMetadata>,
+        report: workflow_runtime::RunWorkflowReport,
     ) -> Self {
         child_runs.sort();
         Self {
@@ -48,10 +49,11 @@ impl RunManifest {
             run_id,
             pack,
             workflow,
+            guide: report.guide,
             child_runs,
             _legacy_dataset: (),
-            inputs,
-            outputs,
+            inputs: report.effective_inputs,
+            outputs: report.outputs,
         }
     }
 }
@@ -67,6 +69,7 @@ pub(super) struct PublishedRun {
     pub(super) run_id: String,
     pub(super) pack: String,
     pub(super) workflow: String,
+    pub(super) guide: Option<String>,
     pub(super) child_runs: Vec<String>,
     pub(super) outputs: BTreeMap<String, RunOutputMetadata>,
     pub(super) output_paths: BTreeMap<String, String>,
@@ -127,6 +130,7 @@ pub(super) fn resolve(
         run_id: manifest.run_id,
         pack: manifest.pack,
         workflow: manifest.workflow,
+        guide: manifest.guide,
         child_runs: manifest.child_runs,
         outputs: manifest.outputs,
         output_paths,
@@ -461,8 +465,11 @@ mod tests {
             "test-pack".to_owned(),
             "test-workflow".to_owned(),
             child_runs,
-            BTreeMap::new(),
-            typed_output("int64", 0),
+            workflow_runtime::RunWorkflowReport {
+                guide: None,
+                effective_inputs: BTreeMap::new(),
+                outputs: typed_output("int64", 0),
+            },
         );
         fs::write(
             allocation.candidate().join("manifest.json"),
@@ -517,8 +524,11 @@ mod tests {
             "test-pack".to_owned(),
             "test-workflow".to_owned(),
             Vec::new(),
-            BTreeMap::new(),
-            typed_output("int64", 0),
+            workflow_runtime::RunWorkflowReport {
+                guide: None,
+                effective_inputs: BTreeMap::new(),
+                outputs: typed_output("int64", 0),
+            },
         );
         fs::write(
             allocation.candidate().join("manifest.json"),

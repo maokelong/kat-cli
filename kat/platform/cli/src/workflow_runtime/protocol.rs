@@ -17,8 +17,6 @@ pub(crate) struct WorkflowInspection {
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) parameters: Vec<Parameter>,
-    #[serde(deserialize_with = "deserialize_nullable_string")]
-    pub(crate) guide: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -167,6 +165,8 @@ pub(crate) struct InspectProviderResult {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RawRunWorkflowResult {
+    #[serde(deserialize_with = "deserialize_nullable_string")]
+    pub(super) guide: Option<String>,
     pub(super) effective_inputs: BTreeMap<String, serde_json::Value>,
     pub(super) outputs: BTreeMap<String, RawRuntimeOutput>,
 }

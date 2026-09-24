@@ -1,6 +1,6 @@
 use std::{path::PathBuf, process::ExitCode};
 
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{Args, Subcommand};
 
 use crate::response;
 
@@ -18,44 +18,24 @@ pub(super) struct InspectArgs {
 
 #[derive(Subcommand)]
 enum InspectTarget {
-    /// Inspect the Workflows declared by one PACK or the Workflow used by one Run.
+    /// Inspect one PACK's available Workflows and their input contracts.
     Workflow(InspectWorkflowArgs),
     /// Inspect public Providers or the Providers declared by one PACK.
     Provider(InspectProviderArgs),
     /// Inspect the published Run inventory of one Analysis Session.
     Session(InspectSessionArgs),
+    /// Read one published Run's Guide snapshot, outputs, and direct child IDs.
+    Run(InspectRunArgs),
 }
 
 #[derive(Args)]
-#[command(group(
-    ArgGroup::new("source")
-        .required(true)
-        .multiple(false)
-        .args(["pack", "run"])
-))]
 struct InspectWorkflowArgs {
     /// Select one exact PACK by manifest name.
-    #[arg(long, value_name = "NAME", conflicts_with = "run")]
-    pack: Option<String>,
+    #[arg(long, value_name = "NAME")]
+    pack: String,
     /// Select one exact Workflow from --pack.
-    #[arg(long, value_name = "NAME", requires = "pack", conflicts_with = "run")]
+    #[arg(long, value_name = "NAME")]
     workflow: Option<String>,
-    /// Select the current Workflow declaration used by one published Run.
-    #[arg(
-        long,
-        value_name = "RUN_ID",
-        requires = "session",
-        conflicts_with_all = ["pack", "workflow"]
-    )]
-    run: Option<String>,
-    /// Select the Analysis Session containing --run.
-    #[arg(
-        long,
-        value_name = "SESSION_ID",
-        requires = "run",
-        conflicts_with = "pack"
-    )]
-    session: Option<String>,
     #[arg(
         long = "pack-dir",
         value_name = "DIRECTORY",
@@ -87,6 +67,14 @@ struct InspectSessionArgs {
     session: String,
 }
 
+#[derive(Args)]
+struct InspectRunArgs {
+    #[arg(long, value_name = "SESSION_ID")]
+    session: String,
+    #[arg(long, value_name = "RUN_ID")]
+    run: String,
+}
+
 pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
     if let Err(error) = validate_arguments(&arguments) {
         return response::publish(response::prepare_cli_failure::<()>(error));
@@ -100,10 +88,8 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
             response::publish(prepared)
         }
         Some(InspectTarget::Workflow(InspectWorkflowArgs {
-            pack: Some(pack),
+            pack,
             workflow,
-            run: None,
-            session: None,
             pack_directories,
         })) => response::publish(super::inspect_target_pack(
             pack,
@@ -127,19 +113,8 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
         Some(InspectTarget::Session(InspectSessionArgs { session })) => {
             response::publish(super::inspect_session(session))
         }
-        Some(InspectTarget::Workflow(InspectWorkflowArgs {
-            pack: None,
-            run: Some(run),
-            session: Some(session),
-            pack_directories,
-            workflow: _,
-        })) => response::publish(super::inspect_run_workflow(
-            session,
-            run,
-            joined_pack_directories(arguments.pack_directories, pack_directories),
-        )),
-        Some(InspectTarget::Workflow(_)) => {
-            unreachable!("clap guarantees exactly one Workflow inspection source")
+        Some(InspectTarget::Run(InspectRunArgs { session, run })) => {
+            response::publish(super::inspect_run(session, run))
         }
     }
 }
@@ -164,11 +139,13 @@ fn validate_arguments(arguments: &InspectArgs) -> Result<(), miette::Report> {
             "--pack-dir requires --pack for Provider inspection"
         ));
     }
-    if matches!(&arguments.target, Some(InspectTarget::Session(_)))
-        && !arguments.pack_directories.is_empty()
+    if matches!(
+        &arguments.target,
+        Some(InspectTarget::Session(_) | InspectTarget::Run(_))
+    ) && !arguments.pack_directories.is_empty()
     {
         return Err(miette::miette!(
-            "--pack-dir cannot be used with `kat inspect session`"
+            "--pack-dir cannot be used with Session or Run inspection"
         ));
     }
     Ok(())
