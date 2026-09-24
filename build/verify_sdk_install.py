@@ -201,12 +201,13 @@ def test_compose(kat_run):
         assert not any((sdk_root / "knowledge").rglob("*.api.md"))
     def verify_demo() -> None:
         detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "demo-greeting")["result"]["workflow"]
-        assert "公共库" in detail["guide"] and detail["parameters"], detail
+        assert "guide" not in detail and detail["parameters"], detail
         assert not (sdk_root / "knowledge/helpers").exists()
         verify_no_api_documentation()
         session = invoke("session", "create")["result"]["session_id"]
         for arguments, expected in (([], "你好，KAT！"), (["--", "--name", " 小明 "], "你好，小明！")):
             executed = invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", *arguments)["result"]
+            assert "公共库" in executed["guide"], executed
             queried = invoke("query", "--session", session, "--run", executed["run_id"], "--sql", "SELECT message FROM output.main")["result"]
             assert json.loads(Path(queried["path"]).read_text(encoding="utf-8")) == {"message": expected}
         invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", "--", "--name", "   ", success=False)
@@ -266,11 +267,13 @@ def call(ctx: kat.Context):
         expected = ["demo-greeting", "sdk-probe"] if revision == 1 else ["demo-greeting", "sdk-added", "sdk-probe"]
         assert [w["name"] for w in listing] == expected, listing
         detail = invoke("inspect", "workflow", "--pack", "kat-sdk", "--workflow", "sdk-probe")["result"]["workflow"]
-        assert f"revision {revision}" in detail["guide"] and detail["parameters"], detail
+        assert "guide" not in detail and detail["parameters"], detail
         session = invoke("session", "create")["result"]["session_id"]
         for pack, workflow, extra in (("kat-sdk", "sdk-probe", []), ("consumer", "call-sdk", ["--pack-dir", consumer])):
             executed = invoke("run", "--session", session, "--pack", pack, "--workflow", workflow, *extra)
             assert executed["result"]["outputs"]["main"]["row_count"] == 1, executed
+            if pack == "kat-sdk":
+                assert f"revision {revision}" in executed["result"]["guide"], executed
             published = home / "sessions" / session / "runs" / executed["result"]["run_id"] / "outputs/main.parquet"
             assert json.loads(host_run(f"import json, pyarrow.parquet as p; print(json.dumps(p.read_table({str(published)!r}).to_pydict()))")) == {"value": [40 + revision]}
         (consumer / "tests/test_sdk.py").write_text(f'''def test_sdk(kat_run):

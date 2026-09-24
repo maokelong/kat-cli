@@ -424,7 +424,7 @@ class AuthoringApiTest(unittest.TestCase):
             "Successful decoration alone does not mean the production input Interface is valid",
             "exact, non-empty ``dict``",
             "dataprovider.Table",
-            "single value",
+            "single Table",
             "``main`` Output",
             "exact Tables",
             "all-or-fail Run publication",
