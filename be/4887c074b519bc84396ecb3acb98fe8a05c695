@@ -1,0 +1,37 @@
+Cargo.toml
+  s_40dba0104d25e3::t_c86351c34d6a8b 10
+kat/platform/workflow/pyproject.toml
+  s_40dba0104d25e3::t_c86351c34d6a8b 7
+release/kat/dist.toml
+  s_40dba0104d25e3::t_c86351c34d6a8b 3
+Cargo.lock
+  s_40dba0104d25e3::t_7dfbb432dfa8ec 709,732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "be4887c074b519bc84396ecb3acb98fe8a05c695",
+  "prompts": {},
+  "sessions": {
+    "s_40dba0104d25e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d27e-075b-7d90-afa4-e6b83e181ccd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_c86351c34d6a8b": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 3,
+          "deletions": 3
+        }
+      }
+    }
+  }
+}
