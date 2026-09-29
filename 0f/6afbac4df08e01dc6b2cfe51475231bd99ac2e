@@ -1,0 +1,98 @@
+build/tests/test_skill_collection.py
+  s_dc2e9091f74585::t_011e04c8d19efc 48-62,142,155
+build/assemble_skill.py
+  s_dc2e9091f74585::t_bb8133e7a0d880 11-18,56,119,157
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_dc2e9091f74585::t_72c3d31998afac 7
+kat/skills/kat/agents/openai.yaml
+  s_dc2e9091f74585::t_7c9588534807fc 3-4
+build/tests/test_payload_ci_workflows.py
+  s_dc2e9091f74585::t_011e04c8d19efc 51-55
+kat/skills/kat-analysis-audit/SKILL.md
+  s_dc2e9091f74585::t_362cc85b654110 2-3,6,21,57,59,61,66
+build/verify_skill_collection.py
+  s_dc2e9091f74585::t_bb8133e7a0d880 11-18
+kat/skills/kat-analyze/SKILL.md
+  s_dc2e9091f74585::t_7c9588534807fc 44
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_dc2e9091f74585::t_72c3d31998afac 9
+kat/skills/kat-pack-review/references/checklist.md
+  s_dc2e9091f74585::t_362cc85b654110 1-57,60-75
+  s_dc2e9091f74585::t_20cdf0e000e308 58-59
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_dc2e9091f74585::t_72c3d31998afac 7
+build/tests/test_assemble_skill.py
+  s_dc2e9091f74585::t_011e04c8d19efc 19-26,101,105-112,135-141,172-179,326,334
+docs/adr/0088-separate-analysis-audit-and-pack-pr-review.md
+  s_dc2e9091f74585::t_be4ab59ab8aa9d 1-11
+kat/skills/kat-author/SKILL.md
+  s_dc2e9091f74585::t_72c3d31998afac 14
+kat/skills/kat-pack-review/SKILL.md
+  s_dc2e9091f74585::t_362cc85b654110 1-30,33-52
+  s_dc2e9091f74585::t_20cdf0e000e308 31-32
+kat/skills/kat-pack-review/agents/openai.yaml
+  s_dc2e9091f74585::t_362cc85b654110 1-4
+kat/skills/kat/SKILL.md
+  s_dc2e9091f74585::t_7c9588534807fc 3,8,15-16,25
+kat/skills/kat/references/command-reference.md
+  s_dc2e9091f74585::t_7c9588534807fc 9
+kat/skills/kat/user-manual.html
+  s_dc2e9091f74585::t_20cdf0e000e308 177-178,322
+  s_dc2e9091f74585::t_dff7c7bc8a94c9 85,210
+  s_dc2e9091f74585::t_72c3d31998afac 105,140,149-151,167-168,170,183,219-221,279-281,297,321,338
+docs/specs/kat-pack-review.md
+  s_dc2e9091f74585::t_be4ab59ab8aa9d 1-2,4-56
+  s_dc2e9091f74585::t_4120188db5d15c 3,57-64
+docs/adr/0086-analysis-records-enable-cross-task-resumption.md
+  s_dc2e9091f74585::t_20cdf0e000e308 7
+kat/skills/kat-analysis-audit/agents/openai.yaml
+  s_dc2e9091f74585::t_362cc85b654110 2-4
+docs/adr/0082-kat-review-rechecks-existing-evidence.md
+  s_dc2e9091f74585::t_72c3d31998afac 8
+  s_dc2e9091f74585::t_59a50d1ff05623 7
+README.md
+  s_dc2e9091f74585::t_7c9588534807fc 4,17,20,22,31-32
+  s_dc2e9091f74585::t_20cdf0e000e308 18
+CONTEXT.md
+  s_dc2e9091f74585::t_7c9588534807fc 11,195-199
+.github/workflows/payload-ci.yml
+  s_dc2e9091f74585::t_bb8133e7a0d880 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "0f6afbac4df08e01dc6b2cfe51475231bd99ac2e",
+  "prompts": {},
+  "sessions": {
+    "s_dc2e9091f74585": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e5e0-aff0-74e0-9ece-e0db4033a158",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 416,
+      "total_deletions": 140,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_011e04c8d19efc": "gpt-5.6-sol",
+        "t_20cdf0e000e308": "gpt-5.6-sol",
+        "t_362cc85b654110": "gpt-5.6-sol",
+        "t_4120188db5d15c": "gpt-5.6-sol",
+        "t_59a50d1ff05623": "gpt-5.6-sol",
+        "t_72c3d31998afac": "gpt-5.6-sol",
+        "t_7c9588534807fc": "gpt-5.6-sol",
+        "t_9e7c398aab7fb9": "gpt-5.6-sol",
+        "t_bb8133e7a0d880": "gpt-5.6-sol",
+        "t_be4ab59ab8aa9d": "gpt-5.6-sol",
+        "t_dff7c7bc8a94c9": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 416,
+          "deletions": 140
+        }
+      }
+    }
+  }
+}
