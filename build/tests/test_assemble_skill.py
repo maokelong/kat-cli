@@ -16,7 +16,14 @@ class AssembleSkillTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
         self.skills = self.root / "skills"
-        for name in ("kat", "kat-analyze", "kat-author", "kat-review", "kat-dev-sdk"):
+        for name in (
+            "kat",
+            "kat-analyze",
+            "kat-author",
+            "kat-analysis-audit",
+            "kat-pack-review",
+            "kat-dev-sdk",
+        ):
             skill = self.skills / name
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
@@ -91,11 +98,18 @@ class AssembleSkillTests(unittest.TestCase):
             list(self.output.parent.glob(f".{self.output.name}-assembly-*")), []
         )
 
-    def test_assembly_maps_five_skills_and_each_shared_input_once(self) -> None:
+    def test_assembly_maps_six_skills_and_each_shared_input_once(self) -> None:
         self.assertEqual(self.assemble(), self.output.resolve())
         self.assertEqual(
             {path.name for path in self.output.iterdir()},
-            {"kat", "kat-analyze", "kat-author", "kat-review", "kat-dev-sdk"},
+            {
+                "kat",
+                "kat-analyze",
+                "kat-author",
+                "kat-analysis-audit",
+                "kat-pack-review",
+                "kat-dev-sdk",
+            },
         )
         self.assertEqual(
             self.relative_files(self.output),
@@ -118,7 +132,13 @@ class AssembleSkillTests(unittest.TestCase):
         moved.parent.mkdir()
         self.output.rename(moved)
 
-        for task in ("kat-analyze", "kat-author", "kat-review", "kat-dev-sdk"):
+        for task in (
+            "kat-analyze",
+            "kat-author",
+            "kat-analysis-audit",
+            "kat-pack-review",
+            "kat-dev-sdk",
+        ):
             with self.subTest(task=task):
                 shared = moved / task / "../kat"
                 self.assertTrue((shared / "SKILL.md").is_file())
@@ -149,7 +169,14 @@ class AssembleSkillTests(unittest.TestCase):
         )
 
     def test_assembly_rejects_missing_or_invalid_skill_entries(self) -> None:
-        for name in ("kat", "kat-analyze", "kat-author", "kat-review", "kat-dev-sdk"):
+        for name in (
+            "kat",
+            "kat-analyze",
+            "kat-author",
+            "kat-analysis-audit",
+            "kat-pack-review",
+            "kat-dev-sdk",
+        ):
             skill = self.skills / name
             saved = self.root / f"saved-{name}"
             with self.subTest(skill=name, case="missing directory"):
@@ -296,7 +323,7 @@ class AssembleSkillTests(unittest.TestCase):
 
     def test_assembly_preserves_relative_symlink_within_its_input(self) -> None:
         target = self.skills / "kat/references/command-reference.md"
-        link = self.skills / "kat-review/shared-reference.md"
+        link = self.skills / "kat-analysis-audit/shared-reference.md"
         try:
             link.symlink_to(Path("..") / "kat" / "references" / "command-reference.md")
         except OSError as error:
@@ -304,7 +331,7 @@ class AssembleSkillTests(unittest.TestCase):
 
         self.assemble()
 
-        assembled_link = self.output / "kat-review/shared-reference.md"
+        assembled_link = self.output / "kat-analysis-audit/shared-reference.md"
         self.assertTrue(assembled_link.is_symlink())
         self.assertEqual(assembled_link.readlink(), link.readlink())
         self.assertEqual(assembled_link.read_bytes(), target.read_bytes())

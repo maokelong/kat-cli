@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT Analysis Audit"
+  short_description: "总结 KAT 分析问题，逐条审计报告结论与现存证据并说明缺口"
+  default_prompt: "使用 $kat-analysis-audit 总结这份 KAT 分析，并依据现存证据逐条审计其结论。"

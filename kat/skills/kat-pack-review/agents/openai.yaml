@@ -1,0 +1,4 @@
+interface:
+  display_name: "KAT PACK Review"
+  short_description: "只读检视外部 KAT PACK PR 并输出有证据的分级技术问题"
+  default_prompt: "使用 $kat-pack-review 按固定检查表检视这个 KAT PACK PR，只报告有证据和实际影响的问题。"

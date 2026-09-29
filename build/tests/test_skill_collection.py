@@ -45,6 +45,21 @@ class SkillCollectionTests(unittest.TestCase):
         extracted.rename(relocated)
         return relocated
 
+    def test_collection_members_are_explicit(self) -> None:
+        self.assertEqual(
+            SKILLS,
+            (
+                "kat",
+                "kat-analyze",
+                "kat-author",
+                "kat-analysis-audit",
+                "kat-pack-review",
+                "kat-dev-sdk",
+            ),
+        )
+        self.assertFalse((self.skills / "kat-review").exists())
+        self.assertTrue((self.skills / "kat-pack-review/references/checklist.md").is_file())
+
     def test_archive_relocation_preserves_source_links_and_shared_paths(self) -> None:
         relocated = self._archive(SKILLS)
         before = {
@@ -124,7 +139,7 @@ class SkillCollectionTests(unittest.TestCase):
             verify_skill_collection(self.skills)
 
     def test_missing_and_external_local_references_are_rejected(self) -> None:
-        entrypoint = self.skills / "kat-review/SKILL.md"
+        entrypoint = self.skills / "kat-analysis-audit/SKILL.md"
         original = entrypoint.read_text(encoding="utf-8")
         (self.work / "outside.md").write_text("exists", encoding="utf-8")
         for href, error in (
@@ -137,7 +152,7 @@ class SkillCollectionTests(unittest.TestCase):
                     verify_skill_collection(self.skills)
 
     def test_task_skill_must_use_the_adjacent_shared_contract(self) -> None:
-        entrypoint = self.skills / "kat-review/SKILL.md"
+        entrypoint = self.skills / "kat-analysis-audit/SKILL.md"
         content = entrypoint.read_text(encoding="utf-8")
         entrypoint.write_text(
             content.replace(

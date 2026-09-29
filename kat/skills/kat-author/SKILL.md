@@ -11,7 +11,7 @@ description: 使用 KAT 理解、创建、修改、验证和诊断 PACK、Provid
 
 从本 `SKILL.md` 的绝对位置解析相邻 `../kat/`，确认其中的 `SKILL.md`，读取 [公共命令合同](../kat/references/command-reference.md)。该 `kat/SKILL.md` 的父目录才是公共合同中的 `<kat-root>`；不要把当前任务目录或工作目录当作载荷根。
 
-每次 KAT 调用按公共合同选择 CLI 的绝对路径，复用其 Data Home、Response 与失败边界。四个 Skill 必须来自同一套部署；缺少共享目录或载荷时说明部署缺项，不从其他版本或 `PATH` 拼装。直接使用本 Skill 无需先调用总路由。
+每次 KAT 调用按公共合同选择 CLI 的绝对路径，复用其 Data Home、Response 与失败边界。六个 Skill 必须来自同一套部署；缺少共享目录或载荷时说明部署缺项，不从其他版本或 `PATH` 拼装。直接使用本 Skill 无需先调用总路由。
 
 本目录为 `<author-root>`，拥有 [PACK 骨架脚本](scripts/scaffold_pack.py) 和 [作者示例 PACK](references/examples/dataprovider-pack/README.md)。从本文件解析这些资源的绝对路径，不依赖当前工作目录。
 
