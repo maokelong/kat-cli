@@ -4,6 +4,8 @@ status: accepted
 
 # KAT Skills 成套发布，分析、创作与复核分别承接任务
 
+公开入口名称与集合成员已由 [ADR-0088](0088-separate-analysis-audit-and-pack-pr-review.md) 局部替代：`kat-review` 改名为 `kat-analysis-audit`，并新增 `kat-pack-review`；本 ADR 的分析证据复核边界继续有效。
+
 用户在问题分析完成后，需要按需总结原问题并独立复核结论。KAT 已发布的 Run Output、已有查询结果和可用日志可以支持这项工作；首版提供独立 `kat-review` Skill，接收原报告与明确关联的 Session/Run，必要时通过现有 Output Query 补充证据。
 
 复核区分证据支持、证据不足、与证据矛盾和无法验证。KAT 现有材料不保证覆盖全部历史调用或当时的 Guide，因此缺失材料时报告其对结论的限制，不补造历史过程，也不改变原分析的完成状态。当前 Guide 可以指导复核，但不能冒充历史快照。复核产生的新查询与说明同原分析证据区分，不改写原报告与 Run。

@@ -1,18 +1,19 @@
 ---
 name: kat
-description: KAT 总入口，根据自然语言目标路由到问题分析、PACK 创作维护、分析结论复核、官方 SDK 开发或当前部署的 Python 依赖管理。适用于用户使用 KAT 但尚未指定任务 Skill 的请求。
+description: KAT 总入口，根据自然语言目标路由到问题分析、PACK 创作维护、PACK PR 检视、分析结论审计、官方 SDK 开发或当前部署的 Python 依赖管理。适用于用户使用 KAT 但尚未指定任务 Skill 的请求。
 ---
 
 # KAT
 
-按用户目标读取对应入口或共享说明并执行；四个任务 Skill 也可以直接调用。
+按用户目标读取对应入口或共享说明并执行；五个任务 Skill 也可以直接调用。
 
 | 用户目标 | 读取的入口或说明 |
 |---|---|
 | 分析数据来源、发现或运行当前部署的 Workflow/Provider、凭 Session ID 恢复报告与依据、继续已有 Session/Run、查询证据并回答问题 | [kat-analyze](../kat-analyze/SKILL.md) |
 | 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [kat-dev-sdk](../kat-dev-sdk/SKILL.md) |
 | 理解、创建、修改、测试或诊断领域 PACK 及其 Provider、Workflow、领域公共库，核对可复用的框架或 SDK API | [kat-author](../kat-author/SKILL.md) |
-| 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
+| 只读检视外部或第三方 PACK PR，按固定检查表报告本次变更引入的技术缺陷 | [kat-pack-review](../kat-pack-review/SKILL.md) |
+| 总结已完成分析、检查原报告结论与已有证据 | [kat-analysis-audit](../kat-analysis-audit/SKILL.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |
 
 相对链接以本文件所在目录为基准，先解析为绝对路径，不依赖当前工作目录。只加载当前任务所需入口；目标缺失或会导向实质不同任务时，询问一个最小必要问题。
@@ -21,6 +22,6 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 
 ## 共享执行边界
 
-五个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
+六个 Skill 成套安装并随同一版本升级。本目录承载公共 [命令合同](references/command-reference.md)、平台 CLI、相邻私有 Python 与 Bundled PACK；调用 KAT 前按公共合同定位载荷、处理 Data Home，并依据结构化 Response 判断结果。
 
 任务流程和结果要求由对应 Skill 维护。CLI 使用本目录的 Python，依赖管理也使用同一解释器；任务 Skill 不复制环境，也不要求先经过本总路由。

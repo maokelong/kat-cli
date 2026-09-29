@@ -8,7 +8,14 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-SKILLS = ("kat", "kat-analyze", "kat-author", "kat-review", "kat-dev-sdk")
+SKILLS = (
+    "kat",
+    "kat-analyze",
+    "kat-author",
+    "kat-analysis-audit",
+    "kat-pack-review",
+    "kat-dev-sdk",
+)
 
 
 def _file(path: Path) -> None:
