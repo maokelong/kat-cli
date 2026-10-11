@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::{
     analysis_record::{AnalysisRecord, Material, ReportNode, SCHEMA_VERSION, SaveInput},
+    knowledge::{Adoption, Document},
     run_manifest,
     session_store::{
         SessionLayout, ensure_direct_directory, read_direct_file, resolve_direct_directory,
@@ -26,6 +27,72 @@ pub(super) struct ArchiveReceipt {
     previous_revision: u64,
     revision: u64,
     material_id: String,
+}
+
+#[derive(Serialize)]
+pub(super) struct KnowledgeReceipt {
+    session_id: String,
+    previous_revision: u64,
+    revision: u64,
+    material_id: String,
+    material: Material,
+}
+
+impl KnowledgeReceipt {
+    pub(super) fn existing(record: &AnalysisRecord, id: &str, material: &Material) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            previous_revision: record.revision,
+            revision: record.revision,
+            material_id: id.to_owned(),
+            material: material.clone(),
+        }
+    }
+}
+
+pub(super) fn adopt_knowledge(
+    session: &SessionLayout,
+    request: &Adoption<'_>,
+    load: impl FnOnce() -> Result<Document>,
+) -> Result<KnowledgeReceipt> {
+    require_record(session)?;
+    let directory = resolve_direct_directory(session.root(), DIRECTORY).into_diagnostic()?;
+    let _lock = lock_record(&directory, true)?;
+    let mut record = read_record(session, &directory)?;
+    if let Some(expected) = request.update_revision {
+        if record.revision != expected {
+            bail!(
+                "Analysis Record revision conflict: expected {expected}, current {}; read analysis show before updating knowledge",
+                record.revision
+            );
+        }
+    } else if let Some((id, material)) = record.find_knowledge(&request.selection)? {
+        return Ok(KnowledgeReceipt::existing(&record, id, material));
+    }
+    // 来源只读一次；竞争者在同一记录锁内复用已提交材料，不产生重复快照。
+    let document = load()?;
+    let material = Material::Knowledge {
+        pack: request.selection.pack().to_owned(),
+        path: document.path,
+        entry: document.entry,
+        content: document.content,
+    };
+    let previous_revision = record.revision;
+    let material_id = uuid::Uuid::now_v7().to_string();
+    record.schema_version = SCHEMA_VERSION;
+    record
+        .materials
+        .insert(material_id.clone(), material.clone());
+    record.validate()?;
+    advance_revision(&mut record)?;
+    persist(&directory, &record)?;
+    Ok(KnowledgeReceipt {
+        session_id: record.session_id,
+        previous_revision,
+        revision: record.revision,
+        material_id,
+        material,
+    })
 }
 
 pub(super) fn read(session: &SessionLayout) -> Result<AnalysisRecord> {
@@ -48,7 +115,7 @@ fn read_record(session: &SessionLayout, directory: &Path) -> Result<AnalysisReco
     if value
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
-        != Some(u64::from(SCHEMA_VERSION))
+        .is_none_or(|version| version != 2 && version != u64::from(SCHEMA_VERSION))
     {
         bail!("unsupported Analysis Record schema_version");
     }
@@ -99,6 +166,7 @@ pub(super) fn save(
         );
     }
     let runs = run_manifest::resolve_all(session).into_diagnostic()?;
+    record.schema_version = SCHEMA_VERSION;
     // 候选只存在当前进程中，整个批次通过校验后才替换已保存记录。
     let tree = record.apply(input, &runs)?;
     if exists {
@@ -119,6 +187,7 @@ pub(super) fn append_material(
     let _lock = lock_record(&directory, true)?;
     let mut record = read_record(session, &directory)?;
     let previous_revision = record.revision;
+    record.schema_version = SCHEMA_VERSION;
     let material_id = uuid::Uuid::now_v7().to_string();
     record.materials.insert(material_id.clone(), material);
     record.validate()?;

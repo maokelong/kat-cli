@@ -3,6 +3,8 @@ mod analysis_record;
 mod analysis_store;
 mod configuration;
 mod inspect;
+mod knowledge;
+mod knowledge_read;
 mod operation_log;
 mod pack_discovery;
 mod query;
@@ -39,6 +41,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Operation {
+    /// Adopt or restore one Session's original knowledge.
+    Knowledge(knowledge_read::KnowledgeArgs),
     /// Save and restore one Session's report tree, interpretations, and evidence.
     Analysis(analysis::AnalysisArgs),
     /// Inspect available PACKs or one PACK's Workflow and Provider knowledge.
@@ -132,6 +136,7 @@ pub fn run() -> ExitCode {
     };
 
     match cli.operation {
+        Operation::Knowledge(arguments) => response::publish(knowledge_read::execute(arguments)),
         Operation::Analysis(arguments) => response::publish(analysis::execute(arguments)),
         Operation::Inspect(arguments) => inspect::execute(arguments),
         Operation::Run(arguments) => response::publish(run::execute(arguments)),

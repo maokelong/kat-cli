@@ -17,7 +17,7 @@ python <author-root>/scripts/scaffold_pack.py \
 
 脚本只创建合法 manifest、README 和标准创作目录，不生成虚假的 Workflow、Provider 或测试实现；目标已存在时拒绝覆盖。成功 JSON 中的 `pack_directory` 是实际创建位置，`entries` 给出每个文件或目录的用途，必须据此向用户展示完整目录树和作用。
 
-创建后先执行 `kat inspect --pack-dir <pack-directory>` 验证 manifest 和发现结果，再分别执行该 PACK 的 Workflow 与 Provider list inspection。两个列表为空是预期事实，只表示骨架可被识别；只有用户同时要求具体分析能力时，才继续添加对应声明、guide 和测试。
+创建后先执行 `kat inspect --pack-dir <pack-directory>` 验证 manifest 和发现结果，再按目标检查知识入口或 Workflow/Provider。空列表只表示骨架可被识别；用户要求固化无需程序的经验时按[独立知识创作](knowledge-authoring.md)添加入口，不为验证骨架要求 Python 或空测试。
 
 用户可以直接用自然语言触发该流程，例如：
 
@@ -48,13 +48,14 @@ PACK 名称：memory-analysis
 
 根据开发目标分别调用：
 
+- `kat inspect knowledge --pack <名称>`：列出独立知识入口；选中后追加 `--entry <名称>` 浏览原文，需要引用时用 PACK 根相对 `--path <路径>`。不加载 PACK Python，不采纳到 Session。
 - `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取用途与参数合同。分析 Guide 从成功 Run 读取，作者另检查正在维护的文件及装饰器关联。
 - `kat inspect provider`：发现平台公共来源能力；选中一个后追加 `--provider <名称>` 读取 `module`、`qualname` 和来源 guide，无需先选择 PACK。
 - `kat inspect provider --pack <名称>`：了解 PACK 已有的 Provider；选中一个后追加 `--provider <名称>` 读取代码位置和数据库、SQL、Schema 或接入 guide。
 
 新增或修改来源接入、准备实现 Provider 前，必须先列出公共 Provider，再读取匹配项的 detail。已有公共能力满足需求时直接 import、构造并调用，不在 PACK 内重新定义实现、增加薄声明或复制来源 guide。确有能力缺口时说明已检查的公共能力与具体缺口，再在 `datasources/` 中实现必要的 PACK 自有来源逻辑。新建 PACK 与维护已有 PACK 都遵循此步骤；仅修改文档或不涉及来源接入的分析逻辑时，无需重复来源选型。
 
-Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
+独立知识入口、Workflow 和 Provider 分别发现；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
 
 新建 PACK 没有 KAT 任务契约内的 Issue 或 SDD 前置门；执行所在仓库的协作规范仍独立适用。
 
@@ -67,6 +68,8 @@ Workflow 和 Provider 是两个独立知识入口；分析问题时不 inspect P
 ## 3. 声明可发现知识
 
 新建和维护 PACK 时，Python 入口与作者知识按以下归属放置，只添加当前任务需要的内容：
+
+无需程序的方法放 `skills/<entry>/SKILL.md`，可带邻近引用或共享 knowledge/，细节见[独立知识创作](knowledge-authoring.md)。以下目录与步骤只适用于实际程序部分，纯知识 PACK 不要求空 Workflow、Provider 或 pytest。
 
 ```text
 <pack>/
@@ -328,7 +331,7 @@ DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Pr
 
 1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
 2. 重新执行对应 Workflow 或 Provider list/detail inspection，核对用途、参数或 Provider Guide。Workflow detail 不返回 Guide：直接核对本次修改的文件及装饰器关联；已有获授权的生产执行时，从 Run 成功结果或 `inspect run` 核对快照与执行时正文一致，不为回读 Guide 自动扩大执行范围。声明遗漏、文件放错位置或快照不符都须修正，不能用列表成功替代关联检查。对照脚本核准关键输出的含义与口径，确认公开输出和 Guide 足以解释结果与局限；单位或范围缺依据时记录缺口。
-3. 运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。
+3. 程序变更运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。纯知识变更按独立知识创作检查声明、引用和真实 AI 应用，不运行空 pytest 冒充方法验证。
 4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口。涉及 Guide 时区分文件关联检查、PACK 测试、实际 Run 快照与 Provider detail 回读证据，未执行的验证如实说明。
 
 “诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。

@@ -284,7 +284,7 @@ fn analysis_restores_nested_run_guides_evidence_and_plain_reports_without_pack()
 
     let goal = json!({"question": "两次测量合计耗时是多少？", "scope": "两次测量", "gaps": []});
     let initialized = cli.save(0, json!({"goal": goal}));
-    assert_eq!(initialized["schema_version"], 2);
+    assert_eq!(initialized["schema_version"], 3);
     assert_eq!(
         initialized["nodes"],
         json!([]),

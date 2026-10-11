@@ -13,6 +13,7 @@ miette.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml_ng.workspace = true
 strip-ansi.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true

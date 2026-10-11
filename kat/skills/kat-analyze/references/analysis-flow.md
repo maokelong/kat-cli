@@ -1,6 +1,6 @@
 # 分析流程
 
-一个 Session 对应一个分析目标和一份当前 Analysis Record。Run 保存执行时 Guide、Output 和直接子 Run；分析记录保存目标、按 Run 归属的正文、关键查询材料及总报告。命令与 JSON 字段以[公共命令合同](../../kat/references/command-reference.md)为准，必要保存点以 [Skill 主流程](../SKILL.md#问题分析流程必须遵守)为准。
+一个 Session 对应一个任务目标和一份当前 Analysis Record。Run 保存执行时 Guide、Output 和直接子 Run；分析记录保存目标、知识快照、按真实 Run 归属的正文、关键查询材料及总报告。纯知识任务允许零 Run，按[知识应用流程](knowledge-flow.md)执行；以下 Workflow 步骤仅适用于需要执行的部分。命令与 JSON 字段以[公共命令合同](../../kat/references/command-reference.md)为准，必要保存点以 [Skill 主流程](../SKILL.md#问题分析流程必须遵守)为准。
 
 ## 1. 继续当前分析或按需恢复
 
@@ -17,7 +17,7 @@
 3. 新分析创建 Session，以 `analysis save --session S --expected-revision 0 --file goal.json` 保存已明确的目标，成功后执行。后续取证复用同一 Session；独立新问题新建 Session。能力浏览不创建记录。
 4. 执行 `kat run --session S --pack P --workflow W -- ...`。只采用成功 Response 中的身份、Guide、Output 元数据和直接子 Run ID。程序自动捕获 Guide 并随 Run 发布，不依赖分析记录，也不需要 AI 另行归档。
 
-没有匹配 Workflow 时说明能力边界；未经用户明确授权不切换 PACK 创作。执行失败不能把日志或候选目录当作成功结果。父失败时，已成功发布的子 Run 仍可从 Session inventory 找到；不虚构失败父节点，也不凭失败文本猜测调用顺序。
+没有匹配 Workflow 时，可以使用适用的独立知识入口；两类能力均不匹配时说明缺口，未经用户明确授权不切换 PACK 创作。执行失败不能把日志或候选目录当作成功结果。父失败时，已成功发布的子 Run 仍可从 Session inventory 找到；不虚构失败父节点，也不凭失败文本猜测调用顺序。
 
 ## 3. 按需解释 Run 和组织报告树
 

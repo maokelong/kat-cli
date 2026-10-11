@@ -25,6 +25,10 @@ impl DiscoveredPacks {
     pub(crate) fn get(&self, name: &str) -> Option<&DiscoveredPack> {
         self.packs.get(name)
     }
+
+    pub(crate) fn into_pack(mut self, name: &str) -> Option<DiscoveredPack> {
+        self.packs.remove(name)
+    }
 }
 
 pub(crate) struct DiscoveredPack {
@@ -208,7 +212,10 @@ fn discover_search_directory(
     Ok(())
 }
 
-fn validate_pack_name(name: &str, manifest_path: &Path) -> Result<(), PackDiscoveryError> {
+pub(crate) fn validate_pack_name(
+    name: &str,
+    manifest_path: &Path,
+) -> Result<(), PackDiscoveryError> {
     let valid = !name.is_empty()
         && name.split('-').all(|segment| {
             !segment.is_empty()

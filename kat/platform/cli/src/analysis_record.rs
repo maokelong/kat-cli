@@ -4,12 +4,13 @@ use miette::{Result, bail, miette};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    knowledge::{self, Entry, Selection},
     run_manifest::PublishedRun,
     session_store::{RunId, SessionId},
     workflow_runtime::Column,
 };
 
-pub(super) const SCHEMA_VERSION: u32 = 2;
+pub(super) const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +42,12 @@ pub(super) struct Node {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Material {
+    Knowledge {
+        pack: String,
+        path: String,
+        entry: Option<Entry>,
+        content: String,
+    },
     Query {
         run_id: String,
         sql: String,
@@ -99,7 +106,7 @@ impl AnalysisRecord {
     }
 
     pub(super) fn validate(&self) -> Result<()> {
-        if self.schema_version != SCHEMA_VERSION {
+        if !matches!(self.schema_version, 2 | SCHEMA_VERSION) {
             bail!("unsupported Analysis Record schema_version");
         }
         if SessionId::parse(&self.session_id).is_none() {
@@ -122,26 +129,101 @@ impl AnalysisRecord {
         }
         for (id, material) in &self.materials {
             require_text(id, "Material ID")?;
-            let Material::Query {
-                run_id,
-                sql,
-                outputs,
-                ndjson,
-                ..
-            } = material;
-            validate_run_id(run_id)?;
-            require_text(sql, "Query SQL")?;
-            for name in outputs {
-                require_text(name, "Query Output name")?;
-            }
-            for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
-                let mut deserializer = serde_json::Deserializer::from_str(line);
-                serde::de::IgnoredAny::deserialize(&mut deserializer)
-                    .and_then(|_| deserializer.end())
-                    .map_err(|error| miette!("Invalid NDJSON in material {id}: {error}"))?;
+            match material {
+                Material::Knowledge {
+                    pack,
+                    path,
+                    entry,
+                    content,
+                } => {
+                    if self.schema_version != SCHEMA_VERSION {
+                        bail!("schema 2 cannot contain knowledge materials");
+                    }
+                    crate::pack_discovery::validate_pack_name(
+                        pack,
+                        std::path::Path::new("pack.toml"),
+                    )
+                    .map_err(|error| miette!("invalid knowledge PACK identity: {error}"))?;
+                    knowledge::validate_path(path)?;
+                    if content.contains('\0') {
+                        bail!("knowledge material contains binary data");
+                    }
+                    if let Some(entry) = entry {
+                        if path != &format!("skills/{}/SKILL.md", entry.name)
+                            || knowledge::declaration(&entry.name, content)? != *entry
+                        {
+                            bail!("knowledge material declaration does not match its origin");
+                        }
+                    } else {
+                        knowledge::validate_reference_path(path)?;
+                    }
+                }
+                Material::Query {
+                    run_id,
+                    sql,
+                    outputs,
+                    ndjson,
+                    ..
+                } => {
+                    validate_run_id(run_id)?;
+                    require_text(sql, "Query SQL")?;
+                    for name in outputs {
+                        require_text(name, "Query Output name")?;
+                    }
+                    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+                        let mut deserializer = serde_json::Deserializer::from_str(line);
+                        serde::de::IgnoredAny::deserialize(&mut deserializer)
+                            .and_then(|_| deserializer.end())
+                            .map_err(|error| miette!("Invalid NDJSON in material {id}: {error}"))?;
+                    }
+                }
             }
         }
         Ok(())
+    }
+
+    pub(super) fn find_knowledge(
+        &self,
+        selection: &Selection<'_>,
+    ) -> Result<Option<(&str, &Material)>> {
+        let matches: Vec<_> = self
+            .materials
+            .iter()
+            .filter(|(_, material)| {
+                let Material::Knowledge {
+                    pack, path, entry, ..
+                } = material
+                else {
+                    return false;
+                };
+                match selection {
+                    Selection::Entry {
+                        pack: selected,
+                        name,
+                    } => {
+                        pack == selected && entry.as_ref().is_some_and(|entry| entry.name == *name)
+                    }
+                    Selection::Reference {
+                        pack: selected,
+                        path: selected_path,
+                    } => pack == selected && entry.is_none() && path == selected_path,
+                }
+            })
+            .collect();
+        if matches.len() > 1 {
+            bail!(
+                "knowledge snapshot is ambiguous; select --material from: {}",
+                matches
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(matches
+            .into_iter()
+            .next()
+            .map(|(id, material)| (id.as_str(), material)))
     }
 
     /// 正文只有增量替换语义，不从内容或树的位置推断解释依赖和有效性。
