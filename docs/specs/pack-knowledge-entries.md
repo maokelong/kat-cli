@@ -181,7 +181,13 @@
 
 缺 CSV、Workflow 导入失败、没有照片转 3D 能力三例分别通过 `inspect`、相关知识/Workflow 列表和必要参数详情确认缺项、失败或不匹配；均无 Session、Run、采纳或安装写入。缺输入只请求授权 CSV，导入失败没有用通用工具重算，无匹配没有采纳无关标题能力或自动创作 PACK。原始计算夹具两次因遗漏普通目录和 Guide 而失败，保留受阻报告但不计为成功验收；修正夹具后另起干净任务验证，不改产品来掩盖夹具错误。
 
+纯 Workflow 的干净重验 Session `01a12a09-fa6a-70a0-b86e-bd3be95581b9`、Run `01a12a0a-567a-76e2-9f36-21d03eff8bbe` 得到 -10%、5%、20%，算术平均 5%；另一输入复验 Session `01a12a0a-0057-7270-b9bb-cd1ccbbc92a0`、Run `01a12a0a-4f03-7800-bf62-e585d9fa2f4d` 得到 -25%、20%，平均 -2.5%。两者均先发现两类能力、查看参数，保存目标后执行并归档排序/平均值查询，再保存 Run 解释与总报告；revision 3，各 1 份 Query，无知识采纳。混合复验 Session `01a12a0a-3c74-73e1-b7f2-72e182ca37b4`、Run `01a12a0a-c22e-74a1-8e72-67880c78fb9c` 采用两份方法、归档两份查询后保存 revision 6；三条样本只有两条达到 15%，0% 反例不支持全体承诺。上述保存内容均另经公开 `analysis show` 核对。
+
+移走本轮纯知识 PACK 后，新 AI 仅凭 Session `01a12a04-2123-7cf3-8127-817a124dbae5`，用 5 次公开只读调用恢复报告、两份原方法并核对 inventory，revision 始终为 4，无 Host、无 Run。移走本轮混合 PACK 和原 CSV 后，新 AI 仅凭 Session `01a12a03-d7bd-77b3-9a5b-3676e8cc906d`，用 8 次公开只读调用恢复报告、四份材料、inventory 和执行时 Guide，revision 始终为 6。两例都以 `analysis show --session S` 开始，按实际材料 ID 读取，未重新全局发现、查询、执行或保存；没有用新文件补造历史方法，也未声称原 CSV 已备份。共 12 例有效行为演练（7 次正向、3 次缺项/失败/无匹配、2 次恢复）符合本轮检查点；两次无效夹具失败不计入，少量演练不构成模型始终正确的保证。
+
 `quick_validate`、`git diff --check` 和集合安装/搬移测试 10 项通过；全量 `build/tests` 共 90 项，85 通过、5 因既有平台验收输入缺失跳过。全量构建单测最初因系统 Python 缺少 SDK 声明的构建依赖无法加载；在临时验证 venv 安装锁定的 setuptools 80.9.0、griffelib 2.3.0、markdown-it-py 4.2.0 后通过，未改系统或发布载荷依赖。`cargo test -p kat-cli` 默认全套通过，已有忽略项和警告保留。格式/搬移测试不代替 AI 行为验证，本轮未运行 Linux Payload；前述必需 MCP、干净客户端和全量 workspace 门禁限制不变。
+
+两路独立静态审查以用户确认的 `291e29768f844a27b52b2d450f53d2f203ab2c27` 比较到 `0e09b52b1aa5b13d23b902c270e466fdb007d968` 的完整 PR，并补审上述重复验收与恢复证据增量：Standards 0 项可行动发现，Spec 0 项可确认缺陷。未把静态审查当作执行验证，仍保持 Draft 和原有待验收门禁。
 
 ## 公开接口方案
 
