@@ -162,8 +162,8 @@
 - `cargo check -p kat-cli` 通过；修改 Rust 文件的 rustfmt 与 git diff --check 通过。以上是补充诊断，不代替下述必需 MCP 验证。
 - 四个受影响产品 Skill 和新示例入口的 quick_validate 通过；`python -m unittest discover -s build/tests -p test_skill_collection.py`、`test_assemble_skill.py`、`test_scaffold_pack.py` 共 27 项，22 通过、5 因缺平台验收输入跳过。集合测试验证搬移后链接与部署路径，不冒称已运行 Linux Payload。
 - 独立 AI 使用搬移的五 Skill 集合与当前 CLI、真实方法文件完成纯知识事实评审，保存两份知识材料、revision 4、零节点；没有 Python Host。Session `01a1292a-b397-7f90-a5f6-0a75a2c08650` 的方法 ID 为 `01a1292b-00c4-7cc0-b5b1-f302864841d1` 与 `01a1292b-1ecb-7d30-abbb-4ca061ac57fe`。移走 PACK 后，另一新 AI 任务仅凭 Session ID 恢复目标、报告与两份原方法，revision 保持 4，不重新执行或补造测量事实。
-- 混合独立 AI 任务使用搬移集合及当前三个 wheel，按入口选择实际 sample-check/sample-summary，保存两份知识与两份真实 Query 材料；Session `01a12933-464a-7513-b2bc-300c8146ee5d`，真实 Run `01a12933-c81d-7f12-95cd-2a15c5bc428f`，report revision 6。查询给定两行 CSV 得到降幅 -5% 至 12.5%、算术平均 3.75%，指出全体下限承诺没有支持；报告只含这个真实 Run。PACK 和来源移走后的独立只读恢复另行核对。
-- 双轴静态审查：Standards 0 项可行动发现；Spec 0 项可确认缺陷，未把待验收当作已交付。
+- 混合独立 AI 任务使用搬移集合及当前三个 wheel，按入口选择实际 sample-check/sample-summary，保存两份知识与两份真实 Query 材料；Session `01a12933-464a-7513-b2bc-300c8146ee5d`，真实 Run `01a12933-c81d-7f12-95cd-2a15c5bc428f`，report revision 6。查询给定两行 CSV 得到降幅 -5% 至 12.5%、算术平均 3.75%，指出全体下限承诺没有支持；报告只含这个真实 Run。移走 PACK 和来源后，另一新 AI 任务仅凭 Session ID 通过六次公开只读调用恢复报告、两份原方法、两份真实查询原文及执行时 Guide，revision 保持 6，不重新执行或查询，也不声称原输入全部可重现。方法材料 ID 为 `01a12933-880b-7460-bdac-80004483b35a`、`01a12933-aad2-79a1-998a-efee9fb18cb3`；事实材料 ID 为 `01a12933-f095-7572-8a21-6dd87aa3f666`、`01a12934-2182-7682-8261-756a3d5fe8e4`。
+- 双轴静态审查覆盖实现与后续测试/合同增量：Standards 0 项可行动发现；Spec 0 项可确认缺陷，未把待验收当作已交付。两次审查均保留上述 MCP 门禁为未验证限制；最终恢复段仅补充实际已完成证据，不改变生产实现。
 - rust-coding 要求的 rust_diagnostics 工具当前未提供，VERIFY 为 blocked。应调用 `{mode:"full",workingDirectory:<本 worktree 根>}` 和 `{mode:"test",workingDirectory:<本 worktree 根>}`，默认全 targets/features；不能以手写 cargo 输出宣称替代。全量 workspace MCP 验证未执行；Linux 真实运行与干净 Windows profile 门禁不属于已通过证据。
 
 ## 公开接口方案
