@@ -1,6 +1,6 @@
 # PACK 知识入口：纯知识与知识驱动取证
 
-状态：CLI、Session 知识材料与产品 Skill 已实施，公开 CLI 与隔离 AI 任务验收已执行；必需的 rust_diagnostics 门禁已补齐，双平台 CI 正在复验。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。证据与限制见下文。
+状态：CLI、Session 知识材料与产品 Skill 已实施，公开 CLI 与隔离 AI 任务验收已执行；必需的 rust_diagnostics、双平台 Full CI 和 Payload 集成门禁已通过，受测提交为 cf52fc1e。不宣称 #143 的干净 Windows 客户端正式支持验收通过。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。证据与限制见下文。
 
 实施跟踪：[Issue #312](https://github.com/maokelong/kat-cli/issues/312)。Issue 包含可独立阅读的轻量 SDD 与验收清单。
 
@@ -195,9 +195,11 @@
 
 - PR Guard 的 issue 关联改为 `Refs #312`；用户明确批准当前端到端切片规模后，添加 `approved-large-change`。门禁运行 [38125326667](https://github.com/maokelong/kat-cli/actions/runs/38125326667) 通过；该标签只豁免规模，不豁免执行验收。Guard 自身单测 19 项通过。
 - 在本 managed worktree 根，通过标准 MCP SDK 的 stdio 客户端连接已安装 RustBot 的原始 `rust-diagnostics/server.ts`，实际执行 `rust_diagnostics` 的 `full`，再执行 `test`。服务与锁定依赖只复制到隔离临时目录，未修改服务实现或全局 Codex 配置。原文件与副本 SHA-256 同为 `3b50faf73f0894773c8307fe3e8878046aca353dd9c1c10622c6dd3df0677e56`。
-- 检查代码版本为 `1f5f8ef753fa8ebb624185732c31bf3267031df6`，Rust/Cargo 1.95.0；两次调用均指定 `workspace=true`、`locked=true`，保留默认全 targets/features。`full` 实际运行 fmt、check、clippy，三条命令退出码均为 0；原始 metadata 状态为 `passed`，MCP 响应为 `ok` / `statusDetail=passed`。两项既有 test support dead_code 在 check/clippy 中各出现一次，无错误或新增告警。
+- 在 `1f5f8ef753fa8ebb624185732c31bf3267031df6` 首次检查后，于最终 CI 修复版本 `cf52fc1e59f1c03e50d3f6b467cfa947123343f8` 再次执行 `full` 和 `test`，结果一致。Rust/Cargo 1.95.0；两次调用均指定 `workspace=true`、`locked=true`，保留默认全 targets/features。`full` 实际运行 fmt、check、clippy，三条命令退出码均为 0；原始 metadata 状态为 `passed`，MCP 响应为 `ok` / `statusDetail=passed`。两项既有 test support dead_code 在 check/clippy 中各出现一次，无错误或新增告警。
 - `test` 实际运行 `cargo test --all-targets --all-features --workspace --locked`，退出码 0，240 通过、13 忽略、0 失败；原始 metadata 为 `passed`。默认忽略不构成真实 Host 验收，因此将现有 `real_host_combines_knowledge_and_workflow_and_recovers_without_pack` 接入 Full CI 的双平台真实 Host 步骤，与已有 wheel 构建及安装共用输入，不增加新 job 或占位测试。该多命令步骤显式使用 GitHub Actions 的 fail-fast Bash shell，确保 Windows 上中间测试失败也会阻断步骤，而非只检查最后一条命令退出码。
-- 双平台 Full CI 与 Build Payloads 在最终提交上复验；完成后补记实际运行链接与结果。按照 ADR-0002 和 `release-rehearsal.md`，PR 集成门禁与发行级验收分开记录。干净 Windows 10/11 客户端的正式支持验收仍归 #143；GitHub Windows builder 或本开发机测试不冒称该验收通过，本 PR 保留 Windows pre-release candidate 状态。
+- `cf52fc1e` 的 [Full CI 38125903395](https://github.com/maokelong/kat-cli/actions/runs/38125903395) 两平台均通过。实际日志确认新增混合测试在 Linux 和 Windows 各为 1 通过、0 忽略；各自 Host/SDK pytest 均为 220 通过，已安装 SDK 与独立升级验证均为 `passed`。默认全套中仍保留既有忽略项，不把默认忽略计为实际执行。
+- 同一提交的 [Build Payloads 38125906386](https://github.com/maokelong/kat-cli/actions/runs/38125906386) 全部通过：两平台 Payload 构建、Skill 装配、公开产物合同、Linux release Skill full-loop smoke 和 Windows builder-image archive smoke。两条 smoke 均核对实际运行日志，不以目录夹具代替执行。最终 CI 修复提交的 [PR Guard 38125937765](https://github.com/maokelong/kat-cli/actions/runs/38125937765)、常规 check 与 Release plan 也通过。
+- 收尾提交仅补充本文件的验证证据，不改变受测代码、产品 Skill、构建输入或 CI 命令。按照 ADR-0002 和 `release-rehearsal.md`，PR 集成门禁与发行级验收分开记录。干净 Windows 10/11 客户端的正式支持验收仍归 #143；GitHub Windows builder 或本开发机测试不冒称该验收通过，本 PR 保留 Windows pre-release candidate 状态。
 
 ## 公开接口方案
 
