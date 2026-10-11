@@ -1,0 +1,132 @@
+kat/skills/kat-review/SKILL.md
+  s_704addb60e0de2::t_f9300787e299a2 3,46
+kat/platform/cli/src/analysis_store.rs
+  s_704addb60e0de2::t_45d847683d4489 12,50,57-61,66
+  s_704addb60e0de2::t_008462e925ac3e 32-49,51-56,62-65,67-97,118,169,190
+kat/platform/cli/src/pack_discovery.rs
+  s_704addb60e0de2::t_c33b93bbad608d 28-31,215-218
+kat/skills/kat-author/references/pack-authoring-flow.md
+  s_704addb60e0de2::t_824b5122357177 20,51,58,72-73,334
+kat/platform/cli/src/lib.rs
+  s_704addb60e0de2::t_c33b93bbad608d 6
+  s_704addb60e0de2::t_008462e925ac3e 7,44-45,139
+docs/specs/pack-knowledge-entries.md
+  s_704addb60e0de2::t_49fb544fd331e2 3,5,151,153-164,243
+  s_704addb60e0de2::t_7d728143bfaa54 1-2,4,6-150,152,165-242,244-256
+kat/skills/kat-author/SKILL.md
+  s_704addb60e0de2::t_f9300787e299a2 3,14,24
+kat/skills/kat-author/references/result-contract.md
+  s_704addb60e0de2::t_824b5122357177 10
+kat/skills/kat-author/references/knowledge-authoring.md
+  s_704addb60e0de2::t_824b5122357177 1-21
+kat/skills/kat-author/references/examples/knowledge-pack/knowledge/evidence-rules.md
+  s_704addb60e0de2::t_824b5122357177 1-5
+kat/skills/kat/references/command-reference.md
+  s_704addb60e0de2::t_b56f12d6aaed64 5,60-80,82,84
+  s_704addb60e0de2::t_c524823bb61ee6 116,127,207
+  s_704addb60e0de2::t_d9e9afaa7181e4 147-154,179-201
+kat/platform/cli/src/knowledge_read.rs
+  s_704addb60e0de2::t_45d847683d4489 9,39-42,71-72
+  s_704addb60e0de2::t_008462e925ac3e 1-8,10-38,43-70,73-79
+  s_704addb60e0de2::t_7ed35d459fdb03 80-103
+kat/platform/cli/src/analysis_record.rs
+  s_704addb60e0de2::t_008462e925ac3e 7,13,45-50,109,132-179,185-228
+kat/skills/kat-analyze/references/result-contract.md
+  s_704addb60e0de2::t_f9300787e299a2 10,15,27
+Cargo.toml
+  s_704addb60e0de2::t_c33b93bbad608d 37
+kat/platform/cli/tests/analysis.rs
+  s_704addb60e0de2::t_87dd4c184148a4 244
+kat/skills/kat/SKILL.md
+  s_704addb60e0de2::t_f9300787e299a2 12,14,20
+kat/skills/kat-analyze/references/knowledge-flow.md
+  s_704addb60e0de2::t_f9300787e299a2 1-25
+kat/platform/cli/tests/analysis_real_host.rs
+  s_704addb60e0de2::t_87dd4c184148a4 287
+kat/skills/kat-analyze/SKILL.md
+  s_704addb60e0de2::t_f9300787e299a2 3,8,18,20-22,24,26,33,40
+docs/adr/0088-pack-owned-knowledge-entries.md
+  s_704addb60e0de2::t_49fb544fd331e2 7
+  s_704addb60e0de2::t_7643ad844379b1 1-6,8-35
+kat/skills/kat-analyze/references/analysis-flow.md
+  s_704addb60e0de2::t_f9300787e299a2 3,20
+kat/skills/kat-author/references/examples/knowledge-pack/pack.toml
+  s_704addb60e0de2::t_824b5122357177 1-4
+kat/platform/cli/src/knowledge.rs
+  s_704addb60e0de2::t_c33b93bbad608d 1-11,13-31,64-125,127-157,159-167,169-179,181,189-194,197
+  s_704addb60e0de2::t_308f423d58aeda 126,158,168,180,182-188
+  s_704addb60e0de2::t_008462e925ac3e 12,32-38,44-63
+  s_704addb60e0de2::t_45d847683d4489 39-43
+  s_704addb60e0de2::t_d6719467cb34ae 195-196,198-298
+kat/platform/cli/Cargo.toml
+  s_704addb60e0de2::t_c33b93bbad608d 16
+kat/platform/cli/src/analysis.rs
+  s_704addb60e0de2::t_008462e925ac3e 115
+kat/skills/kat-author/references/examples/knowledge-pack/skills/evidence-review/SKILL.md
+  s_704addb60e0de2::t_824b5122357177 1-10
+kat/platform/cli/tests/knowledge.rs
+  s_704addb60e0de2::t_8c3ae844a3d1a8 1-2,4-30,37-43,168-170,177-181,259-261,291-292
+  s_704addb60e0de2::t_57c8c35f236027 293-297,322,330-332
+  s_704addb60e0de2::t_10304cd04cb2fb 333-338,346-355,377-380,402-410,421-425,434-435,441,458,482-483,491-496,538-543,554,571-573,582-583,608-613,619-625,633-634,665-673,690,758,762
+  s_704addb60e0de2::t_87dd4c184148a4 599-601,606-607
+  s_704addb60e0de2::t_577d8accb8ccb0 31-36,49-68,77-92,98-121,123-138,143-149,151-157,160-166,171-176,194-203,210-217,221-234,240-253,262-290,298-321,323-329,339-345,356-376,381-401,411-420,426-433,436-440,442-457,459-481,484-490,497-537,544-553,555-570,574-581,584-598,602-605,614-618,626-632,635-664,674-689,691-757,759-761
+  s_704addb60e0de2::t_63b7a2de6a26f1 182-193,204-209,218-220,235-239,254-258
+  s_704addb60e0de2::t_9bf867e4a1e211 3,44-48,69-76,93-97,122,139-142,150,158-159,167
+  s_704addb60e0de2::t_10c4f5274e60fc 763-944
+kat/platform/cli/src/inspect.rs
+  s_704addb60e0de2::t_c33b93bbad608d 21-22,33-44,97-107
+CONTEXT.md
+  s_704addb60e0de2::t_a31bd3e030dbd4 3,8,14,17-23,34,193,196
+  s_704addb60e0de2::t_dbd8b0b60be94d 168
+Cargo.lock
+  s_704addb60e0de2::t_b1c609f8db9a53 723,1323-1328,1408-1420,1642-1647
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "1d84cc406c93e5853303c0b63a21ab98e8eca866",
+  "prompts": {},
+  "sessions": {
+    "s_704addb60e0de2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a128c5-2913-7153-a63e-ccf2df12db68",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1699,
+      "total_deletions": 145,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_008462e925ac3e": "gpt-6.1-sol",
+        "t_10304cd04cb2fb": "gpt-6.1-sol",
+        "t_308f423d58aeda": "gpt-6.1-sol",
+        "t_45d847683d4489": "gpt-6.1-sol",
+        "t_49fb544fd331e2": "gpt-6.1-sol",
+        "t_577d8accb8ccb0": "gpt-6.1-sol",
+        "t_57c8c35f236027": "gpt-6.1-sol",
+        "t_63b7a2de6a26f1": "gpt-6.1-sol",
+        "t_7643ad844379b1": "gpt-6.1-sol",
+        "t_7d728143bfaa54": "gpt-6.1-sol",
+        "t_824b5122357177": "gpt-6.1-sol",
+        "t_87dd4c184148a4": "gpt-6.1-sol",
+        "t_8c3ae844a3d1a8": "gpt-6.1-sol",
+        "t_9bf867e4a1e211": "gpt-6.1-sol",
+        "t_a31bd3e030dbd4": "gpt-6.1-sol",
+        "t_b56f12d6aaed64": "gpt-6.1-sol",
+        "t_c33b93bbad608d": "gpt-6.1-sol",
+        "t_c524823bb61ee6": "gpt-6.1-sol",
+        "t_cf92d56e921448": "gpt-6.1-sol",
+        "t_d9e9afaa7181e4": "gpt-6.1-sol",
+        "t_dbd8b0b60be94d": "gpt-6.1-sol",
+        "t_f9300787e299a2": "gpt-6.1-sol"
+      },
+      "model_totals": {
+        "gpt-6.1-sol": {
+          "additions": 1699,
+          "deletions": 145
+        }
+      }
+    }
+  }
+}
