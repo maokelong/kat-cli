@@ -1,0 +1,69 @@
+docs/specs/pack-knowledge-entries.md
+  s_704addb60e0de2::t_b63d9f2e9195e0 3,198,200-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "b6b9485367fc91ae022d0384c3686c8fbf1ed965",
+  "prompts": {},
+  "sessions": {
+    "s_704addb60e0de2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a128c5-2913-7153-a63e-ccf2df12db68",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 5,
+      "total_deletions": 3,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_008462e925ac3e": "gpt-6.1-sol",
+        "t_09daf8b6e719ae": "gpt-6.1-sol",
+        "t_0e0d04d83f75be": "gpt-6.1-sol",
+        "t_10304cd04cb2fb": "gpt-6.1-sol",
+        "t_24d7af9627900d": "gpt-6.1-sol",
+        "t_308f423d58aeda": "gpt-6.1-sol",
+        "t_45d847683d4489": "gpt-6.1-sol",
+        "t_48127d8e10e7df": "gpt-6.1-sol",
+        "t_49fb544fd331e2": "gpt-6.1-sol",
+        "t_577d8accb8ccb0": "gpt-6.1-sol",
+        "t_57c8c35f236027": "gpt-6.1-sol",
+        "t_58909320d8a379": "gpt-6.1-sol",
+        "t_5a6889c75f90e6": "gpt-6.1-sol",
+        "t_5fb2bb927d2627": "gpt-6.1-sol",
+        "t_63b7a2de6a26f1": "gpt-6.1-sol",
+        "t_7643ad844379b1": "gpt-6.1-sol",
+        "t_7d42a8c786a9a4": "gpt-6.1-sol",
+        "t_7d728143bfaa54": "gpt-6.1-sol",
+        "t_7fcf84fb616433": "gpt-6.1-sol",
+        "t_824b5122357177": "gpt-6.1-sol",
+        "t_87dd4c184148a4": "gpt-6.1-sol",
+        "t_88039096b06133": "gpt-6.1-sol",
+        "t_8b5aeeb608e5ff": "gpt-6.1-sol",
+        "t_8c3ae844a3d1a8": "gpt-6.1-sol",
+        "t_9bf867e4a1e211": "gpt-6.1-sol",
+        "t_9cec733a729ea5": "gpt-6.1-sol",
+        "t_a31bd3e030dbd4": "gpt-6.1-sol",
+        "t_ab25fec97a470a": "gpt-6.1-sol",
+        "t_b418120459fe56": "gpt-6.1-sol",
+        "t_b56f12d6aaed64": "gpt-6.1-sol",
+        "t_b63d9f2e9195e0": "gpt-6.1-sol",
+        "t_c33b93bbad608d": "gpt-6.1-sol",
+        "t_c524823bb61ee6": "gpt-6.1-sol",
+        "t_ca900937cd9b66": "gpt-6.1-sol",
+        "t_cf92d56e921448": "gpt-6.1-sol",
+        "t_d9e9afaa7181e4": "gpt-6.1-sol",
+        "t_dbd8b0b60be94d": "gpt-6.1-sol",
+        "t_f8fc7ed3f5ca8d": "gpt-6.1-sol",
+        "t_f9300787e299a2": "gpt-6.1-sol"
+      },
+      "model_totals": {
+        "gpt-6.1-sol": {
+          "additions": 1925,
+          "deletions": 275
+        }
+      }
+    }
+  }
+}
