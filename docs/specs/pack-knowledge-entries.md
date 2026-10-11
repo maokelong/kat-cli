@@ -1,6 +1,6 @@
 # PACK 知识入口：纯知识与知识驱动取证
 
-状态：CLI、Session 知识材料与产品 Skill 已实施，公开 CLI 与隔离 AI 任务验收已执行；必需的 rust_diagnostics 门禁受工具缺失阻塞，尚未宣称整体交付完成。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。证据与限制见下文。
+状态：CLI、Session 知识材料与产品 Skill 已实施，公开 CLI 与隔离 AI 任务验收已执行；必需的 rust_diagnostics 门禁已补齐，双平台 CI 正在复验。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。证据与限制见下文。
 
 实施跟踪：[Issue #312](https://github.com/maokelong/kat-cli/issues/312)。Issue 包含可独立阅读的轻量 SDD 与验收清单。
 
@@ -188,6 +188,16 @@
 `quick_validate`、`git diff --check` 和集合安装/搬移测试 10 项通过；全量 `build/tests` 共 90 项，85 通过、5 因既有平台验收输入缺失跳过。全量构建单测最初因系统 Python 缺少 SDK 声明的构建依赖无法加载；在临时验证 venv 安装锁定的 setuptools 80.9.0、griffelib 2.3.0、markdown-it-py 4.2.0 后通过，未改系统或发布载荷依赖。`cargo test -p kat-cli` 默认全套通过，已有忽略项和警告保留。格式/搬移测试不代替 AI 行为验证，本轮未运行 Linux Payload；前述必需 MCP、干净客户端和全量 workspace 门禁限制不变。
 
 两路独立静态审查以用户确认的 `291e29768f844a27b52b2d450f53d2f203ab2c27` 比较到 `0e09b52b1aa5b13d23b902c270e466fdb007d968` 的完整 PR，并补审上述重复验收与恢复证据增量：Standards 0 项可行动发现，Spec 0 项可确认缺陷。未把静态审查当作执行验证，仍保持 Draft 和原有待验收门禁。
+
+### 门禁补齐（2026-10-11）
+
+本轮只补齐验收证据和现有 CI 的执行覆盖，不修改知识、Workflow 或 Session 的生产合同，不降低门禁阈值，不提升 Windows 正式支持级别。此前段落的工具缺失、未运行 Linux 与 Draft 描述是当时状态，以本节的实际结果为准。
+
+- PR Guard 的 issue 关联改为 `Refs #312`；用户明确批准当前端到端切片规模后，添加 `approved-large-change`。门禁运行 [38125326667](https://github.com/maokelong/kat-cli/actions/runs/38125326667) 通过；该标签只豁免规模，不豁免执行验收。Guard 自身单测 19 项通过。
+- 在本 managed worktree 根，通过标准 MCP SDK 的 stdio 客户端连接已安装 RustBot 的原始 `rust-diagnostics/server.ts`，实际执行 `rust_diagnostics` 的 `full`，再执行 `test`。服务与锁定依赖只复制到隔离临时目录，未修改服务实现或全局 Codex 配置。原文件与副本 SHA-256 同为 `3b50faf73f0894773c8307fe3e8878046aca353dd9c1c10622c6dd3df0677e56`。
+- 检查代码版本为 `1f5f8ef753fa8ebb624185732c31bf3267031df6`，Rust/Cargo 1.95.0；两次调用均指定 `workspace=true`、`locked=true`，保留默认全 targets/features。`full` 实际运行 fmt、check、clippy，三条命令退出码均为 0；原始 metadata 状态为 `passed`，MCP 响应为 `ok` / `statusDetail=passed`。两项既有 test support dead_code 在 check/clippy 中各出现一次，无错误或新增告警。
+- `test` 实际运行 `cargo test --all-targets --all-features --workspace --locked`，退出码 0，240 通过、13 忽略、0 失败；原始 metadata 为 `passed`。默认忽略不构成真实 Host 验收，因此将现有 `real_host_combines_knowledge_and_workflow_and_recovers_without_pack` 接入 Full CI 的双平台真实 Host 步骤，与已有 wheel 构建及安装共用输入，不增加新 job 或占位测试。
+- 双平台 Full CI 与 Build Payloads 在最终提交上复验；完成后补记实际运行链接与结果。按照 ADR-0002 和 `release-rehearsal.md`，PR 集成门禁与发行级验收分开记录。干净 Windows 10/11 客户端的正式支持验收仍归 #143；GitHub Windows builder 或本开发机测试不冒称该验收通过，本 PR 保留 Windows pre-release candidate 状态。
 
 ## 公开接口方案
 
