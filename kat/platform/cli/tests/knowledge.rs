@@ -539,6 +539,58 @@ fn concurrent_first_adoption_deduplicates_under_the_record_lock() {
 }
 
 #[test]
+fn saved_knowledge_reads_do_not_scan_unrelated_corrupt_runs() {
+    let fixture = Fixture::new();
+    let session = fixture.session();
+    let adopted = success(
+        fixture
+            .command()
+            .args([
+                "knowledge",
+                "read",
+                "--session",
+                &session,
+                "--pack",
+                "review-pack",
+                "--entry",
+                "code-review",
+            ])
+            .output()
+            .unwrap(),
+    );
+    let run = fixture
+        .home
+        .join("sessions")
+        .join(&session)
+        .join("runs")
+        .join(uuid::Uuid::now_v7().to_string());
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("manifest.json"), b"corrupt").unwrap();
+    failure(
+        fixture
+            .command()
+            .args(["inspect", "session", "--session", &session])
+            .output()
+            .unwrap(),
+    );
+    for args in [
+        vec!["--material", adopted["material_id"].as_str().unwrap()],
+        vec!["--pack", "review-pack", "--entry", "code-review"],
+    ] {
+        let restored = success(
+            fixture
+                .command()
+                .args(["knowledge", "read", "--session", &session])
+                .args(args)
+                .output()
+                .unwrap(),
+        );
+        assert_eq!(restored["material"], adopted["material"]);
+        assert_eq!(restored["revision"], 2);
+    }
+}
+
+#[test]
 fn adoption_requires_goal_and_valid_cli_selection() {
     let fixture = Fixture::new();
     let session = success(
@@ -734,6 +786,69 @@ fn failed_record_replacement_retains_the_previous_record() {
     assert_eq!(fs::read(path).unwrap(), original);
 }
 
+#[cfg(windows)]
+#[test]
+fn junction_targets_cannot_escape_pack_or_alias_a_declaration() {
+    let fixture = Fixture::new();
+    let session = fixture.session();
+    let outside = fixture.home.join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("rules.md"), "outside").unwrap();
+    fs::create_dir_all(fixture.pack.join("knowledge")).unwrap();
+    for (link, target, path) in [
+        ("outside", outside, "knowledge/outside/rules.md"),
+        (
+            "declarations",
+            fixture.pack.join("skills"),
+            "knowledge/declarations/code-review/SKILL.md",
+        ),
+    ] {
+        let created = Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(
+                fixture
+                    .pack
+                    .join("knowledge")
+                    .join(link)
+                    .to_string_lossy()
+                    .replace('/', "\\"),
+            )
+            .arg(target.to_string_lossy().replace('/', "\\"))
+            .output()
+            .unwrap();
+        assert!(
+            created.status.success(),
+            "{}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+        failure(
+            fixture
+                .command()
+                .args([
+                    "knowledge",
+                    "read",
+                    "--session",
+                    &session,
+                    "--pack",
+                    "review-pack",
+                    "--path",
+                    path,
+                ])
+                .output()
+                .unwrap(),
+        );
+    }
+    let record = success(
+        fixture
+            .command()
+            .args(["analysis", "show", "--session", &session])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(record["revision"], 1);
+    assert_eq!(record["materials"], json!({}));
+}
+
 #[test]
 #[ignore = "requires KAT_TEST_PYTHON and wheels built from the current checkout"]
 fn real_host_combines_knowledge_and_workflow_and_recovers_without_pack() {
@@ -755,6 +870,7 @@ fn real_host_combines_knowledge_and_workflow_and_recovers_without_pack() {
     fs::create_dir_all(pack.join("skills/code-review")).unwrap();
     fs::create_dir_all(pack.join("workflows")).unwrap();
     fs::create_dir_all(pack.join("knowledge")).unwrap();
+    fs::create_dir_all(pack.join("knowledge/workflows")).unwrap();
     fs::write(pack.join("pack.toml"), "name = \"review-pack\"\ntitle = \"Review\"\ndescription = \"团队评审经验\"\nowner = \"Review team\"\n").unwrap();
     fs::write(pack.join("skills/code-review/SKILL.md"), ORIGINAL).unwrap();
     fs::write(
@@ -763,7 +879,7 @@ fn real_host_combines_knowledge_and_workflow_and_recovers_without_pack() {
     )
     .unwrap();
     fs::write(
-        pack.join("knowledge/facts.md"),
+        pack.join("knowledge/workflows/facts.md"),
         "# Facts\n单位毫秒，仅两次测量。\n",
     )
     .unwrap();
@@ -772,7 +888,7 @@ fn real_host_combines_knowledge_and_workflow_and_recovers_without_pack() {
         r#"import pyarrow as pa
 from kat import Context, workflow, dataprovider as dp
 
-@workflow(name="facts", description="Publish two measurements.", guide="facts.md")
+@workflow(name="facts", description="Publish two measurements.", guide="workflows/facts.md")
 def facts(ctx: Context):
     return dp.Table.from_arrow(pa.table({"duration_ms": [20, 22]}))
 "#,
@@ -850,13 +966,14 @@ def facts(ctx: Context):
             .output()
             .unwrap(),
     );
-    assert_eq!(query["previous_revision"], 3);
-    assert_eq!(query["revision"], 4);
+    let archive = &query["analysis"];
+    assert_eq!(archive["previous_revision"], 3);
+    assert_eq!(archive["revision"], 4);
     let report = format!(
         "两次测量合计 42ms，不推广到全体用户。方法 {}、准则 {}，事实 {}。",
         knowledge["material_id"].as_str().unwrap(),
         reference["material_id"].as_str().unwrap(),
-        query["material_id"].as_str().unwrap()
+        archive["material_id"].as_str().unwrap()
     );
     let input = fixture.home.join("result.json");
     fs::write(
@@ -920,7 +1037,7 @@ def facts(ctx: Context):
                 "--session",
                 &session,
                 "--material",
-                query["material_id"].as_str().unwrap(),
+                archive["material_id"].as_str().unwrap(),
             ])
             .output()
             .unwrap(),

@@ -196,7 +196,7 @@ kat query --session S --run R --sql SQL --archive
 
 后续请求可以包含 goal、nodes:[{run_id,content}] 或 report:{content}；省略保留原值，不接受 null 删除。nodes 只指向该 Session 真实 Run，纯知识任务直接写 report。更新基于已核对 revision，冲突先重读，不能只换数字重提。save 成功返回更新后的概览，无需额外回读确认。
 
---archive 查询要求先保存 goal；除普通 Query 字段外返回 material_id、previous_revision 和 revision，把实际 SQL、Run、列及 NDJSON 写为 Query 材料。归档不替换正文。若 previous_revision 不等于此前已知 revision，先 show 核对并发写入；结果、快照或正文保存响应不确定时先恢复记录，不盲目重试。
+--archive 查询要求先保存 goal；普通 Query 字段之外的 `result.analysis` 返回 session_id、material_id、previous_revision 和 revision，把实际 SQL、Run、列及 NDJSON 写为 Query 材料。归档不替换正文。若 previous_revision 不等于此前已知 revision，先 show 核对并发写入；结果、快照或正文保存响应不确定时先恢复记录，不盲目重试。
 
 ## 删除已有 Session
 

@@ -1,6 +1,6 @@
 # PACK 知识入口：纯知识与知识驱动取证
 
-状态：CLI、Session 知识材料与产品 Skill 已实施，正在完成验收；尚未宣称整体交付完成。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。验收证据与未验证边界见下文。
+状态：CLI、Session 知识材料与产品 Skill 已实施，公开 CLI 与隔离 AI 任务验收已执行；必需的 rust_diagnostics 门禁受工具缺失阻塞，尚未宣称整体交付完成。架构决定见 [ADR-0088](../adr/0088-pack-owned-knowledge-entries.md)。证据与限制见下文。
 
 实施跟踪：[Issue #312](https://github.com/maokelong/kat-cli/issues/312)。Issue 包含可独立阅读的轻量 SDD 与验收清单。
 
@@ -154,13 +154,17 @@
 
 实现位于 CLI 的 knowledge.rs、knowledge_read.rs、inspect.rs、lib.rs 与现有 analysis_record/store；YAML 声明复用 [serde_yaml_ng](https://docs.rs/serde_yaml_ng/latest/serde_yaml_ng/)，未自建通用解析器。Entry 与 Reference 的加载复用原 PACK discovery，追加材料复用原记录锁与完整替换机制，不引入独立状态库。
 
-截至本次验收中途：
+验证环境：Windows x86_64 客户端；实施目录为隔离 managed worktree `issue-312-knowledge-entries/kat-cli`，起点为上述 291e297。以下命令均在该 worktree 根执行；临时 Runtime、安装集合、输入与 Session 仅用于验收，不进入交付内容。
 
-- `cargo test -p kat-cli --test knowledge`：10 通过，1 个真实 Host 测试默认忽略（待提供当前 wheel）；覆盖纯知识、恢复、更新、多版本歧义、并发首次去重、路径/声明/格式失败、schema 2 兼容及 Windows 替换失败保留。
+- `cargo test -p kat-cli --test knowledge`：12 通过、1 个真实 Host 测试默认忽略；覆盖纯知识、恢复、更新、多版本歧义、并发首次去重、路径/声明/格式失败、schema 2 兼容、Windows 替换失败保留、junction 最终目标边界和无关损坏 Run 不阻断知识读取。
+- `cargo test -p kat-cli` 全套默认测试通过；保留已有干净 Windows profile 和真实 Host 测试的默认忽略。既有共享 test support 在 analysis_archives 编译中有两项 dead_code 警告，未扩大本次范围修改。
+- 使用锁定且校验 SHA-256 的 CPython 3.14.6、uv 0.11.28，从本 checkout 构建 Workflow、SDK 与 Datasource wheel；依赖按 Windows lock 的哈希下载。设置 KAT_TEST_PYTHON、KAT_TEST_WORKFLOW_WHEEL、KAT_TEST_SDK_WHEEL、KAT_TEST_DATASOURCE_WHEEL 后，`cargo test -p kat-cli --test knowledge real_host_combines_knowledge_and_workflow_and_recovers_without_pack -- --ignored --exact` 及 `cargo test -p kat-cli --test analysis_real_host -- --ignored` 均通过。后者覆盖既有嵌套 Run、各自 Guide、Query 材料与移除 PACK 后恢复。
 - `cargo check -p kat-cli` 通过；修改 Rust 文件的 rustfmt 与 git diff --check 通过。以上是补充诊断，不代替下述必需 MCP 验证。
-- 四个受影响产品 Skill 的 quick_validate 通过；发布集合、装配、骨架单测共 27 项，22 通过、5 因缺平台验收输入跳过。
-- 独立 AI 使用搬移后的安装副本完成事实评审纯知识任务：两份知识材料、保存 revision 4、零 nodes、无 Python；恢复与混合路径继续验证中。
-- rust-coding 要求的 rust_diagnostics 工具当前未提供，VERIFY 为 blocked。应在本 worktree 根调用 `mode=full`（workspace 默认全 targets/features）与 `mode=test`；不能以手写 cargo 输出宣称替代该门禁。
+- 四个受影响产品 Skill 和新示例入口的 quick_validate 通过；`python -m unittest discover -s build/tests -p test_skill_collection.py`、`test_assemble_skill.py`、`test_scaffold_pack.py` 共 27 项，22 通过、5 因缺平台验收输入跳过。集合测试验证搬移后链接与部署路径，不冒称已运行 Linux Payload。
+- 独立 AI 使用搬移的五 Skill 集合与当前 CLI、真实方法文件完成纯知识事实评审，保存两份知识材料、revision 4、零节点；没有 Python Host。Session `01a1292a-b397-7f90-a5f6-0a75a2c08650` 的方法 ID 为 `01a1292b-00c4-7cc0-b5b1-f302864841d1` 与 `01a1292b-1ecb-7d30-abbb-4ca061ac57fe`。移走 PACK 后，另一新 AI 任务仅凭 Session ID 恢复目标、报告与两份原方法，revision 保持 4，不重新执行或补造测量事实。
+- 混合独立 AI 任务使用搬移集合及当前三个 wheel，按入口选择实际 sample-check/sample-summary，保存两份知识与两份真实 Query 材料；Session `01a12933-464a-7513-b2bc-300c8146ee5d`，真实 Run `01a12933-c81d-7f12-95cd-2a15c5bc428f`，report revision 6。查询给定两行 CSV 得到降幅 -5% 至 12.5%、算术平均 3.75%，指出全体下限承诺没有支持；报告只含这个真实 Run。PACK 和来源移走后的独立只读恢复另行核对。
+- 双轴静态审查：Standards 0 项可行动发现；Spec 0 项可确认缺陷，未把待验收当作已交付。
+- rust-coding 要求的 rust_diagnostics 工具当前未提供，VERIFY 为 blocked。应调用 `{mode:"full",workingDirectory:<本 worktree 根>}` 和 `{mode:"test",workingDirectory:<本 worktree 根>}`，默认全 targets/features；不能以手写 cargo 输出宣称替代。全量 workspace MCP 验证未执行；Linux 真实运行与干净 Windows profile 门禁不属于已通过证据。
 
 ## 公开接口方案
 
@@ -170,7 +174,7 @@
 
 `SKILL.md` 以 YAML frontmatter 声明必填 string `name` 和 `description`，首版只接受这两个字段，未知字段、重复字段、非法名称、空描述或 frontmatter 后空正文均失败。`description` 按既有展示字段约定 trim，原文件不改写；正文与快照保留完整原文，包含 frontmatter、换行和空白。PACK 的领域与用途使用既有 `pack.toml.description` 及入口描述表达，不增加 `domain` manifest 字段。
 
-只发现 `skills/` 一级入口目录中的 `SKILL.md`；没有 `skills/` 或没有入口是完整空列表。列表校验所有声明后按名称排序，只返回元数据，不解析正文语义、不读取引用、不执行 Python。缺失引用不影响列表，实际请求该引用时再失败。选定单个入口只校验该入口，不加载其他入口、Workflow 或 Provider。
+只发现 `skills/` 一级入口目录中的 `SKILL.md`；没有 `skills/` 或没有入口是完整空列表。列表校验所有声明后按名称排序，只返回元数据，不解析正文语义、不读取引用、不导入或执行 PACK Python。发现已安装 SDK 的根沿用既有定位机制；没有 Python Host 时静态 PACK 仍可发现。缺失引用不影响列表，实际请求该引用时再失败。选定单个入口只校验该入口，不加载其他入口、Workflow 或 Provider。
 
 YAML 由成熟解析库处理，不自建通用 YAML 解析器；frontmatter 分隔与位置判断仅保留必要胶水。Markdown 是不透明原文，KAT 不执行其中指令、不渲染模板、不解析正文建立知识依赖图；这些内容由 AI 在任务授权范围内应用。
 
