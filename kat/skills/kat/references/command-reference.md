@@ -2,7 +2,7 @@
 
 用户只需用自然语言说明目标。以下命令供 KAT Skills 共用；始终以本合同选出的平台载荷绝对路径替代示例中的 `kat`。
 
-除 `--help` 外，每次 KAT CLI 调用的 stdout 都是一个 KAT Response JSON。只在 `status="success"` 时读取 `result`；失败时读取 `error`，以及存在时的 `log_path` 或 `test_report_path`。不要从终端文本、日志或 pytest 输出推断成功。
+通过 CLI 参数解析后的调用以 KAT Response JSON 输出 stdout；帮助与参数解析拒绝使用终端文本。只在 `status="success"` 时读取 `result`；失败时读取 `error`，以及存在时的 `log_path` 或 `test_report_path`。不要从终端文本、日志或 pytest 输出推断业务成功。
 
 ## 调用前选择平台载荷
 
@@ -54,17 +54,34 @@ kat inspect [--pack-dir <PACK目录> ...]
 kat inspect workflow --pack <PACK名称> [--pack-dir <PACK目录> ...]
 kat inspect workflow --pack <PACK名称> --workflow <Workflow名称> \
   [--pack-dir <PACK目录> ...]
-kat inspect workflow --session <Session ID> --run <Run ID> \
-  [--pack-dir <PACK目录> ...]
 ```
 
 - 第一条列出 PACK 的 Workflow。成功 `result.workflows` 按 `name` 排序；每项恰好只有 `name`、`description`。
-- 第二条返回一个精确 Workflow。成功 `result.workflow` 恰好只有 `name`、`description`、`parameters`、`guide`；未声明 guide 时 `guide` 是 JSON `null`。
-- 第三条从 `(Session ID, Run ID)` 定位 Workflow，并读取当前安装或指定 PACK 中该 Workflow 的 detail；它不会读取 Run 中的 guide 快照。`--session` 与 `--run` 必须一起提供，该定位与 `--pack`、`--workflow` 互斥。
+- 第二条返回一个精确 Workflow。成功 `result.workflow` 恰好只有 `name`、`description`、`parameters`；Guide 在实际执行时捕获，不在 discovery 返回。
 
-Workflow list 用于低成本筛选分析能力；只在选定一个 Workflow 后请求 detail。`guide` 是 Runtime 已读取的原始 Markdown 字符串，用于指导分析策略、结果发散和下一步方向。Agent 不自行拼接或打开 guide 路径。
+Workflow list 用于低成本筛选执行能力；选定后请求 detail。执行成功返回的 `guide` 是原始 Markdown 字符串或未声明时的 null；历史方法用 `inspect run` 读取，Agent 不自行拼接 Guide 路径。
 
-Workflow list 仍会校验所有声明的 guide。任一 Workflow 导入、声明、重名或 guide 无效都会使本次 inspection 原子失败，不返回部分列表。
+Workflow inspection 校验导入、声明与重名，不读取 Guide 文件。执行时所选 Guide 无效则该 Run 失败，不返回部分结果。
+
+## 独立知识：浏览与 Session 采纳
+
+```text
+kat inspect knowledge --pack P [--pack-dir D ...]
+kat inspect knowledge --pack P --entry E [--pack-dir D ...]
+kat inspect knowledge --pack P --path F [--pack-dir D ...]
+kat knowledge read --session S --pack P --entry E [--pack-dir D ...]
+kat knowledge read --session S --pack P --path F [--pack-dir D ...]
+kat knowledge read --session S --material M
+kat knowledge read --session S --pack P --entry E --update --expected-revision R
+```
+
+浏览只读，不创建 Session、不导入 PACK Python。列表返回按 name 排序的 `entries:[{name,description}]`，校验所有声明，但不读取引用；目标入口只校验该入口，返回 `entry:{name,description,path,content}`。引用返回 `reference:{path,content}`。F 是使用 / 的规范化 PACK 根相对路径，不能使用 ..、尾随点/空格、反斜杠或逃逸 PACK 的最终目标。SKILL.md 声明必须用 --entry；CLI 不遍历链接，仅支持 UTF-8 文本，不执行代码示例。
+
+Session 采纳前必须成功保存 goal。成功回执含 `session_id,previous_revision,revision,material_id,material`；material 是 `{kind:"knowledge",pack,path,entry:{name,description}|null,content}`，content 保留实际读取的原文与换行，先持久化才返回。入口链接相对返回 path，由 AI 规范化后按需读取。
+
+普通读取优先返回同键唯一已保存快照，不依赖当前 PACK，也不改变 revision；首次采纳追加材料且 revision +1。同键多个快照拒绝猜最新，错误列出候选 ID。--material 只读取已有知识材料，与 pack、entry、path、pack-dir、update、expected-revision 互斥；Query 材料用 analysis show。
+
+明确要求换方法时才用 --update 与 --expected-revision 配对，可用于入口或引用，也可附 pack-dir；在记录锁内比对 revision 并追加新 ID，保留旧快照。回执 previous_revision 与已知 revision 不同先核对记录；失败或响应不确定不能盲目重提。未采纳引用不保证历史恢复，当前文件不能冒充历史引用。
 
 ## 发现和读取 Provider 知识
 
@@ -96,7 +113,7 @@ Provider `guide` 是 Runtime 已读取的原始 Markdown，说明数据库、SQL
 kat session create
 ```
 
-生产分析必须在运行任何 Workflow 前显式创建 Analysis Session。该命令不接受 Session ID；成功 Response 精确为 `{"status":"success","result":{"session_id":"<Session ID>"}}`，并发布一个可以为空的 Session。失败时没有部分 `result`，也不能把候选目录当作 Session。新建后可以立即用 Session inspection 得到 `runs: []`。
+生产任务必须在采纳知识或运行任何 Workflow 前显式创建 Analysis Session。该命令不接受 Session ID；成功 Response 精确为 `{"status":"success","result":{"session_id":"<Session ID>"}}`，并发布一个可以为空的 Session。失败时没有部分 `result`，也不能把候选目录当作 Session。新建后可以立即用 Session inspection 得到 `runs: []`。
 
 ## 执行 Workflow
 
@@ -107,7 +124,7 @@ kat run --session <已有 Session ID> \
   <来自 workflow detail.parameters 的参数>
 ```
 
-只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。每次生产 Run 的 `--session` 都必填，并且必须引用已经存在的 Session；缺少、错误、不存在或损坏的 Session 都不会隐式创建、复用或猜测 Session。成功后从 `result.session_id`、`result.run_id` 和 `result.outputs` 取得本次顶层可查询 Run 及其输出名称、columns 与行数；Response 不递归展开 `child_runs`。失败时不返回本次顶层 Run 的部分 `result` 或 Run ID，已存在的 Session 及其中已经独立发布的 Run 仍可 inspection。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
+只传 inspection 明示的 option；不要把秘密作为 Workflow 参数，因为参数可能进入 Operation log。每次生产 Run 的 `--session` 都必填，并且必须引用已经存在的 Session；缺少、错误、不存在或损坏的 Session 都不会隐式创建、复用或猜测 Session。成功 result 返回 `session_id`、`run_id`、`guide`、`outputs` 与 `child_runs`，取得自身方法及输出 inventory；不递归展开直接子 Run。失败时不返回本次顶层 Run 的部分 `result` 或 Run ID，已存在的 Session 及其中已经独立发布的 Run 仍可 inspection。Workflow 自己选择并调用 Provider；分析 Agent 不需要先 inspect Provider。
 
 例如，若 Workflow detail 明示 `--source-path` 和 `--limit`：
 
@@ -126,6 +143,14 @@ kat inspect session --session <Session ID>
 成功 `result` 恰含 `session_id` 和按 Run ID 稳定排序的 `runs`；空 Session 返回 `runs: []`。每个 Run 只包含 `run_id`、`pack`、`workflow`、`child_runs` 与和 Run success 相同形状的 `outputs` inventory。`child_runs` 只列出该 Run 直接、成功发布的子 Run ID，按 Run ID 排序但语义无序，叶子固定为 `[]`；它不递归嵌入后代，也不表达调用顺序、分支或线程。结果不包含 inputs、materializations、scratch、失败调用、执行计划或物理路径。KAT 不提供 Session list/current，也不跨 Data Home 搜索。
 
 ## 查询 Workflow 输出
+
+### 读取执行时方法
+
+```text
+kat inspect run --session S --run R
+```
+
+返回与成功 Run 相同的 session_id、run_id、guide、outputs、child_runs，不依赖当前 PACK。Guide 是执行时原文或未声明时 null；不暴露 inputs 或失败调用。
 
 ```text
 kat query --session <Session ID> --run <Run ID> --sql <一条只读 SQL>
@@ -151,13 +176,35 @@ ORDER BY table_name, ordinal_position
 
 成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
 
-## 删除一个 Session
+## 保存与恢复 Analysis Record
+
+```text
+kat analysis show --session S
+kat analysis show --session S --run R
+kat analysis show --session S --material M
+kat analysis save --session S --expected-revision R --file request.json
+kat query --session S --run R --sql SQL --archive
+```
+
+概览返回 schema_version、session_id、revision、goal、nodes（程序按真实父子关系排列）、materials（ID 到元数据，省略原文）和 report。--run 与 --material 互斥，分别返回对应 node 或完整 material。只读不会升级旧记录；新写入使用 schema 3，兼容读取 schema 2 的 Query 材料与报告，不接受未知版本或 schema 2 的知识材料。
+
+首次 save 使用 revision 0 且必须包含目标：
+
+```json
+{"goal":{"question":"用户目标","scope":"范围","gaps":[]}}
+```
+
+后续请求可以包含 goal、nodes:[{run_id,content}] 或 report:{content}；省略保留原值，不接受 null 删除。nodes 只指向该 Session 真实 Run，纯知识任务直接写 report。更新基于已核对 revision，冲突先重读，不能只换数字重提。save 成功返回更新后的概览，无需额外回读确认。
+
+--archive 查询要求先保存 goal；普通 Query 字段之外的 `result.analysis` 返回 session_id、material_id、previous_revision 和 revision，把实际 SQL、Run、列及 NDJSON 写为 Query 材料。归档不替换正文。若 previous_revision 不等于此前已知 revision，先 show 核对并发写入；结果、快照或正文保存响应不确定时先恢复记录，不盲目重试。
+
+## 删除已有 Session
 
 ```text
 kat session delete --session <Session ID>
 ```
 
-这是唯一删除入口，会永久删除该 Session 的 Runs、Outputs、materializations 与 scratch。成功 `result` 恰含 `session_id`；删除不创建 Operation log，也不删除 Session 外的既有 Operation logs 或 Query Results。活跃 Run、Query 或 inspection 占用该 Session 时删除立即失败且不修改它。失败后若已进入内部 tombstone，可以用相同命令续删；KAT 不提供单 Run 删除、TTL 或自动 GC。
+这是唯一删除入口，会永久删除该 Session 的 Runs、Outputs、materializations、scratch 与 Analysis Record（包括知识快照和报告）。成功 `result` 恰含 `session_id`；删除不创建 Operation log，也不删除 Session 外的既有 Operation logs 或 Query Results。活跃 Run、Query 或 inspection 占用该 Session 时删除立即失败且不修改它。失败后若已进入内部 tombstone，可以用相同命令续删；KAT 不提供单 Run 删除、TTL 或自动 GC。
 
 只有用户明确要求永久删除这个已知 Session 时才调用；分析完成、切换问题或磁盘空间可能不足都不自动构成删除授权。
 

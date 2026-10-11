@@ -1,20 +1,26 @@
 # KAT 领域词汇
 
-KAT 是面向性能分析的可扩展平台。本文只收录名称不足以表达的项目特有概念及其相邻边界；具体设计与实现合同由 ADR 和对应规格承载。
+KAT 是以性能分析为默认能力领域、允许 PACK 扩展其他领域经验知识的可扩展平台。本文只收录名称不足以表达的项目特有概念及其相邻边界；具体设计与实现合同由 ADR 和对应规格承载。
 
 ## 产品与交互
 
 **KAT**:
-Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看护责任的性能分析平台。Kernel 表达项目起源而非产品范围；平台维护者也不会因此让自己拥有的 PACK 获得特权。
+Kernel AI Kit 的简称，是由内核团队发起并承担平台基础设施看护责任、以性能分析为默认能力领域的平台，PACK 也可承载其他领域经验知识。Kernel 表达项目起源而非产品范围；平台维护者也不会因此让自己拥有的 PACK 获得特权。
 
 **KAT Skills**:
 KAT 面向用户成套安装、同版本发布和升级的产品 Skill 集合，包含负责路由的 `kat` 总入口，以及问题分析 `kat-analyze`、PACK 创作与维护 `kat-author`、分析复核 `kat-review`、官方 SDK 开发 `kat-dev-sdk` 四个并列任务入口。集合是原子发布单元，五个 Skill 同级部署，共用 `kat` 目录中的命令合同、运行环境和 Bundled PACK；成套安装不承诺五目录替换的文件系统原子事务。
 
 **KAT Skill**:
-KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别承接对应任务。问题分析入口可以在当前任务中临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
+KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别承接对应任务。问题分析入口可以应用知识入口，或临时组织多个正式 Workflow 并依据结构化事实形成结论，但这种调用序列本身不是新的 Workflow 或 Run；底层命令与运行机制不是独立产品面。
 
 **KAT Agent Knowledge**:
-由 KAT Skills 各入口拥有的公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、Runtime 结构化事实共同组成的渐进知识面。公共 API reference 是由 `kat-author` 持有的受控作者快照，Provider/Workflow guide 仍随其所有者交付。KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
+由 KAT Skills 各入口拥有的公共 reference、公共 Datasource Provider 与 PACK 各自拥有的 declaration 和 guide、PACK 自有 Knowledge entry、Runtime 结构化事实共同组成的渐进知识面。公共 API reference 是由 `kat-author` 持有的受控作者快照，Provider/Workflow guide 仍随其所有者交付。KAT 不把 PACK 知识复制进集中索引，也不自动摄取历史设计文档或源码注释。
+
+**Knowledge entry（知识入口）**:
+由 PACK 拥有和发布、供 AI 应用经验知识完成任务的独立能力入口，不要求绑定 Python 程序，也可以指导任务按需采用已有 Workflow。它与程序 Workflow 区分，知识应用本身不构成 Run。
+
+**Knowledge snapshot（知识快照）**:
+归属 Analysis Session、按材料 ID 定位的不可变知识入口原文或引用材料，是任务实际采用的方法依据。它独立于当前 PACK 内容与 Run，保留跨任务恢复所需的原知识。
 
 **KAT Response**:
 一次已经形成的操作交付给 KAT Skill 的结构化成功或失败事实。它是短命产品视图，不是 Run 的持久事实源，也不是 Analysis Result。
@@ -25,7 +31,7 @@ KAT Skills 中的一个独立入口，总入口负责路由，任务入口分别
 ## PACK 与所有权
 
 **PACK**:
-由一个明确组织或团队拥有并独立维护的一组性能分析策略，是 KAT 的自包含扩展与发布边界。其边界由所有权和发布责任决定并独立于其他 PACK，而不是由 Workflow 数量、代码规模或单个分析问题决定。
+由一个明确组织或团队拥有并独立维护的一组领域经验知识与程序能力，是 KAT 的自包含扩展与发布边界，经验知识不限于性能分析。其边界由所有权和发布责任决定并独立于其他 PACK，而不是由 Workflow 数量、代码规模或单个分析问题决定。
 
 **PACK owner**:
 对一个 PACK 承担看护责任的唯一组织或团队。PACK owner 是可变的展示信息，不是 PACK 身份、命名空间、发布者认证或权限依据。
@@ -159,7 +165,7 @@ Datasource 从原始 Trace 直接解码或跨记录规范化得到、可供多�
 ## Run、查询与结论
 
 **Analysis Session**:
-围绕一个分析目标、可以跨 PACK 的多 Workflow 分析边界，归集其中相互独立的 Run、可复用来源物化与临时工作数据，并可通过唯一的当前 Analysis Record 保留分析进展与报告。它具有独立于其中各 Run 和 PACK 的身份，统一这些内容的分析归属和生命周期，但不把不可变 Run Output、可重建 Datasource materialization 与临时数据变成同一种事实。Session 在任何生产 Workflow 执行前显式创建并允许为空；成功或失败的 `kat run` 都不会自动删除它，只有用户显式删除才结束其生命周期。最外层 `kat run` 执行在整个嵌套执行、Catalog 查询和完成收拢期间持有 Session 共享租约；显式删除必须取得独占租约，遇到活动执行时快速失败，不等待也不取消 Workflow。Session inspection 以平坦 Run inventory 返回每个 Run 的直接 `child_runs`，供调用方按需遍历，不递归嵌入整棵树。父 Workflow 失败不会使其中已经发布的子 Run 失效，也不保证能把没有已发布父级的 Run 精确归因到某次失败调用。
+围绕一个任务目标、可以跨 PACK 应用知识或执行 Workflow 的归属边界，归集其中相互独立的 Run、可复用来源物化与临时工作数据，并可通过唯一的当前 Analysis Record 保留分析进展与报告。它具有独立于其中各 Run 和 PACK 的身份，统一这些内容的分析归属和生命周期，但不把不可变 Run Output、可重建 Datasource materialization 与临时数据变成同一种事实。Session 在任何知识采纳或生产 Workflow 执行前显式创建并允许零 Run；成功或失败的 `kat run` 都不会自动删除它，只有用户显式删除才结束其生命周期。最外层 `kat run` 执行在整个嵌套执行、Catalog 查询和完成收拢期间持有 Session 共享租约；显式删除必须取得独占租约，遇到活动执行时快速失败，不等待也不取消 Workflow。Session inspection 以平坦 Run inventory 返回每个 Run 的直接 `child_runs`，供调用方按需遍历，不递归嵌入整棵树。父 Workflow 失败不会使其中已经发布的子 Run 失效，也不保证能把没有已发布父级的 Run 精确归因到某次失败调用。
 
 **Run**:
 Analysis Session 中一次成功发布的 Workflow 执行，包含在该 Session 内唯一的 Run Manifest、执行时 Guide 快照和零个或多个 Run Output。失败或尚未发布的候选执行不是 Run，Run ID 也只在发布成功后成立；公共定位同时需要 Session ID 与 Run ID。
@@ -184,10 +190,10 @@ _Avoid_: Artifact、Result
 一次成功 Output Query 发布的单文件 NDJSON。普通查询 Response 返回 `format="ndjson"`、文件 `path` 和有序 `columns`；文件每行是一个使用查询列名的 JSON object，零行结果是空文件。显式归档可以把实际查询材料另行保存到 Analysis Record，但不把 Query Result 变成 Run Output 或面向用户的 Analysis Result。
 
 **Analysis Result**:
-KAT 分析入口围绕用户问题，基于 Run Output 和必要的查询证据综合形成的面向用户判断或报告。多个 Run 的轻量解释通过 Analysis Record 保留，不要求分别交付独立报告；Analysis Result 不由 Workflow 生成，也不属于 Run Manifest。
+KAT 分析入口围绕用户问题，基于实际任务材料及必要的 Run Output 和查询证据形成的面向用户判断或报告，纯知识任务不要求存在 Run。多个 Run 的轻量解释通过 Analysis Record 保留，不要求分别交付独立报告；Analysis Result 不由 Workflow 生成，也不属于 Run Manifest。
 
 **Analysis Record**:
-Analysis Session 中为跨任务或上下文压缩后恢复分析而持久保留的当前分析目标、所选 Run 的解释正文、总报告和归档查询材料。选择原因、证据出处与结论限制由解释正文表达，不单独建立结构化选择记录或解释依赖图；执行时 Guide 由对应 Run 保留。它是可更新的正式分析记录，程序保存正文而不判定解释或报告的有效性，复用与重新汇总由 AI 判断；它区别于不可变 Run 执行事实，不代表完整调用审计、所有历史报告版本或模型内部推理过程。
+Analysis Session 中为跨任务或上下文压缩后恢复分析而持久保留的当前分析目标、所选 Run 的解释正文、总报告、归档查询材料和知识快照。选择原因、证据出处与结论限制由解释正文表达，不单独建立结构化选择记录或解释依赖图；执行时 Guide 由对应 Run 保留。它是可更新的正式分析记录，程序保存正文而不判定解释或报告的有效性，复用与重新汇总由 AI 判断；它区别于不可变 Run 执行事实，不代表完整调用审计、所有历史报告版本或模型内部推理过程。
 
 **Report tree（报告树）**:
 当前分析以用户问题为隐含根、以 Analysis Record 中选用的具体 Run 为节点，由这些 Run 的真实直接父子关系派生的组织视图；直接父 Run 未选入时节点挂报告根，父后来选入后自动归位。它组织已保存的解释正文，不表达 AI 临时串联的选择关系或结论依赖，不能凭树形位置判断执行先后或结论有效性。

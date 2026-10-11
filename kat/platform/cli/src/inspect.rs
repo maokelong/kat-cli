@@ -18,6 +18,8 @@ pub(super) struct InspectArgs {
 
 #[derive(Subcommand)]
 enum InspectTarget {
+    /// Discover or browse one PACK's static knowledge entries and references.
+    Knowledge(InspectKnowledgeArgs),
     /// Inspect one PACK's available Workflows and their input contracts.
     Workflow(InspectWorkflowArgs),
     /// Inspect public Providers or the Providers declared by one PACK.
@@ -26,6 +28,18 @@ enum InspectTarget {
     Session(InspectSessionArgs),
     /// Read one published Run's Guide snapshot, outputs, and direct child IDs.
     Run(InspectRunArgs),
+}
+
+#[derive(Args)]
+struct InspectKnowledgeArgs {
+    #[arg(long)]
+    pack: String,
+    #[arg(long, conflicts_with = "path")]
+    entry: Option<String>,
+    #[arg(long, conflicts_with = "entry")]
+    path: Option<String>,
+    #[arg(long = "pack-dir", value_name = "DIRECTORY")]
+    pack_directories: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -80,6 +94,17 @@ pub(super) fn execute(arguments: InspectArgs) -> ExitCode {
         return response::publish(response::prepare_cli_failure::<()>(error));
     }
     match arguments.target {
+        Some(InspectTarget::Knowledge(InspectKnowledgeArgs {
+            pack,
+            entry,
+            path,
+            pack_directories,
+        })) => response::publish(crate::knowledge::inspect(
+            &pack,
+            entry.as_deref(),
+            path.as_deref(),
+            joined_pack_directories(arguments.pack_directories, pack_directories),
+        )),
         None => {
             let prepared = match super::inspect_packs(arguments.pack_directories) {
                 Ok(result) => response::prepare_success(result),

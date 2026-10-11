@@ -112,6 +112,7 @@ fn overview(record: &AnalysisRecord, nodes: Vec<ReportNode>) -> Value {
         .iter()
         .map(|(id, material)| {
             let summary = match material {
+                Material::Knowledge {pack, path, entry, ..} => json!({"kind":"knowledge","pack":pack,"path":path,"entry":entry.as_ref().map(|entry| &entry.name)}),
                 Material::Query { run_id, .. } => json!({"kind":"query","run_id":run_id}),
             };
             (id.clone(), summary)

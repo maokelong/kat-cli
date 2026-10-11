@@ -241,7 +241,7 @@ fn analysis_save_creates_plain_content_record() {
             "report": {"content": "现有证据不足，待查询输出。"}
         }),
     ));
-    assert_eq!(result["schema_version"], 2);
+    assert_eq!(result["schema_version"], 3);
     assert_eq!(result["revision"], 1);
     assert_eq!(result["goal"], Fixture::goal());
     assert_eq!(

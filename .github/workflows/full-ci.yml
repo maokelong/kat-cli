@@ -117,8 +117,10 @@ jobs:
         run: cargo test --workspace --locked --jobs 1
 
       - name: Test real Workflow Host vertical slices
+        shell: bash
         run: |
           cargo test --locked -p kat-cli --test analysis_real_host -- --ignored
+          cargo test --locked -p kat-cli --test knowledge real_host_combines_knowledge_and_workflow_and_recovers_without_pack -- --ignored --exact
           cargo test --locked -p kat-cli --test inspect targeted_knowledge_inspection_runs_the_real_installed_host -- --ignored --exact
           cargo test --locked -p kat-cli --test run run_composes_real_installed_workflows_end_to_end -- --ignored --exact
           cargo test --locked -p kat-cli --test run child_business_diagnostic_survives_direct_nested_and_test_execution -- --ignored --exact

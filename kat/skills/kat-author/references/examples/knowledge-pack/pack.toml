@@ -1,0 +1,4 @@
+name = "knowledge-example"
+title = "事实评审知识示例"
+description = "示范无需 Python 的知识入口及按需引用；不是生产评审政策。"
+owner = "KAT 作者示例"
