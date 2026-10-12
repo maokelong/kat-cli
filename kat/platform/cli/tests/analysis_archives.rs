@@ -87,13 +87,14 @@ impl Fixture {
 
     fn query(&self, sql: &str, ndjson: &str) -> Command {
         let mut command = self.command();
+        let rows = ndjson.lines().collect::<Vec<_>>().join(",");
+        let response = format!(
+            r#"{{"status":"success","result":{{"format":"json","columns":[{{"name":"value","type":"int64"}}],"rows":[{rows}]}}}}"#
+        );
         command
             .args(["query", "--session", SESSION, "--run", RUN, "--sql", sql])
             .env("KAT_ARCHIVE_ROWS", ndjson)
-            .env(
-                "KAT_ARCHIVE_RUNTIME_RESPONSE",
-                r#"{"status":"success","result":{"columns":[{"name":"value","type":"int64"}]}}"#,
-            );
+            .env("KAT_ARCHIVE_RUNTIME_RESPONSE", response);
         command
     }
 
@@ -145,6 +146,8 @@ fn query_archives_original_ndjson_and_sql_without_numeric_reencoding() {
     let rows = "{\"value\":9223372036854775807}\r\n{\"value\":-9223372036854775808}\n";
     let ordinary = success(fixture.query(sql, rows).output().unwrap());
     assert!(ordinary.get("analysis").is_none());
+    assert_eq!(ordinary["format"], "json");
+    assert!(ordinary.get("path").is_none());
     let saved_path = fixture.root.path().join("saved-report.json");
     fs::write(
         &saved_path,
@@ -183,11 +186,8 @@ fn query_archives_original_ndjson_and_sql_without_numeric_reencoding() {
     );
     assert_eq!(restored["nodes"], saved["nodes"]);
     assert_eq!(restored["report"], saved["report"]);
-    assert_eq!(
-        fs::read_to_string(archived["path"].as_str().unwrap()).unwrap(),
-        rows
-    );
-    fs::remove_file(archived["path"].as_str().unwrap()).unwrap();
+    assert_eq!(archived["format"], "json");
+    assert!(archived.get("path").is_none());
     let material = fixture.material(archived["analysis"]["material_id"].as_str().unwrap());
     assert_eq!(material["material"]["kind"], "query");
     assert_eq!(material["material"]["run_id"], RUN);
@@ -293,10 +293,9 @@ fn concurrent_archives_append_to_latest_revision_without_lost_materials() {
         assert_eq!(result["analysis"]["previous_revision"], 1 + index as u64);
         assert_eq!(result["analysis"]["revision"], 2 + index as u64);
         let material = fixture.material(result["analysis"]["material_id"].as_str().unwrap());
-        assert_eq!(
-            material["material"]["ndjson"],
-            fs::read_to_string(result["path"].as_str().unwrap()).unwrap()
-        );
+        let expected = format!("{}\n", serde_json::to_string(&result["rows"][0]).unwrap());
+        assert_eq!(material["material"]["ndjson"], expected,);
+        assert!(result.get("path").is_none());
     }
     assert_ne!(
         results[0]["analysis"]["material_id"],

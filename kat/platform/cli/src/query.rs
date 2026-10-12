@@ -1,4 +1,7 @@
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use clap::Args;
 use miette::Diagnostic;
@@ -335,6 +338,9 @@ enum QueryOperationError {
     #[error("Runtime published an invalid Query Result")]
     #[diagnostic(help("Inspect the Query Operation log, then retry the complete Query"))]
     InvalidResultFile,
+    #[error("Inline Query Result candidate could not be removed")]
+    #[diagnostic(help("Provide writable Query Result storage and retry the complete Query"))]
+    RemoveInlineResult(#[source] io::Error),
     #[error("failed to encode Query Operation log evidence")]
     EncodeLogEvidence(#[source] serde_json::Error),
 }
