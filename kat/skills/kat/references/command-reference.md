@@ -174,7 +174,7 @@ ORDER BY table_name, ordinal_position
 
 随后只访问当前问题需要的列和行，在 SQL 中显式投影、过滤、聚合、排序，并给明细查询写入 `LIMIT`。Workflow inspection 提供分析策略，不替代 Output relation 发现。
 
-成功结果恰含 `result.format="ndjson"`、`result.path` 与 `result.columns`。查询对象行不在 Response 内；只读取当前成功 Response 给出的 `result.path`，按 NDJSON 逐行取得证据。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设 KAT 会自动限制查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
+成功结果有两个互斥分支：不超过 100 行且原生 NDJSON payload 不超过 65,536 字节时，`result` 恰含 `format="json"`、`columns` 与对象 `rows`，直接消费 `rows`，不要再调用文件读取；其他结果恰含 `format="ndjson"`、`columns` 与 `path`，只读取本次成功 Response 给出的 `path`。不要猜测或扫描 `query-results/`，不要读取 Run 内部文件，也不要假设这些交付阈值会限制、截断或自动改写查询。实际执行失败时按 Diagnostic 修正 SQL，不读取候选结果或包装成部分成功。
 
 ## 保存与恢复 Analysis Record
 

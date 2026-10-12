@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify cross-PACK same-Session Runs and the exact persisted NDJSON result."""
+"""Verify cross-PACK same-Session Runs and the exact inline Query Result."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-EXPECTED_NDJSON = b'{"clock_domain":"boottime","clock_value":123456}\n'
+EXPECTED_ROW = {"clock_domain": "boottime", "clock_value": 123456}
 
 
 def main(argv: list[str]) -> int:
@@ -42,10 +42,12 @@ def main(argv: list[str]) -> int:
     if query_response["status"] != "success":
         raise RuntimeError("Run Output query did not succeed")
     result = query_response["result"]
-    if result["format"] != "ndjson":
-        raise RuntimeError("Run Output query did not return NDJSON")
-    if Path(result["path"]).read_bytes() != EXPECTED_NDJSON:
-        raise RuntimeError("Run Output query returned unexpected NDJSON content")
+    if result["format"] != "json":
+        raise RuntimeError("Run Output query did not inline its bounded result")
+    if set(result) != {"format", "columns", "rows"}:
+        raise RuntimeError("Run Output query returned an invalid inline result shape")
+    if result["rows"] != [EXPECTED_ROW]:
+        raise RuntimeError("Run Output query returned unexpected inline rows")
     return 0
 
 

@@ -31,7 +31,7 @@ description: 在 KAT 任务完成后复核报告与现存依据，包括纯知�
 | 验证已有输出中的事实 | `kat query --session <Session ID> --run <Run ID> --sql <只读 SQL>` |
 
 - 仅在 Response 的 `status="success"` 时使用 `result`；失败依据 `error` 和已返回的诊断路径，不依据日志中的乐观文字判定成功。
-- 从公开 inventory 或 `information_schema` 确认实际 relation、columns 后查询 `output.*`。只取复核所需列、过滤范围和聚合，明细查询加 `LIMIT`。读取成功 Query Response 指定的 `result.path`，按 NDJSON 取得结果行；Response 本身不含查询对象行。
+- 从公开 inventory 或 `information_schema` 确认实际 relation、columns 后查询 `output.*`。只取复核所需列、过滤范围和聚合，明细查询加 `LIMIT`。成功后按 `result.format` 消费互斥结果：`json` 直接使用 `result.rows`，`ndjson` 只读取该 Response 指定的 `result.path`。
 - 不创建 Session、不执行 `run`、`test` 或删除命令，不调用 `analysis save` 或材料归档，不改动原报告和已有 Run。普通 `query` 会产生新的日志和查询结果，属于本次复核证据。
 - Run inspection 不公开 inputs、失败调用或执行顺序。不得补造这些字段，也不得读取私有 Run 文件来补齐。历史日志及结果文件只读用户或已有 Response 明确引用的路径，不扫描私有数据目录或 `query-results/`。
 

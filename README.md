@@ -146,7 +146,7 @@ KAT 默认使用 `directories::ProjectDirs::from("", "", "KAT")` 解析的 Data 
 - `kat session create`：显式发布一个可以为空的 Analysis Session。
 - `kat test`：通过私有 Runtime 执行 PACK 测试。
 - `kat run`：在必填的已有 `--session` 中捕获 Guide 并原子发布一个 Run。
-- `kat query`：用 Session ID 与 Run ID 只读查询已发布 Run 的 `output.*`，并发布单文件 NDJSON Query Result；`--archive` 保存关键查询证据。
+- `kat query`：用 Session ID 与 Run ID 只读查询已发布 Run 的 `output.*`，小结果直接内联，更大的结果发布为单文件 NDJSON；`--archive` 保存关键查询证据。
 - `kat analysis show/save`：按需恢复分析，或带预期修订号增量保存目标、Run 正文与总报告；首次保存创建记录。
 - `kat session delete`：按已知 Session ID 永久删除整个 Session。
 
@@ -193,10 +193,12 @@ Session/Run identity、PACK、Workflow、有效输入、Guide 快照、直接 `c
 不记录来源物化 provenance。叶子 Run 的 `child_runs` 是空数组。
 
 `kat query` 只接受已发布 Run，并且新建一个 fresh DataFusion Session；其中只注册该 Run
-的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。普通成功 Response 的
-`result` 精确返回 `format`、`path` 和 `columns`：`format` 为 `ndjson`，`path` 指向 Runtime
-直接写出的单个 NDJSON 文件，文件中每行是一个使用查询列名的 JSON object。不存在、
-未发布、双 ID 错配或损坏的 Run，以及非只读或多语句 SQL，都明确失败。调用形状为：
+的 `output.<name>` Parquet，不扫描 Datasource、PACK 文件或其他 Run。成功 Response 的
+`result` 使用互斥交付分支：同时不超过 100 行和 65,536 个原生 NDJSON payload 字节时，
+返回 `format="json"`、`columns` 和对象 `rows`；其他结果返回 `format="ndjson"`、`columns`
+和单文件 `path`。这些阈值不截断或自动限制 SQL；`--archive` 在任一分支都保存 Runtime
+原生写出的精确查询材料。不存在、未发布、双 ID 错配或损坏的 Run，以及非只读或多语句
+SQL，都明确失败。调用形状为：
 
 ```bash
 kat query --session <session-id> --run <run-id> --sql \

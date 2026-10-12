@@ -54,10 +54,10 @@ enum Operation {
     Run(run::RunArgs),
     /// Query one published Run's output.* tables and information_schema.
     ///
-    /// Python/DataFusion writes Arrow's native object-row JSON mapping directly
-    /// to one NDJSON result file. A successful Response returns its format,
-    /// path, and column metadata. --archive also retains the exact NDJSON as
-    /// analysis evidence, without re-encoding query rows.
+    /// Python/DataFusion writes Arrow's native object-row JSON mapping to one
+    /// candidate file. A successful Response returns bounded small results inline
+    /// and larger results as NDJSON files. --archive also retains the exact native
+    /// NDJSON as analysis evidence, without re-encoding query rows.
     ///
     /// The Operation log retains the complete --sql value. Do not pass secrets
     /// in it.

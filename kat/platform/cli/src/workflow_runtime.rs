@@ -10,7 +10,7 @@ use std::{
 
 use miette::Diagnostic;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -196,10 +196,105 @@ pub(crate) enum TestPackOutcome {
     },
 }
 
+pub(crate) enum QueryRunResult {
+    Json {
+        columns: Vec<Column>,
+        rows: Vec<QueryRow>,
+    },
+    Ndjson {
+        columns: Vec<Column>,
+    },
+}
+
+pub(crate) type QueryRow = BTreeMap<String, Box<serde_json::value::RawValue>>;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum QueryRunFormat {
+    Json,
+    Ndjson,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct QueryRunResult {
-    pub(crate) columns: Vec<Column>,
+struct QueryRunResultWire {
+    format: QueryRunFormat,
+    columns: Vec<Column>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    rows: Option<Vec<QueryRow>>,
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+impl<'de> Deserialize<'de> for QueryRunResult {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let result = QueryRunResultWire::deserialize(deserializer)?;
+        match (result.format, result.rows) {
+            (QueryRunFormat::Json, Some(rows)) => Ok(Self::Json {
+                columns: result.columns,
+                rows,
+            }),
+            (QueryRunFormat::Ndjson, None) => Ok(Self::Ndjson {
+                columns: result.columns,
+            }),
+            (QueryRunFormat::Json, None) => {
+                Err(serde::de::Error::custom("json Query Result requires rows"))
+            }
+            (QueryRunFormat::Ndjson, Some(_)) => Err(serde::de::Error::custom(
+                "ndjson Query Result cannot contain rows",
+            )),
+        }
+    }
+}
+
+enum QueryRuntimeResponse {
+    Success { result: QueryRunResult },
+    Failure { error: KatDiagnostic },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum QueryRuntimeStatus {
+    Success,
+    Failure,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueryRuntimeResponseWire {
+    status: QueryRuntimeStatus,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    result: Option<QueryRunResult>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    error: Option<KatDiagnostic>,
+}
+
+impl<'de> Deserialize<'de> for QueryRuntimeResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let response = QueryRuntimeResponseWire::deserialize(deserializer)?;
+        match (response.status, response.result, response.error) {
+            (QueryRuntimeStatus::Success, Some(result), None) => Ok(Self::Success { result }),
+            (QueryRuntimeStatus::Failure, None, Some(error)) => Ok(Self::Failure { error }),
+            (QueryRuntimeStatus::Success, _, _) => Err(serde::de::Error::custom(
+                "success Query Runtime Response requires only result",
+            )),
+            (QueryRuntimeStatus::Failure, _, _) => Err(serde::de::Error::custom(
+                "failure Query Runtime Response requires only error",
+            )),
+        }
+    }
 }
 
 pub(crate) fn inspect_workflow(
@@ -362,7 +457,7 @@ pub(crate) fn execute_query_runtime(
         sql: &invocation.sql,
         result_path: &invocation.result_path,
     };
-    let response = match exchange_request("kat-query-run-", &request, &mut log) {
+    let response = match exchange_query_request("kat-query-run-", &request, &mut log) {
         Ok(response) => response,
         Err(ExchangeError::Log(error)) => return Err(QueryRunError::operation_log(error)),
         Err(ExchangeError::Runtime(error)) => return Err(finish_runtime_error(log, error)),
@@ -371,13 +466,13 @@ pub(crate) fn execute_query_runtime(
         }
     };
     match response {
-        RuntimeResponse::Success { result } => {
+        QueryRuntimeResponse::Success { result } => {
             if let Err(source) = log.append(b"runtime_status: success\n") {
                 return Err(QueryRunError::operation_log(source));
             }
             Ok(QueryRunOutcome::Success { result, log })
         }
-        RuntimeResponse::Failure { error } => {
+        QueryRuntimeResponse::Failure { error } => {
             if let Err(source) = log.append(b"runtime_status: failure\n") {
                 return Err(QueryRunError::operation_log(source));
             }
@@ -994,6 +1089,17 @@ fn exchange_request<R: DeserializeOwned>(
     request: &impl Serialize,
     log: &mut OperationLog,
 ) -> Result<RuntimeResponse<R>, ExchangeError> {
+    let response = exchange_request_bytes(prefix, request, log)?;
+    serde_json::from_slice(&response).map_err(|source| {
+        ExchangeError::InvalidResponse(format!("Runtime Response decoding failed: {source}"))
+    })
+}
+
+fn exchange_query_request(
+    prefix: &str,
+    request: &impl Serialize,
+    log: &mut OperationLog,
+) -> Result<QueryRuntimeResponse, ExchangeError> {
     let response = exchange_request_bytes(prefix, request, log)?;
     serde_json::from_slice(&response).map_err(|source| {
         ExchangeError::InvalidResponse(format!("Runtime Response decoding failed: {source}"))

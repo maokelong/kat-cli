@@ -35,18 +35,26 @@ pub(super) struct QueryArgs {
     /// value is retained in the Query Operation log.
     #[arg(long, value_name = "SQL")]
     sql: String,
-    /// Archive the exact SQL, column metadata and returned NDJSON as analysis evidence.
+    /// Archive the exact SQL, column metadata and native NDJSON as analysis evidence.
     #[arg(long)]
     archive: bool,
 }
 
 #[derive(Serialize)]
-pub(super) struct QueryResult {
-    format: &'static str,
-    path: String,
-    columns: Vec<workflow_runtime::Column>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    analysis: Option<ArchiveReceipt>,
+#[serde(tag = "format", rename_all = "lowercase")]
+pub(super) enum QueryResult {
+    Json {
+        columns: Vec<workflow_runtime::Column>,
+        rows: Vec<workflow_runtime::QueryRow>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        analysis: Option<ArchiveReceipt>,
+    },
+    Ndjson {
+        columns: Vec<workflow_runtime::Column>,
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        analysis: Option<ArchiveReceipt>,
+    },
 }
 
 pub(super) fn execute(arguments: QueryArgs) -> response::PreparedResponse<QueryResult> {
@@ -154,6 +162,10 @@ fn execute_opened_query(
     if let Err(error) = validate_result_file(&result_path) {
         return finish_failure(log, error);
     }
+    let columns = match &runtime {
+        workflow_runtime::QueryRunResult::Json { columns, .. }
+        | workflow_runtime::QueryRunResult::Ndjson { columns } => columns.clone(),
+    };
     let analysis = if arguments.archive {
         let ndjson = match fs::read_to_string(&result_path) {
             Ok(ndjson) => ndjson,
@@ -167,7 +179,7 @@ fn execute_opened_query(
                 run_id: arguments.run,
                 sql: arguments.sql,
                 outputs: output_names,
-                columns: runtime.columns.clone(),
+                columns,
                 ndjson,
             },
         ) {
@@ -182,20 +194,40 @@ fn execute_opened_query(
     } else {
         None
     };
-    let result = QueryResult {
-        format: "ndjson",
-        path: result_path_text,
-        columns: runtime.columns,
-        analysis,
+    let (result, retain_file) = match runtime {
+        workflow_runtime::QueryRunResult::Json { columns, rows } => {
+            if let Err(source) = fs::remove_file(&result_path) {
+                return finish_failure(log, QueryOperationError::RemoveInlineResult(source));
+            }
+            (
+                QueryResult::Json {
+                    columns,
+                    rows,
+                    analysis,
+                },
+                false,
+            )
+        }
+        workflow_runtime::QueryRunResult::Ndjson { columns } => (
+            QueryResult::Ndjson {
+                columns,
+                path: result_path_text,
+                analysis,
+            },
+            true,
+        ),
     };
     if let Err(error) = log.append(b"status: success\n") {
         return log_failure(error);
     }
-    match log.finish() {
-        Ok(log_path) => {
-            response::prepare_success_with_log_and_file(result, Some(log_path), pending_file)
-        }
-        Err(error) => log_failure(error),
+    let log_path = match log.finish() {
+        Ok(log_path) => log_path,
+        Err(error) => return log_failure(error),
+    };
+    if retain_file {
+        response::prepare_success_with_log_and_file(result, Some(log_path), pending_file)
+    } else {
+        response::prepare_success_with_log(result, Some(log_path))
     }
 }
 
@@ -306,6 +338,9 @@ enum QueryOperationError {
     #[error("Runtime published an invalid Query Result")]
     #[diagnostic(help("Inspect the Query Operation log, then retry the complete Query"))]
     InvalidResultFile,
+    #[error("Inline Query Result candidate could not be removed")]
+    #[diagnostic(help("Provide writable Query Result storage and retry the complete Query"))]
+    RemoveInlineResult(#[source] io::Error),
     #[error("failed to encode Query Operation log evidence")]
     EncodeLogEvidence(#[source] serde_json::Error),
 }

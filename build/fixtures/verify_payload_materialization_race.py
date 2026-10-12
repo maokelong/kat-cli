@@ -257,17 +257,14 @@ def _query_clock_value(
         completed.returncode, completed.stdout, completed.stderr, "Query"
     )
     result = response.get("result")
-    if type(result) is not dict or result.get("format") != "ndjson":
-        raise RuntimeError("Query did not return an NDJSON result")
-    result_path = result.get("path")
-    if type(result_path) is not str:
-        raise RuntimeError("Query did not return its NDJSON path")
-    records = _regular_file(Path(result_path), "Query result").read_text(
-        encoding="utf-8"
-    ).splitlines()
-    if len(records) != 1:
+    if type(result) is not dict or result.get("format") != "json":
+        raise RuntimeError("Query did not inline its bounded result")
+    if set(result) != {"format", "columns", "rows"}:
+        raise RuntimeError("Query returned an invalid inline result shape")
+    rows = result.get("rows")
+    if type(rows) is not list or len(rows) != 1:
         raise RuntimeError("Query did not return exactly one row")
-    row = json.loads(records[0])
+    row = rows[0]
     if type(row) is not dict or row.get("clock_domain") != "boottime":
         raise RuntimeError("Query did not return the expected clock domain")
     clock_value = row.get("clock_value")

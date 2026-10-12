@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import uuid
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from _kat_runtime.query import _read_inline_rows
 
 
 class QueryProcessTest(unittest.TestCase):
@@ -50,6 +52,12 @@ class QueryProcessTest(unittest.TestCase):
     def run_runtime(
         self, request: dict[str, object]
     ) -> tuple[subprocess.CompletedProcess[bytes], dict[str, object]]:
+        completed, response = self.run_runtime_text(request)
+        return completed, json.loads(response)
+
+    def run_runtime_text(
+        self, request: dict[str, object]
+    ) -> tuple[subprocess.CompletedProcess[bytes], str]:
         token = uuid.uuid4().hex
         request_path = self.root / f"request-{token}.json"
         response_path = self.root / f"response-{token}.json"
@@ -74,9 +82,9 @@ class QueryProcessTest(unittest.TestCase):
             check=False,
             env={**os.environ, "NO_COLOR": "1"},
         )
-        return completed, json.loads(response_path.read_text(encoding="utf-8"))
+        return completed, response_path.read_text(encoding="utf-8")
 
-    def test_writes_one_ndjson_file_from_registered_run_outputs(self) -> None:
+    def test_inlines_small_result_from_registered_run_outputs(self) -> None:
         main = self.parquet(
             pa.table({"key": pa.array([2, 1], type=pa.int64())})
         )
@@ -106,10 +114,12 @@ class QueryProcessTest(unittest.TestCase):
             {
                 "status": "success",
                 "result": {
+                    "format": "json",
                     "columns": [
                         {"name": "key", "type": "int64"},
                         {"name": "label", "type": "string_view"},
-                    ]
+                    ],
+                    "rows": [{"key": 1, "label": "one"}, {"key": 2}],
                 },
             },
         )
@@ -155,7 +165,33 @@ class QueryProcessTest(unittest.TestCase):
         request = self.request("SELECT * FROM output.main", result_name="native.ndjson")
         _, response = self.run_runtime(request)
 
-        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "format": "json",
+                    "columns": [
+                        {"name": "binary", "type": "binary_view"},
+                        {"name": "finite", "type": "double"},
+                        {"name": "nan", "type": "double"},
+                        {"name": "missing", "type": "string_view"},
+                        {
+                            "name": "nested",
+                            "type": "struct<x: int64, missing: string>",
+                        },
+                    ],
+                    "rows": [
+                        {
+                            "binary": "de00ff",
+                            "finite": 1.25,
+                            "nan": None,
+                            "nested": {"x": 1},
+                        }
+                    ],
+                },
+            },
+        )
         self.assertEqual(
             Path(request["result_path"]).read_bytes(),
             b'{"binary":"de00ff","finite":1.25,"nan":null,"nested":{"x":1}}\n',
@@ -167,7 +203,94 @@ class QueryProcessTest(unittest.TestCase):
         )
         _, empty_response = self.run_runtime(empty_request)
         self.assertEqual(empty_response["status"], "success", empty_response)
+        self.assertEqual(empty_response["result"]["format"], "json")
+        self.assertEqual(empty_response["result"]["rows"], [])
         self.assertEqual(Path(empty_request["result_path"]).read_bytes(), b"")
+
+    def test_inline_response_preserves_the_native_numeric_lexeme(self) -> None:
+        precise = Decimal("12345678901234567890.123456789012345678")
+        self.parquet(
+            pa.table(
+                {
+                    "precise": pa.array(
+                        [precise],
+                        type=pa.decimal128(38, 18),
+                    )
+                }
+            )
+        )
+        request = self.request(
+            "SELECT precise FROM output.main",
+            result_name="precise.ndjson",
+        )
+
+        completed, response = self.run_runtime_text(request)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+        native_row = Path(request["result_path"]).read_text(encoding="utf-8").strip()
+        self.assertEqual(
+            native_row,
+            '{"precise":12345678901234567890.123456789012345678}',
+        )
+        self.assertIn(f'"rows":[{native_row}]', response)
+
+    def test_inline_candidate_rejects_malformed_json_and_non_object_rows(self) -> None:
+        for name, content in [
+            ("malformed", '{"secret":\n'),
+            ("non-object", '["secret"]\n'),
+        ]:
+            with self.subTest(name=name):
+                candidate = self.root / f"{name}.ndjson"
+                candidate.write_text(content, encoding="utf-8", newline="\n")
+
+                with self.assertRaises(ValueError):
+                    _read_inline_rows(candidate)
+
+    def test_row_threshold_is_inclusive_and_does_not_truncate(self) -> None:
+        self.parquet(pa.table({"value": list(range(101))}))
+
+        inline_request = self.request(
+            "SELECT value FROM output.main ORDER BY value LIMIT 100",
+            result_name="one-hundred.ndjson",
+        )
+        _, inline_response = self.run_runtime(inline_request)
+        file_request = self.request(
+            "SELECT value FROM output.main ORDER BY value",
+            result_name="one-hundred-one.ndjson",
+        )
+        _, file_response = self.run_runtime(file_request)
+
+        self.assertEqual(inline_response["status"], "success", inline_response)
+        self.assertEqual(inline_response["result"]["format"], "json")
+        self.assertEqual(len(inline_response["result"]["rows"]), 100)
+        self.assertEqual(file_response["status"], "success", file_response)
+        self.assertEqual(file_response["result"]["format"], "ndjson")
+        self.assertNotIn("rows", file_response["result"])
+        self.assertEqual(len(Path(file_request["result_path"]).read_bytes().splitlines()), 101)
+
+    def test_byte_threshold_is_inclusive_even_for_one_row(self) -> None:
+        for size, expected_format in [(65_536, "json"), (65_537, "ndjson")]:
+            with self.subTest(size=size):
+                output_name = f"bytes_{size}"
+                output = self.parquet(
+                    pa.table({"value": ["x" * (size - 13)]}),
+                    output_name=output_name,
+                )
+                request = self.request(
+                    f"SELECT value FROM output.{output_name}",
+                    outputs={output_name: output},
+                    result_name=f"{size}.ndjson",
+                )
+
+                _, response = self.run_runtime(request)
+
+                self.assertEqual(response["status"], "success", response)
+                self.assertEqual(Path(request["result_path"]).stat().st_size, size)
+                self.assertEqual(response["result"]["format"], expected_format)
+                if expected_format == "json":
+                    self.assertEqual(len(response["result"]["rows"]), 1)
+                else:
+                    self.assertNotIn("rows", response["result"])
 
     def test_rejects_duplicate_struct_sibling_names_before_writing(self) -> None:
         self.parquet(pa.table({"value": [1]}))
@@ -249,7 +372,8 @@ class QueryProcessTest(unittest.TestCase):
         _, response = self.run_runtime(request)
 
         self.assertEqual(response["status"], "success", response)
-        self.assertEqual(set(response["result"]), {"columns"})
+        self.assertEqual(set(response["result"]), {"format", "columns"})
+        self.assertEqual(response["result"]["format"], "ndjson")
         result = Path(request["result_path"]).read_bytes()
         self.assertEqual(len(result.splitlines()), 1_001)
         self.assertGreater(len(result), 256 * 1_024)
