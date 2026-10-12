@@ -8,6 +8,7 @@ use std::{
 
 #[path = "support/parquet.rs"]
 mod parquet_fixture;
+#[allow(dead_code)]
 mod support;
 
 const SESSION: &str = "019f6e00-0000-7000-8000-000000000398";
