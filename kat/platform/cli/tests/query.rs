@@ -13,6 +13,10 @@ use std::os::unix::fs::PermissionsExt;
 #[path = "support/parquet.rs"]
 mod parquet_fixture;
 
+#[allow(dead_code)]
+#[path = "support/mod.rs"]
+mod support;
+
 #[path = "support/test_home.rs"]
 mod test_home;
 
@@ -291,9 +295,111 @@ fn command(binary: &Path, root: &Path, captured: &Path, sql: &str) -> Command {
         .env("KAT_CAPTURE_REQUEST", captured)
         .env(
             "KAT_FAKE_RUNTIME_RESPONSE",
-            r#"{"status":"success","result":{"format":"json","columns":[{"name":"value","type":"int64"},{"name":"amount","type":"decimal128(10, 3)"}],"rows":[{"value":1}]}}"#,
+            r#"{"status":"success","result":{"format":"json","columns":[{"name":"value","type":"int64"},{"name":"amount","type":"decimal128(10, 3)"}],"rows":[{"value":1,"precise":12345678901234567890.123456789012345678}]}}"#,
         );
     command
+}
+
+fn real_query(binary: &Path, root: &Path, sql: &str) -> serde_json::Value {
+    let mut command = Command::new(binary);
+    test_home::configure(&mut command, root);
+    let output = command
+        .arg("query")
+        .args(["--session", SESSION_ID, "--run", RUN_ID, "--sql", sql])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+#[ignore = "requires KAT_TEST_PYTHON and a wheel built from the current checkout"]
+fn real_host_query_covers_inline_and_file_boundaries() {
+    let python = PathBuf::from(
+        std::env::var_os("KAT_TEST_PYTHON").expect("KAT_TEST_PYTHON identifies CPython"),
+    );
+    let workflow_wheel = PathBuf::from(
+        std::env::var_os("KAT_TEST_WORKFLOW_WHEEL")
+            .expect("KAT_TEST_WORKFLOW_WHEEL identifies the current wheel"),
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let (_skill, binary) =
+        support::stage_real_host_skill(temporary.path(), &cargo_kat(), &python, &workflow_wheel);
+    let run = write_manifest(temporary.path(), None);
+    let values = (0..101).collect::<Vec<_>>();
+    parquet_fixture::write_i64(&run.join("outputs/main.parquet"), "value", &values);
+    let manifest_path = run.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["outputs"]["main"]["row_count"] = 101.into();
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+    let empty = real_query(
+        &binary,
+        temporary.path(),
+        "SELECT value FROM output.main WHERE FALSE",
+    );
+    assert_eq!(empty["result"]["format"], "json");
+    assert_eq!(empty["result"]["rows"], serde_json::json!([]));
+    assert_eq!(empty["result"]["columns"][0]["name"], "value");
+    assert_eq!(empty["result"].as_object().unwrap().len(), 3);
+
+    let hundred = real_query(
+        &binary,
+        temporary.path(),
+        "SELECT value FROM output.main ORDER BY value LIMIT 100",
+    );
+    assert_eq!(hundred["result"]["format"], "json");
+    assert_eq!(hundred["result"]["rows"].as_array().unwrap().len(), 100);
+    assert!(hundred["result"].get("path").is_none());
+
+    let exact_bytes = real_query(
+        &binary,
+        temporary.path(),
+        "SELECT repeat('x', 65523) AS value FROM output.main LIMIT 1",
+    );
+    assert_eq!(exact_bytes["result"]["format"], "json");
+    assert_eq!(
+        exact_bytes["result"]["rows"][0]["value"]
+            .as_str()
+            .unwrap()
+            .len(),
+        65_523
+    );
+    let result_directory = data_home(temporary.path()).join("query-results");
+    assert_eq!(fs::read_dir(&result_directory).unwrap().count(), 0);
+
+    let hundred_one = real_query(
+        &binary,
+        temporary.path(),
+        "SELECT value FROM output.main ORDER BY value",
+    );
+    assert_eq!(hundred_one["result"]["format"], "ndjson");
+    assert!(hundred_one["result"].get("rows").is_none());
+    assert_eq!(hundred_one["result"].as_object().unwrap().len(), 3);
+    let hundred_one_path = Path::new(hundred_one["result"]["path"].as_str().unwrap());
+    assert_eq!(
+        fs::read_to_string(hundred_one_path)
+            .unwrap()
+            .lines()
+            .count(),
+        101
+    );
+
+    let over_bytes = real_query(
+        &binary,
+        temporary.path(),
+        "SELECT repeat('x', 65524) AS value FROM output.main LIMIT 1",
+    );
+    assert_eq!(over_bytes["result"]["format"], "ndjson");
+    let over_bytes_path = Path::new(over_bytes["result"]["path"].as_str().unwrap());
+    assert_eq!(fs::metadata(over_bytes_path).unwrap().len(), 65_537);
 }
 
 #[test]
@@ -341,7 +447,16 @@ fn query_reads_final_manifest_and_sends_only_runtime_inputs() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let output_text = String::from_utf8(output.stdout.clone()).unwrap();
+    assert!(
+        output_text.contains("12345678901234567890.123456789012345678"),
+        "{output_text}"
+    );
+    let mut response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    response["result"]["rows"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("precise");
     assert_eq!(
         response["result"],
         serde_json::json!({
@@ -862,9 +977,9 @@ fn controlled_failures_remove_the_candidate_and_retain_the_operation_log() {
             !Path::new(request["result_path"].as_str().unwrap()).exists(),
             "{name} left its candidate"
         );
-        assert!(
-            Path::new(response["log_path"].as_str().unwrap()).is_file(),
-            "{name} lost its Operation log"
-        );
+        let log_path = Path::new(response["log_path"].as_str().unwrap());
+        assert!(log_path.is_file(), "{name} lost its Operation log");
+        let log = fs::read_to_string(log_path).unwrap();
+        assert!(!log.contains(r#"\"value\":1"#), "{name} logged Query rows");
     }
 }

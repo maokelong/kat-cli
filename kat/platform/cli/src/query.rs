@@ -1,7 +1,4 @@
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::{Path, PathBuf}};
 
 use clap::Args;
 use miette::Diagnostic;
@@ -45,7 +42,7 @@ pub(super) struct QueryArgs {
 pub(super) enum QueryResult {
     Json {
         columns: Vec<workflow_runtime::Column>,
-        rows: Vec<BTreeMap<String, serde_json::Value>>,
+        rows: Vec<workflow_runtime::QueryRow>,
         #[serde(skip_serializing_if = "Option::is_none")]
         analysis: Option<ArchiveReceipt>,
     },
@@ -220,11 +217,14 @@ fn execute_opened_query(
     if let Err(error) = log.append(b"status: success\n") {
         return log_failure(error);
     }
-    match log.finish() {
-        Ok(log_path) => {
-            response::prepare_success_with_log_and_file(result, Some(log_path), pending_file)
-        }
-        Err(error) => log_failure(error),
+    let log_path = match log.finish() {
+        Ok(log_path) => log_path,
+        Err(error) => return log_failure(error),
+    };
+    if retain_file {
+        response::prepare_success_with_log_and_file(result, Some(log_path), pending_file)
+    } else {
+        response::prepare_success_with_log(result, Some(log_path))
     }
 }
 

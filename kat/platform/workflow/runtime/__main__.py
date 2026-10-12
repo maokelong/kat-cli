@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 import traceback
-from typing import Iterator, Literal
+from typing import Iterator, Literal, TextIO
 
 from .diagnostic import RuntimeDiagnostic, diagnostic_from_exception
 from .execution import RunWorkflowRuntimeResult, run_workflow
@@ -23,7 +23,7 @@ from .provider_inspection import (
     ProviderInspectionError,
     inspect_provider,
 )
-from .query import QueryRunRuntimeResult, query_run
+from .query import InlineQueryRunRuntimeResult, QueryRunRuntimeResult, query_run
 from .request import (
     InspectProviderRequest,
     InspectWorkflowRequest,
@@ -220,16 +220,40 @@ def _private_run_values(request: RunWorkflowRequest) -> tuple[str, ...]:
 
 def _write_response(path: Path, response: RuntimeResponse) -> None:
     with path.open("x", encoding="utf-8", newline="\n") as file:
-        json.dump(
-            asdict(response),
-            file,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        file.write("\n")
+        if isinstance(response, RuntimeSuccess) and isinstance(
+            response.result, InlineQueryRunRuntimeResult
+        ):
+            _write_inline_query_response(file, response.result)
+        else:
+            json.dump(
+                asdict(response),
+                file,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            file.write("\n")
         file.flush()
         os.fsync(file.fileno())
+
+
+def _write_inline_query_response(
+    file: TextIO, result: InlineQueryRunRuntimeResult
+) -> None:
+    file.write('{"status":"success","result":{"format":"json","columns":')
+    json.dump(
+        result.columns,
+        file,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    file.write(',"rows":[')
+    for index, row in enumerate(result.rows):
+        if index:
+            file.write(",")
+        file.write(row.source)
+    file.write("]}}\n")
 
 
 if __name__ == "__main__":

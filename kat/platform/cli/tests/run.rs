@@ -297,11 +297,15 @@ fn query_rows(
     assert!(output.stderr.is_empty());
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["status"], "success");
-    fs::read_to_string(response["result"]["path"].as_str().unwrap())
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    match response["result"]["format"].as_str().unwrap() {
+        "json" => response["result"]["rows"].as_array().unwrap().clone(),
+        "ndjson" => fs::read_to_string(response["result"]["path"].as_str().unwrap())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect(),
+        format => panic!("unexpected Query Result format {format:?}"),
+    }
 }
 
 fn manifests_by_workflow(

@@ -443,6 +443,15 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         workflow = BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
         self.assertIn(PR_VALIDATION_CONCURRENCY, workflow)
 
+    def test_full_ci_runs_real_query_delivery_boundaries(self) -> None:
+        workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "cargo test --locked -p kat-cli --test query "
+            "real_host_query_covers_inline_and_file_boundaries "
+            "-- --ignored --exact",
+            workflow,
+        )
+
     def test_payload_assembly_distinguishes_plan_from_validated_app_version(
         self,
     ) -> None:

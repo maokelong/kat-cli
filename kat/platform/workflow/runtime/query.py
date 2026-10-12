@@ -25,10 +25,15 @@ _INLINE_MAX_BYTES = 65_536
 
 
 @dataclass(frozen=True)
+class JsonObjectRow:
+    source: str
+
+
+@dataclass(frozen=True)
 class InlineQueryRunRuntimeResult:
     format: Literal["json"] = field(init=False, default="json")
     columns: list[dict[str, str]]
-    rows: list[dict[str, object]]
+    rows: list[JsonObjectRow]
 
 
 @dataclass(frozen=True)
@@ -59,13 +64,13 @@ def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
     if request.result_path.stat().st_size > _INLINE_MAX_BYTES:
         return FileQueryRunRuntimeResult(columns=columns)
 
-    rows: list[dict[str, object]] = []
+    rows: list[JsonObjectRow] = []
     with request.result_path.open("r", encoding="utf-8", newline="") as file:
         for line in file:
             row = json.loads(line, parse_constant=_reject_json_constant)
             if type(row) is not dict:
                 raise ValueError("Query Result rows must be JSON objects")
-            rows.append(row)
+            rows.append(JsonObjectRow(source=line.removesuffix("\n")))
     if len(rows) > _INLINE_MAX_ROWS:
         return FileQueryRunRuntimeResult(columns=columns)
     return InlineQueryRunRuntimeResult(columns=columns, rows=rows)
