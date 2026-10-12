@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import pyarrow as pa
 from datafusion import DataFrameWriteOptions, SQLOptions, SessionContext
@@ -19,10 +20,24 @@ _READ_ONLY = (
     .with_allow_statements(False)
 )
 
+_INLINE_MAX_ROWS = 100
+_INLINE_MAX_BYTES = 65_536
+
 
 @dataclass(frozen=True)
-class QueryRunRuntimeResult:
+class InlineQueryRunRuntimeResult:
+    format: Literal["json"] = field(init=False, default="json")
     columns: list[dict[str, str]]
+    rows: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class FileQueryRunRuntimeResult:
+    format: Literal["ndjson"] = field(init=False, default="ndjson")
+    columns: list[dict[str, str]]
+
+
+type QueryRunRuntimeResult = InlineQueryRunRuntimeResult | FileQueryRunRuntimeResult
 
 
 def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
@@ -40,9 +55,24 @@ def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
         str(request.result_path),
         DataFrameWriteOptions(single_file_output=True),
     )
-    return QueryRunRuntimeResult(
-        columns=[{"name": field.name, "type": str(field.type)} for field in schema],
-    )
+    columns = [{"name": field.name, "type": str(field.type)} for field in schema]
+    if request.result_path.stat().st_size > _INLINE_MAX_BYTES:
+        return FileQueryRunRuntimeResult(columns=columns)
+
+    rows: list[dict[str, object]] = []
+    with request.result_path.open("r", encoding="utf-8", newline="") as file:
+        for line in file:
+            row = json.loads(line, parse_constant=_reject_json_constant)
+            if type(row) is not dict:
+                raise ValueError("Query Result rows must be JSON objects")
+            rows.append(row)
+    if len(rows) > _INLINE_MAX_ROWS:
+        return FileQueryRunRuntimeResult(columns=columns)
+    return InlineQueryRunRuntimeResult(columns=columns, rows=rows)
+
+
+def _reject_json_constant(value: str) -> object:
+    raise ValueError(f"Query Result contains invalid JSON constant {value!r}")
 
 
 def _register_schema(

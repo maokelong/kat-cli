@@ -187,7 +187,7 @@ _Avoid_: Artifact、Result
 针对由 Session ID 与 Run ID 共同定位的已发布 Run `output.*` 发起的本地只读后续查询，不创建新 Run，也不重新执行 Provider query。每次查询使用独立 DataFusion Session，只注册该 Run 的 Output 与 `information_schema`；PACK、Datasource、同一 Session 的其他 Run 和历史 Manifest 字段均不可见。Python/DataFusion 把单条只读 SQL 的结果以原生 Arrow JSON 映射直接写成单文件 NDJSON；KAT 不建立自定义标量转换层，也不自动增加分页、截断、固定 `LIMIT` 或超时。用户 SQL、输出规模、等待时间与本机资源消耗由调用方和用户负责。
 
 **Query Result**:
-一次成功 Output Query 发布的单文件 NDJSON。普通查询 Response 返回 `format="ndjson"`、文件 `path` 和有序 `columns`；文件每行是一个使用查询列名的 JSON object，零行结果是空文件。显式归档可以把实际查询材料另行保存到 Analysis Record，但不把 Query Result 变成 Run Output 或面向用户的 Analysis Result。
+一次成功 Output Query 形成的对象行结果，以 Response 内联行或单文件 NDJSON 两种互斥方式交付，并始终携带有序 `columns`；小结果不保留重复文件，大结果不重复内联。显式归档可以把实际查询材料另行保存到 Analysis Record，但不把 Query Result 变成 Run Output 或面向用户的 Analysis Result。
 
 **Analysis Result**:
 KAT 分析入口围绕用户问题，基于实际任务材料及必要的 Run Output 和查询证据形成的面向用户判断或报告，纯知识任务不要求存在 Run。多个 Run 的轻量解释通过 Analysis Record 保留，不要求分别交付独立报告；Analysis Result 不由 Workflow 生成，也不属于 Run Manifest。

@@ -78,8 +78,6 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         verifier = REPOSITORY / "build/fixtures/verify_payload_smoke.py"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            ndjson = root / "result.ndjson"
-            ndjson.write_bytes(b'{"clock_domain":"wrong","clock_value":0}\n')
             responses = {
                 "inspect": {"status": "success"},
                 "test": {
@@ -104,7 +102,11 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 },
                 "query": {
                     "status": "success",
-                    "result": {"format": "ndjson", "path": str(ndjson)},
+                    "result": {
+                        "format": "json",
+                        "columns": [],
+                        "rows": [{"clock_domain": "wrong", "clock_value": 0}],
+                    },
                 },
             }
             paths = []
@@ -135,10 +137,6 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         verifier = REPOSITORY / "build/fixtures/verify_payload_smoke.py"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            ndjson = root / "result.ndjson"
-            ndjson.write_bytes(
-                b'{"clock_domain":"boottime","clock_value":123456}\n'
-            )
             responses = {
                 "inspect": {"status": "success"},
                 "test": {
@@ -163,7 +161,13 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                 },
                 "query": {
                     "status": "success",
-                    "result": {"format": "ndjson", "path": str(ndjson)},
+                    "result": {
+                        "format": "json",
+                        "columns": [],
+                        "rows": [
+                            {"clock_domain": "boottime", "clock_value": 123456}
+                        ],
+                    },
                 },
             }
             paths = []
@@ -248,7 +252,7 @@ class PayloadCiWorkflowTests(unittest.TestCase):
                     workflow,
                 )
 
-    def test_payload_smoke_uses_hitrace_provider_and_validates_ndjson(self) -> None:
+    def test_payload_smoke_uses_hitrace_provider_and_validates_inline_query(self) -> None:
         assembly = ASSEMBLY_WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn(" import trace-streamer ", assembly)
         self.assertNotIn("--dataset", assembly)
@@ -301,9 +305,9 @@ class PayloadCiWorkflowTests(unittest.TestCase):
         verifier = (
             REPOSITORY / "build/fixtures/verify_payload_smoke.py"
         ).read_text(encoding="utf-8")
-        self.assertIn('result["format"] != "ndjson"', verifier)
+        self.assertIn('result["format"] != "json"', verifier)
         self.assertIn(
-            '{"clock_domain":"boottime","clock_value":123456}',
+            'EXPECTED_ROW = {"clock_domain": "boottime", "clock_value": 123456}',
             verifier,
         )
 

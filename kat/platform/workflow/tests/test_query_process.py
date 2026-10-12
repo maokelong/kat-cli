@@ -76,7 +76,7 @@ class QueryProcessTest(unittest.TestCase):
         )
         return completed, json.loads(response_path.read_text(encoding="utf-8"))
 
-    def test_writes_one_ndjson_file_from_registered_run_outputs(self) -> None:
+    def test_inlines_small_result_from_registered_run_outputs(self) -> None:
         main = self.parquet(
             pa.table({"key": pa.array([2, 1], type=pa.int64())})
         )
@@ -106,10 +106,12 @@ class QueryProcessTest(unittest.TestCase):
             {
                 "status": "success",
                 "result": {
+                    "format": "json",
                     "columns": [
                         {"name": "key", "type": "int64"},
                         {"name": "label", "type": "string_view"},
-                    ]
+                    ],
+                    "rows": [{"key": 1, "label": "one"}, {"key": 2}],
                 },
             },
         )
@@ -155,7 +157,33 @@ class QueryProcessTest(unittest.TestCase):
         request = self.request("SELECT * FROM output.main", result_name="native.ndjson")
         _, response = self.run_runtime(request)
 
-        self.assertEqual(response["status"], "success", response)
+        self.assertEqual(
+            response,
+            {
+                "status": "success",
+                "result": {
+                    "format": "json",
+                    "columns": [
+                        {"name": "binary", "type": "binary_view"},
+                        {"name": "finite", "type": "double"},
+                        {"name": "nan", "type": "double"},
+                        {"name": "missing", "type": "string_view"},
+                        {
+                            "name": "nested",
+                            "type": "struct<x: int64, missing: string>",
+                        },
+                    ],
+                    "rows": [
+                        {
+                            "binary": "de00ff",
+                            "finite": 1.25,
+                            "nan": None,
+                            "nested": {"x": 1},
+                        }
+                    ],
+                },
+            },
+        )
         self.assertEqual(
             Path(request["result_path"]).read_bytes(),
             b'{"binary":"de00ff","finite":1.25,"nan":null,"nested":{"x":1}}\n',
@@ -167,7 +195,55 @@ class QueryProcessTest(unittest.TestCase):
         )
         _, empty_response = self.run_runtime(empty_request)
         self.assertEqual(empty_response["status"], "success", empty_response)
+        self.assertEqual(empty_response["result"]["format"], "json")
+        self.assertEqual(empty_response["result"]["rows"], [])
         self.assertEqual(Path(empty_request["result_path"]).read_bytes(), b"")
+
+    def test_row_threshold_is_inclusive_and_does_not_truncate(self) -> None:
+        self.parquet(pa.table({"value": list(range(101))}))
+
+        inline_request = self.request(
+            "SELECT value FROM output.main ORDER BY value LIMIT 100",
+            result_name="one-hundred.ndjson",
+        )
+        _, inline_response = self.run_runtime(inline_request)
+        file_request = self.request(
+            "SELECT value FROM output.main ORDER BY value",
+            result_name="one-hundred-one.ndjson",
+        )
+        _, file_response = self.run_runtime(file_request)
+
+        self.assertEqual(inline_response["status"], "success", inline_response)
+        self.assertEqual(inline_response["result"]["format"], "json")
+        self.assertEqual(len(inline_response["result"]["rows"]), 100)
+        self.assertEqual(file_response["status"], "success", file_response)
+        self.assertEqual(file_response["result"]["format"], "ndjson")
+        self.assertNotIn("rows", file_response["result"])
+        self.assertEqual(len(Path(file_request["result_path"]).read_bytes().splitlines()), 101)
+
+    def test_byte_threshold_is_inclusive_even_for_one_row(self) -> None:
+        for size, expected_format in [(65_536, "json"), (65_537, "ndjson")]:
+            with self.subTest(size=size):
+                output_name = f"bytes_{size}"
+                output = self.parquet(
+                    pa.table({"value": ["x" * (size - 13)]}),
+                    output_name=output_name,
+                )
+                request = self.request(
+                    f"SELECT value FROM output.{output_name}",
+                    outputs={output_name: output},
+                    result_name=f"{size}.ndjson",
+                )
+
+                _, response = self.run_runtime(request)
+
+                self.assertEqual(response["status"], "success", response)
+                self.assertEqual(Path(request["result_path"]).stat().st_size, size)
+                self.assertEqual(response["result"]["format"], expected_format)
+                if expected_format == "json":
+                    self.assertEqual(len(response["result"]["rows"]), 1)
+                else:
+                    self.assertNotIn("rows", response["result"])
 
     def test_rejects_duplicate_struct_sibling_names_before_writing(self) -> None:
         self.parquet(pa.table({"value": [1]}))
@@ -249,7 +325,8 @@ class QueryProcessTest(unittest.TestCase):
         _, response = self.run_runtime(request)
 
         self.assertEqual(response["status"], "success", response)
-        self.assertEqual(set(response["result"]), {"columns"})
+        self.assertEqual(set(response["result"]), {"format", "columns"})
+        self.assertEqual(response["result"]["format"], "ndjson")
         result = Path(request["result_path"]).read_bytes()
         self.assertEqual(len(result.splitlines()), 1_001)
         self.assertGreater(len(result), 256 * 1_024)

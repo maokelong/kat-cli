@@ -197,9 +197,15 @@ pub(crate) enum TestPackOutcome {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct QueryRunResult {
-    pub(crate) columns: Vec<Column>,
+#[serde(tag = "format", rename_all = "lowercase", deny_unknown_fields)]
+pub(crate) enum QueryRunResult {
+    Json {
+        columns: Vec<Column>,
+        rows: Vec<BTreeMap<String, serde_json::Value>>,
+    },
+    Ndjson {
+        columns: Vec<Column>,
+    },
 }
 
 pub(crate) fn inspect_workflow(

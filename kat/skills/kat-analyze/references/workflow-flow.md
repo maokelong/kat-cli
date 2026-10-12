@@ -12,7 +12,7 @@
 
 只用 `kat query --session S --run R --sql SQL` 查询公开 Output。优先使用已有 `result.outputs`，必要时通过 `information_schema.tables` 和 `information_schema.columns` 核对结构；Guide 不代替 Schema 或数据证据。`outputs: {}` 不可查询虚构的 `output.main`，无输出和零行均不能单独证明没有问题。
 
-SQL 显式投影、过滤、聚合和排序，明细查询加 `LIMIT`；读取成功 Response 的 `result.path` 获取真实 NDJSON，不扫描私有目录，不用日志、Provider 知识或未执行 SQL 支撑结论。
+SQL 显式投影、过滤、聚合和排序，明细查询加 `LIMIT`；成功后先检查 `result.format`：`json` 分支直接使用 `result.rows`，不再调用文件读取；`ndjson` 分支只读取本次 Response 的 `result.path`。不扫描私有目录，不用日志、Provider 知识或未执行 SQL 支撑结论。
 
 实际采用的关键查询证据通过 `--archive` 保存，已有适用材料直接复用。采用尚未归档的探索结果时，用更窄的 SQL 归档必要证据，再读取这次真实结果；它是新查询，不能冒称原探索查询的历史结果。不归档整表，不抄写行替代程序捕获。修订回执按共同流程核对，归档不替换任何解释或总报告。
 
