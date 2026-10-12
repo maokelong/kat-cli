@@ -8,6 +8,7 @@ kat/platform/workflow/runtime/query.py
   s_b841b9d7a676aa::t_b75b0a09d77ee3 3,6,23-32,35-36,40-42,58-75
 README.md
   s_b841b9d7a676aa::t_7ebb27b5640b14 197-198
+  s_b841b9d7a676aa::t_19513cf14e2d0e 149,196,199-201
 kat/platform/workflow/tests/test_query_process.py
   s_b841b9d7a676aa::t_c8579e634c8a5b 79,109,113-114,247
   s_b841b9d7a676aa::t_6714a356e4bbf3 160-166,168-169,171-186,198-199,202-246,328-329
@@ -21,12 +22,22 @@ build/fixtures/verify_payload_materialization_race.py
   s_b841b9d7a676aa::t_37ae1d1c624d54 260-265,267
 kat/platform/cli/src/lib.rs
   s_b841b9d7a676aa::t_427faed6cc754d 57-58
+  s_b841b9d7a676aa::t_19513cf14e2d0e 59-60
 docs/adr/0089-output-query-inlines-bounded-results.md
   s_b841b9d7a676aa::t_e4cf47f0c6d675 1-11
 build/fixtures/verify_payload_smoke.py
   s_b841b9d7a676aa::t_37ae1d1c624d54 2,11,45-50
 kat/platform/cli/src/query.rs
   s_b841b9d7a676aa::t_15946e65c337af 44-48,51-54,57,197-198,199-201,202,204,207,209-210
+  s_b841b9d7a676aa::t_19513cf14e2d0e 38,49-50,55-56,165-168,182,203,205-206,208,211-218
+kat/skills/kat-analyze/references/workflow-flow.md
+  s_b841b9d7a676aa::t_eec0fda45c606c 15
+kat/skills/kat-review/SKILL.md
+  s_b841b9d7a676aa::t_eec0fda45c606c 34
+CONTEXT.md
+  s_b841b9d7a676aa::t_19513cf14e2d0e 190
+kat/skills/kat/references/command-reference.md
+  s_b841b9d7a676aa::t_eec0fda45c606c 177
 ---
 {
   "schema_version": "authorship/3.0.0",
