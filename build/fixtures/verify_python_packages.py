@@ -142,9 +142,11 @@ def main() -> None:
         "query-output", "query", "--session", session_id, "--run", run["run_id"],
         "--sql", "SELECT value, six_version, packaging_version, six_file, packaging_file, python_executable FROM output.main",
     )
-    if queried["format"] != "ndjson":
-        raise RuntimeError(f"Query did not return NDJSON: {queried}")
-    rows = [json.loads(line) for line in Path(queried["path"]).read_text(encoding="utf-8").splitlines()]
+    if queried["format"] != "json":
+        raise RuntimeError(f"Query did not inline its bounded result: {queried}")
+    if set(queried) != {"format", "columns", "rows"}:
+        raise RuntimeError(f"Query returned an invalid inline result shape: {queried}")
+    rows = queried["rows"]
     expected = {
         "value": "KAT library install", "six_version": "1.17.0", "packaging_version": "25.0",
         "six_file": installed["six_file"], "packaging_file": installed["packaging_file"],

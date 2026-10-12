@@ -169,7 +169,9 @@ def test_compose(kat_run):
                               "--workflow", workflow, "--pack-dir", standalone)["result"]
             queried = invoke("query", "--session", session, "--run", executed["run_id"],
                              "--sql", "SELECT value FROM output.main")["result"]
-            assert json.loads(Path(queried["path"]).read_text(encoding="utf-8")) == {"value": 42}
+            assert queried["format"] == "json"
+            assert queried["rows"] == [{"value": 42}]
+            assert "path" not in queried
         assert invoke("test", "--pack-dir", standalone)["result"]["summary"]["passed"] == 2
         invoke("inspect", "session", "--session", session)
         invoke("session", "delete", "--session", session)
@@ -209,7 +211,9 @@ def test_compose(kat_run):
             executed = invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", *arguments)["result"]
             assert "公共库" in executed["guide"], executed
             queried = invoke("query", "--session", session, "--run", executed["run_id"], "--sql", "SELECT message FROM output.main")["result"]
-            assert json.loads(Path(queried["path"]).read_text(encoding="utf-8")) == {"message": expected}
+            assert queried["format"] == "json"
+            assert queried["rows"] == [{"message": expected}]
+            assert "path" not in queried
         invoke("run", "--session", session, "--pack", "kat-sdk", "--workflow", "demo-greeting", "--", "--name", "   ", success=False)
         invoke("session", "delete", "--session", session)
     verify_demo()
