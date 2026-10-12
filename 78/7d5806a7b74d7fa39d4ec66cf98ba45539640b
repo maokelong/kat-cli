@@ -1,0 +1,35 @@
+kat/platform/cli/src/query.rs
+  s_b841b9d7a676aa::t_69d396b2763805 341-343
+  s_b841b9d7a676aa::t_d7573d391dc8e3 1-4
+kat/platform/cli/tests/analysis_archives.rs
+  s_b841b9d7a676aa::t_dc7644bfd9e77e 90-93,97,149-150,189-190,296-298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "787d5806a7b74d7fa39d4ec66cf98ba45539640b",
+  "prompts": {},
+  "sessions": {
+    "s_b841b9d7a676aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12f27-e470-7171-8218-f04925c33b3e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 18,
+      "total_deletions": 10,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_69d396b2763805": "gpt-5.6-sol",
+        "t_dc7644bfd9e77e": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 18,
+          "deletions": 10
+        }
+      }
+    }
+  }
+}
