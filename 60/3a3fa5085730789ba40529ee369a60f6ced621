@@ -27,6 +27,7 @@ build/tests/test_payload_ci_workflows.py
   s_b841b9d7a676aa::t_7a9498da5fad1e 446-454
 kat/platform/cli/src/query.rs
   s_b841b9d7a676aa::t_52ad8dfcd9ec7e 45,159-161,208-211,213-215
+  s_b841b9d7a676aa::t_f231f9d979ed3b 1,220-227
 ---
 {
   "schema_version": "authorship/3.0.0",
