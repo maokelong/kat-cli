@@ -64,16 +64,21 @@ def query_run(request: QueryRunRequest) -> QueryRunRuntimeResult:
     if request.result_path.stat().st_size > _INLINE_MAX_BYTES:
         return FileQueryRunRuntimeResult(columns=columns)
 
+    rows = _read_inline_rows(request.result_path)
+    if len(rows) > _INLINE_MAX_ROWS:
+        return FileQueryRunRuntimeResult(columns=columns)
+    return InlineQueryRunRuntimeResult(columns=columns, rows=rows)
+
+
+def _read_inline_rows(path: Path) -> list[JsonObjectRow]:
     rows: list[JsonObjectRow] = []
-    with request.result_path.open("r", encoding="utf-8", newline="") as file:
+    with path.open("r", encoding="utf-8", newline="") as file:
         for line in file:
             row = json.loads(line, parse_constant=_reject_json_constant)
             if type(row) is not dict:
                 raise ValueError("Query Result rows must be JSON objects")
             rows.append(JsonObjectRow(source=line.removesuffix("\n")))
-    if len(rows) > _INLINE_MAX_ROWS:
-        return FileQueryRunRuntimeResult(columns=columns)
-    return InlineQueryRunRuntimeResult(columns=columns, rows=rows)
+    return rows
 
 
 def _reject_json_constant(value: str) -> object:

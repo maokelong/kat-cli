@@ -12,6 +12,7 @@ import uuid
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from _kat_runtime.query import _read_inline_rows
 
 
 class QueryProcessTest(unittest.TestCase):
@@ -232,6 +233,18 @@ class QueryProcessTest(unittest.TestCase):
             '{"precise":12345678901234567890.123456789012345678}',
         )
         self.assertIn(f'"rows":[{native_row}]', response)
+
+    def test_inline_candidate_rejects_malformed_json_and_non_object_rows(self) -> None:
+        for name, content in [
+            ("malformed", '{"secret":\n'),
+            ("non-object", '["secret"]\n'),
+        ]:
+            with self.subTest(name=name):
+                candidate = self.root / f"{name}.ndjson"
+                candidate.write_text(content, encoding="utf-8", newline="\n")
+
+                with self.assertRaises(ValueError):
+                    _read_inline_rows(candidate)
 
     def test_row_threshold_is_inclusive_and_does_not_truncate(self) -> None:
         self.parquet(pa.table({"value": list(range(101))}))

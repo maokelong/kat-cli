@@ -899,49 +899,56 @@ fn query_holds_session_lease_until_its_large_response_is_flushed() {
 
 #[test]
 fn controlled_failures_remove_the_candidate_and_retain_the_operation_log() {
-    for (name, result_mode, runtime_response, exits_after_result) in [
+    for (name, result_mode, runtime_response, exits_after_result, result) in [
         (
-            "runtime failure",
+            "inline parse failure",
             None,
-            r#"{"status":"failure","error":{"message":"query failed"}}"#,
+            r#"{"status":"failure","error":{"message":"Query Result row could not be parsed"}}"#,
             false,
+            Some("{\"secret\":\n"),
         ),
-        ("invalid response", None, "not-json", false),
+        ("invalid response", None, "not-json", false, None),
         (
             "removed rows field",
             None,
             r#"{"status":"success","result":{"format":"json","columns":[]}}"#,
             false,
+            None,
         ),
         (
             "positional rows",
             None,
             r#"{"status":"success","result":{"format":"json","columns":[],"rows":[[1]]}}"#,
             false,
+            None,
         ),
         (
             "rows in file result",
             None,
             r#"{"status":"success","result":{"format":"ndjson","columns":[],"rows":[]}}"#,
             false,
+            None,
         ),
         (
             "missing file",
             Some("none"),
             r#"{"status":"success","result":{"format":"ndjson","columns":[]}}"#,
             false,
+            None,
         ),
         (
             "directory instead of file",
             Some("directory"),
             r#"{"status":"success","result":{"format":"ndjson","columns":[]}}"#,
             false,
+            None,
         ),
         (
             "host exit",
             None,
             r#"{"status":"success","result":{"format":"ndjson","columns":[]}}"#,
             true,
+            None,
         ),
     ] {
         let temporary = tempfile::tempdir().unwrap();
@@ -960,6 +967,9 @@ fn controlled_failures_remove_the_candidate_and_retain_the_operation_log() {
         }
         if exits_after_result {
             query.env("KAT_FAKE_EXIT_AFTER_RESULT", "1");
+        }
+        if let Some(result) = result {
+            query.env("KAT_FAKE_RESULT", result);
         }
 
         let output = query.output().unwrap();
@@ -981,5 +991,6 @@ fn controlled_failures_remove_the_candidate_and_retain_the_operation_log() {
         assert!(log_path.is_file(), "{name} lost its Operation log");
         let log = fs::read_to_string(log_path).unwrap();
         assert!(!log.contains(r#"\"value\":1"#), "{name} logged Query rows");
+        assert!(!log.contains("secret"), "{name} logged Query rows");
     }
 }
