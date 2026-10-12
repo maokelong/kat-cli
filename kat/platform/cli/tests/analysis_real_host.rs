@@ -297,23 +297,22 @@ fn analysis_restores_nested_run_guides_evidence_and_plain_reports_without_pack()
     let subtotal_query = cli.archive_query(subtotal_id, "SELECT total_ms FROM output.main");
     let facts_evidence = facts_query["analysis"]["material_id"].as_str().unwrap();
     let subtotal_evidence = subtotal_query["analysis"]["material_id"].as_str().unwrap();
-    let original_ndjson = fs::read_to_string(facts_query["path"].as_str().unwrap()).unwrap();
-    assert_eq!(cli.material(facts_evidence)["ndjson"], original_ndjson);
-    let rows: Vec<Value> = original_ndjson
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    assert_eq!(facts_query["format"], "json");
     assert_eq!(
-        rows,
-        vec![json!({"duration_ms":20}), json!({"duration_ms":22})]
+        facts_query["rows"],
+        json!([{"duration_ms":20}, {"duration_ms":22}])
     );
-    let subtotal_rows: Value = serde_json::from_str(
-        fs::read_to_string(subtotal_query["path"].as_str().unwrap())
-            .unwrap()
-            .trim(),
-    )
-    .unwrap();
-    assert_eq!(subtotal_rows, json!({"total_ms":42}));
+    assert!(facts_query.get("path").is_none());
+    let original_ndjson = facts_query["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| format!("{}\n", serde_json::to_string(row).unwrap()))
+        .collect::<String>();
+    assert_eq!(cli.material(facts_evidence)["ndjson"], original_ndjson);
+    assert_eq!(subtotal_query["format"], "json");
+    assert_eq!(subtotal_query["rows"], json!([{"total_ms":42}]));
+    assert!(subtotal_query.get("path").is_none());
 
     let facts_text =
         format!("材料 {facts_evidence}：两次测量分别耗时 20 ms 和 22 ms，不能推断总体趋势。");
@@ -431,8 +430,6 @@ fn analysis_restores_nested_run_guides_evidence_and_plain_reports_without_pack()
     );
 
     fs::rename(&cli.pack, cli.root.join("pack-removed-from-discovery")).unwrap();
-    fs::remove_file(facts_query["path"].as_str().unwrap()).unwrap();
-    fs::remove_file(subtotal_query["path"].as_str().unwrap()).unwrap();
     let restored = cli.show();
     assert_eq!(restored, survivor);
     assert_eq!(cli.material(facts_evidence)["ndjson"], original_ndjson);
