@@ -1,0 +1,450 @@
+kat/platform/cli/tests/query.rs
+  s_b841b9d7a676aa::t_11bf79d5c91c1a 187
+  s_b841b9d7a676aa::t_08c0973b9342fc 10-12,27,36-37,91-139,167-174,293,347,351-352,355-357,380,407-410,447,490-495,499,501,505-508,519-520,554,561,570-575,577-578,693,797-809,815,821,827
+  s_b841b9d7a676aa::t_d057515b2fc862 496-497,502-504,509-518,521-553,555-560,562-569,576
+  s_b841b9d7a676aa::t_96078dae03b2cd 498,500
+kat/platform/workflow/runtime/query.py
+  s_b841b9d7a676aa::t_b7d15d677aea5f 4
+  s_b841b9d7a676aa::t_b75b0a09d77ee3 3,6,23-32,35-36,40-42,58-75
+kat/skill/references/analysis-flow.md
+  s_b841b9d7a676aa::t_7ebb27b5640b14 41
+README.md
+  s_b841b9d7a676aa::t_7ebb27b5640b14 114,160-163
+kat/skill/references/result-contract.md
+  s_b841b9d7a676aa::t_7ebb27b5640b14 12
+kat/skill/references/command-reference.md
+  s_b841b9d7a676aa::t_7ebb27b5640b14 145
+kat/platform/workflow/tests/test_query_process.py
+  s_b841b9d7a676aa::t_c8579e634c8a5b 79,109,113-114,247
+  s_b841b9d7a676aa::t_6714a356e4bbf3 160-166,168-169,171-186,198-199,202-246,328-329
+  s_b841b9d7a676aa::t_27b56526d1e63a 167,170
+kat/platform/cli/src/workflow_runtime.rs
+  s_b841b9d7a676aa::t_15946e65c337af 199-207
+build/tests/test_payload_ci_workflows.py
+  s_b841b9d7a676aa::t_4d07cece9aec4b 85-89,144-150,235,288
+  s_b841b9d7a676aa::t_1bd54321784299 290
+build/fixtures/verify_payload_materialization_race.py
+  s_b841b9d7a676aa::t_37ae1d1c624d54 260-265,267
+kat/platform/cli/src/lib.rs
+  s_b841b9d7a676aa::t_427faed6cc754d 47-49
+docs/adr/0089-output-query-inlines-bounded-results.md
+  s_b841b9d7a676aa::t_e4cf47f0c6d675 1-11
+build/fixtures/verify_payload_smoke.py
+  s_b841b9d7a676aa::t_37ae1d1c624d54 2,11,45-50
+kat/platform/cli/src/query.rs
+  s_b841b9d7a676aa::t_15946e65c337af 2,39-48,145-166,171-178,281-283
+CONTEXT.md
+  s_b841b9d7a676aa::t_e675558f25e56b 163,166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "38e70401182fcd22685adc6226acaa04a20d2b15",
+  "prompts": {},
+  "humans": {
+    "h_9cb36da7bd45f4": {
+      "author": "shijifei <shijifei@huawei.com>"
+    }
+  },
+  "sessions": {
+    "s_082eeb39d11813": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c3c0-b7f1-7033-a3c0-81b06dc54105",
+        "model": "gpt-6-astra, gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 414,
+      "total_deletions": 139,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_0465ac7acb3a17": "gpt-5.6-sol",
+        "t_052bf08788a263": "gpt-5.6-sol",
+        "t_0a3fd1ade58abe": "gpt-5.6-sol",
+        "t_11c11d13c922a3": "gpt-5.6-sol",
+        "t_11e2077665a139": "gpt-6-astra",
+        "t_124c2616420af2": "gpt-5.6-sol",
+        "t_28e406812f4c02": "gpt-5.6-sol",
+        "t_397f3419e4ef32": "gpt-5.6-sol",
+        "t_409e3a7c2ad610": "gpt-5.6-sol",
+        "t_46d852ad3faf8d": "gpt-5.6-sol",
+        "t_4736804dbeb8aa": "gpt-5.6-sol",
+        "t_56b6d76096bdfc": "gpt-5.6-sol",
+        "t_5dc77f02a5ca45": "gpt-5.6-sol",
+        "t_60637eefe0d38c": "gpt-5.6-sol",
+        "t_60a001076935e1": "gpt-5.6-sol",
+        "t_6991de6363fd49": "gpt-5.6-sol",
+        "t_6afb01ab035b2b": "gpt-6-astra",
+        "t_7172f570efb90f": "gpt-5.6-sol",
+        "t_757ef67b662812": "gpt-5.6-sol",
+        "t_818e228619996b": "gpt-5.6-sol",
+        "t_89e6b214a9347d": "gpt-5.6-sol",
+        "t_9a66aeeb20ce07": "gpt-5.6-sol",
+        "t_9d487279a262b3": "gpt-5.6-sol",
+        "t_9f889c058606ae": "gpt-5.6-sol",
+        "t_a073f4e35b114a": "gpt-5.6-sol",
+        "t_a0c096e1e67262": "gpt-5.6-sol",
+        "t_a77f4e34df2e09": "gpt-5.6-sol",
+        "t_b9d16d4e5ebac3": "gpt-5.6-sol",
+        "t_c0c366fbdec1b8": "gpt-5.6-sol",
+        "t_c3444cb066dcb6": "gpt-5.6-sol",
+        "t_ca53be7a16cf8c": "gpt-5.6-sol",
+        "t_ce52f093a1e422": "gpt-5.6-sol",
+        "t_cef04a3a6fe683": "gpt-5.6-sol",
+        "t_d35ef19b08ca93": "gpt-6-astra",
+        "t_d44581b52ec51b": "gpt-6-astra",
+        "t_e5733f3657e4ed": "gpt-5.6-sol",
+        "t_e95dd0687192ff": "gpt-5.6-sol",
+        "t_eb6d47dd3d4ae8": "gpt-5.6-sol",
+        "t_ee95a885d6d3c7": "gpt-5.6-sol",
+        "t_f4ac9bf8cf5b1e": "gpt-6-astra",
+        "t_f7663669da22cc": "gpt-6-astra",
+        "t_f9751ed4bc3911": "gpt-6-astra",
+        "t_faffcd8e837b8b": "gpt-6-astra",
+        "t_fc16f3a399e990": "gpt-5.6-sol",
+        "t_fe3ff3983918c4": "gpt-5.6-sol",
+        "t_fea6a4c4188cd5": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 341,
+          "deletions": 120
+        },
+        "gpt-6-astra": {
+          "additions": 73,
+          "deletions": 19
+        }
+      }
+    },
+    "s_704addb60e0de2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a128c5-2913-7153-a63e-ccf2df12db68",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 340,
+      "total_deletions": 55,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_15d38167808d8c": "gpt-6.1-sol",
+        "t_160372b41ecdfe": "gpt-6.1-sol",
+        "t_2258f0c0ec918f": "gpt-6.1-sol",
+        "t_233d9e5c4914b8": "gpt-6.1-sol",
+        "t_31a53c82ffc12c": "gpt-6.1-sol",
+        "t_334e8ce3a146f3": "gpt-6.1-sol",
+        "t_3539fa764077f3": "gpt-6.1-sol",
+        "t_39aa8269245655": "gpt-6.1-sol",
+        "t_4a2eca5ec3c2da": "gpt-6.1-sol",
+        "t_8b570c31a8ee4a": "gpt-6.1-sol",
+        "t_90381faa2fd290": "gpt-6.1-sol",
+        "t_9b9b66ffc1c919": "gpt-6.1-sol",
+        "t_a41cc59cebb7da": "gpt-6.1-sol",
+        "t_b7d9bf9071903c": "gpt-6.1-sol",
+        "t_d2510b9cd1f40b": "gpt-6.1-sol",
+        "t_d265cb5d5eec3d": "gpt-6.1-sol",
+        "t_d2830dd6228a52": "gpt-6.1-sol",
+        "t_d3bf0f953c59bf": "gpt-6.1-sol",
+        "t_dbc9e239a59f32": "gpt-6.1-sol",
+        "t_e02caf1b1c5a45": "gpt-6.1-sol",
+        "t_e4ca39b6fe2d1c": "gpt-6.1-sol",
+        "t_ecca0c7663f13e": "gpt-6.1-sol",
+        "t_ee1d6c58f79acc": "gpt-6.1-sol"
+      },
+      "model_totals": {
+        "gpt-6.1-sol": {
+          "additions": 340,
+          "deletions": 55
+        }
+      }
+    },
+    "s_7313f7b6bd4839": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b26e-9b2a-73d0-88aa-4c8ff6976c2b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 112,
+      "total_deletions": 24,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_065d2a6b638de7": "gpt-6-astra",
+        "t_53a3e0bb7bf085": "gpt-6-astra",
+        "t_62f9651f8b52eb": "gpt-6-astra",
+        "t_7ea1b9acc8ac4f": "gpt-6-astra",
+        "t_853125256aea37": "gpt-6-astra",
+        "t_9cf02fe539828c": "gpt-6-astra",
+        "t_c52036d751671f": "gpt-6-astra",
+        "t_dba13beadb188a": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 112,
+          "deletions": 24
+        }
+      }
+    },
+    "s_9807c18c839059": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a2f6-2a1e-7af3-9b20-2404a491f951",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 124,
+      "total_deletions": 39,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_021c90e2ec21c7": "gpt-6-astra",
+        "t_15412c97cb44d3": "gpt-6-astra",
+        "t_1e9b0fcd39c193": "gpt-6-astra",
+        "t_266216bb1dd980": "gpt-6-astra",
+        "t_504202bcf6772d": "gpt-6-astra",
+        "t_706ed8be29820b": "gpt-6-astra",
+        "t_710d8fe89d1539": "gpt-6-astra",
+        "t_8a64867955e749": "gpt-6-astra",
+        "t_a1f0f77400475b": "gpt-6-astra",
+        "t_b0819252c04f24": "gpt-6-astra",
+        "t_b66a33285d27b4": "gpt-6-astra",
+        "t_bbb7847b21cca5": "gpt-6-astra",
+        "t_fbc141c5a30bf5": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 124,
+          "deletions": 39
+        }
+      }
+    },
+    "s_b841b9d7a676aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12f27-e470-7171-8218-f04925c33b3e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 519,
+      "total_deletions": 200,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_08c0973b9342fc": "gpt-5.6-sol",
+        "t_11bf79d5c91c1a": "gpt-5.6-sol",
+        "t_15946e65c337af": "gpt-5.6-sol",
+        "t_1b07c0031d5727": "gpt-5.6-sol",
+        "t_1bd54321784299": "gpt-5.6-sol",
+        "t_1f33f9111dd4e9": "gpt-5.6-sol",
+        "t_27b56526d1e63a": "gpt-5.6-sol",
+        "t_33c852572b8d0f": "gpt-5.6-sol",
+        "t_37ae1d1c624d54": "gpt-5.6-sol",
+        "t_427faed6cc754d": "gpt-5.6-sol",
+        "t_46f7fae009a5a9": "gpt-5.6-sol",
+        "t_4cf5e09afe8112": "gpt-5.6-sol",
+        "t_4d07cece9aec4b": "gpt-5.6-sol",
+        "t_5dd39f334f5c67": "gpt-5.6-sol",
+        "t_6714a356e4bbf3": "gpt-5.6-sol",
+        "t_7083169ad81304": "gpt-5.6-sol",
+        "t_72f558fd5df03d": "gpt-5.6-sol",
+        "t_739e04ef659d34": "gpt-5.6-sol",
+        "t_7c49427f443701": "gpt-5.6-sol",
+        "t_7ebb27b5640b14": "gpt-5.6-sol",
+        "t_8d61a606415018": "gpt-5.6-sol",
+        "t_96078dae03b2cd": "gpt-5.6-sol",
+        "t_b75b0a09d77ee3": "gpt-5.6-sol",
+        "t_b7d15d677aea5f": "gpt-5.6-sol",
+        "t_bcb2a6303416ca": "gpt-5.6-sol",
+        "t_c8579e634c8a5b": "gpt-5.6-sol",
+        "t_ca5dbd537d2e25": "gpt-5.6-sol",
+        "t_ce1f874e1b6a1a": "gpt-5.6-sol",
+        "t_d057515b2fc862": "gpt-5.6-sol",
+        "t_e4cf47f0c6d675": "gpt-5.6-sol",
+        "t_f7327dd3da26eb": "gpt-5.6-sol",
+        "t_f83b7935c6abbf": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 519,
+          "deletions": 200
+        }
+      }
+    },
+    "s_bbefea4dec907a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cdcd-96d2-70a0-98b2-e00128fdf0f6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2089,
+      "total_deletions": 58,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_13e0b7131e7e81": "gpt-5.6-sol",
+        "t_16120b279c2973": "gpt-5.6-sol",
+        "t_23a946f899563d": "gpt-5.6-sol",
+        "t_25b8596140df22": "gpt-5.6-sol",
+        "t_2662c12becdb66": "gpt-5.6-sol",
+        "t_26cf687b154d57": "gpt-5.6-sol",
+        "t_277898bf3709e9": "gpt-5.6-sol",
+        "t_30557d8de93985": "gpt-5.6-sol",
+        "t_468ee17a40a4f9": "gpt-5.6-sol",
+        "t_556c0d9f021930": "gpt-5.6-sol",
+        "t_7adcff1c248fad": "gpt-5.6-sol",
+        "t_874a9c7eea3b17": "gpt-5.6-sol",
+        "t_8e94078a4b71df": "gpt-5.6-sol",
+        "t_8fdc17bf2a699a": "gpt-5.6-sol",
+        "t_a17aaf44326d57": "gpt-5.6-sol",
+        "t_ac690b0e349001": "gpt-5.6-sol",
+        "t_b2058c6bb9e291": "gpt-5.6-sol",
+        "t_b3ebf0e6ed4834": "gpt-5.6-sol",
+        "t_b69d572124c2f7": "gpt-5.6-sol",
+        "t_b9131c60a17763": "gpt-5.6-sol",
+        "t_ba496ae4a551f5": "gpt-5.6-sol",
+        "t_bcea6ba00b103d": "gpt-5.6-sol",
+        "t_c37ee81c843be2": "gpt-5.6-sol",
+        "t_d977488ef830ce": "gpt-5.6-sol",
+        "t_dee8516043d56e": "gpt-5.6-sol",
+        "t_e6522a4ddadb89": "gpt-5.6-sol",
+        "t_ed43556f8fefc2": "gpt-5.6-sol",
+        "t_ede4c0b0356a16": "gpt-5.6-sol",
+        "t_f0293259e792bb": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 2089,
+          "deletions": 58
+        }
+      }
+    },
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 1473,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_79843a8eb8c62d": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 1,
+          "deletions": 1473
+        }
+      }
+    },
+    "s_dc2e9091f74585": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e5e0-aff0-74e0-9ece-e0db4033a158",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 7,
+      "total_deletions": 7,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_5ce2eb27062d7f": "gpt-5.6-sol",
+        "t_fbbd91e5f261cc": "gpt-5.6-sol"
+      },
+      "model_totals": {
+        "gpt-5.6-sol": {
+          "additions": 7,
+          "deletions": 7
+        }
+      }
+    },
+    "s_ec376ad56181cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bdce-1dea-7050-8893-43cab01be594",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1021,
+      "total_deletions": 125,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_045357f73341e7": "gpt-6-astra",
+        "t_20d695f75cb9bb": "gpt-6-astra",
+        "t_26cedcb93b0e46": "gpt-6-astra",
+        "t_28bdac9f3f06a2": "gpt-6-astra",
+        "t_3c6806fc33ff48": "gpt-6-astra",
+        "t_46fbae5e47fc38": "gpt-6-astra",
+        "t_4801cdab7a82a4": "gpt-6-astra",
+        "t_7b581c48230979": "gpt-6-astra",
+        "t_7e06bac4c5324c": "gpt-6-astra",
+        "t_90adfbf9e7f39e": "gpt-6-astra",
+        "t_90f049505627ea": "gpt-6-astra",
+        "t_962a6b00a11ca7": "gpt-6-astra",
+        "t_979f655441084b": "gpt-6-astra",
+        "t_a80454eb3a181a": "gpt-6-astra",
+        "t_b4f8d5bfc4a1ef": "gpt-6-astra",
+        "t_c1e85ddd7eb6a1": "gpt-6-astra",
+        "t_ccab697e1f4117": "gpt-6-astra",
+        "t_d2424000e42d84": "gpt-6-astra",
+        "t_d61565e31cf8df": "gpt-6-astra",
+        "t_de1a62e4544fe3": "gpt-6-astra",
+        "t_de4afc14177ee6": "gpt-6-astra",
+        "t_de7d0c1d8b6dc4": "gpt-6-astra",
+        "t_e4c20adac5a994": "gpt-6-astra",
+        "t_ffd25325b043aa": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 1021,
+          "deletions": 125
+        }
+      }
+    },
+    "s_f6adfa29fa0780": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a4de-49c4-78f1-8626-57a114c8478c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 720,
+      "total_deletions": 79,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_0f673530f0bbd0": "gpt-6-astra",
+        "t_33a89aa8c35848": "gpt-6-astra",
+        "t_4dfbcfee925e2f": "gpt-6-astra",
+        "t_573da6a2721d97": "gpt-6-astra",
+        "t_5819b2d24bbdb9": "gpt-6-astra",
+        "t_59b6d54252b53e": "gpt-6-astra",
+        "t_6a9b38adb8ecee": "gpt-6-astra",
+        "t_72897b22d9fc5b": "gpt-6-astra",
+        "t_7b765b558b0874": "gpt-6-astra",
+        "t_7e42d9af2d572b": "gpt-6-astra",
+        "t_8c1138aab4fdc7": "gpt-6-astra",
+        "t_930d6aeef0b77c": "gpt-6-astra",
+        "t_9434113f04445b": "gpt-6-astra",
+        "t_94d4738c92a8cd": "gpt-6-astra",
+        "t_96256732397062": "gpt-6-astra",
+        "t_975752ebaf55d3": "gpt-6-astra",
+        "t_9ae783e23b1045": "gpt-6-astra",
+        "t_b437d06765c96c": "gpt-6-astra",
+        "t_ba031c2e2d4d64": "gpt-6-astra",
+        "t_bd174055d5f777": "gpt-6-astra",
+        "t_c75f62f82dcd54": "gpt-6-astra",
+        "t_d239a74033f659": "gpt-6-astra",
+        "t_d85ec6cd3c2965": "gpt-6-astra",
+        "t_e1fc5bdc42c641": "gpt-6-astra",
+        "t_ea8b0a5d532e03": "gpt-6-astra",
+        "t_f83c6b7879b77e": "gpt-6-astra",
+        "t_fdaa002ec5ee60": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 720,
+          "deletions": 79
+        }
+      }
+    }
+  }
+}
