@@ -139,12 +139,16 @@ fn scratch_lifecycle_uses_rust_for_direct_nested_and_test_runs() {
                         ],
                     );
                     assert_eq!(query["status"], "success", "{query}");
-                    let rows =
-                        fs::read_to_string(query["result"]["path"].as_str().unwrap()).unwrap();
+                    assert_eq!(query["result"]["format"], "json", "{query}");
                     assert_eq!(
-                        rows.trim(),
-                        if mode == "table" { "{\"value\":7}" } else { "" }
+                        query["result"]["rows"],
+                        if mode == "table" {
+                            serde_json::json!([{"value": 7}])
+                        } else {
+                            serde_json::json!([])
+                        }
                     );
+                    assert!(query["result"].get("path").is_none(), "{query}");
                 }
             }
             let mut manifests = std::collections::BTreeMap::new();
