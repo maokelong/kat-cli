@@ -1,124 +1,8 @@
-# PACK 创作与维护流程
+# Python PACK 详细合同
 
-## 1. 从零创建 PACK
+按[作者入口](../SKILL.md)完成常规复用、实现与交付。实现 Context 组合、来源物化、流式写入，或需要核对完整数据和 Guide 边界时读取对应章节；纯知识、空骨架和简单文案任务不读取本文件。
 
-当用户明确要求创建 PACK 时，先确定四项静态清单信息：小写 ASCII kebab-case `name`、面向用户的 `title`、说明领域边界的 `description`，以及承担维护责任的 `owner`。目标必须是用户指定或当前任务已明确的 PACK 集合目录，最终路径固定为 `<packs-dir>/<name>`。不能可靠推断 owner 或目标目录时先询问，不用 `unknown`、`TODO` 或虚构团队补位。
-
-使用本 Skill 自带的纯标准库脚本生成骨架，不手工拼接模板。`<author-root>` 是 `kat-author/SKILL.md` 的绝对父目录；用可用的宿主 Python 执行该脚本，KAT 命令仍使用相邻 `kat/` 中的 CLI 与其管理的私有 Host：
-
-```text
-python <author-root>/scripts/scaffold_pack.py \
-  --packs-dir <packs-directory> \
-  --name <pack-name> \
-  --title <display-title> \
-  --description <domain-description> \
-  --owner <responsible-owner>
-```
-
-脚本只创建合法 manifest、README 和标准创作目录，不生成虚假的 Workflow、Provider 或测试实现；目标已存在时拒绝覆盖。成功 JSON 中的 `pack_directory` 是实际创建位置，`entries` 给出每个文件或目录的用途，必须据此向用户展示完整目录树和作用。
-
-创建后先执行 `kat inspect --pack-dir <pack-directory>` 验证 manifest 和发现结果，再按目标检查知识入口或 Workflow/Provider。空列表只表示骨架可被识别；用户要求固化无需程序的经验时按[独立知识创作](knowledge-authoring.md)添加入口，不为验证骨架要求 Python 或空测试。
-
-用户可以直接用自然语言触发该流程，例如：
-
-```text
-/kat-author 请在 packs 目录下创建一个内存分析领域的 PACK。
-
-PACK 名称：memory-analysis
-标题：内存分析
-用途：分析进程内存占用、变化趋势和异常增长
-维护方：性能团队
-
-创建完成后，请展示目录结构并说明每个目录和文件的作用。
-```
-
-也可以使用紧凑形式：
-
-```text
-/kat-author 帮我在 packs 目录创建一个内存分析 PACK，名称为 memory-analysis，维护方为性能团队，并告诉我生成的目录结构及用途。
-```
-
-提示中至少需要明确领域或用途和真实维护方。名称缺失时可以根据领域生成合法的 kebab-case 名称；目标目录已由当前仓库约定明确时可以沿用。仍无法确定清单必填信息时，只询问缺失项。
-
-## 2. 先定位已有 PACK，再按对象检查知识
-
-用户指定已有 PACK 时，先调用裸 `kat inspect` 和需要时的精确 `--pack-dir`，从 manifest 概要定位它。裸 inspection 不加载 PACK Python，也不包含 Workflow 或 Provider 声明。
-
-创建或扩展 Workflow、Provider 前，先执行 [开发前复用检查](reuse-check.md)，按框架 API、SDK API reference、公共 inspection 与当前 PACK 的顺序确认是否已有满足需求的实现，并检查公共函数能否支撑构建。已有能力满足需求时直接复用，只实现缺少的部分。
-
-根据开发目标分别调用：
-
-- `kat inspect knowledge --pack <名称>`：列出独立知识入口；选中后追加 `--entry <名称>` 浏览原文，需要引用时用 PACK 根相对 `--path <路径>`。不加载 PACK Python，不采纳到 Session。
-- `kat inspect workflow --pack <名称>`：了解 PACK 暴露的 Workflow；选中一个后追加 `--workflow <名称>` 读取用途与参数合同。分析 Guide 从成功 Run 读取，作者另检查正在维护的文件及装饰器关联。
-- `kat inspect provider`：发现平台公共来源能力；选中一个后追加 `--provider <名称>` 读取 `module`、`qualname` 和来源 guide，无需先选择 PACK。
-- `kat inspect provider --pack <名称>`：了解 PACK 已有的 Provider；选中一个后追加 `--provider <名称>` 读取代码位置和数据库、SQL、Schema 或接入 guide。
-
-新增或修改来源接入、准备实现 Provider 前，必须先列出公共 Provider，再读取匹配项的 detail。已有公共能力满足需求时直接 import、构造并调用，不在 PACK 内重新定义实现、增加薄声明或复制来源 guide。确有能力缺口时说明已检查的公共能力与具体缺口，再在 `datasources/` 中实现必要的 PACK 自有来源逻辑。新建 PACK 与维护已有 PACK 都遵循此步骤；仅修改文档或不涉及来源接入的分析逻辑时，无需重复来源选型。
-
-独立知识入口、Workflow 和 Provider 分别发现；分析问题时不 inspect Provider。inspection 失败时按 Diagnostic 停止，不用静态源码扫描伪造公开声明。
-
-新建 PACK 没有 KAT 任务契约内的 Issue 或 SDD 前置门；执行所在仓库的协作规范仍独立适用。
-
-### 复用公共来源
-
-公共 Provider 的存在、名称和来源语义以公共 list/detail inspection 及其 Guide 为准；Python 构造与调用合同以 `kat-author/references/api.md` 链接的候选 SDK reference 为准。先按 [开发前复用检查](reuse-check.md) 核对两者，再使用 reference 给出的公开导入路径。`--pack` 只查询 PACK 自有 Provider；公共与 PACK 范围允许同名，不合并或自动回退。
-
-新增或提取当前 PACK 内可复用函数时，按 [领域公共库开发](pack-helpers.md) 检查 SDK 和已有 helpers，组织实现、导入、库文档及测试。
-
-## 3. 声明可发现知识
-
-新建和维护 PACK 时，Python 入口与作者知识按以下归属放置，只添加当前任务需要的内容：
-
-无需程序的方法放 `skills/<entry>/SKILL.md`，可带邻近引用或共享 knowledge/，细节见[独立知识创作](knowledge-authoring.md)。以下目录与步骤只适用于实际程序部分，纯知识 PACK 不要求空 Workflow、Provider 或 pytest。
-
-```text
-<pack>/
-├─ pack.toml
-├─ workflows/
-│  └─ memory_summary.py
-├─ datasources/                 # PACK 自有 Provider；复用公共能力无需添加实现
-│  └─ postgresql.py
-├─ helpers/                     # PACK 内其他普通 Python 模块
-├─ knowledge/
-│  ├─ workflows/
-│  │  └─ memory-summary.md
-│  └─ providers/
-│     └─ postgresql.md
-└─ tests/
-```
-
-Workflow 与 Provider 都用显式元数据供 Agent 索引。Decorator 的 `guide` 相对 `knowledge/`：`guide="workflows/memory-summary.md"` 指向 `knowledge/workflows/memory-summary.md`，不指向 Python 入口旁的文件。已为某 Workflow 编写分析或结果解释 Guide 时，必须放入该知识目录并在对应 `@kat.workflow` 中填写 `guide`；不能只写 Markdown 而漏掉关联。
-
-```python
-import kat
-
-
-@kat.workflow(
-    name="memory-summary",
-    description="汇总进程内存变化并定位异常区间。",
-    parameters={"input_path": "待分析输入的路径。"},
-    guide="workflows/memory-summary.md",
-)
-def memory_summary(ctx: kat.Context, *, input_path: str):
-    ...
-
-
-@kat.provider(
-    name="postgresql",
-    description="查询远端 PostgreSQL 并返回可物化表。",
-    guide="providers/postgresql.md",
-)
-class PostgreSQLProvider:
-    ...
-```
-
-- `name` 是稳定索引；`description` 是列表筛选所需的明确用途。两者都必须显式声明，不使用 `title`，也不从 docstring 推导 description。
-- Workflow `parameters` 是运行输入合同；`guide` 可选，解释关键输出的业务含义、统计口径、推理依据与下一步取证方向。
-- Provider decorator 只附加 `name`、`description`、`guide` 元数据。它不要求基类、Protocol、注册表、固定方法或生命周期；Provider 类可以按数据源需要定义 `decode`、`query` 或其他能力，Workflow 显式调用它们。
-- Provider `guide` 必填，用于说明数据库、可用 SQL、表与关系、Schema、解析或物化方式。它是作者知识，不是分析策略。
-- Provider detail 的 `module` 与 `qualname` 由声明类机械取得，不能在 decorator 中覆盖。
-
-## 4. 使用当前作者与数据合同
+## 1. 使用当前作者与数据合同
 
 Workflow 是普通模块顶层同步函数，由 `@kat.workflow(...)` 声明。Runtime 以 `ctx: Context` 和解析后的具名输入显式调用选中的函数。Context 提供当前 Session 共享的 `ctx.datasource_root`、当前候选执行私有的 `ctx.scratch_root`，以及线程安全的同步 `ctx.run(pack_name, workflow_name, /, **inputs)`；不提供 Session identity 或整个 Session 根。PACK 不从 Context 取得来源查询、Arrow 转换、时钟转换或隐式 relation catalog。
 
@@ -137,7 +21,7 @@ Provider 必须拒绝空 Source stem、`.`、`..`、路径分隔符、控制字�
 
 Workflow 返回 `None` 表示无 Output；有输出时只能返回精确的 `dp.Table`，或一个非空普通 `dict[str, dp.Table]`。PyArrow Table、引擎惰性值、Table/dict 子类、空 Mapping 和混合值都不是 Output。Provider 的中间 Table、Catalog 和物化目录不会自动成为 Run Output。
 
-## 5. 通过 `ctx.run()` 组合 Workflow
+## 2. 通过 `ctx.run()` 组合 Workflow
 
 需要复用、inspection 和测试的固定组合仍写成普通 Python Workflow。每次调用必须显式提供完整 PACK name 与 Workflow name，即使目标位于当前 PACK；两个路由参数仅限位置，目标 Workflow 的输入全部使用关键字。Context 只从顶层 `kat run` 或 `kat test` 已确定的 discovery roots 中寻找目标，不能用路径参数增加搜索目录，也不能绕过执行边界直接调用另一个 Workflow 函数。Workflow declaration 不静态重复声明潜在子 Workflow、Output name 或 Output Schema；实际调用和子 Run 已发布的 Parquet 是唯一事实源。
 
@@ -191,9 +75,9 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 
 `kat_run` 在每测试独立临时 Session 内通过真实独立 Runtime 与生产执行/发布核心运行 Workflow。同测试多次调用共享来源物化、使用不同 scratch；返回便利的 `dict[str, pyarrow.Table]`，无输出时为 `{}`。pytest 的模块 monkeypatch 不会影响 Workflow；普通 helper 单测仍可 monkeypatch。被测 PACK 固定来自 `--pack-dir`，跨 PACK 子调用只从正常默认或已安装 roots 发现，不增加 sibling checkout 参数。
 
-仓库中的 `examples/packs/workflow-composition` 是无外部依赖的可运行示例，包含 Catalog 查询、无输出编排、各 Workflow Guide 和 `kat_run` 测试。
+当前任务需要源码侧组合示例且已明确仓库根时，可读取 `<repository-root>/examples/packs/workflow-composition`；它不是随包资源，不为寻找该可选示例扩大目录搜索。
 
-## 6. 组织和引用 guide
+## 3. 组织和引用 guide
 
 面向 AI 的知识只保留当前任务判断必需的信息，按以下归属编写和核对：
 
@@ -204,7 +88,7 @@ def collect_evidence(ctx: kat.Context, *, trace_path: str):
 - 推理知识保留判断依据、替代解释、结论局限及由证据触发的下一步。仅使用已发布 Output 或适用 Workflow 补证据；缺少能力时说明缺口，不引导分析 AI 直接访问 Provider、中间数据库或私有文件。
 - Provider Guide 面向作者，保留必要的接入、SQL、Schema 和来源语义；复用公共 Provider 时使用其已有 Guide，不另建重复的接入教程。无额外输出解释或推理知识的 Workflow 可以不写 Guide，不强制章节或凑齐模板。
 
-Guide 的文件位置与 decorator 路径按第 3 节对应。声明必须指向知识目录内已有、非空、有效 UTF-8 的普通 `.md` 文件；绝对路径、路径穿越和解析后逃逸 `knowledge/` 都会被拒绝。普通 README 不要求关联为 Guide，框架也不限制 Markdown 的章节和写法。
+Guide 的 decorator 路径相对 PACK 的 `knowledge/`，例如 `workflows/memory-summary.md`。声明必须指向知识目录内已有、非空、有效 UTF-8 的普通 `.md` 文件；绝对路径、路径穿越和解析后逃逸 `knowledge/` 都会被拒绝。普通 README 不要求关联为 Guide，框架也不限制 Markdown 的章节和写法。
 
 Workflow list inspection 校验导入、声明和名称唯一性，只返回 `name`、`description`；detail 返回用途与参数，两者均不读取 Guide 文件。只有执行选定 Workflow 时，程序才在业务执行前读取、验证并捕获它的 Guide，随成功 Run 保存；顶层成功 Response 返回自身 `guide` 字符串，未声明时为 `null`。子 Guide 经 `inspect run` 按需读取，PACK 变更不改写历史快照。Provider inspection 仍校验所选范围的 Guide，detail 返回非空字符串。分析 Agent 使用公开字段，不自行组合路径或实现 include；作者检查本次获授权编辑的 Guide 文件与装饰器关联。
 
@@ -216,7 +100,7 @@ Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Sessio
 
 后续取证建议说明目的和参数来源；分析 Skill 将必要原因与解释直接保存为 Analysis Record 的正文，程序自动维护 Run Guide 快照与报告树。Guide 作者无需给 Markdown 增加记录字段或保存命令，也不让 Python Workflow 写 AI 解释。更新 PACK 不会改写已有快照；本合同不提供替换旧 Run Guide 的入口。
 
-## 7. Provider inspection 的执行边界
+## 4. Provider inspection 的执行边界
 
 不带 `--pack` 的 Provider inspection 直接读取平台公共声明与随 wheel 安装的 guide，不扫描或导入 PACK，也不构造 Provider。带 `--pack` 的 Provider inspection 会递归导入所选 PACK 顶层 `datasources/` 下的普通 Python 模块，并收集由各模块自身定义且经过 `@kat.provider` 装饰的类。一个模块可以声明零个、一个或多个 Provider；从其他模块 import 的声明不会重复计数。
 
@@ -224,7 +108,7 @@ Guide 建议在解释阶段继续运行的 Workflow 会在当前 Analysis Sessio
 
 这是运行时 Python 发现，不是静态 AST 扫描。只有 Provider inspection 扫描完整 `datasources/`；Workflow inspection 不触发它。
 
-## 8. 显式来源解码与融合
+## 5. 显式来源解码与融合
 
 原生 Hitrace 解码由 PACK 显式调用：
 
@@ -322,16 +206,3 @@ result = dp.DataFusionProvider(
 ```
 
 DataFusion Provider 只看构造时显式传入的 relation，不发现来源 Provider、不触发远端查询，也不会自动取得同一 Analysis Session 的其他内容。完整可执行写法见随 Skill 发布的 [Data Provider reference PACK](examples/dataprovider-pack/README.md)。
-
-## 9. 实施并验证已授权变更
-
-理解、检查和测试默认只读。只有用户明确要求创建、修改或修复时才写入指定 PACK，并保持最小切片。编写 Provider 时优先复用 KAT 已公开的数据表、物化和查询能力；具体用法以已选 Provider guide、公共库接口和 reference PACK 为准，不发明框架约束。
-
-写入后按变更面验证：
-
-1. 核对本次变更的来源实现与公共能力选择，确认没有重复实现已有能力；检查新增或修改文件的归属，Workflow 入口放 `workflows/`，分析与结果解释 Guide 放 `knowledge/workflows/` 并由相应装饰器引用。维护已有 PACK 时也检查受影响 Workflow 的既有说明，避免把遗漏关联误判为不需要 Guide。
-2. 重新执行对应 Workflow 或 Provider list/detail inspection，核对用途、参数或 Provider Guide。Workflow detail 不返回 Guide：直接核对本次修改的文件及装饰器关联；已有获授权的生产执行时，从 Run 成功结果或 `inspect run` 核对快照与执行时正文一致，不为回读 Guide 自动扩大执行范围。声明遗漏、文件放错位置或快照不符都须修正，不能用列表成功替代关联检查。对照脚本核准关键输出的含义与口径，确认公开输出和 Guide 足以解释结果与局限；单位或范围缺依据时记录缺口。
-3. 程序变更运行适用的 `kat test --pack-dir ...`；fixture 用普通来源文件、Provider 配置和临时路径构造生产边界。成功 `result.summary` 是测试结论，失败时使用 Response、报告和日志定位。纯知识变更按独立知识创作检查声明、引用和真实 AI 应用，不运行空 pytest 冒充方法验证。
-4. 交付变更摘要、受影响文件、inspection/test 证据和仍存限制；新增或扩展 Workflow、Provider 时说明已有同类能力及 helpers 的复用选择或自实现缺口。涉及 Guide 时区分文件关联检查、PACK 测试、实际 Run 快照与 Provider detail 回读证据，未执行的验证如实说明。
-
-“诊断失败”本身不授权修复。无法在已有授权和事实下继续时，按 [result-contract.md](result-contract.md) 交付最小下一步。

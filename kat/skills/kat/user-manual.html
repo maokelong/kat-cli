@@ -224,6 +224,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <h2><span class="num">06</span>通过对话创建与维护 PACK</h2>
     <p>当你需要新的分析能力时，直接用 <code>/kat</code> 说明“创建一个 PACK”或“修改这个 PACK”。先说清想让它做什么，Claude 会按开发流程补齐必要信息、实现并检查代码。</p>
     <h3>创建一个可工作的分析能力</h3>
+    <p>程序 PACK 开发需要与当前 SDK 配对、经审核的作者资料：<code>kat-author/references/base-api.md</code>、<code>api.md</code> 与候选 <code>reference/</code>。SDK API 资料由用户审核后手工提供，源码侧位置为 <code>kat/sdk/docs/</code>；完整解压或安装 SDK 不表示这些资料已补齐。缺项时 Agent 会说明准确位置。只创建骨架或固化独立知识不依赖整套 SDK API 资料。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 创建 PACK</div><pre tabindex="0"><code>/kat 创建一个统计 Ftrace 事件类型和数量的 PACK，放到【存放 PACK 的目录】。
 输入用【Trace 路径】。</code></pre></div>
     <p>名称、维护方或输入背景有缺项时，Claude 会继续确认；已经知道的信息可以一并提供。有特定的预期结果，也可以直接说明，例如某类事件应有多少条。测试、声明检查和结果整理由 Skill 按开发流程完成，无需逐项写进请求。</p>
@@ -311,6 +312,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
     <p>当前版本提供使用内置 Python 的 pip 管理第三方库的方式。分析或只读检查遇到缺库时先报告缺项；你明确要求安装后才执行。已授权的 PACK 创作可以补装任务所需依赖。</p>
     <div class="example"><div class="label">在 Claude Code 中 · 安装依赖</div><pre tabindex="0"><code>/kat 安装【包名与版本】。</code></pre></div>
     <p>同一套部署中的 Runtime 和全部 PACK 共享此环境。不要将库装到系统 Python 后就认为 KAT 可以使用，也不要通过复制另一套环境的文件补齐。安装成功不等于 PACK 验收通过；原生库可能另需系统依赖。更多命令见随包的<a href="references/python-packages.md">Python 依赖说明</a>。</p>
+    <p>更新官方 SDK 后，继续程序 PACK 开发前还需由你提供与新 SDK 配对、经审核的作者 API 文档。依赖安装不会自动更新或复制作者资料。</p>
     <h3 id="upgrade">升级 KAT 或更新 PACK</h3>
     <ol>
       <li>记录当前版本、额外安装的库、PACK 位置及需要保留的分析信息。停止使用这套部署的任务。</li>
@@ -344,7 +346,7 @@ if ($LASTEXITCODE -ne 0) { throw '解压未完成，不要使用这个目录' }<
       </tbody>
     </table></div>
     <p>向维护者求助时，提供 KAT 版本、主机平台、Claude Code 版本、PACK 来源及已验证版本、最短复现步骤、错误摘要和明确相关的日志位置。分享材料前去掉凭据与无关业务内容；没有取得的信息直接说明缺失。</p>
-    <p>需要查看底层操作形状时，可打开随包的<a href="references/command-reference.md">命令速查</a>。它供 Agent 执行与排错使用，日常任务仍可直接用自然语言表达。</p>
+    <p>部署定位、PACK 发现与返回规则见随包的<a href="references/command-reference.md">共享执行合同</a>；各任务命令用法直接放在对应 Skill 流程中。日常任务仍可直接用自然语言表达。</p>
   </section>
   <footer>
     <p>KAT 用户手册 · 随 KAT Skills 同版本交付。请优先使用当前部署中的手册；联网参考链接不参与本页加载。</p>

@@ -1,5 +1,7 @@
 # Workflow 开发时的公共 API 文档
 
+Skill 文件组织由 [按任务组织执行知识](skill-task-loading.md)调整：作者复用流程并入 `kat-author/SKILL.md`，SDK 文档生成流程位于 `kat-dev-sdk/references/api-documentation.md`。本文保留 API 生成、审核与手工交付决定，后文旧文件路径描述原实施切片。
+
 状态：已接受，正在按 [Issue #300](https://github.com/maokelong/kat-cli/issues/300) 实施；架构决定见 [ADR-0086](../adr/0086-api-documents-are-reviewed-author-references.md)。API 文档生成、审核、交付与使用规则已经收敛，本文同时记录针对已合入 PR #297 的修改和验证范围。文档修订治理、自动同步和发布校验等维护问题留待后续设计。
 
 ## 已确认的需求

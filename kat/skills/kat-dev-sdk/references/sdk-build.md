@@ -1,6 +1,6 @@
 # 构建与验收 kat-sdk
 
-需要从源码构建 `kat-sdk`、检查 wheel 或验证安装升级时读取本指南。能力实现、API 文档生成和 Runtime Guide 布局见 [SDK 开发指南](sdk-development.md)。命令从 KAT 源码仓库根目录执行。
+需要从现有源码构建 `kat-sdk`、检查 wheel 或验证安装升级时读取本指南。命令从任务已明确的 KAT 源码仓库根目录执行。能力开发按 [SDK 入口](../SKILL.md)；本流程不要求先生成、审核或复制 API 文档。
 
 ## 1. 准备构建环境
 

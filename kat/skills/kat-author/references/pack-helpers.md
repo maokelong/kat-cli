@@ -4,7 +4,7 @@
 
 ## 1. 先检查可复用能力
 
-执行 [开发前复用检查](reuse-check.md)，同时检查目标 PACK 已有的 `helpers/`、文档和实际调用点，明确函数服务的 Workflow/Provider。对比用途、输入输出、语义及限制；满足需求时直接复用，有缺口时说明检查范围与缺口，只实现已授权的必要部分。检查失败时停止该函数开发。
+执行 [作者入口的复用检查](../SKILL.md#4-程序开发前的复用检查)，同时检查目标 PACK 已有的 `helpers/`、文档和实际调用点，明确函数服务的 Workflow/Provider。对比用途、输入输出、语义及限制；满足需求时直接复用，有缺口时说明检查范围与缺口，只实现已授权的必要部分。检查失败时停止该函数开发。
 
 ## 2. 在当前 PACK 内组织实现
 
@@ -78,7 +78,7 @@ def memory_size(ctx: kat.Context, *, size_bytes: int):
 
 在 PACK 自己的 `knowledge/helpers/<子领域>/<模块>.md` 说明导入路径、签名、参数、返回值、单位、异常、示例及复用边界，从 `knowledge/helpers/index.md` 导航，并在 PACK 的 README 链接该导航。简单库可省略子领域层。
 
-这些文档属于当前 PACK，不写入 kat Skill 的官方 SDK 公共库目录，也不写入 SDK。AI 从 PACK README 和库导航读取；`kat inspect` 不发现普通函数或返回其文档。Workflow/Provider 自身 Guide 仍按 [PACK 创作流程](pack-authoring-flow.md) 关联，不用库文档替代其 Guide。
+这些文档属于当前 PACK，不写入 kat Skill 的官方 SDK 公共库目录，也不写入 SDK。AI 从 PACK README 和库导航读取；`kat inspect` 不发现普通函数或返回其文档。Workflow/Provider 自身 Guide 仍按 [作者入口](../SKILL.md#5-程序实现与对象-inspection)关联，不用库文档替代其 Guide。
 
 ## 5. 验证函数和调用链路
 

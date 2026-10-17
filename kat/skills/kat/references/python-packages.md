@@ -41,6 +41,8 @@
 
 整套 KAT Skills 通过目录替换升级时，新部署使用随包发布的干净 Python 环境，额外库需重新安装；不把旧 site-packages 合并到新版本。
 
+更新 `kat-sdk` 后，程序 PACK 作者还需由用户提供与新 SDK 配对、经审核的 `kat-author/references/api.md` 及候选 `reference/`。SDK 源码侧资料在已明确仓库的 `kat/sdk/docs/`，按 [SDK 文档流程](../../kat-dev-sdk/references/api-documentation.md)审核后手工复制。安装成功不表示作者资料已同步；不自动复制或增加版本比较，缺少开发所需资料时按[作者入口](../../kat-author/SKILL.md)报告缺项。
+
 ## 验证与交付
 
 pip 使用原生退出码及 stdout/stderr，不返回 KAT Response JSON。保留失败或冲突事实，不把 pip 的成功退出视为 PACK 已经验证。
