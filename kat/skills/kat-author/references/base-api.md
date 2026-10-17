@@ -30,4 +30,4 @@ Workflow 的名称、参数、默认值、Guide 和返回形状还会在 inspect
 | `dp.publish_materialization(source, destination)` | 将同一文件系统上的完整来源目录以不覆盖目标的方式发布；调用方负责校验来源和处理竞争结果。 |
 | `dp.write(schema, *, destination)` | 创建一次性流式 Parquet 写事务。必须在 `with` 内按 relation 取 sink 并调用 `append(**row)`；整个上下文正常退出后物化才成功，异常退出不发布，目标不得预先存在。 |
 
-具体 SDK Provider、公共函数和其他官方能力不属于本文件；按 [开发前复用检查](reuse-check.md) 继续读取当前 `api.md`、候选 reference 与 inspection 结果。
+具体 SDK Provider、公共函数和其他官方能力不属于本文件；按 [作者入口的程序复用流程](../SKILL.md#4-程序开发前的复用检查)继续读取当前 `api.md`、候选 reference 与 inspection 结果。
