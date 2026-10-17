@@ -1,0 +1,48 @@
+.github/workflows/build-windows-payload-ci.yml
+  s_cb46b5c443e3f5::t_2eba5b037545ce 81
+.github/workflows/payload-ci.yml
+  s_cb46b5c443e3f5::t_2eba5b037545ce 67,76-99,161,166-175,187
+README.md
+  s_cb46b5c443e3f5::t_00964698e6159d 4-6,42-46,59-61
+.github/workflows/build-linux-payload-ci.yml
+  s_cb46b5c443e3f5::t_2eba5b037545ce 63
+docs/adr/0004-supported-execution-requires-the-bundled-python-host.md
+  s_cb46b5c443e3f5::t_d9834161483bff 13
+  s_cb46b5c443e3f5::t_fec41f18a495e4 11
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_cb46b5c443e3f5::t_2eba5b037545ce 11,32
+.github/workflows/finalize-release-assets.yml
+  s_cb46b5c443e3f5::t_bb21a0b766b766 39-42,44-46,49,51-62,68-80
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_cb46b5c443e3f5::t_db40284b9a640a 15
+  s_cb46b5c443e3f5::t_0b858fa0edbbdb 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7fc88a05399ef5bf3cfaad4f4070573764ba436d",
+  "prompts": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 89,
+      "total_deletions": 50,
+      "accepted_lines": 89,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

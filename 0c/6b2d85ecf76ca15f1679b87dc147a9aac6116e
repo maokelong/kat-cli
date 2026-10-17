@@ -1,0 +1,50 @@
+kat/skills/kat/user-manual.html
+  s_7313f7b6bd4839::t_be4984a210e4bb 1-151,155-414
+  s_7313f7b6bd4839::t_b8fc07e5a61922 152-154
+docs/specs/release-user-manual.md
+  s_7313f7b6bd4839::t_29e9b548e191ee 128
+  s_7313f7b6bd4839::t_87058ff3e93a7b 3,121-127,129-155
+  s_7313f7b6bd4839::t_e4f8d205f38966 1-2,4-120
+build/tests/test_assemble_skill.py
+  s_7313f7b6bd4839::t_e352209ffdb164 141-148
+  s_7313f7b6bd4839::t_f1c8554b5ee4ab 149-150
+README.md
+  s_7313f7b6bd4839::t_c755e195b7ea32 11-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "0c6b2d85ecf76ca15f1679b87dc147a9aac6116e",
+  "prompts": {},
+  "sessions": {
+    "s_7313f7b6bd4839": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b26e-9b2a-73d0-88aa-4c8ff6976c2b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 788,
+      "total_deletions": 5,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_29e9b548e191ee": "gpt-6-astra",
+        "t_87058ff3e93a7b": "gpt-6-astra",
+        "t_89392956d1e35d": "gpt-6-astra",
+        "t_b8fc07e5a61922": "gpt-6-astra",
+        "t_be4984a210e4bb": "gpt-6-astra",
+        "t_c755e195b7ea32": "gpt-6-astra",
+        "t_e352209ffdb164": "gpt-6-astra",
+        "t_e4f8d205f38966": "gpt-6-astra",
+        "t_f112931e67aa68": "gpt-6-astra",
+        "t_f77a4e2667e9ac": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 788,
+          "deletions": 5
+        }
+      }
+    }
+  }
+}

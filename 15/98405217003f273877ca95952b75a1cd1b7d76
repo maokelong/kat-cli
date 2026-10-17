@@ -1,0 +1,58 @@
+CONTEXT.md
+  s_cd891b719da4b9::t_41bb670ff41f1b 3,5,7-8,10-11,13
+  s_cd891b719da4b9::t_04d7b54f698780 22,24-25,27-29,31-32,34-35,38-40,42,44-45,47-48,50-51,53-54,56-57,59-60,62-63,65,67-68,70-71,73-74,76-77,79-80,82-83,85,87-89,91-93,95-96,99-100,102-103,105-106,108-109,111,113-114,116-117,119-120,123-124,126-127,129-130
+  s_cd891b719da4b9::t_24713947a4196e 14,16-17,19,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1598405217003f273877ca95952b75a1cd1b7d76",
+  "prompts": {
+    "s_7098b2cd8da3c1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6e2d-cc73-7112-8576-ae491e3c9d62",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 3,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "s_cd891b719da4b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f22-dc69-7e70-ace0-c2912eaf60eb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 83,
+      "total_deletions": 537,
+      "accepted_lines": 83,
+      "overriden_lines": 0
+    },
+    "s_ffad8e8a1e1424": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6eef-6311-78f3-a589-724280b58756",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 237,
+      "total_deletions": 11,
+      "accepted_lines": 237,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cd891b719da4b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f22-dc69-7e70-ace0-c2912eaf60eb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

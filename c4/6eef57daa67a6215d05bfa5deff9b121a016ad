@@ -1,0 +1,42 @@
+kat/platform/datasource/tests/native_hook_production_off_contract.rs
+  s_523f214ca54205::t_c13a8b2e8e1577 1-78
+  s_523f214ca54205::t_87e535d0b0310a 79-283
+  s_523f214ca54205::t_fdb76428094bf9 284-419
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_523f214ca54205::t_9413fbd18b91e4 1-6
+  s_523f214ca54205::t_586da0b9909859 7-19
+  s_523f214ca54205::t_c8a2e3cb52e3f4 20-31
+  s_523f214ca54205::t_6fe76b7dcd582c 32-70
+  s_523f214ca54205::t_b98efe198f570b 71-261
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_523f214ca54205::t_53c65c81e502c1 3-5,43-63,67-71,73-74,76-78,131-135,147
+kat/platform/datasource/build/protobuf_source_codegen/names.rs
+  s_523f214ca54205::t_53c65c81e502c1 11-14
+kat/platform/datasource/build.rs
+  s_523f214ca54205::t_828078bc9b6372 111,140-163
+kat/platform/datasource/tests/native_hook_source_capture_contract.rs
+  s_523f214ca54205::t_2ba3224807316b 1-121
+  s_523f214ca54205::t_643d36d1eb6d28 122-432
+  s_523f214ca54205::t_cb8154a14a6c1a 433-2109
+kat/platform/datasource/build/protobuf_source_codegen/render.rs
+  s_523f214ca54205::t_56601e448d3f9e 255,288-299,307-309,311-313
+  s_523f214ca54205::t_53c65c81e502c1 314-321,323-325,328-333,335-338
+kat/platform/datasource/src/formats/hitrace/profiler/envelope.rs
+  s_523f214ca54205::t_b85c581baf5c88 17-25,48-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c46eef57daa67a6215d05bfa5deff9b121a016ad",
+  "prompts": {},
+  "sessions": {
+    "s_523f214ca54205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee75-a49f-7ae2-9204-31e6f684eda7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

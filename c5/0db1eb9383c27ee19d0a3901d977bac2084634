@@ -1,0 +1,32 @@
+build/fixtures/verify_public_ftrace.py
+  s_cf92f831b82cfc::t_096c363dd60e4d 30-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c50db1eb9383c27ee19d0a3901d977bac2084634",
+  "prompts": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 1,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cf92f831b82cfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-bcee-7303-965d-e0456789b3c3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

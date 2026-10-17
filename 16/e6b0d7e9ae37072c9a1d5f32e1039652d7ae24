@@ -1,0 +1,60 @@
+build/build_workflow_wheel.py
+  s_28f12e292b4bdc::t_09d842ebeb7605 1-9
+  s_28f12e292b4bdc::t_b43d36b08f7cfc 10-84,86-94
+  s_28f12e292b4bdc::t_5c643aec67142c 96-108,110-114,116-118,120,122-125,127-149
+.github/workflows/release-windows-payload.yml
+  s_28f12e292b4bdc::t_2e0ea77d4f8087 1-3
+  s_28f12e292b4bdc::t_2ee503c5c52213 4-79
+build/tests/test_linux_payload.py
+  s_28f12e292b4bdc::t_49bb7dd6cde134 1-238
+build/tests/test_windows_payload.py
+  s_28f12e292b4bdc::t_49bb7dd6cde134 1-480
+build/tests/test_workflow_wheel.py
+  s_28f12e292b4bdc::t_09d842ebeb7605 1-74
+build/build_windows_payload.py
+  s_28f12e292b4bdc::t_738bc65548017f 1-740
+  s_28f12e292b4bdc::t_2ee503c5c52213 741-1124
+kat/platform/workflow/pyproject.toml
+  s_28f12e292b4bdc::t_09d842ebeb7605 2
+  s_28f12e292b4bdc::t_58b272b1bcab6a 9
+kat/skill/SKILL.md
+  s_28f12e292b4bdc::t_e2c05e2350622b 1-52
+kat/skill/agents/openai.yaml
+  s_28f12e292b4bdc::t_e2c05e2350622b 1-4
+build/build_linux_payload.py
+  s_28f12e292b4bdc::t_738bc65548017f 1-425
+  s_28f12e292b4bdc::t_49bb7dd6cde134 426-657
+build/smoke_skill.py
+  s_28f12e292b4bdc::t_45902dc855e7a5 1-42
+  s_28f12e292b4bdc::t_3b56748136b488 43-245
+build/tests/test_assemble_skill.py
+  s_28f12e292b4bdc::t_31752c10f2fb5f 1-226
+docs/superpowers/specs/2026-07-17-kat-dual-platform-payload-design.md
+  s_28f12e292b4bdc::t_45a7f111214cd8 1-34
+.github/workflows/payload-ci.yml
+  s_28f12e292b4bdc::t_2e0ea77d4f8087 1-60
+  s_28f12e292b4bdc::t_2ee503c5c52213 61-105,108-123,125-135,137,139-154,156-159,161,163-165
+  s_28f12e292b4bdc::t_b5134d3c55ac84 166-181,183-195,197-200,202,204-206
+rust-toolchain.toml
+  s_28f12e292b4bdc::t_2e0ea77d4f8087 1-3
+  s_28f12e292b4bdc::t_c3d8ee2b0d6db1 4-5
+.github/workflows/release-linux-payload.yml
+  s_28f12e292b4bdc::t_2e0ea77d4f8087 1-3
+  s_28f12e292b4bdc::t_2ee503c5c52213 4-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "16e6b0d7e9ae37072c9a1d5f32e1039652d7ae24",
+  "prompts": {},
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

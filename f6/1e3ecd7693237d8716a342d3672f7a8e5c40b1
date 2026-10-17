@@ -1,0 +1,123 @@
+kat/platform/workflow/tests/test_provider_process.py
+  s_8d37eb24b885b8::t_840be344f52db4 80-616
+  s_8d37eb24b885b8::t_4b4cd6370dcf84 1-79
+  s_8d37eb24b885b8::t_4eee5203cb874d 617-1082
+kat/platform/workflow/tests/test_execution_process.py
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 79-80,112-114,267-268,317-333,831
+examples/packs/local-parquet-fusion/tests/test_fuse_local_parquet.py
+  s_8d37eb24b885b8::t_6396da9c5cf348 10-211
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-6
+  s_8d37eb24b885b8::t_0f1d3d9da54818 7-9
+kat/platform/workflow/runtime/__main__.py
+  s_8d37eb24b885b8::t_df2a0bc9b013bd 142,147-148
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 712-713,724-728
+examples/packs/local-parquet-fusion/README.md
+  s_8d37eb24b885b8::t_533f6f31f8272f 11-48
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-10
+README.md
+  s_8d37eb24b885b8::t_4a2b52b25f97c3 136-138,142-144
+kat/platform/workflow/tests/test_testing_process.py
+  s_8d37eb24b885b8::t_fe7167660ae785 342-399
+  s_8d37eb24b885b8::t_cd85cc3dc74130 263-333
+kat/platform/workflow/runtime/outputs.py
+  s_8d37eb24b885b8::t_3034bbe09f5646 5,9,14-15,25-26,29,32,34-41,48-54,57-67,69,73-76,79-80,85,90-93,96-116,150-153
+kat/platform/workflow/tests/test_provider_failure_process.py
+  s_8d37eb24b885b8::t_d033d9e3db3722 608-768
+  s_8d37eb24b885b8::t_0d1f7c0e2ceb53 1-11
+  s_8d37eb24b885b8::t_e4277c0e8dd4be 12-607
+kat/platform/workflow/api/_datasource.py
+  s_8d37eb24b885b8::t_dcc12fde720751 1-117
+kat/platform/workflow/tests/test_query_process.py
+  s_8d37eb24b885b8::t_4ffdb984fd685e 120-142
+  s_8d37eb24b885b8::t_f965937255b058 117-119
+kat/platform/workflow/api/_workflow.py
+  s_8d37eb24b885b8::t_0159f31625bea6 9,11,46,56-76
+  s_8d37eb24b885b8::t_50a89af71ca8e3 154-158
+  s_8d37eb24b885b8::t_dcc12fde720751 5
+kat/platform/workflow/tests/test_local_parquet_example_process.py
+  s_8d37eb24b885b8::t_c7a4a3bff15a70 1-80
+  s_8d37eb24b885b8::t_533f6f31f8272f 81-86
+kat/platform/workflow/runtime/datasource.py
+  s_8d37eb24b885b8::t_453605a51a14e7 1-67
+  s_8d37eb24b885b8::t_64045e59c0785e 68-428
+kat/platform/workflow/tests/test_authoring_api.py
+  s_8d37eb24b885b8::t_492d110fa27dfe 5,226-345,352-355
+docs/adr/0062-pack-datasources-use-kat-managed-providers.md
+  s_8d37eb24b885b8::t_432ef8789e0e94 11-25
+  s_8d37eb24b885b8::t_a2667c163c7d4b 1-10
+examples/packs/local-parquet-fusion/workflows/fuse_local_parquet.py
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-26
+  s_8d37eb24b885b8::t_3001f27c88219b 27-67
+kat/platform/workflow/api/__init__.py
+  s_8d37eb24b885b8::t_dcc12fde720751 1,5-14
+kat/platform/workflow/runtime/execution.py
+  s_8d37eb24b885b8::t_690acd9e2e70e7 161,164,166-168
+  s_8d37eb24b885b8::t_1c0a110de27ad3 18,44,48,58,65,77,84-90,107,119,148-150,156,158,160
+kat/platform/workflow/runtime/testing.py
+  s_8d37eb24b885b8::t_ca6e9c5a204082 105-107
+examples/packs/local-parquet-fusion/pack.toml
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-4
+kat/platform/workflow/tests/test_datasource_runtime.py
+  s_8d37eb24b885b8::t_4fb1f6b20be8ba 1-54
+  s_8d37eb24b885b8::t_1cd57d6193bfc2 55-128
+examples/packs/local-parquet-fusion/helpers/datasources/parquet.py
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-10
+  s_8d37eb24b885b8::t_3e91f4e6e5f146 11-74
+  s_8d37eb24b885b8::t_6396da9c5cf348 75-159
+docs/sdd/2026-08-26-pack-datasource.md
+  s_8d37eb24b885b8::t_cbc29e19ae1b88 96-109
+  s_8d37eb24b885b8::t_dea71501deaf8e 396-815
+  s_8d37eb24b885b8::t_d6f2f3db600223 43-95
+  s_8d37eb24b885b8::t_8d2221f368fe79 1
+  s_8d37eb24b885b8::t_4511f9ec7b0c39 110-395
+  s_8d37eb24b885b8::t_2597de878ca4a4 816-1239
+  s_8d37eb24b885b8::t_9b2d7ed3a20400 2-42
+kat/platform/workflow/runtime/request.py
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 134-149,151,156-157,247-264
+  s_8d37eb24b885b8::t_d753e38964a07b 46,117
+CONTEXT.md
+  s_8d37eb24b885b8::t_876ef4f5fd7d7d 51,57,60,63-66,71,74-98,101,104-110,112-113,150,153,157
+  s_8d37eb24b885b8::t_0e9dad07efb26d 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "f61e3ecd7693237d8716a342d3672f7a8e5c40b1",
+  "prompts": {
+    "s_8d37eb24b885b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0381e-2908-7b60-ae11-6f16bdb9c9f5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4941,
+      "total_deletions": 193,
+      "accepted_lines": 4910,
+      "overriden_lines": 31
+    },
+    "s_c9739189c017f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0382d-47bb-7643-9edc-56da3cd08280",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 669,
+      "total_deletions": 0,
+      "accepted_lines": 669,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d37eb24b885b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0381e-2908-7b60-ae11-6f16bdb9c9f5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

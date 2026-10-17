@@ -1,0 +1,41 @@
+kat/platform/workflow/tests/test_dataprovider_api.py
+  s_01b850c15b18af::t_906633421993c7 73-78
+kat/platform/workflow/api/dataprovider/_write.py
+  s_01b850c15b18af::t_015a341fff1de6 72,74,81,84-85,185,194,225,354
+kat/skill/references/pack-authoring-flow.md
+  s_01b850c15b18af::t_5034d09a260c4a 139-141
+  s_01b850c15b18af::t_015a341fff1de6 126-138
+kat/platform/workflow/api/dataprovider/_schema.py
+  s_01b850c15b18af::t_015a341fff1de6 28-30
+docs/adr/0076-datasource-streaming-materialization-uses-a-background-writer.md
+  s_01b850c15b18af::t_015a341fff1de6 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2ecab40d361af1766466d6de745046a0adef617d",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 35,
+      "total_deletions": 12,
+      "accepted_lines": 35,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

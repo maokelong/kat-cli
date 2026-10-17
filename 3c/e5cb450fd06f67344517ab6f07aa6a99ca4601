@@ -1,0 +1,34 @@
+kat/skill/SKILL.md
+  s_0148f2acc44722::t_2c70a8e5c4cfec 52,56-57,59-65,80,82,86
+kat/skill/references/result-contract.md
+  s_0148f2acc44722::t_2c70a8e5c4cfec 44,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3ce5cb450fd06f67344517ab6f07aa6a99ca4601",
+  "prompts": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 15,
+      "total_deletions": 162,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

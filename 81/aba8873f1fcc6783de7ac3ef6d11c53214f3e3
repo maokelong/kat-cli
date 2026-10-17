@@ -1,0 +1,40 @@
+kat/platform/datasource/src/dataset_writer.rs
+  s_d2aa143ca9c0ae::t_2cf670d8ed5ace 625-627,634
+  s_d2aa143ca9c0ae::t_d37e4c33018218 67-71,121,149,203,256-260,331-333,335,339-344,372-375,382-385
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_d2aa143ca9c0ae::t_1b625afd20158e 119-177,246-268
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_d2aa143ca9c0ae::t_2cf670d8ed5ace 25
+  s_d2aa143ca9c0ae::t_bc6c31465bca92 7
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_d2aa143ca9c0ae::t_bc6c31465bca92 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "81aba8873f1fcc6783de7ac3ef6d11c53214f3e3",
+  "prompts": {
+    "s_d2aa143ca9c0ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0222f-f300-7112-bed9-7b520f51e654",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 120,
+      "total_deletions": 65,
+      "accepted_lines": 120,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d2aa143ca9c0ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0222f-f300-7112-bed9-7b520f51e654",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

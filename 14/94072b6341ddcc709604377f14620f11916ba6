@@ -1,0 +1,32 @@
+docs/adr/README.md
+  s_75f1281aaf5edd::t_d728733c7c7c69 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1494072b6341ddcc709604377f14620f11916ba6",
+  "prompts": {
+    "s_75f1281aaf5edd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef88-7660-7c00-9dfd-d094ca261331",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 1,
+      "total_deletions": 3232,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_75f1281aaf5edd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef88-7660-7c00-9dfd-d094ca261331",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

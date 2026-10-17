@@ -1,0 +1,38 @@
+docs/adr/0042-hitrace-events-preserve-clock-domain-and-value.md
+  s_450935cb905f4d::t_225e0036f30c15 51-54
+docs/adr/0051-clock-conversion-is-exposed-only-through-workflow-context.md
+  s_450935cb905f4d::t_225e0036f30c15 38-42
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_450935cb905f4d::t_225e0036f30c15 19-23
+docs/research/industry-multi-clock-observability.md
+  s_450935cb905f4d::t_225e0036f30c15 205-212,254-255,274-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a516daac8b747c94076405e1aa37fe6fd6c9063b",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 26,
+      "total_deletions": 38,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

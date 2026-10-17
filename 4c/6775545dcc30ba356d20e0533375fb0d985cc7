@@ -1,0 +1,294 @@
+docs/adr/0026-pack-converts-arrow-through-kat-managed-execution.md
+  s_e6f5f777ad7603::t_01e28424edf077 1-6
+  s_e6f5f777ad7603::t_d4cb5030e09442 7
+docs/adr/0001-workflow-runtime-owns-workflow-execution.md
+  s_e6f5f777ad7603::t_97f85deb844148 9
+  s_e6f5f777ad7603::t_e3ee381b57dce3 7-8
+  s_e6f5f777ad7603::t_0b01fa1b6a2b13 1-6
+docs/adr/0003-external-packs-are-a-first-class-deployment-unit.md
+  s_e6f5f777ad7603::t_e76674a9f986b3 1-6
+  s_e6f5f777ad7603::t_4f281563aa740e 7-11
+CONTEXT.md
+  s_e6f5f777ad7603::t_a1a616ccd53a8c 9-17
+  s_e6f5f777ad7603::t_d315bde5e905e5 112-198
+  s_e6f5f777ad7603::t_142bec8e120b1c 199-381
+  s_e6f5f777ad7603::t_892aaf9ae68a8e 3-4
+  s_e6f5f777ad7603::t_6eed77f93028c3 18-21
+  s_e6f5f777ad7603::t_4951ce05a140c7 26-29
+  s_e6f5f777ad7603::t_99f306b006c495 382-516
+  s_e6f5f777ad7603::t_3ea6feba2adb30 1-2
+  s_e6f5f777ad7603::t_f24150daea4785 5-8
+  s_e6f5f777ad7603::t_5a2f4147d0ce8e 22-25
+  s_e6f5f777ad7603::t_b73926506b8e8c 30-33
+  s_e6f5f777ad7603::t_4974dc036880f4 34-111
+docs/adr/0018-pack-name-owns-a-private-python-namespace.md
+  s_e6f5f777ad7603::t_75bac58c57725c 1
+  s_e6f5f777ad7603::t_666e910ef776dd 7-19
+  s_e6f5f777ad7603::t_34f0954d38ed4a 2-6
+docs/adr/0016-pack-inspect-and-test-separate-production-and-test-constraints.md
+  s_e6f5f777ad7603::t_4f281563aa740e 13-24
+  s_e6f5f777ad7603::t_c0005cbb4dcf0f 1-4
+  s_e6f5f777ad7603::t_b73926506b8e8c 25-26
+  s_e6f5f777ad7603::t_4974dc036880f4 27-49
+  s_e6f5f777ad7603::t_df3ea94e8489e5 5-8
+  s_e6f5f777ad7603::t_3bea1504fabce7 9-12
+docs/adr/0028-pack-boundaries-follow-organizational-ownership.md
+  s_e6f5f777ad7603::t_c31e5e9085daf8 7
+  s_e6f5f777ad7603::t_41a58376f1b4cb 8-9
+  s_e6f5f777ad7603::t_892aaf9ae68a8e 1-6
+docs/adr/0029-platform-stewardship-does-not-grant-pack-privileges.md
+  s_e6f5f777ad7603::t_0ef8cfb7109f27 1-6
+  s_e6f5f777ad7603::t_c36232c31e889d 7
+docs/adr/0020-dataset-writes-hide-physical-layout.md
+  s_e6f5f777ad7603::t_fee9a306d4cf93 1-4
+  s_e6f5f777ad7603::t_d4cb5030e09442 5-6
+  s_e6f5f777ad7603::t_f0c02620f17f8f 17-23
+  s_e6f5f777ad7603::t_7b08f207f7f1c8 7-16
+docs/adr/README.md
+  s_c70c9db5227e55::t_6c4e1383da69bb 1-5
+docs/adr/0045-workflow-api-and-runtime-share-one-private-wheel.md
+  s_e6f5f777ad7603::t_5c282357d71ff1 1-6
+  s_e6f5f777ad7603::t_1c652c434ca69b 7-13
+docs/adr/0033-workflows-derive-data-without-mutating-datasets.md
+  s_e6f5f777ad7603::t_fdb47b9f0d56b4 7
+  s_e6f5f777ad7603::t_2908201d22cb36 1-6
+docs/adr/0014-analysis-automatically-selects-pack-and-workflow.md
+  s_e6f5f777ad7603::t_ce816748d0df6b 1-6
+  s_e6f5f777ad7603::t_b53d7d9e24a15b 7-9
+docs/adr/0042-hitrace-events-preserve-clock-domain-and-value.md
+  s_e6f5f777ad7603::t_9ad06bf0be2d01 55-61
+  s_e6f5f777ad7603::t_7d578073d9f8d9 24-25
+  s_e6f5f777ad7603::t_b0ee23b5b81348 11-23
+  s_e6f5f777ad7603::t_d5f26f14fb9539 9-10
+  s_e6f5f777ad7603::t_c9dde76dfd115c 1-6
+  s_e6f5f777ad7603::t_960f8707fe2aaf 7-8
+  s_e6f5f777ad7603::t_09b2ced9cd4b18 26-48
+  s_e6f5f777ad7603::t_1a9a424464db1a 49-54
+docs/adr/0015-workflows-declare-enforced-table-grants.md
+  s_e6f5f777ad7603::t_4b514355e10a5d 7-8
+  s_e6f5f777ad7603::t_21eb9960d9e3c2 1-6
+  s_e6f5f777ad7603::t_66cec42da84a88 9-15
+docs/adr/0034-temporal-meanings-are-not-interchangeable.md
+  s_e6f5f777ad7603::t_84fe9147b40fc3 1-6
+  s_e6f5f777ad7603::t_555e37e23edaed 7-8
+  s_e6f5f777ad7603::t_ea64d65fa6ecf0 9-10
+  s_e6f5f777ad7603::t_a8995a9a171459 11-21
+docs/adr/0024-hitrace-datasource-owns-reusable-trace-facts.md
+  s_e6f5f777ad7603::t_6eb4a8c6fa25ea 8-9
+  s_e6f5f777ad7603::t_471ed89f894ee5 7
+  s_e6f5f777ad7603::t_ae96e5450513e3 1-6
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_e6f5f777ad7603::t_5c45f136eeff84 5-6
+  s_e6f5f777ad7603::t_a198c17f3245cd 1-4
+  s_e6f5f777ad7603::t_1c652c434ca69b 7-8
+  s_e6f5f777ad7603::t_e349447d332e9c 9-13
+docs/adr/0044-query-result-formats-utc-nanosecond-timestamps.md
+  s_e6f5f777ad7603::t_a8995a9a171459 7-11
+  s_e6f5f777ad7603::t_24af1ed930afaf 1-6
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_e6f5f777ad7603::t_e349447d332e9c 9-12
+  s_e6f5f777ad7603::t_4974dc036880f4 13
+  s_e6f5f777ad7603::t_32cb65b1c47e6c 5-6
+  s_e6f5f777ad7603::t_6c2e2c0eca550b 7-8
+  s_e6f5f777ad7603::t_5eb7a7f61126ec 1-4
+docs/adr/0032-workflow-execution-capabilities-require-explicit-context.md
+  s_e6f5f777ad7603::t_7af3cb4e0bea6a 1-8
+  s_e6f5f777ad7603::t_f8e1b323ccf54f 11-14
+  s_e6f5f777ad7603::t_47aac90dfd4607 19-20
+  s_e6f5f777ad7603::t_97f85deb844148 21-23
+  s_e6f5f777ad7603::t_4b514355e10a5d 9-10
+  s_e6f5f777ad7603::t_64b1577c59afcf 15-18
+docs/adr/0006-pack-dependencies-use-explicit-exported-capabilities.md
+  s_e6f5f777ad7603::t_359d2cba951249 2-11
+  s_e6f5f777ad7603::t_b40e4add264d4d 1
+docs/adr/0049-reusable-trace-analysis-lives-in-kat-trace.md
+  s_e6f5f777ad7603::t_af341ff95276a7 9
+  s_e6f5f777ad7603::t_25354e460cc69a 1-8
+AGENTS.md
+  s_c70c9db5227e55::t_d9835ce09c2b27 38-51
+docs/adr/0025-hitrace-distinguishes-unknown-content-from-invalid-data.md
+  s_e6f5f777ad7603::t_f915ada30bbe41 7-9
+  s_e6f5f777ad7603::t_24e52f34e52865 1-6
+docs/adr/0047-current-pack-is-exposed-as-kat-pack.md
+  s_e6f5f777ad7603::t_1c32a200363151 7-10
+  s_e6f5f777ad7603::t_34f0954d38ed4a 1-6
+  s_e6f5f777ad7603::t_a996e93066eb55 11-19
+docs/adr/0040-query-result-rejects-non-finite-floats.md
+  s_e6f5f777ad7603::t_6ab7fd3e9fa65c 7-11
+  s_e6f5f777ad7603::t_15022f5191d26b 1-6
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_e6f5f777ad7603::t_a8995a9a171459 9-28
+  s_e6f5f777ad7603::t_4b514355e10a5d 7-8
+  s_e6f5f777ad7603::t_e0fb49b6512a07 37-41
+  s_e6f5f777ad7603::t_42b7aaa7b96122 1-6
+  s_e6f5f777ad7603::t_97f85deb844148 29-36
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_e6f5f777ad7603::t_1f936e96b5cf87 1-6
+  s_e6f5f777ad7603::t_f0c02620f17f8f 11-16
+  s_e6f5f777ad7603::t_4974dc036880f4 27-35
+  s_e6f5f777ad7603::t_1c9f7ffe714b5d 7-8
+  s_e6f5f777ad7603::t_e148878288c583 9-10
+  s_e6f5f777ad7603::t_9d15908b2c5aec 17-26
+docs/adr/0031-pack-manifest-carries-a-non-authoritative-owner.md
+  s_e6f5f777ad7603::t_bc8fd1e3ff5388 7
+  s_e6f5f777ad7603::t_3f4e27be953665 1-6
+docs/adr/0023-kat-has-no-rest-daemon.md
+  s_e6f5f777ad7603::t_cbf8d9e1b1009c 7
+  s_e6f5f777ad7603::t_9acd5e0f8f2d19 1-6
+docs/agents/issue-tracker.md
+  s_c70c9db5227e55::t_d9835ce09c2b27 1-18
+docs/research/openharmony-hiprofiler-clock-domains.md
+  s_e6f5f777ad7603::t_bcb12303d929ff 95-133
+  s_e6f5f777ad7603::t_65569f8fcdd81c 3-94
+  s_e6f5f777ad7603::t_d5f26f14fb9539 134
+  s_e6f5f777ad7603::t_09b2ced9cd4b18 135-149
+  s_e6f5f777ad7603::t_6090c7d0f0075f 1-2
+docs/adr/0048-first-bundled-pack-analyzes-thread-cpu-time.md
+  s_e6f5f777ad7603::t_8da014da4048af 41-45
+  s_e6f5f777ad7603::t_6eb4a8c6fa25ea 1-40
+docs/adr/0038-query-results-use-compact-positional-json.md
+  s_e6f5f777ad7603::t_8b3855477faba3 1-6
+  s_e6f5f777ad7603::t_65dce0b8e47ece 11
+  s_e6f5f777ad7603::t_66cec42da84a88 7-10
+docs/adr/0041-query-result-quotes-decimals.md
+  s_e6f5f777ad7603::t_5670ff8249cfba 11-13
+  s_e6f5f777ad7603::t_908abc40610f66 1-10
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_e6f5f777ad7603::t_5c45f136eeff84 7-8
+  s_e6f5f777ad7603::t_3b84f7bbb7688e 17-19
+  s_e6f5f777ad7603::t_5c282357d71ff1 9-16
+  s_e6f5f777ad7603::t_e785a1a932b0cf 1-6
+docs/adr/0004-supported-execution-requires-the-bundled-python-host.md
+  s_e6f5f777ad7603::t_2ce946462e61ab 1-6
+  s_e6f5f777ad7603::t_54da97896f3fc1 7-8
+  s_e6f5f777ad7603::t_42c67ecc4405f9 9-12
+  s_e6f5f777ad7603::t_ca94d5bfc3a8b3 13
+docs/adr/0008-run-outputs-reach-models-through-bounded-queries.md
+  s_e6f5f777ad7603::t_f8dfdb9ffbaa68 7-13
+  s_e6f5f777ad7603::t_20403cbcdbb17b 1-6
+docs/adr/0009-runs-reference-datasets-by-path.md
+  s_e6f5f777ad7603::t_d4cb5030e09442 1-6
+  s_e6f5f777ad7603::t_0a50fa31d0e970 7-8
+  s_e6f5f777ad7603::t_a7b446f907e19d 9-13
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_e6f5f777ad7603::t_3ac0b30a1a94c8 1-6
+  s_e6f5f777ad7603::t_98c3bccf5b5fe3 9-14
+  s_e6f5f777ad7603::t_dec50d99de93d3 7-8
+  s_e6f5f777ad7603::t_efa07a9a11e581 17-18
+  s_e6f5f777ad7603::t_03b04dec3a6573 15-16
+  s_e6f5f777ad7603::t_9800b1d0b2c612 19
+docs/adr/0039-query-result-quotes-64-bit-integers.md
+  s_e6f5f777ad7603::t_dca88115984aaf 1-10
+  s_e6f5f777ad7603::t_6ab7fd3e9fa65c 11
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_e6f5f777ad7603::t_e148878288c583 11-19
+  s_e6f5f777ad7603::t_9570362c169a6c 1-6
+  s_e6f5f777ad7603::t_4046c627d150e3 7-8
+  s_e6f5f777ad7603::t_ddc7befc6f042a 9-10
+docs/research/industry-multi-clock-observability.md
+  s_e6f5f777ad7603::t_6ac24ee08a3349 5-6
+  s_e6f5f777ad7603::t_ea64d65fa6ecf0 138-143
+  s_e6f5f777ad7603::t_d5f26f14fb9539 136-137
+  s_e6f5f777ad7603::t_9ad06bf0be2d01 232-310
+  s_e6f5f777ad7603::t_26baf63b179d61 1-4
+  s_e6f5f777ad7603::t_09b2ced9cd4b18 150-231
+  s_e6f5f777ad7603::t_7d578073d9f8d9 144-149
+  s_e6f5f777ad7603::t_960f8707fe2aaf 7-135
+docs/adr/0050-trace-analysis-follows-perfetto-semantics.md
+  s_e6f5f777ad7603::t_d8e2fd768b7c3e 10
+  s_e6f5f777ad7603::t_46344a584738f6 1-9
+  s_e6f5f777ad7603::t_6e1c2b01490b51 11-17
+docs/adr/0036-skill-first-cli-results-use-json.md
+  s_e6f5f777ad7603::t_676d570e7cc059 5-6
+  s_e6f5f777ad7603::t_93dd40af600725 7-8
+  s_e6f5f777ad7603::t_735eb3625455b1 1-4
+  s_e6f5f777ad7603::t_4974dc036880f4 41-53
+  s_e6f5f777ad7603::t_6184190754f8a7 9-40
+docs/adr/0046-query-result-preserves-arrow-string-values.md
+  s_e6f5f777ad7603::t_6ab7fd3e9fa65c 9-11
+  s_e6f5f777ad7603::t_f4509040ad518b 1-8
+docs/adr/0007-pack-discovery-requires-a-static-manifest.md
+  s_e6f5f777ad7603::t_c803230e7670a5 11-12
+  s_e6f5f777ad7603::t_ccd2b634a292f1 13-17
+  s_e6f5f777ad7603::t_e6b8028573fe05 9-10
+  s_e6f5f777ad7603::t_2967048205c19d 1-8
+docs/agents/domain.md
+  s_c70c9db5227e55::t_d9835ce09c2b27 1-30
+docs/agents/triage-labels.md
+  s_c70c9db5227e55::t_d9835ce09c2b27 1-13
+docs/adr/0030-kernel-identifies-stewardship-not-product-scope.md
+  s_e6f5f777ad7603::t_f24150daea4785 1-7
+docs/adr/0043-analysis-capabilities-live-above-a-thin-query-engine.md
+  s_e6f5f777ad7603::t_c36232c31e889d 7-13
+  s_e6f5f777ad7603::t_db30ee9c16826e 1-6
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_e6f5f777ad7603::t_278a68183f7f72 9-10
+  s_e6f5f777ad7603::t_5570cd9a4c48fb 7-8
+  s_e6f5f777ad7603::t_b4c9be573c3b8e 11-15
+  s_e6f5f777ad7603::t_8e9873434d872f 1-6
+docs/adr/0027-first-version-packs-are-self-contained.md
+  s_e6f5f777ad7603::t_359d2cba951249 1-6
+  s_e6f5f777ad7603::t_a996e93066eb55 7-9
+docs/adr/0022-datasource-types-are-closed-and-bundled.md
+  s_e6f5f777ad7603::t_ff57575b2af125 1-6
+  s_e6f5f777ad7603::t_d2ef7515d0569c 7-9
+docs/adr/0005-kat-managed-workflow-capabilities-require-an-execution-lease.md
+  s_e6f5f777ad7603::t_0b01fa1b6a2b13 1-6
+  s_e6f5f777ad7603::t_fb12f1d498ea1a 7-9
+docs/adr/0021-one-data-import-uses-one-datasource.md
+  s_e6f5f777ad7603::t_a168ca2034c0a3 7-10
+  s_e6f5f777ad7603::t_9d15908b2c5aec 11-13
+  s_e6f5f777ad7603::t_735460f2c31307 1-6
+docs/adr/0017-pack-source-layout-is-fixed.md
+  s_e6f5f777ad7603::t_92922622852e19 9-19
+  s_e6f5f777ad7603::t_2bf1444eca5254 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "4c6775545dcc30ba356d20e0533375fb0d985cc7",
+  "prompts": {
+    "s_c70c9db5227e55": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6c88-402e-7932-8e51-dd283f78a6fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 80,
+      "total_deletions": 0,
+      "accepted_lines": 80,
+      "overriden_lines": 0
+    },
+    "s_e6f5f777ad7603": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f597d-075f-7891-b6ff-4ac7fe8f7070",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 1821,
+      "total_deletions": 3775,
+      "accepted_lines": 1821,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_c70c9db5227e55": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6c88-402e-7932-8e51-dd283f78a6fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    },
+    "s_e6f5f777ad7603": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f597d-075f-7891-b6ff-4ac7fe8f7070",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

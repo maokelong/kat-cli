@@ -1,0 +1,34 @@
+examples/packs/mem-pack/tests/test_real_hdc_ftrace.py
+  s_0dbbaca6405a56::t_bccd8f7b6b5b2b 7
+kat/skill/references/command-reference.md
+  s_0dbbaca6405a56::t_86a76552818862 78-80,82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "00acda4ea935997373c95e0e9edd7ba888fbdaed",
+  "prompts": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 5,
+      "total_deletions": 4,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

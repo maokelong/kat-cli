@@ -1,0 +1,33 @@
+kat/platform/cli/src/run_manifest.rs
+  s_2e4ee2c01499f3::t_0a4bae0e8d595b 599-604,637-638,642,647-648,694,699-700,708,716-717,729,740-741,753,761-762,767,774-775,780,787-788,793,800-801,807
+  s_2e4ee2c01499f3::t_c179e39c7c6ad4 597-598
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2cfb84602d3f3406fbb57d37fe93b7d396cb4269",
+  "prompts": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 35,
+      "total_deletions": 27,
+      "accepted_lines": 35,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_2e4ee2c01499f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a7e-f38f-7e90-856d-e4450a931fb2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,89 @@
+.github/workflows/finalize-release-assets.yml
+  s_cb46b5c443e3f5::t_007a81462b2c3a 44-52
+  s_cb46b5c443e3f5::t_6c05a26d8a1182 53-62,99-102,113-152
+build/verify_release_versions.py
+  s_cb46b5c443e3f5::t_36a2efe9b1d85d 17,44-49,57-60,66-69,73-76
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_cb46b5c443e3f5::t_007a81462b2c3a 7
+docs/agents/issue-tracker.md
+  s_cb46b5c443e3f5::t_f55d1151a6aa3a 3,8
+docs/adr/0004-supported-execution-requires-the-bundled-python-host.md
+  s_cb46b5c443e3f5::t_007a81462b2c3a 11
+README.md
+  s_cb46b5c443e3f5::t_f55d1151a6aa3a 1
+  s_cb46b5c443e3f5::t_126871191358e1 8,37-39
+  s_cb46b5c443e3f5::t_84f7e6a43dfe0a 40-46,54
+dist-workspace.toml
+  s_cb46b5c443e3f5::t_e44baeecda154e 10-11
+  s_cb46b5c443e3f5::t_6767a62ba6b534 24
+Cargo.toml
+  s_cb46b5c443e3f5::t_0e4939025a9d76 10
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_cb46b5c443e3f5::t_aef83c2efe37e6 11-12
+  s_cb46b5c443e3f5::t_84f7e6a43dfe0a 13,20-21,26,30,32,34
+kat/skill/SKILL.md
+  s_cb46b5c443e3f5::t_f55d1151a6aa3a 74
+release/kat/dist.toml
+  s_cb46b5c443e3f5::t_0e4939025a9d76 3,5
+build/tests/test_release_versions.py
+  s_cb46b5c443e3f5::t_5c1b9a8446a04f 100-142
+  s_cb46b5c443e3f5::t_36a2efe9b1d85d 36-48,50,67-99
+kat/platform/workflow/pyproject.toml
+  s_cb46b5c443e3f5::t_0e4939025a9d76 7
+.github/scripts/test_pr_guard.py
+  s_cb46b5c443e3f5::t_6c6ff177e9a2a2 44,55-60,63,67-74
+  s_cb46b5c443e3f5::t_c3917c809d78d1 385-387,393
+.github/workflows/kat-release.yml
+  s_cb46b5c443e3f5::t_564fdf8638e928 45
+  s_cb46b5c443e3f5::t_4900ec8981173f 90,94,103,149,158,162
+build/tests/test_workflow_wheel.py
+  s_cb46b5c443e3f5::t_69dd85d5983485 3,5,51-77,189-198
+build/build_workflow_wheel.py
+  s_cb46b5c443e3f5::t_dbca57866bd1d5 132,138-142
+AGENTS.md
+  s_cb46b5c443e3f5::t_f55d1151a6aa3a 1
+build/payload_builder.py
+  s_cb46b5c443e3f5::t_dbca57866bd1d5 571,604
+docs/release-rehearsal.md
+  s_cb46b5c443e3f5::t_53e8d73b4d6756 47-389
+  s_cb46b5c443e3f5::t_1ea7a8b2048285 3-46
+  s_cb46b5c443e3f5::t_adec9b7bf7e902 1-2
+.github/scripts/pr_guard.py
+  s_cb46b5c443e3f5::t_c3917c809d78d1 319-320,591-592
+.github/workflows/build-payloads-ci.yml
+  s_cb46b5c443e3f5::t_b163ac6693c9d5 31-99
+  s_cb46b5c443e3f5::t_148406c47c6d33 1-30
+build/tests/test_ci_artifact_lifecycle.py
+  s_cb46b5c443e3f5::t_148406c47c6d33 155-158
+  s_cb46b5c443e3f5::t_b163ac6693c9d5 159-248
+  s_cb46b5c443e3f5::t_ac122196748964 3,19-28,45-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "61fda4f96cb9076c88263da6eca0242919d75bb5",
+  "prompts": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 988,
+      "total_deletions": 746,
+      "accepted_lines": 988,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_cb46b5c443e3f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee86-ef7d-7d61-9eb6-02f4a90cb860",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

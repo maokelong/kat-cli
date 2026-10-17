@@ -1,0 +1,51 @@
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d37eb24b885b8::t_d210315de1e911 1170,1188,1215,1251
+  s_8d37eb24b885b8::t_06ae762f1caeb5 1070-1091,1100,1106-1107,1120,1129,1131-1150,1152-1153
+  s_8d37eb24b885b8::t_6b9c0cbb82d2a9 97-111,231,395-396,476,1061-1069
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_8d37eb24b885b8::t_6b9c0cbb82d2a9 152
+kat/platform/cli/src/run.rs
+  s_8d37eb24b885b8::t_1c84f0b9ef9518 210-214
+  s_8d37eb24b885b8::t_3a5072a6a50a93 215-216,237,327-333,472-475,500-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c8a39ca29c38ee522dcee5e78a2ba8691d0a22a4",
+  "prompts": {
+    "s_8d37eb24b885b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0381e-2908-7b60-ae11-6f16bdb9c9f5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 116,
+      "total_deletions": 1243,
+      "accepted_lines": 116,
+      "overriden_lines": 0
+    },
+    "s_c9739189c017f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0382d-47bb-7643-9edc-56da3cd08280",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 669,
+      "total_deletions": 2,
+      "accepted_lines": 669,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d37eb24b885b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0381e-2908-7b60-ae11-6f16bdb9c9f5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

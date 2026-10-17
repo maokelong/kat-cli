@@ -1,0 +1,36 @@
+kat/platform/datasource/tests/profiler_source_capture_contract/mod.rs
+  s_43e8186dedf3d1::t_e524ad4a88dd42 1-786
+kat/platform/datasource/tests/profiler_source_capture_contract/native_hook.rs
+  s_43e8186dedf3d1::t_e524ad4a88dd42 1,3-5,15
+kat/platform/datasource/tests/profiler_source_capture_contract/ftrace.rs
+  s_43e8186dedf3d1::t_61251c8bea4cca 1-538
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "d80efdd48f31b7b2316a2784fd6b73a3192ee504",
+  "prompts": {
+    "s_43e8186dedf3d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01937-766f-7610-9751-fc0e36131da6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 1329,
+      "total_deletions": 136,
+      "accepted_lines": 1329,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_43e8186dedf3d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01937-766f-7610-9751-fc0e36131da6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

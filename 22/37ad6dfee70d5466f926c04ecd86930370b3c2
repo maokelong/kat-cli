@@ -1,0 +1,34 @@
+.agents/skills/kat-pr-review/SKILL.md
+  s_3f9bd0d54e802e::t_2730ca23f07fa7 15,20-22,24,52,54,56,66,73,75,77-80,82-83
+  s_3f9bd0d54e802e::t_e6acfc4c6fad72 84-86,90,102,109
+  s_3f9bd0d54e802e::t_c4ba4f9043da93 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2237ad6dfee70d5466f926c04ecd86930370b3c2",
+  "prompts": {
+    "s_3f9bd0d54e802e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb16a-70a1-7b92-8075-c2fc49bdcc37",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 24,
+      "total_deletions": 38,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_3f9bd0d54e802e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb16a-70a1-7b92-8075-c2fc49bdcc37",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

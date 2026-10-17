@@ -1,0 +1,188 @@
+kat/skill/references/examples/dataprovider-pack/datasources/ftrace.py
+  s_0112a125c621b1::t_d1c4775ea17843 1-211
+kat/platform/workflow/runtime/request.py
+  s_0112a125c621b1::t_650c8d1e3d70f3 21,24-31,74-78,91-94,104-139,142,146,148-150,152-161,163-164
+kat/platform/cli/tests/run.rs
+  s_0112a125c621b1::t_b73a7bcd4b06d5 456
+kat/platform/workflow/tests/test_workflow_declaration.py
+  s_0112a125c621b1::t_92312f2e516f8b 1-9
+  s_0112a125c621b1::t_bf2c2e609b2205 39-52
+  s_0112a125c621b1::t_79b45b1074bd46 16-38
+  s_0112a125c621b1::t_0bdae8837888f9 53-60
+  s_0112a125c621b1::t_ace5ae71d18db8 10-15
+  s_0112a125c621b1::t_2f1fd91766f439 61-72
+kat/skill/references/examples/dataprovider-pack/knowledge/workflows/summarize-ftrace-events.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-13
+kat/platform/workflow/tests/test_testing_process.py
+  s_0112a125c621b1::t_2e61f879398cb2 89,216,302,353,609,642
+kat/platform/cli/tests/inspect.rs
+  s_0112a125c621b1::t_39e28914243c4a 256-259
+  s_0112a125c621b1::t_7c5de593357be9 10-13,26,39-47,50,60,121,125-127,136-255
+  s_0112a125c621b1::t_3a42f5bc5d2330 260-431,454,472,491,497-515,520,522,536,538,543-575,591,705,721,730,768,809-811,830-874
+kat/platform/cli/tests/test.rs
+  s_0112a125c621b1::t_b73a7bcd4b06d5 548,562,577
+kat/skill/agents/openai.yaml
+  s_0112a125c621b1::t_09c8150b01f643 4
+kat/platform/workflow/tests/test_skill_reference_pack_process.py
+  s_0112a125c621b1::t_1729b0fcb053eb 24-76
+  s_0112a125c621b1::t_7e92cf59456163 77-129
+  s_0112a125c621b1::t_c90fdf897519d8 1-23
+kat/platform/workflow/tests/test_authoring_api.py
+  s_0112a125c621b1::t_02689aa5dc2260 230-268,414-415,557
+  s_0112a125c621b1::t_fd1d199cb4d973 14,43-46,56,70,76,85,94,103,112,121,132,141,150,162,174,183,192,203,211-228
+  s_0112a125c621b1::t_2f1fd91766f439 229
+kat/platform/workflow/api/__init__.py
+  s_0112a125c621b1::t_b7598b5d2de5d2 2,11
+kat/platform/cli/tests/import.rs
+  s_0112a125c621b1::t_174424b85a1d3a 166,203,205-206,208,255,257-258,260,432
+kat/skill/references/result-contract.md
+  s_0112a125c621b1::t_c8b44bc824d03d 3,7,12-16,20-22
+  s_0112a125c621b1::t_dc53fd08c9fa7d 23,35,46,50
+kat/skill/references/examples/dataprovider-pack/tests/postgresql/test_postgresql_provider.py
+  s_0112a125c621b1::t_dc5cd91b8600f4 1-383
+build/tests/test_assemble_skill.py
+  s_0112a125c621b1::t_7e92cf59456163 36-40,102-107
+kat/platform/workflow/runtime/knowledge.py
+  s_0112a125c621b1::t_579d2abcf59408 7-54
+  s_0112a125c621b1::t_0efd38f46afb57 1-6
+kat/platform/workflow/runtime/inspection.py
+  s_0112a125c621b1::t_9e7e564b73c18a 80,196,200
+kat/packs/kat-openharmony-thread-cpu-time/workflows/thread_cpu_time.py
+  s_0112a125c621b1::t_49a6dbf1babf2e 6
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/ftrace-text.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-25
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_0112a125c621b1::t_3474e81d047bc1 7,9-16,20-21,24-34,43-47,49-53,55-59,129-135,143-155,157-164,220-228,232
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/postgresql.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-30
+kat/platform/cli/tests/trace_streamer_demo.rs
+  s_0112a125c621b1::t_3fe1ad77911a37 95-96,99,105-106
+kat/platform/workflow/api/_workflow.py
+  s_0112a125c621b1::t_0bdae8837888f9 154-163,176,178
+  s_0112a125c621b1::t_9e7e564b73c18a 19-21,99,101,107,109,113-125,134-139
+kat/packs/kat-openharmony-critical-path/workflows/locate_first_actual_frame.py
+  s_0112a125c621b1::t_49a6dbf1babf2e 8
+kat/platform/cli/src/test.rs
+  s_0112a125c621b1::t_174424b85a1d3a 334
+kat/platform/cli/src/inspect.rs
+  s_0112a125c621b1::t_df4ed98138dc4e 68-83
+  s_0112a125c621b1::t_3f3fc401f6369f 84-85,87-91
+  s_0112a125c621b1::t_1fd3f6ac4669c2 1-67
+kat/skill/references/examples/dataprovider-pack/pack.toml
+  s_0112a125c621b1::t_d1c4775ea17843 1
+  s_0112a125c621b1::t_b1ccfb15ed1f30 2-4
+kat/platform/cli/src/lib.rs
+  s_0112a125c621b1::t_1c54d98210366f 16,39-40,102-105,108-110,113-127,157,167-172
+  s_0112a125c621b1::t_018553ff6eb5ef 173-190,196-197,202-235,265-283,285,299,316,684-686,742-744,747-755,758-761,764-779,782-817
+  s_0112a125c621b1::t_1fd3f6ac4669c2 2
+  s_0112a125c621b1::t_aa6ca257e1f6ea 8
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_0112a125c621b1::t_70574990911c08 1-109
+  s_0112a125c621b1::t_e69ba2fc904a67 110-165
+README.md
+  s_0112a125c621b1::t_db87ebc5b26c29 146-147
+  s_0112a125c621b1::t_174424b85a1d3a 19-20,26,103-104,114-116
+kat/skill/SKILL.md
+  s_0112a125c621b1::t_bb8d582467a572 3,8,10,12-14,16,18,20,22-25,27
+examples/packs/local-parquet-fusion/workflows/fuse_local_parquet.py
+  s_0112a125c621b1::t_49a6dbf1babf2e 9
+kat/platform/workflow/api/_provider.py
+  s_0112a125c621b1::t_281dd447ae1798 39-52
+  s_0112a125c621b1::t_b7598b5d2de5d2 1-38
+kat/platform/workflow/runtime/provider_inspection.py
+  s_0112a125c621b1::t_1d7196954ba9eb 23-221
+  s_0112a125c621b1::t_0efd38f46afb57 18-22
+  s_0112a125c621b1::t_33cdd0991eb682 222-337
+  s_0112a125c621b1::t_4c643072c9fe9b 1-17
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/trace-streamer-sqlite.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-29
+examples/packs/local-parquet-fusion/README.md
+  s_0112a125c621b1::t_174424b85a1d3a 28
+kat/platform/cli/src/query.rs
+  s_0112a125c621b1::t_85a79a289bd5c9 1,11,89
+  s_0112a125c621b1::t_753a630bc6b1cf 91,93-94,245-247
+kat/platform/workflow/runtime/execution.py
+  s_0112a125c621b1::t_9e7e564b73c18a 133
+kat/skill/references/examples/dataprovider-pack/knowledge/workflows/fuse-observations.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-13
+kat/platform/cli/src/run_manifest.rs
+  s_0112a125c621b1::t_aa6ca257e1f6ea 1-15,17-122
+CONTEXT.md
+  s_0112a125c621b1::t_f4699f4a712956 13-15,38,50-51,53-54,66,80,83-85
+  s_0112a125c621b1::t_10fb478799dd8b 109,115,118
+kat/skill/references/examples/dataprovider-pack/knowledge/workflows/summarize-native-hook.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-13
+kat/skill/references/examples/dataprovider-pack/knowledge/workflows/query-observations.md
+  s_0112a125c621b1::t_b0e8d850e2b9b6 1-13
+kat/platform/workflow/runtime/__main__.py
+  s_0112a125c621b1::t_55c12dfaf73dc3 13,16-21,25-26,50-51,89,91-95,100-110
+kat/packs/kat-openharmony-critical-path/workflows/extract_critical_path.py
+  s_0112a125c621b1::t_49a6dbf1babf2e 8
+kat/skill/references/analysis-flow.md
+  s_0112a125c621b1::t_dc53fd08c9fa7d 7-8,10,12,14,16-18,20,22,24,26,28,30,32,34,36,38,40-44
+  s_0112a125c621b1::t_dd2aecb32bb4fb 1,3,5
+kat/platform/workflow/tests/test_execution_process.py
+  s_0112a125c621b1::t_b5b7b71a8fb6a6 57,65,178
+  s_0112a125c621b1::t_80de378cb8d706 190,213-218,477,487
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_0112a125c621b1::t_f53ba0f16164ef 56,65,132
+docs/adr/0074-pack-inspection-separately-discovers-provider-declarations.md
+  s_0112a125c621b1::t_2d59bb27b2090c 1-39
+  s_0112a125c621b1::t_040681a3962004 40-42
+kat/packs/kat-openharmony-critical-path/tests/test_critical_path.py
+  s_0112a125c621b1::t_5a5aa06ffe649a 386-389
+kat/skill/references/pack-authoring-flow.md
+  s_0112a125c621b1::t_ab52695f45f825 3,5-12,16-20
+  s_0112a125c621b1::t_0b6d02a1c0b5eb 21-61,63,65,67,69-70,72,74-77,79
+kat/platform/workflow/runtime/pack.py
+  s_0112a125c621b1::t_16367b5091d7b9 25,28-40,44-55,73,89-90,129-136
+  s_0112a125c621b1::t_579d2abcf59408 137-141,147-148,154-186,204-207,219-222,231-235,242,309
+  s_0112a125c621b1::t_8445849cfdb55a 16
+kat/skill/references/examples/dataprovider-pack/workflows/query_observations.py
+  s_0112a125c621b1::t_d1c4775ea17843 8
+kat/platform/cli/src/workflow_runtime.rs
+  s_0112a125c621b1::t_ae44cf10901e97 1072,1082,1085,1089-1100,1114,1117,1127,1130
+  s_0112a125c621b1::t_146c0cca4e52e3 24,26-27,44
+  s_0112a125c621b1::t_7eac76127d442d 45-74,207-237,240-270,288,303
+kat/skill/references/command-reference.md
+  s_0112a125c621b1::t_68cf784590c8ed 3,5-6
+  s_0112a125c621b1::t_f8029149982a4f 7-31,40,42,45,48-57,59-61,63-67,70-72,75-80,86-87,90,92,98,100,109
+kat/skill/references/examples/dataprovider-pack/datasources/postgresql.py
+  s_0112a125c621b1::t_d1c4775ea17843 1-247
+kat/skill/references/examples/dataprovider-pack/datasources/trace_streamer.py
+  s_0112a125c621b1::t_d1c4775ea17843 1-251
+kat/platform/workflow/tests/test_runtime_process.py
+  s_0112a125c621b1::t_03e0d30f3f7ee3 437-595,666-667,690-691,710,718-719,727,736-737,748-750,752-753,774-775,779,793-794,829,835,845,852,867,873-874,885,891-892,907,929,938-939,959,967,984-985,1004-1005,1051-1052,1074-1075,1090,1097,1110-1111,1129-1130,1149,1167-1168
+  s_0112a125c621b1::t_8c61558cf78cb2 363-436
+  s_0112a125c621b1::t_acc2976be21ce7 176-331,336-362
+  s_0112a125c621b1::t_a157e520cb2fbd 16,75,94,100-104,110,114-128,131-134,136,143,149-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "0442b295dcd94bf397d7e2ff604a4b2660a605ec",
+  "prompts": {
+    "s_0112a125c621b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05685-b037-7e10-b8a9-aba394fdd249",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4235,
+      "total_deletions": 1480,
+      "accepted_lines": 4222,
+      "overriden_lines": 13
+    }
+  },
+  "sessions": {
+    "s_0112a125c621b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05685-b037-7e10-b8a9-aba394fdd249",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_8d5fc833dd9bca::t_41c749f9797b0b 99-109
+kat/platform/cli/src/lib.rs
+  s_8d5fc833dd9bca::t_41c749f9797b0b 240-243
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_8d5fc833dd9bca::t_6d7ded71cc26f8 9
+  s_8d5fc833dd9bca::t_f7fba06fa2719a 13
+kat/platform/cli/tests/inspect.rs
+  s_8d5fc833dd9bca::t_41c749f9797b0b 333
+kat/platform/workflow/runtime/__main__.py
+  s_8d5fc833dd9bca::t_41c749f9797b0b 40,67,81
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d5fc833dd9bca::t_41c749f9797b0b 188,194
+  s_8d5fc833dd9bca::t_286e3fe7d6aa95 209,386
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_8d5fc833dd9bca::t_ce1018c37c0be2 29
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_8d5fc833dd9bca::t_2fd47d64f5ba79 9
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d5fc833dd9bca::t_41c749f9797b0b 19-21,38-41,72,87-98
+  s_8d5fc833dd9bca::t_286e3fe7d6aa95 381-411
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8d5fc833dd9bca::t_07f80dfb219467 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e41367b86ecbef909a6ed7dc87ec61b7ffc3f65e",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 85,
+      "total_deletions": 14,
+      "accepted_lines": 79,
+      "overriden_lines": 6
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

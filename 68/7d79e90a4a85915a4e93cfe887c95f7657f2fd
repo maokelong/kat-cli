@@ -1,0 +1,45 @@
+kat/platform/cli/src/workflow_runtime/process_scope.rs
+  s_450935cb905f4d::t_93c0e32e59d1f1 11,17,76,118,124,270
+docs/adr/0053-runtime-lifecycle-follows-managed-execution-scope.md
+  s_450935cb905f4d::t_9cfa001bd4111b 1-25
+kat/platform/cli/tests/run.rs
+  s_450935cb905f4d::t_93c0e32e59d1f1 325,381,385
+README.md
+  s_450935cb905f4d::t_9cfa001bd4111b 28-29,35-37,92-95,115-117,120-122
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_450935cb905f4d::t_9cfa001bd4111b 10-13
+docs/superpowers/specs/2026-07-24-pr-151-kat-run-deepening-design.md
+  s_450935cb905f4d::t_861e348b3faf2d 3,45-90
+  s_450935cb905f4d::t_9cfa001bd4111b 146,148,150-152,198-199,224,226-229
+kat/platform/cli/src/workflow_runtime.rs
+  s_450935cb905f4d::t_93c0e32e59d1f1 20,24,398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "687d79e90a4a85915a4e93cfe887c95f7657f2fd",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 115,
+      "total_deletions": 276,
+      "accepted_lines": 115,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

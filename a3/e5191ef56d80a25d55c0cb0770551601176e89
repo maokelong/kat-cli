@@ -1,0 +1,34 @@
+docs/adr/0075-pack-owned-datasources-retire-dataset-execution.md
+  s_4d41488b244c7f::t_9b487e1a8cc1b0 113,116-118,121
+  s_4d41488b244c7f::t_d25f86b975556f 95
+  s_4d41488b244c7f::t_39161ae3ce3768 96-97,99,103,105-109,111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a3e5191ef56d80a25d55c0cb0770551601176e89",
+  "prompts": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 17,
+      "total_deletions": 9,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4d41488b244c7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05afb-acb2-7bf3-b4a8-57d4b74fa28c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_1366363dce4eaf::t_c6bc78e8de4791 62,64-65,67,75-80,85-88,91,94,101-105,108-119,121-156,160-167,171-176,181-189,191-196
+  s_1366363dce4eaf::t_51fd82a9f6d137 14-17,32-35,38,49-52
+kat/platform/datasource/tests/native_hook_source_contract/fixture.rs
+  s_1366363dce4eaf::t_be50af6773dfc5 41-48
+  s_1366363dce4eaf::t_51fd82a9f6d137 4-40
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_1366363dce4eaf::t_51fd82a9f6d137 18-19
+  s_1366363dce4eaf::t_7dde08bfa41915 20-21
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_1366363dce4eaf::t_e3a0ba6c94ba15 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "03d72000a797e3669f69076fde57695989386121",
+  "prompts": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 161,
+      "total_deletions": 543,
+      "accepted_lines": 161,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

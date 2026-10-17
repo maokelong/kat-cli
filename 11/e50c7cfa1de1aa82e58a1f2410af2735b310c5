@@ -1,0 +1,47 @@
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_3dd5e37b8b48af 12
+  s_28f12e292b4bdc::t_e4c25a5a2b59e5 19
+kat/platform/cli/tests/inspect.rs
+  s_28f12e292b4bdc::t_a6296803509932 238-333
+  s_28f12e292b4bdc::t_e4c25a5a2b59e5 7-10,228-237
+kat/platform/datasource/Cargo.toml
+  s_28f12e292b4bdc::t_3dd5e37b8b48af 1-13
+  s_28f12e292b4bdc::t_e4c25a5a2b59e5 14
+kat/platform/datasource/src/lib.rs
+  s_28f12e292b4bdc::t_64e1e6686757ca 63-432
+  s_28f12e292b4bdc::t_3dd5e37b8b48af 1-62
+Cargo.toml
+  s_28f12e292b4bdc::t_e4c25a5a2b59e5 7,22
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_6188f5c7f3ab05 62-72,117-168,255-269,286-290
+  s_28f12e292b4bdc::t_76cffd5ee150b2 23-25,59-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "11e50c7cfa1de1aa82e58a1f2410af2735b310c5",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 649,
+      "total_deletions": 2,
+      "accepted_lines": 649,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

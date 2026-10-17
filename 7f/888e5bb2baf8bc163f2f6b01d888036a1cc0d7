@@ -1,0 +1,42 @@
+kat/packs/kat-openharmony-demo/tests/test_critical_path.py
+  s_a0e5d233ca6adc::t_532fe835e1a07d 178,180-186,188-191
+  s_a0e5d233ca6adc::t_1520b299b910e9 3-4,72,82-129
+  s_a0e5d233ca6adc::t_ffb0f869198762 130-141
+  s_a0e5d233ca6adc::t_236431c11b5c20 192-205
+  s_a0e5d233ca6adc::t_8b6bb555f810c4 222-228
+docs/adr/0058-critical-path-extraction-is-a-pack-workflow.md
+  s_a0e5d233ca6adc::t_55dbf22e5a547c 9
+kat/packs/kat-openharmony-demo/helpers/critical_path.py
+  s_a0e5d233ca6adc::t_6bf9f3308d051c 5,201-203,205,208,210-216,220,259-271,305,307,315-317,328,331-334,338-362
+kat/packs/kat-openharmony-demo/workflows/extract_critical_path.py
+  s_a0e5d233ca6adc::t_443e410ecedb17 11-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7f888e5bb2baf8bc163f2f6b01d888036a1cc0d7",
+  "prompts": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 163,
+      "total_deletions": 57,
+      "accepted_lines": 163,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_a0e5d233ca6adc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabc1-2e1a-7c91-8ff6-85f670d556bb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

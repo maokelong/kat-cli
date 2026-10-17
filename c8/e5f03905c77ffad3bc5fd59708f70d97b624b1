@@ -1,0 +1,34 @@
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_1366363dce4eaf::t_7ab2bad79055ae 59,69
+kat/platform/datasource/tests/plugin_flow_contract.rs
+  s_1366363dce4eaf::t_6177baddee4263 218,227,267-291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c8e5f03905c77ffad3bc5fd59708f70d97b624b1",
+  "prompts": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 29,
+      "total_deletions": 107,
+      "accepted_lines": 29,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,54 @@
+docs/superpowers/specs/2026-07-17-kat-dual-platform-payload-design.md
+  s_d1744aeb41c9d7::t_fae39c7abe3974 1-24,26-36
+build/payload_builder.py
+  s_d1744aeb41c9d7::t_2982e2515c0f84 621-766
+  s_d1744aeb41c9d7::t_4daf3fdc25c830 493-620
+  s_d1744aeb41c9d7::t_3b3b7452690d8d 1-485
+  s_d1744aeb41c9d7::t_92211eafd3e7f3 486-492
+.github/workflows/release-linux-payload.yml
+  s_d1744aeb41c9d7::t_9f14d850847aa7 1-60
+.github/workflows/release-windows-payload.yml
+  s_d1744aeb41c9d7::t_9f14d850847aa7 1-69,72-78
+build/tests/test_smoke_skill.py
+  s_d1744aeb41c9d7::t_18119c1e333d62 1-76
+.github/workflows/payload-ci.yml
+  s_d1744aeb41c9d7::t_bc7b43ee64cc7b 115-210,219-256,262-285
+  s_d1744aeb41c9d7::t_f902c02c3d57bd 27-30
+  s_d1744aeb41c9d7::t_7bb8dc566e65e0 76-113
+  s_d1744aeb41c9d7::t_10eab94a08ca37 31-75
+  s_d1744aeb41c9d7::t_3b0e9d6450de12 1-26
+build/tests/test_windows_payload.py
+  s_d1744aeb41c9d7::t_09f2779ccd8e23 1-213
+  s_d1744aeb41c9d7::t_a357d9e7b5790d 215-508
+build/smoke_skill.py
+  s_d1744aeb41c9d7::t_e96dd318991251 1-32,46-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "760af17ccd4bc347c9023d2a3923664325aecbe9",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2040,
+      "total_deletions": 0,
+      "accepted_lines": 2033,
+      "overriden_lines": 7
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

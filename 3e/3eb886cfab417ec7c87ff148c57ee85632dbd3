@@ -1,0 +1,47 @@
+crates/kat-rs-cli/src/lib.rs
+  s_5a98ce44cbcaef::t_54f06feb10b92f 5
+.superpowers/sdd/task-5-report.md
+  s_5a98ce44cbcaef::t_9bccfd60f4fc00 1-5
+crates/kat-rs-cli/src/python_worker.rs
+  s_5a98ce44cbcaef::t_e9ad73726be4cb 1-70,72-75,77-127
+  s_5a98ce44cbcaef::t_bf0f7f272ed406 143-249
+  s_5a98ce44cbcaef::t_3bfe62840e803e 128-130,132-142
+crates/kat-rs-cli/Cargo.toml
+  s_5a98ce44cbcaef::t_8a5cd43ae01fce 17,19
+crates/kat-rs-cli/src/commands.rs
+  s_5a98ce44cbcaef::t_da7c6cc386d3fc 3,117,144-188
+crates/kat-rs-cli/tests/commands.rs
+  s_5a98ce44cbcaef::t_f24962f948301e 123-175
+  s_5a98ce44cbcaef::t_36338f22e3a832 100-122
+crates/kat-rs-cli/tests/pack_run_contract.rs
+  s_5a98ce44cbcaef::t_f5b4c3e29f6309 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "3e3eb886cfab417ec7c87ff148c57ee85632dbd3",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 432,
+      "total_deletions": 24,
+      "accepted_lines": 429,
+      "overriden_lines": 3
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

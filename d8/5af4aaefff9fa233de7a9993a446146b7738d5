@@ -1,0 +1,41 @@
+dist-workspace.toml
+  s_3eb48b5c46c45a::t_0d397154803d11 22
+build/tests/test_payload_ci_workflows.py
+  s_3eb48b5c46c45a::t_36834b93323ae3 73-85,90-93,104-105
+  s_3eb48b5c46c45a::t_797409dc1ff37b 39,60-72
+.github/workflows/build-payloads-ci.yml
+  s_3eb48b5c46c45a::t_0d397154803d11 1,18-23,31-33,70,85-98,100,102-103,131-136
+docs/release-rehearsal.md
+  s_3eb48b5c46c45a::t_36834b93323ae3 161-164
+build/tests/test_ci_artifact_lifecycle.py
+  s_3eb48b5c46c45a::t_797409dc1ff37b 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "d85af4aaefff9fa233de7a9993a446146b7738d5",
+  "prompts": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 73,
+      "total_deletions": 36,
+      "accepted_lines": 73,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

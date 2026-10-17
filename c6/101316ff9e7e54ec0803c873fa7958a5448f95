@@ -1,0 +1,38 @@
+docs/adr/0008-run-outputs-reach-models-through-bounded-queries.md
+  s_410ace2a9f85aa::t_fc383eb1bff80f 9,13
+kat/platform/workflow/api/_temporal.py
+  s_410ace2a9f85aa::t_fc383eb1bff80f 67-71,77,98,100
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_410ace2a9f85aa::t_fc383eb1bff80f 11
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_410ace2a9f85aa::t_fc383eb1bff80f 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c6101316ff9e7e54ec0803c873fa7958a5448f95",
+  "prompts": {
+    "s_410ace2a9f85aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa36a-bb71-7003-a3b0-c7ea0971dd3e",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 12,
+      "total_deletions": 76,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_410ace2a9f85aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa36a-bb71-7003-a3b0-c7ea0971dd3e",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

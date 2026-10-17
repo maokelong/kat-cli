@@ -1,0 +1,38 @@
+docs/adr/0051-runtime-failure-preserves-private-owner.md
+  s_8d5fc833dd9bca::t_2bd999adfdbb4d 5,7,9,13
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_8d5fc833dd9bca::t_2bd999adfdbb4d 7,11
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8d5fc833dd9bca::t_2bd999adfdbb4d 7,11
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_8d5fc833dd9bca::t_2bd999adfdbb4d 9,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "958598c933c59e4f7363e9f93461fa795548fcde",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 10,
+      "total_deletions": 51,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

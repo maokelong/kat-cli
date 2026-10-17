@@ -1,0 +1,52 @@
+kat/platform/cli/src/lib.rs
+  s_68cb1a3d53c6a1::t_b316de34e4c770 2,8,13-17,36-37,43,45-47,70-73,76-78,81-95,109,119-142,148-149,154-187,217-235,237,251,268,439-441,468-514,518-543
+kat/platform/workflow/tests/test_skill_reference_pack_process.py
+  s_68cb1a3d53c6a1::t_99be464ecd8174 1-128
+build/fixtures/payload-smoke-pack/workflows/summarize_hitrace_clock.py
+  s_68cb1a3d53c6a1::t_69ce1ff9ab0e09 14
+.github/workflows/payload-ci.yml
+  s_68cb1a3d53c6a1::t_69ce1ff9ab0e09 165,229
+.github/workflows/full-ci.yml
+  s_68cb1a3d53c6a1::t_69ce1ff9ab0e09 78
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_trace_streamer_provider.py
+  s_68cb1a3d53c6a1::t_99be464ecd8174 21-30
+kat/packs/kat-openharmony-thread-cpu-time/knowledge/providers/trace-streamer-sqlite.md
+  s_68cb1a3d53c6a1::t_99be464ecd8174 1-8
+kat/packs/kat-openharmony-critical-path/datasources/trace_streamer.py
+  s_68cb1a3d53c6a1::t_99be464ecd8174 9,23-27
+kat/packs/kat-openharmony-critical-path/knowledge/providers/trace-streamer-sqlite.md
+  s_68cb1a3d53c6a1::t_99be464ecd8174 1-8
+kat/packs/kat-openharmony-critical-path/tests/test_trace_streamer_provider.py
+  s_68cb1a3d53c6a1::t_99be464ecd8174 22-31
+kat/packs/kat-openharmony-thread-cpu-time/datasources/trace_streamer.py
+  s_68cb1a3d53c6a1::t_99be464ecd8174 9,23-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "481efd71fa082403cdc6bf8b7ecc457ae61103c3",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 374,
+      "total_deletions": 145,
+      "accepted_lines": 374,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

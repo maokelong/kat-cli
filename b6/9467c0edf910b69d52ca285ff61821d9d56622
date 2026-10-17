@@ -1,0 +1,35 @@
+tools/bench/storage_dataset.py
+  s_5a98ce44cbcaef::t_178c40a2fcd8e6 1-49
+  s_5a98ce44cbcaef::t_8ed7f2e76fba2c 50-308
+python/tests/test_storage_dataset.py
+  s_5a98ce44cbcaef::t_7d957149d007e1 1-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "b69467c0edf910b69d52ca285ff61821d9d56622",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 456,
+      "total_deletions": 2,
+      "accepted_lines": 456,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

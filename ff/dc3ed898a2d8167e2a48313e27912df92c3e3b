@@ -1,0 +1,74 @@
+.agents/skills/role-based-review/SKILL.md
+  s_0e02ec74e2005f::t_7c8ec6844a7727 1-8
+  s_0607c5f60e571b::t_0c51387f711518 9-25
+  s_2ce83a0697b158::t_bb2221e844e50c 26-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ffdc3ed898a2d8167e2a48313e27912df92c3e3b",
+  "prompts": {
+    "s_0607c5f60e571b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadbc-89f7-78a2-8036-106b588e6e89",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 17,
+      "total_deletions": 30,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    },
+    "s_0e02ec74e2005f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa949-6507-7153-a57b-5c93fc7fdbb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 8,
+      "total_deletions": 0,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "s_2ce83a0697b158": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadcb-9a52-7182-baaa-b27ca96a9b36",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 83,
+      "total_deletions": 126,
+      "accepted_lines": 83,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0607c5f60e571b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadbc-89f7-78a2-8036-106b588e6e89",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    },
+    "s_0e02ec74e2005f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa949-6507-7153-a57b-5c93fc7fdbb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    },
+    "s_2ce83a0697b158": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadcb-9a52-7182-baaa-b27ca96a9b36",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

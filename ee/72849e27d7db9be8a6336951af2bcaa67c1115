@@ -1,0 +1,68 @@
+kat/platform/workflow/runtime/request.py
+  s_0606d6478b96b9::t_f674ce91f55d00 7,48-56,72-73,133-150
+kat/platform/cli/tests/query.rs
+  s_0606d6478b96b9::t_dc160a54488492 5-56
+  s_0606d6478b96b9::t_415e3b53f25ca2 57-134
+  s_0606d6478b96b9::t_eabc8cfc52dc90 135-294
+kat/platform/cli/src/query.rs
+  s_0606d6478b96b9::t_895d65a2b27981 2-411
+kat/platform/cli/src/lib.rs
+  s_0606d6478b96b9::t_e038c48891ec39 3,59-68,200
+kat/platform/workflow/tests/test_query_process.py
+  s_0606d6478b96b9::t_6fd3c6075e4ac2 3-123
+  s_0606d6478b96b9::t_895d65a2b27981 141-230
+  s_0606d6478b96b9::t_88ddb29b8b205f 124-140
+kat/platform/cli/src/run.rs
+  s_0606d6478b96b9::t_a97f71d414a7cd 182-186,188-196
+  s_0606d6478b96b9::t_895d65a2b27981 10,63-83
+kat/platform/workflow/runtime/query.py
+  s_0606d6478b96b9::t_19a23b76d77f2b 6-32
+  s_0606d6478b96b9::t_5b22c3e69e03e0 33-119
+  s_0606d6478b96b9::t_45d0c6e3608eb5 3-5
+  s_0606d6478b96b9::t_895d65a2b27981 120-142
+docs/adr/0056-output-query-uses-trusted-local-runtime.md
+  s_0606d6478b96b9::t_5b22c3e69e03e0 35-42
+  s_0606d6478b96b9::t_c5de19f6e91249 1-26
+  s_0606d6478b96b9::t_44d29c9cf3c565 27-34
+kat/platform/workflow/runtime/__main__.py
+  s_0606d6478b96b9::t_7734b0773d0542 18,21,44,80-93
+kat/platform/cli/src/operation_log.rs
+  s_0606d6478b96b9::t_e038c48891ec39 104-107
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_0606d6478b96b9::t_1006f6d78fb667 154-163
+CONTEXT.md
+  s_0606d6478b96b9::t_e038c48891ec39 124
+kat/platform/cli/src/workflow_runtime.rs
+  s_0606d6478b96b9::t_a97f71d414a7cd 119-140,240-277,390-391,405-414,685-743
+  s_0606d6478b96b9::t_64169688e227a1 10,27-28,46-56,81-82,98-104
+  s_0606d6478b96b9::t_895d65a2b27981 105-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "ee72849e27d7db9be8a6336951af2bcaa67c1115",
+  "prompts": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 1388,
+      "total_deletions": 76,
+      "accepted_lines": 1388,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

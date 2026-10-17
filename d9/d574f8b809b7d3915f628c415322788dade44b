@@ -1,0 +1,42 @@
+kat/packs/kat-kernel/workflows/thread_cpu_time.py
+  s_28f12e292b4bdc::t_0dd14b1ba99d16 41-52
+  s_28f12e292b4bdc::t_41e93d4c743e36 20-40
+  s_28f12e292b4bdc::t_f053e2f34a588f 1-19
+kat/packs/kat-kernel/pack.toml
+  s_28f12e292b4bdc::t_f053e2f34a588f 1-4
+kat/packs/kat-kernel/tests/test_thread_cpu_time.py
+  s_28f12e292b4bdc::t_2fa8038d10a8b8 63-85
+  s_28f12e292b4bdc::t_f053e2f34a588f 1-62
+kat/platform/cli/tests/import.rs
+  s_28f12e292b4bdc::t_ff4b7ca1242d84 302-443
+  s_28f12e292b4bdc::t_a602be4e43eda5 76,81-98,113-130,301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "d9d574f8b809b7d3915f628c415322788dade44b",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 321,
+      "total_deletions": 19,
+      "accepted_lines": 321,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

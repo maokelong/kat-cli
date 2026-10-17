@@ -1,0 +1,121 @@
+kat/skills/kat/references/command-reference.md
+  s_9807c18c839059::t_115e5be6e36e30 1-176
+README.md
+  s_9807c18c839059::t_932c5c3b602f92 3-4,11,14-17,19-27,44,54,73,99,123
+  s_9807c18c839059::t_68408286b14634 13
+  s_9807c18c839059::t_26cf1bf5a27363 18
+  s_9807c18c839059::t_509224c810c667 12
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_9807c18c839059::t_aa52433ddb4c77 7
+  s_9807c18c839059::t_7f27979b31ef5d 8
+kat/skills/kat-author/references/pack-authoring-flow.md
+  s_9807c18c839059::t_63d0bb9fa82b60 1-335
+CONTEXT.md
+  s_9807c18c839059::t_7f27979b31ef5d 10
+  s_9807c18c839059::t_932c5c3b602f92 11-12,14,17,34,41
+build/tests/test_payload_ci_workflows.py
+  s_9807c18c839059::t_a8833f460fe2aa 44-46,51-59
+  s_9807c18c839059::t_eb20620872efe6 41-43,47-50
+  s_9807c18c839059::t_975b59e4dcd742 60
+docs/adr/0013-one-public-kat-skill-hides-operational-verbs.md
+  s_9807c18c839059::t_aa52433ddb4c77 7
+kat/skills/kat/SKILL.md
+  s_9807c18c839059::t_115e5be6e36e30 1-24
+build/tests/test_scaffold_pack.py
+  s_9807c18c839059::t_71a4e1e3de784b 9
+kat/platform/workflow/tests/test_skill_reference_pack_process.py
+  s_9807c18c839059::t_71a4e1e3de784b 20-21
+.github/workflows/payload-ci.yml
+  s_9807c18c839059::t_3f5ce37021b5fb 2,23,63,67,71-72,98-102,120-122,149,167-168,172-173,246-254,258
+  s_9807c18c839059::t_ea3fe714624a07 259
+build/tests/test_skill_collection.py
+  s_9807c18c839059::t_eb20620872efe6 50-54,56-63,71-78,111-113,126-129,138-144
+  s_9807c18c839059::t_a8833f460fe2aa 1-49,55,64-70,79-110,114-125,130-137,145-155
+build/assemble_skill.py
+  s_9807c18c839059::t_717d25c95accd9 1,11-13,48-65,67,73,81,84,100-101,106,112-114,126-128,131,136,150,152,163
+build/verify_skill_collection.py
+  s_9807c18c839059::t_a8833f460fe2aa 26-27
+  s_9807c18c839059::t_38b2ddcd3fa2a7 1-20,23-25,34-41,45-60,65-66,71-92,96-97,102-106
+  s_9807c18c839059::t_eb20620872efe6 21-22,28-33,42-44,61-64,67-70,93-95,98-101
+kat/skills/kat-author/SKILL.md
+  s_9807c18c839059::t_115e5be6e36e30 1-23
+docs/specs/analysis-audit.md
+  s_9807c18c839059::t_8c23ccb9d7deae 1,3,11-12,19,74-75
+  s_9807c18c839059::t_dda1f6dd68350f 9,18,24-26,28-40,42-45
+  s_9807c18c839059::t_aa52433ddb4c77 13-16,20,51-52
+  s_9807c18c839059::t_b74c8251c2d8cf 5,22,46-50,73
+  s_9807c18c839059::t_ff6bdf975dbf56 4,10,17,21,23,76
+kat/skills/kat-analyze/references/result-contract.md
+  s_9807c18c839059::t_63d0bb9fa82b60 1-22
+kat/skills/kat-analyze/SKILL.md
+  s_9807c18c839059::t_115e5be6e36e30 1-21
+build/tests/test_ci_artifact_lifecycle.py
+  s_9807c18c839059::t_71a4e1e3de784b 254
+kat/skills/kat-author/references/result-contract.md
+  s_9807c18c839059::t_63d0bb9fa82b60 1-18
+docs/adr/0082-kat-review-rechecks-existing-evidence.md
+  s_9807c18c839059::t_aa52433ddb4c77 11,13-15
+  s_9807c18c839059::t_24d3ce472f7e81 16-17
+  s_9807c18c839059::t_7f27979b31ef5d 5
+docs/adr/0011-skill-directly-selects-the-platform-payload.md
+  s_9807c18c839059::t_aa52433ddb4c77 7
+  s_9807c18c839059::t_a37db1c7aa5285 8
+kat/skills/kat-review/SKILL.md
+  s_9807c18c839059::t_115e5be6e36e30 1-64
+build/tests/test_assemble_skill.py
+  s_9807c18c839059::t_5ad88bef6c14c7 18-28,31-36,41-44,52,56,62,64,71,81,83,88-94,97-103,105,108,112,115-139,141-176,178-203,217,219-223,225,230,233,235-238,241-245,248,253,259,261,266,272,274,277,285,288-289,291,297,299-312
+kat/skills/kat-analyze/agents/openai.yaml
+  s_9807c18c839059::t_829ea4c5b49137 1-4
+kat/skills/kat-author/agents/openai.yaml
+  s_9807c18c839059::t_571962683b30d8 1-4
+kat/skills/kat-author/references/examples/dataprovider-pack/README.md
+  s_9807c18c839059::t_66c37d2e314268 129,132,134,160,162,170,180
+kat/skills/kat-review/agents/openai.yaml
+  s_9807c18c839059::t_77c00f62ef333b 1-4
+kat/skills/kat/agents/openai.yaml
+  s_9807c18c839059::t_19f02e51919e9f 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "b16fe0e62e5862f12f1ffd88185ca92fe98ad5b6",
+  "prompts": {},
+  "sessions": {
+    "s_9807c18c839059": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a2f6-2a1e-7af3-9b20-2404a491f951",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1176,
+      "total_deletions": 92,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_115e5be6e36e30": "gpt-6-astra",
+        "t_24d3ce472f7e81": "gpt-6-astra",
+        "t_26cf1bf5a27363": "gpt-6-astra",
+        "t_38b2ddcd3fa2a7": "gpt-6-astra",
+        "t_3f5ce37021b5fb": "gpt-6-astra",
+        "t_63d0bb9fa82b60": "gpt-6-astra",
+        "t_68408286b14634": "gpt-6-astra",
+        "t_717d25c95accd9": "gpt-6-astra",
+        "t_71a4e1e3de784b": "gpt-6-astra",
+        "t_7f27979b31ef5d": "gpt-6-astra",
+        "t_8c23ccb9d7deae": "gpt-6-astra",
+        "t_932c5c3b602f92": "gpt-6-astra",
+        "t_a8833f460fe2aa": "gpt-6-astra",
+        "t_aa52433ddb4c77": "gpt-6-astra",
+        "t_b74c8251c2d8cf": "gpt-6-astra",
+        "t_dda1f6dd68350f": "gpt-6-astra",
+        "t_eb20620872efe6": "gpt-6-astra"
+      },
+      "model_totals": {
+        "gpt-6-astra": {
+          "additions": 1176,
+          "deletions": 92
+        }
+      }
+    }
+  }
+}

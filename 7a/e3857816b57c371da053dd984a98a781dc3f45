@@ -1,0 +1,47 @@
+kat/platform/datasource/tests/hitrace_import_contract.rs
+  s_ce99857c39d134::t_a2f282415c70e1 6,185,226-243,248-249,255,258,264,269,288-289,296,305,329-332,334-336,338-339,341-348,350-356,542-548,682,700
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_ce99857c39d134::t_fe429db5e10fac 1005-1012
+  s_ce99857c39d134::t_c78ef6b524722b 1013-1076
+  s_ce99857c39d134::t_b6de0dbc5390a7 3,13-14,18-50,88-364,366,368,431-432,465,486,731,733-735,740-757,760,807-810,869,893,896,899-905,908,910-925,928,932,942-948,956-999
+  s_ce99857c39d134::t_ab6a25d6755de2 1077-1149
+  s_ce99857c39d134::t_28a60a728c5887 1150-1304
+  s_ce99857c39d134::t_aa214633ea18f1 1305-1343,1346,1349,1352-1357,1361-1387,1396-1465,1472,1525,1557,1573,1577-1578,1598-1599,1625,1643-1644,1663,1693,1770,1816,2981,3086,3126,3129
+kat/platform/datasource/src/materializer.rs
+  s_ce99857c39d134::t_6b702e6e1297d4 2
+  s_ce99857c39d134::t_f0b4a13f109abf 9,22-25,34-35,121-122,125-126,139,154-161,174-182,185-215,217,219-229,231-238,251,260,268,271,312,328,330-333,351-353,357,359,410,420,426-429,446,448,452-457,474,484,490-493,536,538,542-567,569-610,658,664,671-675,683,688-689
+kat/platform/cli/tests/import.rs
+  s_ce99857c39d134::t_fa71ed1b9b0dd2 281-292
+kat/platform/datasource/src/profiler_source_capture.rs
+  s_ce99857c39d134::t_3a400220b5dec0 1-4,6,35,41-45,50-66,82-86,108,115,122,128
+  s_ce99857c39d134::t_7bd77e3b6b557b 129,134,166-497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7ae3857816b57c371da053dd984a98a781dc3f45",
+  "prompts": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 1531,
+      "total_deletions": 31,
+      "accepted_lines": 1531,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

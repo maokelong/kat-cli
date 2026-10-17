@@ -1,0 +1,53 @@
+kat/platform/cli/tests/import.rs
+  s_28f12e292b4bdc::t_3aaf4545d85b73 7,10-106,218-276
+kat/platform/datasource/src/hitrace.rs
+  s_28f12e292b4bdc::t_cf46790d65bddd 1-2
+  s_28f12e292b4bdc::t_2764640dc1c226 3
+  s_28f12e292b4bdc::t_c03b062b963137 1538-1597
+  s_28f12e292b4bdc::t_07c2c9ffb741d2 90-1537
+  s_28f12e292b4bdc::t_29926a92d0daab 4-89
+kat/platform/datasource/src/lib.rs
+  s_28f12e292b4bdc::t_cf46790d65bddd 12,16
+kat/platform/cli/src/lib.rs
+  s_28f12e292b4bdc::t_fd240a55a89c28 162-240
+  s_28f12e292b4bdc::t_11c88144970082 241-281
+  s_28f12e292b4bdc::t_8e672f02a73bb4 282-388,711-722,739-765
+  s_28f12e292b4bdc::t_30d0b6c683fbae 4-9,56-61,94-98,133-144
+  s_28f12e292b4bdc::t_b82305e72ae8f8 145-161
+kat/platform/cli/src/response.rs
+  s_28f12e292b4bdc::t_30d0b6c683fbae 15-24,54-60,62,69-75,102,293
+  s_28f12e292b4bdc::t_505db728c5071e 294-318
+kat/platform/datasource/Cargo.toml
+  s_28f12e292b4bdc::t_99743f712912ff 12,14
+kat/platform/cli/Cargo.toml
+  s_28f12e292b4bdc::t_3aaf4545d85b73 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a4ce144933f3a59eb49ddfa1c3b119c5093d3f33",
+  "prompts": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2123,
+      "total_deletions": 269,
+      "accepted_lines": 2123,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

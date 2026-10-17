@@ -1,0 +1,33 @@
+kat/platform/cli/src/lib.rs
+  s_8d5fc833dd9bca::t_1d71016bf163b3 662,670,676,680,684-686,691-693,695-697,702-720,737-739
+  s_8d5fc833dd9bca::t_100d5f24c532e8 212-215,518,657
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5ee0acea0a886d405a1bc7088023beb5c70afcb3",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 41,
+      "total_deletions": 6,
+      "accepted_lines": 41,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,38 @@
+kat/skill/references/pack-authoring-flow.md
+  s_d1744aeb41c9d7::t_e3a39ae1d053f7 5,13
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_3e2db7fe8b959d 300-326
+kat/skill/references/analysis-flow.md
+  s_d1744aeb41c9d7::t_e3a39ae1d053f7 7-8,15
+CONTEXT.md
+  s_d1744aeb41c9d7::t_e3a39ae1d053f7 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "2edd6d6540e5c3cbd4072a23a2ca5f6e54009e7c",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 33,
+      "total_deletions": 6,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+kat/platform/workflow/api/dataprovider/knowledge/providers/trace-streamer-sqlite.md
+  s_888ee3b2e67672::t_d450bba2c6d751 7-8,14,16-35,37,39-40,44-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "209ccf7d73bd5bc4e18b3d8fb9a8a538415cc8af",
+  "prompts": {
+    "s_888ee3b2e67672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085ee-822d-7d12-a41e-d1341441f361",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 39,
+      "total_deletions": 0,
+      "accepted_lines": 39,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_888ee3b2e67672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a085ee-822d-7d12-a41e-d1341441f361",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

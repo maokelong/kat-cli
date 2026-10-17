@@ -1,0 +1,32 @@
+kat/platform/datasource/build/ftrace_arrow_codegen.rs
+  s_ce99857c39d134::t_c4703b69dc5498 169,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e9fe221f8afb58579b5705d5e07994aaf62afe51",
+  "prompts": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

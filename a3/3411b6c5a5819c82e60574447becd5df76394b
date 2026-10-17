@@ -1,0 +1,34 @@
+kat/platform/cli/tests/inspect.rs
+  s_8d5fc833dd9bca::t_babf81bda60f8c 298-324,330
+kat/platform/cli/src/lib.rs
+  s_8d5fc833dd9bca::t_e4f683b4128e9c 212,727-740,748-763
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a33411b6c5a5819c82e60574447becd5df76394b",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 77,
+      "total_deletions": 20,
+      "accepted_lines": 59,
+      "overriden_lines": 18
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

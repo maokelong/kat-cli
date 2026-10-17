@@ -1,0 +1,60 @@
+kat/platform/cli/src/lib.rs
+  s_7fdb7d2aa9b65a::t_2499152a538ada 35-36,162-171,173,226-228,361-363,525,548,561-562,748-750,796-798
+  s_7fdb7d2aa9b65a::t_0a0fcbee3d05c8 1
+kat/platform/cli/src/run.rs
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 125-127
+kat/platform/cli/tests/support/mod.rs
+  s_7fdb7d2aa9b65a::t_6c6dc2511891ac 19,47
+kat/platform/cli/tests/query.rs
+  s_7fdb7d2aa9b65a::t_a024154f69ff57 27
+  s_7fdb7d2aa9b65a::t_f3baf108763c04 30-39
+  s_7fdb7d2aa9b65a::t_9e65a6fdf15bbc 122
+CONTEXT.md
+  s_7fdb7d2aa9b65a::t_4b5e5d25fe0f9b 68-71
+  s_7fdb7d2aa9b65a::t_f45751dc92d861 72-74
+  s_7fdb7d2aa9b65a::t_a985fd880e6c5b 67
+kat/platform/cli/tests/config.rs
+  s_7fdb7d2aa9b65a::t_b8e215bb955cdc 1-2
+  s_7fdb7d2aa9b65a::t_6a9a78be16ae0c 3-19
+  s_7fdb7d2aa9b65a::t_e637654584178a 144-174
+  s_7fdb7d2aa9b65a::t_89c6bded92a6c5 20-143
+kat/platform/cli/src/query.rs
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 87-89
+kat/platform/cli/src/test.rs
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 35-37
+docs/adr/0059-skill-local-configuration-selects-data-home.md
+  s_7fdb7d2aa9b65a::t_bc5ee211b3620d 1-6
+  s_7fdb7d2aa9b65a::t_2499152a538ada 7-19
+kat/platform/cli/src/configuration.rs
+  s_7fdb7d2aa9b65a::t_e637654584178a 91-230
+  s_7fdb7d2aa9b65a::t_858b572851bd30 1-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "270c169560c52413254dadbf9d419bad28ef93f7",
+  "prompts": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 484,
+      "total_deletions": 174,
+      "accepted_lines": 484,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

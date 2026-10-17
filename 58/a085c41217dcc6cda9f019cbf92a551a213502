@@ -1,0 +1,37 @@
+kat/platform/datasource/src/materializer.rs
+  s_9147e6a44a1c22::t_cd89da5a219c0e 166-167
+  s_1366363dce4eaf::t_cd1664dc40d047 22-25
+  s_1366363dce4eaf::t_ad1339e599e04e 219-222,225-226,228-229,231,236-237,239
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_1366363dce4eaf::t_913f698a01c6b1 26
+  s_1366363dce4eaf::t_3c4c76dd6413bb 32-33,38-46,62-63,91,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "58a085c41217dcc6cda9f019cbf92a551a213502",
+  "prompts": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 32,
+      "total_deletions": 1238,
+      "accepted_lines": 32,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_1366363dce4eaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012b0-7fc5-70b0-a0c6-5acf03cb93ac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

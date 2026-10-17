@@ -1,0 +1,440 @@
+kat/platform/workflow/runtime/request.py
+  s_0606d6478b96b9::t_f674ce91f55d00 7-174
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_9147e6a44a1c22::t_b34a94b66d54c9 7
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d5fc833dd9bca::t_dbe15b57856ed1 1005-1006,1043,1046
+  s_8d5fc833dd9bca::t_d6cb87a044408a 1007,1016,1018,1020-1032
+  s_28f12e292b4bdc::t_7a483e5986ae90 673,677,709-713,716-720,723-734,738-739,875,884,901,903,1286-1289,1291,1293-1294,1296-1297,1299
+  s_28f12e292b4bdc::t_d7c5db257ac9ee 304-311,320,324-325,328-331
+  s_8d5fc833dd9bca::t_bfc8d773a887ce 1009-1011
+  s_0606d6478b96b9::t_a97f71d414a7cd 141-147,154,277,466,861-866,874,883
+  s_28f12e292b4bdc::t_21009abd8da635 212,224-240,247,381-403,405-407,419-421,424-426,431-432
+  s_0606d6478b96b9::t_895d65a2b27981 131-134,136-138
+  s_4c9b23b9708f9e::t_67d286313f7b13 572-598,601-605,608,611,622-628,630-632,645-647,649-654,661,665-667,676,679,681,686-687,968-971
+  s_8d5fc833dd9bca::t_eb99aeef21a7ec 952-956,961,991-993,1001-1004
+  s_8d5fc833dd9bca::t_c3748dbf4e1d80 1295
+  s_8d5fc833dd9bca::t_a44fc25d32729a 21-22
+  s_28f12e292b4bdc::t_d1e9dda9396b7b 336-341,344-345,348,470-477,536-542,548,550,554-555,564,657-660,670-672,708,893
+  s_28f12e292b4bdc::t_58bd2682b99173 17-19,25-26,167,170-171,181,183-185,187,195,199,201-203,481-482,485-494,497-501,512,543,547,558,560,571,612,615-619,621,635,641,643-644,648,655,664,678,680,685,688-692,695
+  s_28f12e292b4bdc::t_d30ab7ea8d4598 6,50,54,101-102,114-119,121-123,127-130,135,150-153,262,270,273,276,278,286,294,354-355,358-364,366-375,448,461-465,467,526-535,656,662-663,668
+  s_8d5fc833dd9bca::t_a3c66f4d2aba8f 20,544,549,551,557
+  s_28f12e292b4bdc::t_3470626f0f1729 705,742,745-746,749-750,756,777,782,802-811,929,957-960,966-967,981,986-987,990,995-997,999-1000,1008,1012-1013,1017,1019,1038-1042,1044-1045,1047-1049,1051-1090,1093-1094,1099-1102,1104-1111,1113,1115-1128,1130,1132-1141,1145-1160,1251-1252,1254,1263,1298
+  s_28f12e292b4bdc::t_9a7d0d11e62ed6 433,437-439,443-447,449-454,509,620,818,826-827,834,867-868,918,920,923-924,1103,1164,1174,1178-1192,1200-1203,1207-1242,1268,1275-1276,1278-1279,1281-1282
+  s_8d5fc833dd9bca::t_f522047ac0dc90 172
+  s_28f12e292b4bdc::t_3e4893c26a9f73 4,59,61-62
+  s_28f12e292b4bdc::t_1ab01997ad9626 2,34,36,76-78,85-86,96,158,160
+  s_0606d6478b96b9::t_64169688e227a1 28,82-83
+  s_8d5fc833dd9bca::t_d136649f238ab8 552-553,556
+  s_28f12e292b4bdc::t_93b4a368759921 703-704
+  s_8d5fc833dd9bca::t_e09c316ba252ca 559
+  s_8d5fc833dd9bca::t_286e3fe7d6aa95 994,998
+kat/platform/cli/src/pack_discovery.rs
+  s_8d5fc833dd9bca::t_7091bee72c119c 54
+kat/platform/cli/src/lib.rs
+  s_bf56487b799f25::t_7e28b796b970ac 692-697,699-703,705-707,709-711,715-718,722,726-727
+  s_8d5fc833dd9bca::t_100d5f24c532e8 546,685
+  s_28f12e292b4bdc::t_a7d5ff76867af4 21-22,60
+  s_bf56487b799f25::t_0faf43a68b5ec6 41
+  s_9147e6a44a1c22::t_526c98d4258af6 401-410,413-415
+  s_1d309a3aaf9927::t_39e52d641ee772 521-527
+  s_9147e6a44a1c22::t_a32fd6a7fc4aa6 378
+  s_0606d6478b96b9::t_e038c48891ec39 3,61-69
+  s_8d5fc833dd9bca::t_1d71016bf163b3 690,698,704,708,712-714,719-721,723-725,733-735,742,744-746
+  s_9147e6a44a1c22::t_73347db35be3d9 380-382,384-386,429,431-437
+  s_bf56487b799f25::t_10ec878823bf07 51
+  s_8d5fc833dd9bca::t_5ee8ef76a75b7d 36
+  s_28f12e292b4bdc::t_0e16b0276eec48 59
+  s_28f12e292b4bdc::t_e3b5dd9e0549eb 289-291,294,296,334-335
+  s_28f12e292b4bdc::t_50a413bc7f1092 71
+  s_28f12e292b4bdc::t_14ca0d1fef66d0 202-204
+  s_28f12e292b4bdc::t_e2a00d6edd1a16 276-278
+  s_8d5fc833dd9bca::t_0e1e32391647e9 220-221
+  s_9147e6a44a1c22::t_e3dc20c554ef00 427,430
+  s_bf56487b799f25::t_4156500f5f94cb 554-555
+  s_9147e6a44a1c22::t_4412d6a6f445c0 374-377
+  s_28f12e292b4bdc::t_dfe3a5e5a21d21 279
+  s_28f12e292b4bdc::t_47ba43de732bb0 138,218-219,222,242,257-259,275,301-333,765-767
+kat/platform/workflow/runtime/outputs.py
+  s_4c9b23b9708f9e::t_da0787ddeeb0ed 23,25
+  s_28f12e292b4bdc::t_19d4e370ae7294 6,10,13,16-22,24,26-27,29-36,38,40-45,47,64,73,77-82,85-88
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_8d5fc833dd9bca::t_27284d5560b666 3-22,24-33,45-48,59-82,84-111
+  s_8d5fc833dd9bca::t_dbe15b57856ed1 49-58,83
+  s_8d5fc833dd9bca::t_d6cb87a044408a 23,34-42
+  s_0606d6478b96b9::t_1006f6d78fb667 154-163
+kat/platform/workflow/runtime/pack.py
+  s_8d5fc833dd9bca::t_dbe15b57856ed1 177-191,194-196,205-206,217,222-225,236,239-243,248,252,255-257,260-269
+  s_28f12e292b4bdc::t_b58707dd6d4660 20-24,28-33,36,85,97
+  s_8d5fc833dd9bca::t_d66e3008e5f56e 35,39,153-154,158
+  s_8d5fc833dd9bca::t_dcbb6c905603d0 4,284,309-325
+  s_8d5fc833dd9bca::t_8162833f55b12d 13,276,278
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 47
+  s_28f12e292b4bdc::t_1d61b64a4c96db 114-152,159-160,162-163,165-175,192,198-204,207-211,214-216,218-221,229-235,237,244-247,249,251,253-254,270,279-280,282,286-302,326-327
+  s_8d5fc833dd9bca::t_a5b798cd9efe67 34
+  s_8d5fc833dd9bca::t_037b4568d9a6da 9-10,38,40,48-49,51-54,56-57,155-157,161,164
+  s_28f12e292b4bdc::t_b7ec4990490558 3,7,25-27,37,41-46,50,55,58-84,86-96,98-113
+  s_8d5fc833dd9bca::t_e303c5437638a9 277
+kat/platform/workflow/tests/_clock_dataset.py
+  s_450935cb905f4d::t_4bc1edd2e07714 1-57
+kat/platform/workflow/runtime/diagnostic.py
+  s_8d5fc833dd9bca::t_037b4568d9a6da 1-105
+kat/platform/workflow/runtime/query.py
+  s_28f12e292b4bdc::t_a64a251ebb0333 3-4,10
+  s_28f12e292b4bdc::t_2774f48c3d43d4 11,13,26,29,32-33,38-39,42-43,45-50,55-57,59,61,65,67-74,108,119-123,126-128
+  s_0606d6478b96b9::t_895d65a2b27981 124-125,129
+  s_0606d6478b96b9::t_5b22c3e69e03e0 44,60,110-111
+  s_0606d6478b96b9::t_19a23b76d77f2b 22-23,27-28
+kat/platform/workflow/tests/test_execution_process.py
+  s_28f12e292b4bdc::t_ebb838d0ea2054 173,250,320,469,513,526,555-557,559-561
+  s_450935cb905f4d::t_4bc1edd2e07714 15,51-53,83-93,161-163,170-172,220-249,251-257,273,276-319,321-433,449,472-512,514-515,528-529,553-554,558,563-564,568-576,578,599-756,758,761-769,771,774,794,796-806,825
+  s_28f12e292b4bdc::t_0b3a3b173c8778 16,54,78,94,111
+  s_28f12e292b4bdc::t_f06478b30177a6 532,535-537,550,562,566-567,577,579-580,583-585,757,759-760,770,773,777-779,784,790-793,795,807,809-811,814-816,819
+kat/platform/workflow/tests/test_authoring_api.py
+  s_8d5fc833dd9bca::t_10f49e7beeaee3 182-188,190-198,200
+  s_8d5fc833dd9bca::t_52d0362a3f0c15 66-73,413
+  s_8d5fc833dd9bca::t_c5e1efa77b1874 189,199
+  s_8d5fc833dd9bca::t_e16bca95c024e9 114-121,418
+  s_8d5fc833dd9bca::t_4eecf6533ead41 146-155,421
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 294-295
+  s_8d5fc833dd9bca::t_72434103cff4d5 282-290,300-303
+  s_28f12e292b4bdc::t_83240761c54d69 393-394,409
+  s_8d5fc833dd9bca::t_50e6df6026ad20 291-293
+  s_8d5fc833dd9bca::t_a0d555d2cd475e 3,278-281
+  s_8d5fc833dd9bca::t_2f433fcd70dc54 396-406,408
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 202-212,407
+  s_8d5fc833dd9bca::t_d6cb87a044408a 169-181
+  s_28f12e292b4bdc::t_74feaaf0fe8aa5 5,122-123,201,213
+  s_8d5fc833dd9bca::t_3e86d3b05963fe 348-351,387,423
+  s_8d5fc833dd9bca::t_bf1bbcc9faf0d0 156-168,385-386,388-392,422
+  s_8d5fc833dd9bca::t_66faedd602c4ef 105-113,417
+kat/platform/cli/src/operation_log.rs
+  s_28f12e292b4bdc::t_0f0325f8035711 42
+  s_28f12e292b4bdc::t_97ea666c5f268b 129,135,137,141,147,153,159,183-217,221,228-231,241
+  s_28f12e292b4bdc::t_d2e9621a1be018 34
+  s_8d5fc833dd9bca::t_2ecea8bd8a5bb6 84-87
+  s_28f12e292b4bdc::t_f80be44c7bdb14 21-26,44,47,55,63-67,72
+kat/platform/cli/tests/test.rs
+  s_4c9b23b9708f9e::t_da51cbd7a25bf5 550-585,595-596,605,607-637
+  s_4c9b23b9708f9e::t_8cd2048db93216 14,115-119
+  s_28f12e292b4bdc::t_14ca0d1fef66d0 297,320,351,356,395,437,439,642-644,648-653,663
+  s_4c9b23b9708f9e::t_8e0e4362a50c65 529-542,544,586-591,597-598,601-604,606,638-641
+  s_4c9b23b9708f9e::t_4d16a1199a30be 154-162,164,167,169-171
+  s_28f12e292b4bdc::t_5e83dcac37bafd 5,8,13,18,32-35,37,40,102
+  s_4c9b23b9708f9e::t_616df04f03b523 15-16,36,38-39,65-78,163,229-284,403,415,600
+  s_28f12e292b4bdc::t_6af313c8575941 120,122,130,136-138,143,146,166,168,172-176,285-286
+  s_4c9b23b9708f9e::t_00849cf0b90343 396-402,404-414,416-436,441-523
+  s_4c9b23b9708f9e::t_a8bf8a63a20523 599,645
+  s_4c9b23b9708f9e::t_6a335b1d037d77 301-303,336-341
+  s_4c9b23b9708f9e::t_7c758e49aa004d 3,6-7
+  s_4c9b23b9708f9e::t_c11e888239ee40 524-528,543,546-549
+kat/platform/cli/tests/run.rs
+  s_28f12e292b4bdc::t_a6bbf5e149b2ad 29-35,73
+  s_28f12e292b4bdc::t_ce2bcc6f5e59e3 742,770-773,776,791,804-811
+  s_28f12e292b4bdc::t_bb7401d098e97a 4-7,12-13,15,18,23
+  s_28f12e292b4bdc::t_1f7b33fe3a5e18 79-86,89-101,121,124-126,129-170,174-186,213-232,235,254,289,291-292,311-417,419-424,426-428,432-555,558,594-685,688,704
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d5fc833dd9bca::t_a5b798cd9efe67 12,15,649-682
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 238-275,279
+  s_8d5fc833dd9bca::t_d4937a508412c2 165-166,179-184,194-200,209,212-214
+  s_8d5fc833dd9bca::t_c12bc4e474a213 393-395,397-398,404-406
+  s_28f12e292b4bdc::t_1d61b64a4c96db 505,733
+  s_8d5fc833dd9bca::t_c1eb034f303414 613-648
+  s_28f12e292b4bdc::t_4fc86818391775 17,34-37,62-64,66,68
+  s_8d5fc833dd9bca::t_c9c6aa566d58d9 7,147-148,150,158-164
+  s_8d5fc833dd9bca::t_dcbb6c905603d0 506-524
+  s_8d5fc833dd9bca::t_67afe08ab34d60 185-193,280
+  s_8d5fc833dd9bca::t_aeb0ed2eab0873 140
+  s_8d5fc833dd9bca::t_d31cba90ee009f 29-33,445-478,683-704
+  s_8d5fc833dd9bca::t_2729e0b34f3f3f 146,149,151-157,167-178
+  s_8d5fc833dd9bca::t_8162833f55b12d 134-139,141-145
+  s_28f12e292b4bdc::t_3b2f16569d5fb1 201,203-207,210-211,276-278,300-302,374,381-383,391,403
+  s_8d5fc833dd9bca::t_bf1bbcc9faf0d0 281-299,593-612
+  s_8d5fc833dd9bca::t_e071806b4bf9d4 544-592
+  s_8d5fc833dd9bca::t_dda316af9a8a2e 23-24,45,61,65
+  s_8d5fc833dd9bca::t_118aa9eba3ce5e 215-233,235-237
+README.md
+  s_450935cb905f4d::t_ff738b63891b78 22-23,25,27-30,32-35,37,39,41-45,47-48,51-59,62-63,65,67-70,72,74-77,79,81-83,85,87,90-93,96,99,102,104-106
+kat/platform/datasource/tests/dataset_inspection.rs
+  s_9147e6a44a1c22::t_ee5a2dc09fa248 1-168
+CONTEXT.md
+  s_cd891b719da4b9::t_04d7b54f698780 22,24-25,27-29,31-32,34-35,38-40,42,44-45,47-48,50-51,53-54,56-57,59-60,62-63,65,67-68,70-71,73-74,76-77,79-80,82-83,85,87-89,91-93,95-96,99-100,102-103,105-106,108-109,111,113-114,116-117,119-120,123,126-127,129-130
+  s_cd891b719da4b9::t_41bb670ff41f1b 3,5,7-8,10-11,13
+  s_cd891b719da4b9::t_24713947a4196e 14,16-17,19,21
+  s_0606d6478b96b9::t_e038c48891ec39 124
+kat/platform/cli/src/text_projection.rs
+  s_8d5fc833dd9bca::t_e09c316ba252ca 112-117
+kat/platform/workflow/tests/test_clock.py
+  s_450935cb905f4d::t_4bc1edd2e07714 1-130
+crates/kat-rs-daemon/Cargo.toml
+  s_9147e6a44a1c22::t_2f18e604828535 10
+kat/platform/workflow/tests/test_query_process.py
+  s_28f12e292b4bdc::t_b7223097b3470b 21,27-28,38,41,77,86-87,96,98-101,105-109,111,140-141
+  s_28f12e292b4bdc::t_cf9c8cdae28ac0 160,162-168,172-176,178-183,190
+  s_0606d6478b96b9::t_84685ee3dda59a 205-210,215-216,223-228
+  s_28f12e292b4bdc::t_c160b1ffdcd3ad 148-150,155-159
+  s_0606d6478b96b9::t_895d65a2b27981 161,177,186-187,202,204
+  s_0606d6478b96b9::t_88ddb29b8b205f 124,138
+  s_28f12e292b4bdc::t_2774f48c3d43d4 198-199,212-213,217,219-220
+  s_0606d6478b96b9::t_6fd3c6075e4ac2 3,44-46,83,90-95,97,110
+kat/platform/cli/src/query.rs
+  s_0606d6478b96b9::t_895d65a2b27981 2-411
+kat/platform/cli/src/workflow_runtime/output_spool.rs
+  s_4c9b23b9708f9e::t_7b29f5f483f2d1 23-32,57-59,73-128,143,147,156-162,168,171,176-184,211,233-234,242
+  s_8d5fc833dd9bca::t_fc5bbc0a51cc44 2-17,33-56,60-61
+  s_8d5fc833dd9bca::t_3ee58825305464 62-70,129-141,144-146,148-154,187-210,212-221,276-296
+  s_8d5fc833dd9bca::t_eb423f7949dbc8 163-167,169-170,172-175,222-232,235-241,268-275
+  s_4c9b23b9708f9e::t_7c758e49aa004d 243-254
+Cargo.toml
+  s_28f12e292b4bdc::t_6cde9ceccf8425 49
+kat/platform/cli/tests/inspect.rs
+  s_8d5fc833dd9bca::t_22b3789e86d5f5 214-253
+  s_8d5fc833dd9bca::t_4cbfdb62d3b54f 49
+  s_bf56487b799f25::t_8458fa83145121 699-727,731,749,773,784,789,808
+  s_bf56487b799f25::t_4156500f5f94cb 14,68,71-72
+  s_bf56487b799f25::t_49d166fcfda321 446
+  s_bf56487b799f25::t_133f25cfa8357d 553-556,582-651,672-675
+  s_8d5fc833dd9bca::t_65efcd6b37a4d3 421
+  s_8d5fc833dd9bca::t_9cda77ae0b74bb 445
+  s_bf56487b799f25::t_d239957cb188f1 84-93,444,447-448,472,478-485,487,500,505-509,518,529,534,545-549,559,577,654,667,678
+  s_8d5fc833dd9bca::t_0e1e32391647e9 398-420,422
+  s_bf56487b799f25::t_3b3ea2cd3bfab0 67,73-77,495,565,657,689
+  s_8d5fc833dd9bca::t_1609b8940c68ec 162-213
+  s_28f12e292b4bdc::t_a4c1cc30f3ab8b 20,116,123
+  s_28f12e292b4bdc::t_121654d1f886d1 153,254-255,259,311,314,338,347,382,423-424
+  s_bf56487b799f25::t_b9fd0711506c80 466-469
+  s_bf56487b799f25::t_f1343579e12263 80,82-83
+  s_8d5fc833dd9bca::t_babf81bda60f8c 362-381,383-389,394
+kat/platform/workflow/runtime/testing.py
+  s_28f12e292b4bdc::t_58b272b1bcab6a 18-21,27,47-48,71,85,89-96,100-104,106-108,110-113,118-119,124-125
+  s_28f12e292b4bdc::t_6a3656305d2d0e 152-158,160,162,173,176,180,182-183,221,223
+kat/platform/workflow/tests/test_testing_process.py
+  s_4c9b23b9708f9e::t_6214a2084bce84 212,227-228,263-282
+  s_4c9b23b9708f9e::t_1ccb4d8ae6c54e 15-16,116-139
+  s_28f12e292b4bdc::t_5677529059cc8c 140,166-168
+  s_28f12e292b4bdc::t_cb9bb9a902b741 17
+  s_28f12e292b4bdc::t_921220a7fbde53 401-403,411
+  s_28f12e292b4bdc::t_14ca0d1fef66d0 415,498-500,529,553,560
+  s_4c9b23b9708f9e::t_3e28e87aa26292 283-342,381,416-433,435-497,501-502,505-528,530-549
+  s_28f12e292b4bdc::t_6a3656305d2d0e 200,211,226,255,343,360,380,384-386
+kat/platform/cli/tests/import.rs
+  s_9147e6a44a1c22::t_279397b44465d9 361-372,375,378,381,386,391,393,396,398
+  s_28f12e292b4bdc::t_a602be4e43eda5 80,85-96,103,106,110-113
+  s_28f12e292b4bdc::t_3aaf4545d85b73 108-109
+  s_28f12e292b4bdc::t_ff4b7ca1242d84 283-308,310,312,317,319,322,324,326-327,329-343,345-350,353-354,356,373-374,376,382-385,387,389,395,400-405,407-408,410-413,415-417,419,423-429
+  s_9147e6a44a1c22::t_e3dc20c554ef00 406,409,418,422
+  s_1d309a3aaf9927::t_e97853b335c699 124-136,142-145,433-436
+kat/platform/workflow/runtime/__main__.py
+  s_28f12e292b4bdc::t_f5cdfebee42b56 67,69,112-118
+  s_0606d6478b96b9::t_7734b0773d0542 18-21,46
+  s_8d5fc833dd9bca::t_3acc6c52215ae0 29-42
+  s_28f12e292b4bdc::t_2774f48c3d43d4 60-61,66,79-80,94-99,101,103-110
+  s_8d5fc833dd9bca::t_037b4568d9a6da 10
+  s_28f12e292b4bdc::t_b7ec4990490558 119,121-135,137,140-146,149,151-157
+  s_28f12e292b4bdc::t_48ccc8282195fe 8-9
+  s_8d5fc833dd9bca::t_bf1bbcc9faf0d0 136
+  s_8d5fc833dd9bca::t_d9540593ad6c56 4
+  s_28f12e292b4bdc::t_2424b9cb0edf86 81-82
+  s_28f12e292b4bdc::t_d7f900a4859b96 62-65,70-73,83-87,89-93
+kat/platform/datasource/src/trace_streamer.rs
+  s_1d309a3aaf9927::t_39e52d641ee772 31-34
+  s_1d309a3aaf9927::t_05122b74c97095 35-37,60,182,332,356-363,368-386,535-551
+kat/platform/workflow/api/_workflow.py
+  s_8d5fc833dd9bca::t_d6cb87a044408a 116-121,132-134,138-142
+  s_8d5fc833dd9bca::t_c5e1efa77b1874 126
+  s_8d5fc833dd9bca::t_82d84d70e62f42 127-130
+  s_28f12e292b4bdc::t_83240761c54d69 9-12,16-17,19-22,24-80,199
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 135-137,143
+  s_8d5fc833dd9bca::t_a0d555d2cd475e 114-115,122-125,131,154
+kat/platform/cli/src/run.rs
+  s_0606d6478b96b9::t_a97f71d414a7cd 182-196
+  s_0606d6478b96b9::t_895d65a2b27981 10-83
+kat/platform/workflow/runtime/execution.py
+  s_28f12e292b4bdc::t_876e41490b8895 104-105,109-110,114-115,119,121-122
+  s_28f12e292b4bdc::t_7b5438a006ae1e 169
+  s_28f12e292b4bdc::t_6e54916af3a9b8 13,17-21,24-36,56,60
+  s_28f12e292b4bdc::t_e3b5dd9e0549eb 73,89-103,123-124,127,129-131,134-136,138-141,143-148,151,154-161,164-165,168
+kat/platform/datasource/tests/trace_streamer_import.rs
+  s_1d309a3aaf9927::t_037fe8fdd0c92a 12-24
+  s_1d309a3aaf9927::t_afe6d70c28fd45 4-6,49-50,129-130,134-138,177,197-203,221,223,234-240,244,248,252,256,261,269-273,275-310,347-351
+  s_1d309a3aaf9927::t_497bf459122d51 143-175
+kat/platform/datasource/src/dataset_writer.rs
+  s_9147e6a44a1c22::t_a32fd6a7fc4aa6 28,37,48,51-56,200,238-261,350-356
+  s_1d309a3aaf9927::t_8802b4f03ff8a1 23,27,32-33,36,40-47,49-50,57-62,216
+  s_1d309a3aaf9927::t_2b94ce9b24d66a 220,274-304
+kat/platform/cli/tests/query.rs
+  s_0606d6478b96b9::t_eabc8cfc52dc90 139-146,184-191,234-235,251-252,291
+  s_28f12e292b4bdc::t_391eeb000a3577 45,57
+  s_28f12e292b4bdc::t_060ab22bc24272 128,135,176-179,195,243-244,265-267,273,276-278,280,285-287
+crates/kat-rs-cli/Cargo.toml
+  s_9147e6a44a1c22::t_2f18e604828535 16
+kat/platform/datasource/Cargo.toml
+  s_9147e6a44a1c22::t_2f18e604828535 8,10,12-13,15-17,21-24,27-33,36-38
+kat/platform/workflow/runtime/inspection.py
+  s_28f12e292b4bdc::t_a10f19f49c078a 9
+  s_8d5fc833dd9bca::t_5832187be0ce79 19,21-32,34-39
+  s_28f12e292b4bdc::t_83240761c54d69 20,81,100-102,107-108,110-111,131-135,162,184-187,190-191,194,219,221-223,226-227,233,293,310,321
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 33
+  s_8d5fc833dd9bca::t_4eecf6533ead41 225
+  s_8d5fc833dd9bca::t_c1eb034f303414 136
+  s_8d5fc833dd9bca::t_66faedd602c4ef 188-189,192,195
+  s_8d5fc833dd9bca::t_fd4868674f2ae7 130,137,215-218,224
+  s_8d5fc833dd9bca::t_52d0362a3f0c15 109
+kat/platform/datasource/src/lib.rs
+  s_1d309a3aaf9927::t_39e52d641ee772 4,45-47
+  s_28f12e292b4bdc::t_9ca7a9811ad44b 48
+  s_bf56487b799f25::t_1aa7b9a870a1c1 2,24
+  s_9147e6a44a1c22::t_2f18e604828535 1,5-22,35-38,40-44,49-62
+.github/workflows/ci.yml
+  s_8d5fc833dd9bca::t_e303c5437638a9 46-47
+  s_8d5fc833dd9bca::t_dda316af9a8a2e 39-43,49,52,56-57
+  s_8d5fc833dd9bca::t_4cbfdb62d3b54f 44-45,48,53-55
+kat/platform/workflow/api/_temporal.py
+  s_8d5fc833dd9bca::t_06cbcacfb04f06 41-44
+  s_28f12e292b4bdc::t_a10f19f49c078a 29,39-40,65
+  s_8d5fc833dd9bca::t_d6cb87a044408a 57-58
+kat/platform/cli/src/response.rs
+  s_8d5fc833dd9bca::t_34a1a7c9c6c202 1-8
+  s_28f12e292b4bdc::t_b8d7d0120d3904 40,44,74-75,86-96,99,109,118,184-189,267-268,272,274,276-277,280-281,283-284,287-288,291-295,298-301,305-306,310,317,322,330,332,654-655,659
+  s_28f12e292b4bdc::t_dfe3a5e5a21d21 163
+  s_28f12e292b4bdc::t_0f0325f8035711 147,194,206,214-223,227,235-255,264
+  s_8d5fc833dd9bca::t_23253a26661a4f 9-10,63-73,258-263,265-266,269-271,273,275,278-279,282,285-286,289,309,311-316,318-321,323-329,331,333-389,656-658,674-690
+  s_8d5fc833dd9bca::t_83d2f301d7c286 290,296-297,302-304,307-308,692-717
+.github/workflows/full-ci.yml
+  s_8d5fc833dd9bca::t_4cbfdb62d3b54f 44-45,48,61-63
+  s_8d5fc833dd9bca::t_ef084b5eadaffc 51
+  s_8d5fc833dd9bca::t_0a90c2d8c3e2b4 54,56,58
+  s_8d5fc833dd9bca::t_e8d9992f0d6361 55,59-60
+  s_8d5fc833dd9bca::t_dda316af9a8a2e 39-43,49,53,64-65
+  s_8d5fc833dd9bca::t_22b3789e86d5f5 46-47
+  s_8d5fc833dd9bca::t_8d83edc7d6a162 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "a0f4198aeeeb2ad430729c03973535ab8c66be9e",
+  "prompts": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 788,
+      "total_deletions": 0,
+      "accepted_lines": 788,
+      "overriden_lines": 0
+    },
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 266,
+      "total_deletions": 0,
+      "accepted_lines": 266,
+      "overriden_lines": 0
+    },
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 2196,
+      "total_deletions": 0,
+      "accepted_lines": 2196,
+      "overriden_lines": 0
+    },
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 757,
+      "total_deletions": 0,
+      "accepted_lines": 757,
+      "overriden_lines": 0
+    },
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1537,
+      "total_deletions": 0,
+      "accepted_lines": 1537,
+      "overriden_lines": 0
+    },
+    "s_bf56487b799f25": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e60-d41a-7940-ab4d-d8600551d7c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 207,
+      "total_deletions": 0,
+      "accepted_lines": 207,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_bf56487b799f25": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e60-d41a-7940-ab4d-d8600551d7c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

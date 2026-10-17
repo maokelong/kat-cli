@@ -1,0 +1,56 @@
+build/fixtures/verify_public_ftrace.py
+  s_0dbbaca6405a56::t_42da6794e2f06b 1-63
+kat/platform/workflow/api/dataprovider/ftrace.py
+  s_0dbbaca6405a56::t_353703791aaeeb 8,10-13,26-30,37-38,71-72,80-81
+kat/platform/workflow/pyproject.toml
+  s_0dbbaca6405a56::t_7bd64238a6be40 19,22-24
+kat/platform/cli/tests/inspect.rs
+  s_0dbbaca6405a56::t_3c34093db5ecff 658-659,661-692
+.github/workflows/payload-ci.yml
+  s_0dbbaca6405a56::t_6fb4ee2de4883b 162-163,271-272
+kat/platform/workflow/api/dataprovider/knowledge/providers/ftrace.md
+  s_0dbbaca6405a56::t_42da6794e2f06b 1-284
+kat/platform/workflow/runtime/request.py
+  s_0dbbaca6405a56::t_353703791aaeeb 30-31,141-148,151
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_0dbbaca6405a56::t_c22381cb4213c2 428-429
+kat/platform/workflow/runtime/knowledge.py
+  s_0dbbaca6405a56::t_353703791aaeeb 6-28
+kat/platform/cli/src/workflow_runtime.rs
+  s_0dbbaca6405a56::t_c22381cb4213c2 235,238-248,253
+kat/platform/cli/src/lib.rs
+  s_0dbbaca6405a56::t_33373c45ece1d2 187-209,317,322-330,607
+kat/platform/cli/src/inspect.rs
+  s_0dbbaca6405a56::t_c22381cb4213c2 23,69,71-72,114,122-126,156-166,186-203
+kat/platform/workflow/tests/test_runtime_process.py
+  s_0dbbaca6405a56::t_7bd64238a6be40 550-575,622-719
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "14c571a41e23e2ec92923e8a96b44e1aa12f1dda",
+  "prompts": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 790,
+      "total_deletions": 82,
+      "accepted_lines": 651,
+      "overriden_lines": 139
+    }
+  },
+  "sessions": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

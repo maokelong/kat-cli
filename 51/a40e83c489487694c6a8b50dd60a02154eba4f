@@ -1,0 +1,35 @@
+kat/platform/datasource/tests/protobuf_source_contract/mod.rs
+  s_0c491eb71e481f::t_bae21a6fd7c1ee 1-805
+kat/platform/datasource/src/lib.rs
+  s_0c491eb71e481f::t_59a89f50124d54 20-24
+  s_0c491eb71e481f::t_8f62af918bf5e6 25-27,74-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "51a40e83c489487694c6a8b50dd60a02154eba4f",
+  "prompts": {
+    "s_0c491eb71e481f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffdef-559e-7381-ba27-637d403a94ff",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 827,
+      "total_deletions": 12,
+      "accepted_lines": 827,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0c491eb71e481f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffdef-559e-7381-ba27-637d403a94ff",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

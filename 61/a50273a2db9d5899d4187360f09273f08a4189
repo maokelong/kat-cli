@@ -1,0 +1,32 @@
+.github/workflows/payload-ci.yml
+  s_95f748c9dd6141::t_be372d8fe3ee43 128-129,131-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "61a50273a2db9d5899d4187360f09273f08a4189",
+  "prompts": {
+    "s_95f748c9dd6141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd613-475e-7cf1-a495-cd6c44e41c0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 4,
+      "total_deletions": 2,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_95f748c9dd6141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd613-475e-7cf1-a495-cd6c44e41c0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+kat/platform/datasource/src/materializer.rs
+  s_43e8186dedf3d1::t_d3d485d663156a 461-463
+kat/platform/datasource/src/protobuf_source/native_hook.rs
+  s_43e8186dedf3d1::t_8e4ba52e0a6794 7-12,20-21
+  s_43e8186dedf3d1::t_b122ab15ecdc5c 41,83-98,228-229
+kat/platform/datasource/tests/native_hook_source_capture_contract/ftrace.rs
+  s_dd6ab2d9660877::t_a74f1d35bf2635 5-438
+  s_dd6ab2d9660877::t_2f7fd4427909de 439-596
+  s_dd6ab2d9660877::t_f09e6ceee12797 1-4
+Cargo.toml
+  s_43e8186dedf3d1::t_81cc97102f715d 36
+docs/adr/0061-hitrace-publishes-descriptor-derived-source-tables.md
+  s_dd6ab2d9660877::t_2f7fd4427909de 31,33
+  s_dd6ab2d9660877::t_5942eaf8e7ace3 25
+kat/platform/datasource/src/lib.rs
+  s_43e8186dedf3d1::t_0658fda549108a 71
+kat/platform/datasource/proto/ftrace_data/README.md
+  s_43e8186dedf3d1::t_c6e95fef465aa0 1-36
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_43e8186dedf3d1::t_4f61509c60ee86 23
+kat/platform/datasource/Cargo.toml
+  s_43e8186dedf3d1::t_81cc97102f715d 46
+kat/platform/datasource/tests/hitrace_import_contract.rs
+  s_dd6ab2d9660877::t_25106fccd7781e 2,7,149-271,309,350-367,372-373,379,382,388,393,412-413,420,429,453-456,458-460,462-463,465-472,474-480,484,495-497,598,608-609,637-643,647,662-663,701,729-730,755,773
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "0c8d72cbadbdeb752fe8de5897f367e04dbbe4a7",
+  "prompts": {
+    "s_dd6ab2d9660877": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a031d0-b257-7d20-b41a-645a193fcc72",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 799,
+      "total_deletions": 6,
+      "accepted_lines": 799,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_43e8186dedf3d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01937-766f-7610-9751-fc0e36131da6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_dd6ab2d9660877": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a031d0-b257-7d20-b41a-645a193fcc72",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

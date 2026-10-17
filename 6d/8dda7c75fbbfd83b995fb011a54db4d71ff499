@@ -1,0 +1,111 @@
+kat/platform/cli/src/run.rs
+  s_0606d6478b96b9::t_895d65a2b27981 10-83
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 125-127
+  s_0606d6478b96b9::t_a97f71d414a7cd 181-195
+kat/platform/cli/src/configuration.rs
+  s_7fdb7d2aa9b65a::t_858b572851bd30 1,3-5,7,9-10,12,45,48-49,51-59,74-76,83-84,86-88,90
+  s_7fdb7d2aa9b65a::t_e637654584178a 101-103,142-155,157,160,162-164,166-169,178-198,207,210,212,214-215,217,226,229-230
+kat/platform/cli/src/query.rs
+  s_0606d6478b96b9::t_895d65a2b27981 2-50,55-73,81-86,90-407
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 87-89
+CONTEXT.md
+  s_cd891b719da4b9::t_41bb670ff41f1b 3,5,7-8,10-11,13
+  s_cd891b719da4b9::t_24713947a4196e 14,16-17,19,21
+  s_cd891b719da4b9::t_04d7b54f698780 22,24-25,27-29,31-32,34-35,38-40,42,44-45,47-48,50-51,53-54,56-57,59-60,62-63,65,75-76,78-79,81-82,84-85,87-88,90-91,93,95-97,99-101,103-104,107-108,110-111,113-114,116-117,119,121-122,124-125,127-128,131,134-135,137-138
+  s_0606d6478b96b9::t_e038c48891ec39 132
+kat/platform/cli/src/lib.rs
+  s_7fdb7d2aa9b65a::t_0a0fcbee3d05c8 1
+  s_0606d6478b96b9::t_e038c48891ec39 4,64-72
+  s_28f12e292b4bdc::t_a7d5ff76867af4 22-23,63
+  s_8d5fc833dd9bca::t_5ee8ef76a75b7d 39
+  s_bf56487b799f25::t_0faf43a68b5ec6 44
+  s_bf56487b799f25::t_10ec878823bf07 54
+  s_28f12e292b4bdc::t_0e16b0276eec48 62
+  s_28f12e292b4bdc::t_50a413bc7f1092 74
+  s_28f12e292b4bdc::t_47ba43de732bb0 141,231-232,235,255,270-272,288,314-346,769-771
+  s_28f12e292b4bdc::t_14ca0d1fef66d0 216-218
+  s_7fdb7d2aa9b65a::t_2499152a538ada 226-228,361-363,525,548,561-562,748-750,796-798
+  s_8d5fc833dd9bca::t_0e1e32391647e9 233-234
+  s_28f12e292b4bdc::t_e2a00d6edd1a16 289-291
+  s_28f12e292b4bdc::t_dfe3a5e5a21d21 292
+  s_28f12e292b4bdc::t_e3b5dd9e0549eb 302-304,307,309,347-348
+  s_9147e6a44a1c22::t_4412d6a6f445c0 386-389
+  s_9147e6a44a1c22::t_a32fd6a7fc4aa6 390
+  s_9147e6a44a1c22::t_73347db35be3d9 392-394,396-398,441,443-449
+  s_9147e6a44a1c22::t_526c98d4258af6 413-422,425-427
+  s_9147e6a44a1c22::t_e3dc20c554ef00 439,442
+  s_1d309a3aaf9927::t_39e52d641ee772 529-535
+  s_8d5fc833dd9bca::t_100d5f24c532e8 554,692
+  s_8d5fc833dd9bca::t_1d71016bf163b3 697,705,711,715,719-721,726-728,730-732,740-742,751-753
+  s_bf56487b799f25::t_7e28b796b970ac 699-704,706-710,712-714,716-718,722-725,729,733-734
+kat/platform/cli/tests/query.rs
+  s_28f12e292b4bdc::t_391eeb000a3577 56,68
+  s_7fdb7d2aa9b65a::t_9e65a6fdf15bbc 122
+  s_28f12e292b4bdc::t_060ab22bc24272 130,136,177-180,196,244-245,266-268,274,277-279,281,286-288
+  s_0606d6478b96b9::t_eabc8cfc52dc90 140-147,185-192,235-236,252-253,292
+kat/platform/cli/src/test.rs
+  s_7fdb7d2aa9b65a::t_85afe978b2db8e 35-37
+kat/platform/cli/tests/config.rs
+  s_7fdb7d2aa9b65a::t_b8e215bb955cdc 2
+  s_7fdb7d2aa9b65a::t_6a9a78be16ae0c 3-12
+  s_7fdb7d2aa9b65a::t_f19b4d557ba09d 18,29,42,77-82,107-109
+  s_7fdb7d2aa9b65a::t_89c6bded92a6c5 23,25,27,35,38,41,51,53,56-59,61,75,83-85,94,105,126,128,132-134,137,139-143
+  s_7fdb7d2aa9b65a::t_a7f779dd75d0bb 111-112
+  s_7fdb7d2aa9b65a::t_e637654584178a 147-148,151,153-154,156-157,161-162,174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6d8dda7c75fbbfd83b995fb011a54db4d71ff499",
+  "prompts": {},
+  "sessions": {
+    "s_0606d6478b96b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ee-5c32-7ae0-a300-1b9fefe2be4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_1d309a3aaf9927": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8242-30df-7cc1-b030-afa8cdd01fb4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_28f12e292b4bdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dd3-b167-7980-a3a5-ac2a64476412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_7fdb7d2aa9b65a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa87c-63ea-76d3-b2e0-83d209c8a8d4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    },
+    "s_bf56487b799f25": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e60-d41a-7940-ab4d-d8600551d7c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+docs/release-rehearsal.md
+  s_525df011cac0d3::t_825d5b8bcd6551 20-30
+dist-workspace.toml
+  s_525df011cac0d3::t_825d5b8bcd6551 19
+docs/adr/0002-skill-and-runtime-ship-atomically.md
+  s_525df011cac0d3::t_825d5b8bcd6551 11
+build/tests/test_ci_artifact_lifecycle.py
+  s_525df011cac0d3::t_825d5b8bcd6551 224-226,231-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "fb5e0a2aa6044c6bd14ef0b0a0afab95cbf05179",
+  "prompts": {
+    "s_525df011cac0d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff8d1-4787-7700-a309-4c5769df8b34",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 21,
+      "total_deletions": 6,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_525df011cac0d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff8d1-4787-7700-a309-4c5769df8b34",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

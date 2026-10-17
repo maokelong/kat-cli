@@ -1,0 +1,43 @@
+build/build_linux_payload.py
+  s_0148f2acc44722::t_dcc8be9a859329 72
+build/payload_builder.py
+  s_0148f2acc44722::t_dcc8be9a859329 68-87,94-103
+  s_0148f2acc44722::t_507ca5facba928 225-232,242-245,295,745-746,756,774,782-784,894
+build/build_workflow_wheel.py
+  s_0148f2acc44722::t_18e23d7913ad44 53-61
+build/tests/test_workflow_wheel.py
+  s_0148f2acc44722::t_18e23d7913ad44 49,82,84
+build/build_windows_payload.py
+  s_0148f2acc44722::t_dcc8be9a859329 111
+build/runtime-inputs.json
+  s_0148f2acc44722::t_18e23d7913ad44 27-31,47-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9b263de640a87b99dc5dba1e057bd3399bc6ed7d",
+  "prompts": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 75,
+      "total_deletions": 74,
+      "accepted_lines": 75,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0148f2acc44722": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc713-6902-7801-bba1-8ca1f94e44da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

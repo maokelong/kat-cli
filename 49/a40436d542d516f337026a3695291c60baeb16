@@ -1,0 +1,39 @@
+kat/platform/workflow/runtime/execution.py
+  s_4c9b23b9708f9e::t_92571f7ec76121 18,30-31,99-106,124,129,136,138-142,152,155-156
+docs/adr/0056-output-query-uses-trusted-local-runtime.md
+  s_4c9b23b9708f9e::t_0d8b237365c420 5,12-14
+kat/platform/workflow/tests/test_testing_process.py
+  s_4c9b23b9708f9e::t_3acbd9ef27056d 409,411,508-530
+  s_4c9b23b9708f9e::t_8ea3012ca89225 531-533
+kat/platform/workflow/runtime/testing.py
+  s_4c9b23b9708f9e::t_f482e19fae9541 18,89-94,106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "49a40436d542d516f337026a3695291c60baeb16",
+  "prompts": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 62,
+      "total_deletions": 55,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_4c9b23b9708f9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa352-1524-7d53-9efe-81e5aa47cd9c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

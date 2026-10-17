@@ -1,0 +1,37 @@
+crates/kat-rs-datasource/tests/sqlite_dataset_contract.rs
+  s_5a98ce44cbcaef::t_60913815f1b3d4 9-23
+.superpowers/sdd/task-1-report.md
+  s_5a98ce44cbcaef::t_1cc110453094d9 1-81
+  s_5a98ce44cbcaef::t_7665cf3e4a9404 82-114
+crates/kat-rs-datasource/src/formats/sqlite.rs
+  s_5a98ce44cbcaef::t_4dc94ad3400ec8 9,86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "76563e70268d498c2c344b42fcd39e798139f5d5",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 131,
+      "total_deletions": 2,
+      "accepted_lines": 131,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

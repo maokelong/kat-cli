@@ -1,0 +1,50 @@
+kat/platform/workflow/runtime/__main__.py
+  s_8d5fc833dd9bca::t_964312234a2e61 40,67,81
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d5fc833dd9bca::t_964312234a2e61 72-75,90,384,386-389,391-392,394-397,399-400,405,409,414
+docs/adr/0010-cli-and-workflow-runtime-use-file-based-control.md
+  s_8d5fc833dd9bca::t_964312234a2e61 7,11
+docs/adr/0019-runtime-processes-one-tagged-request.md
+  s_8d5fc833dd9bca::t_964312234a2e61 9,11,15
+docs/adr/0035-workflow-arguments-are-interpreted-only-by-python-runtime.md
+  s_8d5fc833dd9bca::t_964312234a2e61 31
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_8d5fc833dd9bca::t_964312234a2e61 100
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d5fc833dd9bca::t_964312234a2e61 188,194,209,470
+docs/adr/0051-runtime-failure-preserves-private-owner.md
+  s_8d5fc833dd9bca::t_964312234a2e61 9,11
+kat/platform/cli/tests/inspect.rs
+  s_8d5fc833dd9bca::t_964312234a2e61 337
+docs/adr/0037-one-diagnostic-model-drives-json-and-terminal-output.md
+  s_8d5fc833dd9bca::t_964312234a2e61 7,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "c9d00224f78714f5e87eda93d27adeb2a4e62222",
+  "prompts": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 40,
+      "total_deletions": 33,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_8d5fc833dd9bca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87ed-1e73-7df0-989e-c7b488efa979",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

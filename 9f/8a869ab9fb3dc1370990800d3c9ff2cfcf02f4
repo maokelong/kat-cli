@@ -1,0 +1,38 @@
+kat/platform/datasource/tests/python/test_hitrace_api.py
+  s_0dbbaca6405a56::t_8bb128a858e34f 8,154-155,158-159,162-164,166-167,169,171-177
+release/kat/dist.toml
+  s_0dbbaca6405a56::t_3a58689e888c75 3
+Cargo.toml
+  s_0dbbaca6405a56::t_3a58689e888c75 10
+kat/platform/workflow/pyproject.toml
+  s_0dbbaca6405a56::t_3a58689e888c75 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "9f8a869ab9fb3dc1370990800d3c9ff2cfcf02f4",
+  "prompts": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 21,
+      "total_deletions": 23,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0dbbaca6405a56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07c21-666f-7a03-9e0f-0a931070cded",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

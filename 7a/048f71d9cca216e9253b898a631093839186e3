@@ -1,0 +1,198 @@
+examples/packs/local-parquet-fusion/datasources/parquet.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 4,15-16,23
+  s_68cb1a3d53c6a1::t_e1eaea38fd9f7c 7
+  s_68cb1a3d53c6a1::t_9ce8d6292dea3a 1-3,5-6
+  s_68cb1a3d53c6a1::t_d8e36322e95550 8-14,17-22
+  s_68cb1a3d53c6a1::t_91d4b62f7d240c 24
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_8d37eb24b885b8::t_6b9c0cbb82d2a9 152
+examples/packs/local-parquet-fusion/workflows/fuse_local_parquet.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 4,47,49
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-3,5,7-26
+  s_68cb1a3d53c6a1::t_84f4d1eba1cd02 28
+  s_8d37eb24b885b8::t_3001f27c88219b 29-46,48,53-61,63
+  s_68cb1a3d53c6a1::t_91d4b62f7d240c 6,52,62
+  s_68cb1a3d53c6a1::t_fb8b538db56f35 27,50-51
+docs/adr/0066-datafusion-provider-owns-new-datasource-fusion.md
+  s_68cb1a3d53c6a1::t_3b4f412fad17e4 1-6,8,10,12
+  s_68cb1a3d53c6a1::t_ad6adb724129bc 9,11,13-17
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+kat/platform/workflow/tests/test_execution_process.py
+  s_8d37eb24b885b8::t_083175da9dca39 334-398
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 79-80,112-114,267-268,317-333,896
+kat/platform/workflow/tests/test_testing_process.py
+  s_68cb1a3d53c6a1::t_3ad840a1eb9652 263,265-271,274,280,282,284-285,291-292,301,306-307,314,317,319,321-323,325-326
+  s_8d37eb24b885b8::t_fe7167660ae785 340-397
+  s_68cb1a3d53c6a1::t_1836284ca36a4c 287-288
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 272,286,313,324
+  s_8d37eb24b885b8::t_cd85cc3dc74130 264,273,275-279,281,283,289-290,293-300,302-305,308-312,315-316,318,320,327-331
+docs/adr/0017-pack-source-layout-is-fixed.md
+  s_68cb1a3d53c6a1::t_e061628b3b0619 7
+  s_68cb1a3d53c6a1::t_56b006f4c45b67 9
+  s_68cb1a3d53c6a1::t_d033b7844385f0 11,13
+kat/platform/workflow/api/dataprovider/_parquet.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 24-124
+kat/platform/workflow/runtime/testing.py
+  s_8d37eb24b885b8::t_ca6e9c5a204082 105-107
+docs/adr/0064-fusion-sql-uses-explicit-tables-and-eager-results.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,9,13
+  s_68cb1a3d53c6a1::t_cdb51f321d93c6 1,3-6,10-12
+  s_68cb1a3d53c6a1::t_da15c5cf7ad10f 2,8
+docs/adr/0068-datafusion-provider-has-immutable-bindings.md
+  s_68cb1a3d53c6a1::t_fde5039af2b3df 1-6,8-11
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+docs/adr/0062-pack-datasources-use-kat-managed-providers.md
+  s_8d37eb24b885b8::t_a2667c163c7d4b 1,3-6,9-12
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+  s_8d37eb24b885b8::t_432ef8789e0e94 13-27
+  s_68cb1a3d53c6a1::t_4619aca7211ae0 2
+  s_68cb1a3d53c6a1::t_a03f959544f452 8
+docs/adr/0069-file-provider-materialization-is-workflow-scoped.md
+  s_68cb1a3d53c6a1::t_5fd8531fc8119b 1-6,8-11
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+kat/platform/workflow/tests/test_dataprovider_process.py
+  s_68cb1a3d53c6a1::t_c328a999d0c360 69-245
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 16-61
+kat/platform/workflow/tests/test_dataprovider_api.py
+  s_68cb1a3d53c6a1::t_60da2fd9064e36 11-463
+kat/platform/workflow/tests/test_authoring_api.py
+  s_68cb1a3d53c6a1::t_ee2e6c0e254c25 378
+  s_68cb1a3d53c6a1::t_befb7faf7237c4 231-234,236-238,243-249,251-255,257-259,265-266,292-293,295-296,298
+  s_8d37eb24b885b8::t_492d110fa27dfe 5,229,239,242,256,260,267-279,281-283,286-289,297,299-300,304,309-310,312
+  s_68cb1a3d53c6a1::t_fc00bb81ca646a 280,284-285
+  s_68cb1a3d53c6a1::t_cbceae68bebf9d 230,240-241,262-263
+  s_68cb1a3d53c6a1::t_59325f5814e41c 379-381,387
+  s_68cb1a3d53c6a1::t_ebb1267f1b22cc 235,250,261,264,294,301-303,306,311
+  s_68cb1a3d53c6a1::t_9bca2f7d4c986d 226-228
+kat/platform/workflow/tests/test_dataprovider_parquet.py
+  s_68cb1a3d53c6a1::t_f4c1fe0de6e236 14
+  s_68cb1a3d53c6a1::t_c328a999d0c360 17-378
+kat/platform/workflow/runtime/__main__.py
+  s_8d37eb24b885b8::t_df2a0bc9b013bd 142,147-148
+docs/adr/0047-current-pack-is-exposed-as-kat-pack.md
+  s_68cb1a3d53c6a1::t_56b006f4c45b67 9
+  s_68cb1a3d53c6a1::t_e061628b3b0619 7-8
+  s_68cb1a3d53c6a1::t_9fe84b39704f9e 17
+  s_68cb1a3d53c6a1::t_d033b7844385f0 13,15
+kat/platform/workflow/runtime/execution.py
+  s_68cb1a3d53c6a1::t_4aa963d86f8976 149
+  s_8d37eb24b885b8::t_690acd9e2e70e7 162
+  s_68cb1a3d53c6a1::t_5ed9daba55258d 62-66
+  s_8d37eb24b885b8::t_1c0a110de27ad3 18,44,48,88-91,108,120,150
+  s_68cb1a3d53c6a1::t_ac81888b6555f2 58,69,81
+  s_68cb1a3d53c6a1::t_8c1d946e9837f3 182-183
+examples/packs/local-parquet-fusion/tests/test_fuse_local_parquet.py
+  s_68cb1a3d53c6a1::t_d2c533837c001d 55-60,78-79,81-86,92
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-6
+  s_68cb1a3d53c6a1::t_e1eaea38fd9f7c 93-94,97-100,103-115,121-141
+  s_8d37eb24b885b8::t_6396da9c5cf348 8-54,61-77,80,87-91,95-96,101-102,116-120,142-143,145-166
+  s_68cb1a3d53c6a1::t_fb8b538db56f35 144
+  s_68cb1a3d53c6a1::t_ced2237a7e4e9a 7
+kat/platform/cli/src/run.rs
+  s_8d37eb24b885b8::t_3a5072a6a50a93 223-224,245,339-340,485-486,511,513,515-516,518-524
+  s_8d37eb24b885b8::t_5837f1a9f4e49a 210-220,335-338,479-484,512,514,517,525-536
+  s_8d37eb24b885b8::t_1c84f0b9ef9518 221-222
+  s_8d37eb24b885b8::t_cd8fd92a88e4b1 537-551
+CONTEXT.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 80-82,84,87,93,99
+  s_68cb1a3d53c6a1::t_b5174d65aa6470 66,71,77-78,86
+  s_68cb1a3d53c6a1::t_46d42a8d13ffce 92,98,100,109
+  s_68cb1a3d53c6a1::t_5e9523de9f6a7b 158,162
+  s_8d37eb24b885b8::t_876ef4f5fd7d7d 57,60,63-65,75-76,79,88-89,91,94-95,97,101-102,104-105,113-114,117,155
+  s_68cb1a3d53c6a1::t_8361f339e55532 48,51,74,83,85,90,96,103,106,112,115,118
+kat/platform/workflow/api/__init__.py
+  s_8d37eb24b885b8::t_dcc12fde720751 5-8,10-11
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1,9
+kat/platform/workflow/runtime/request.py
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 134-142,159-161,163,168-169,259-276
+  s_8d37eb24b885b8::t_d753e38964a07b 46,117
+  s_8d37eb24b885b8::t_fc081f05eb1ab1 143-158
+README.md
+  s_68cb1a3d53c6a1::t_b0990e62477a0a 134-135,137-138,143
+  s_68cb1a3d53c6a1::t_e6462ec8948131 142,147
+  s_8d37eb24b885b8::t_4a2b52b25f97c3 148-150
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 144-146
+docs/adr/0065-datasource-schema-creates-mutable-tables.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,9,11,17
+  s_68cb1a3d53c6a1::t_cc1a7f6b65c899 1-6,8,10,12-16
+kat/platform/workflow/runtime/datasource.py
+  s_8d37eb24b885b8::t_453605a51a14e7 1-10,12-23
+  s_68cb1a3d53c6a1::t_8c1d946e9837f3 11
+  s_8d37eb24b885b8::t_64045e59c0785e 24-25,27-47
+  s_68cb1a3d53c6a1::t_4b999e969aee96 26
+docs/adr/0067-catalog-only-describes-parquet-relations.md
+  s_68cb1a3d53c6a1::t_767f83cc907b01 1-6,8-10,12,14,16
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7,11,13,15
+  s_68cb1a3d53c6a1::t_ad6adb724129bc 17
+kat/platform/workflow/api/dataprovider/_fusion.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 30-40
+kat/platform/workflow/pyproject.toml
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 12
+docs/adr/0063-pack-owns-datasource-providers.md
+  s_68cb1a3d53c6a1::t_7e031b8e1607e3 7
+  s_68cb1a3d53c6a1::t_e061628b3b0619 1-6
+  s_68cb1a3d53c6a1::t_d5c3e5fbe8c518 8
+  s_68cb1a3d53c6a1::t_40570a38d020f6 9,11,13
+  s_68cb1a3d53c6a1::t_29b0822a09ff5b 10,12
+kat/platform/workflow/api/_workflow.py
+  s_68cb1a3d53c6a1::t_9b3f9c42186b56 57,62-63
+  s_8d37eb24b885b8::t_0159f31625bea6 55-56,58-61,64-66
+  s_8d37eb24b885b8::t_dcc12fde720751 5
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 144
+  s_68cb1a3d53c6a1::t_ad1c077c5627aa 145-148
+examples/packs/local-parquet-fusion/README.md
+  s_68cb1a3d53c6a1::t_fb8b538db56f35 19,22
+  s_68cb1a3d53c6a1::t_c7ef3b85210bb9 5-7,10,20
+  s_68cb1a3d53c6a1::t_91d4b62f7d240c 4,9,11-13
+  s_68cb1a3d53c6a1::t_4b9f4fc5ed754e 17-18
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-2,8
+  s_68cb1a3d53c6a1::t_dc46e7564d2680 51-57
+  s_8d37eb24b885b8::t_533f6f31f8272f 14-16,21,23-50
+  s_68cb1a3d53c6a1::t_9ce8d6292dea3a 3
+kat/platform/workflow/runtime/outputs.py
+  s_8d37eb24b885b8::t_3034bbe09f5646 21,41,48-54,75,79,81-82,128-131
+  s_68cb1a3d53c6a1::t_ac81888b6555f2 42-44,59,62-63,69,74,78,86-88,90-94
+  s_68cb1a3d53c6a1::t_5ed9daba55258d 89
+  s_68cb1a3d53c6a1::t_4aa963d86f8976 22
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 10,68,80
+examples/packs/local-parquet-fusion/pack.toml
+  s_8d37eb24b885b8::t_b0850ae62a4181 1-4
+kat/platform/workflow/api/dataprovider/__init__.py
+  s_68cb1a3d53c6a1::t_753b4e13b3fc6f 1
+kat/platform/cli/src/workflow_runtime.rs
+  s_8d37eb24b885b8::t_06ae762f1caeb5 1070-1091,1100,1106-1107,1120,1129,1131-1150,1152-1153
+  s_8d37eb24b885b8::t_d210315de1e911 1170,1188,1215,1251
+  s_8d37eb24b885b8::t_6b9c0cbb82d2a9 97-111,231,395-396,476,1061-1069
+kat/platform/workflow/tests/test_runtime_process.py
+  s_8d37eb24b885b8::t_0fa8bb92782dcf 722-723,734-738
+  s_68cb1a3d53c6a1::t_bb7848758dfbc6 74,79-86,90,93,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "7a048f71d9cca216e9253b898a631093839186e3",
+  "prompts": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1562,
+      "total_deletions": 0,
+      "accepted_lines": 1562,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_68cb1a3d53c6a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04634-f473-7ae1-b8f6-f2c1108d5395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

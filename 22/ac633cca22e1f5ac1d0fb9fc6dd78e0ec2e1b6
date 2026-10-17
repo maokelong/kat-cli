@@ -1,0 +1,42 @@
+build/tests/test_ci_artifact_lifecycle.py
+  s_0bb7e8dc4ac9ef::t_2deab13b0d3c26 16-61
+  s_0bb7e8dc4ac9ef::t_d330f281bd82e4 1-15
+  s_0bb7e8dc4ac9ef::t_bea44bfb416865 62-70
+.github/workflows/payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_d47ea7e3920202 47,194
+.github/workflows/build-windows-payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_d47ea7e3920202 84
+.github/workflows/cleanup-actions-artifacts.yml
+  s_0bb7e8dc4ac9ef::t_4899848fdfb4cc 1-34
+.github/workflows/build-linux-payload-ci.yml
+  s_0bb7e8dc4ac9ef::t_d47ea7e3920202 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "22ac633cca22e1f5ac1d0fb9fc6dd78e0ec2e1b6",
+  "prompts": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>",
+      "total_additions": 108,
+      "total_deletions": 2,
+      "accepted_lines": 108,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0bb7e8dc4ac9ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fec4d-ebd2-7100-ae01-53c2a7dec3cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "maokelong <chenjinglong1@huawei.com>"
+    }
+  }
+}

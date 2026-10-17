@@ -1,0 +1,49 @@
+kat/platform/datasource/tests/native_hook_source_contract/fixture.rs
+  s_ce99857c39d134::t_5041c867640f6c 1-282
+kat/platform/datasource/tests/native_hook_source_activation_contract.rs
+  s_ce99857c39d134::t_78d674ba00865a 1-6
+  s_ce99857c39d134::t_5041c867640f6c 7-685
+kat/platform/datasource/src/formats/hitrace/profiler/claim.rs
+  s_ce99857c39d134::t_78d674ba00865a 1-32
+kat/platform/datasource/tests/plugin_flow_contract.rs
+  s_ce99857c39d134::t_abd6eb4caea32d 1,4,34-36,47-53,65-73,84-85,88-91,94-97,104-106
+kat/platform/datasource/tests/native_hook_import_failure_contract.rs
+  s_ce99857c39d134::t_93b51f560fc3f9 1-383
+kat/platform/datasource/src/materializer.rs
+  s_ce99857c39d134::t_abd6eb4caea32d 22-25,34,36,122-123,126-127,140,155-163,165-185
+kat/platform/datasource/tests/native_hook_source_capture_contract/mod.rs
+  s_ce99857c39d134::t_34d03146df4d47 12-13,17-33,64-109
+kat/platform/datasource/tests/native_hook_activation_regression_contract.rs
+  s_ce99857c39d134::t_a538cb855ecdb8 13-16,41-42,44,46,48-49,52-59,63-82,84,89-92,95-96,99-102,104-175,186,197,229,231-241,243-247,249-250,252-253,256-257,259-281,285-286,288-289,292,294,296-297,299,303-337,392-404,406-407,409-431,434-435
+  s_ce99857c39d134::t_78d674ba00865a 3-4,6-7
+  s_ce99857c39d134::t_5041c867640f6c 9,11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "663ab765cc9e04b3dd7954d3dd1878f6d2a67361",
+  "prompts": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 1782,
+      "total_deletions": 601,
+      "accepted_lines": 1782,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_ce99857c39d134": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00ef6-b520-7d91-948a-06574f652094",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

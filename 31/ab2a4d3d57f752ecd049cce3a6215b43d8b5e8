@@ -1,0 +1,62 @@
+kat/packs/kat-openharmony-critical-path/datasources/trace_streamer.py
+  s_01b850c15b18af::t_320abaeea16aa3 90-95
+kat/skill/references/examples/dataprovider-pack/datasources/trace_streamer.py
+  s_01b850c15b18af::t_113c9b61242406 24-30,129,136-138,166-171
+kat/platform/workflow/api/dataprovider/_table.py
+  s_01b850c15b18af::t_05fb8b669e2ad6 5-6,10-11
+  s_01b850c15b18af::t_b6ad1bcab402f4 3
+  s_01b850c15b18af::t_1a76a188969841 24-26,38-70,105-117,120,126,129-204
+kat/packs/kat-openharmony-critical-path/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_320abaeea16aa3 8,118
+kat/skill/references/pack-authoring-flow.md
+  s_01b850c15b18af::t_f0022c5fb4c120 108-125
+kat/platform/workflow/tests/test_dataprovider_api.py
+  s_01b850c15b18af::t_1a76a188969841 75-76,86-189
+  s_01b850c15b18af::t_ca93f7ca9898ca 190-274
+  s_01b850c15b18af::t_9bdbde16ca3fef 4,6
+kat/platform/workflow/tests/test_authoring_api.py
+  s_01b850c15b18af::t_ca93f7ca9898ca 291-296,310,320
+kat/skill/references/examples/dataprovider-pack/tests/trace_streamer/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_3b680c952d2916 352,360-364,384,400,412,417,439
+  s_01b850c15b18af::t_f82af7ab087ddf 5
+  s_01b850c15b18af::t_8e22d63be76220 13-21,77,96-100,104,140,190,252,266,271,288,294,322,337,340,348-349
+kat/skill/references/examples/dataprovider-pack/knowledge/providers/trace-streamer-sqlite.md
+  s_01b850c15b18af::t_f0022c5fb4c120 16-18
+CONTEXT.md
+  s_01b850c15b18af::t_f0022c5fb4c120 93
+kat/packs/kat-openharmony-thread-cpu-time/datasources/trace_streamer.py
+  s_01b850c15b18af::t_320abaeea16aa3 90-95
+kat/skill/references/examples/dataprovider-pack/README.md
+  s_01b850c15b18af::t_f0022c5fb4c120 108-110
+kat/packs/kat-openharmony-thread-cpu-time/tests/test_trace_streamer_provider.py
+  s_01b850c15b18af::t_320abaeea16aa3 8,129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "31ab2a4d3d57f752ecd049cce3a6215b43d8b5e8",
+  "prompts": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 431,
+      "total_deletions": 449,
+      "accepted_lines": 431,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_01b850c15b18af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05fd8-5e45-7053-bb06-82e0f1777e14",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

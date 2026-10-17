@@ -1,0 +1,80 @@
+kat/platform/cli/tests/import.rs
+  s_450935cb905f4d::t_22c0b81862271d 10-13,120
+kat/platform/workflow/api/_identifiers.py
+  s_450935cb905f4d::t_95d84c944c2bdf 1-17
+README.md
+  s_450935cb905f4d::t_abfd490bd6b408 82-95
+  s_450935cb905f4d::t_8c11d558f3814a 74-81
+docs/adr/0012-source-and-deployment-views-are-separate.md
+  s_450935cb905f4d::t_dca2adb4b0b145 7-10
+docs/superpowers/specs/2026-07-24-pr-151-kat-run-deepening-design.md
+  s_450935cb905f4d::t_22c0b81862271d 147-149
+  s_450935cb905f4d::t_dbaa1543b65289 143
+  s_450935cb905f4d::t_3fea8370bba8a3 144
+  s_450935cb905f4d::t_f2f07345fa722e 145
+  s_450935cb905f4d::t_8b60c813c5c1dd 150-153
+  s_450935cb905f4d::t_41c2856a286387 1-142
+  s_450935cb905f4d::t_1bdc0471924692 146
+kat/platform/cli/src/workflow_runtime/protocol.rs
+  s_450935cb905f4d::t_22f68e69d70415 1-2,112-160
+kat/platform/cli/src/workflow_runtime.rs
+  s_450935cb905f4d::t_22384bfe8eba53 2,10,24-28,32,34,43-44,77,123,129,139,326-328,331,334,337,340-341,411-420,468-477,530-531
+docs/adr/0052-kat-run-precedes-legacy-query-removal.md
+  s_450935cb905f4d::t_8c11d558f3814a 17-20
+  s_450935cb905f4d::t_dca2adb4b0b145 29-36
+kat/platform/cli/tests/support/mod.rs
+  s_450935cb905f4d::t_e3a1a0eb5f42de 55-92
+  s_450935cb905f4d::t_d16992eab50104 7-24,26-54
+  s_450935cb905f4d::t_c7907f4245e633 1-5
+kat/platform/cli/src/run.rs
+  s_450935cb905f4d::t_eb90a2d220863f 1-13,15-18,20-313,315-558
+kat/platform/cli/tests/run.rs
+  s_450935cb905f4d::t_d16992eab50104 10,15,20,349-350
+kat/platform/workflow/api/_workflow.py
+  s_450935cb905f4d::t_95d84c944c2bdf 10,178
+kat/platform/workflow/runtime/request.py
+  s_450935cb905f4d::t_95d84c944c2bdf 9-10,138
+kat/platform/workflow/runtime/outputs.py
+  s_450935cb905f4d::t_95d84c944c2bdf 11,66
+docs/adr/0036-skill-first-cli-results-use-json.md
+  s_450935cb905f4d::t_dca2adb4b0b145 7-10
+kat/platform/cli/src/lib.rs
+  s_450935cb905f4d::t_ac6bcd8fc989f3 4
+  s_450935cb905f4d::t_22384bfe8eba53 57,188,241-243
+kat/platform/cli/tests/inspect.rs
+  s_450935cb905f4d::t_d16992eab50104 10,15,20,173-174
+scripts/assemble-skill-payload.py
+  s_450935cb905f4d::t_abfd490bd6b408 45-61
+  s_450935cb905f4d::t_dbaa1543b65289 1-35
+  s_450935cb905f4d::t_e3a1a0eb5f42de 36-44
+  s_450935cb905f4d::t_dca2adb4b0b145 62-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "6f2a23bcebc648e383439c9fa73827ad424365ee",
+  "prompts": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 1070,
+      "total_deletions": 766,
+      "accepted_lines": 1067,
+      "overriden_lines": 3
+    }
+  },
+  "sessions": {
+    "s_450935cb905f4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e3d-e299-7c50-a85d-eecf53f1b262",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

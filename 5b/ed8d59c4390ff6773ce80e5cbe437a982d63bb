@@ -1,0 +1,45 @@
+kat/platform/datasource/build/protobuf_source_codegen/prost_binding.rs
+  s_3eb48b5c46c45a::t_e8793b4b55f12c 3-4,60,66,73,89,97-98,101-102,106,111-112,160,164-166,169-170,173-174,176,186-187,189,194-195,200,221,223-227,230,238-239,242,253,257,262-263,266,270-280
+kat/platform/datasource/build/protobuf_source_codegen/plan.rs
+  s_3eb48b5c46c45a::t_e8793b4b55f12c 3-4,7,140,172
+  s_3eb48b5c46c45a::t_9d231fc84932d7 193,227,233,235,247,250,259-261,272-274,278,282,285,290,293,298,301,306,309,314-316,319,324-326,328,331,341,345,348-349,355,362,364,367,374-375,379,383,394,410,433,438-439,445-447,452,456,464,472,486-487,493-494,511,529,553,565-566,572-573,577-580,583,586-589,591-592,596-597,599,604-607,612-616,619-621,623-624,628,630,632-633,675,682,689,699,711,719,731,740,751,753,757-768
+Cargo.toml
+  s_3eb48b5c46c45a::t_f4ec58b0241b5b 38
+kat/platform/datasource/build/protobuf_source_codegen/mod.rs
+  s_3eb48b5c46c45a::t_e8793b4b55f12c 15,75-78,80-82
+  s_3eb48b5c46c45a::t_3fcd229f859577 79
+kat/platform/datasource/build.rs
+  s_3eb48b5c46c45a::t_6a846f75b7e997 9
+  s_3eb48b5c46c45a::t_94a35d02c3e331 12,16,27,30,38,40,49,135,143,233
+kat/platform/datasource/Cargo.toml
+  s_3eb48b5c46c45a::t_6a846f75b7e997 7-9,37,44,48-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "5bed8d59c4390ff6773ce80e5cbe437a982d63bb",
+  "prompts": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null,
+      "total_additions": 209,
+      "total_deletions": 60,
+      "accepted_lines": 209,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_3eb48b5c46c45a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff9fb-b44b-7c53-8aef-721e8753dd8f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

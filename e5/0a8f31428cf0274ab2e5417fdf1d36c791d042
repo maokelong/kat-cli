@@ -1,0 +1,35 @@
+python/kat-python-runtime/kat_runtime/benchmark_sqlite.py
+  s_5a98ce44cbcaef::t_b7efdeb930605b 160
+python/tests/test_storage_runtime.py
+  s_5a98ce44cbcaef::t_824b747f5064cb 69-72
+  s_5a98ce44cbcaef::t_357f7f5fd6c29b 15,56-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "e50a8f31428cf0274ab2e5417fdf1d36c791d042",
+  "prompts": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 19,
+      "total_deletions": 3,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_5a98ce44cbcaef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a2-e29c-7622-816f-49b8afb38624",
+        "model": "gpt-5.5"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

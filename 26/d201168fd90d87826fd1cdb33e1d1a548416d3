@@ -1,0 +1,50 @@
+kat/skill/references/analysis-flow.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-39
+kat/skill/references/pack-authoring-flow.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-25
+kat/skill/references/result-contract.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 1-40
+build/assemble_skill.py
+  s_d1744aeb41c9d7::t_a06995264a089d 58-63,119-123
+build/smoke_skill.py
+  s_d1744aeb41c9d7::t_a06995264a089d 59-64
+docs/superpowers/specs/2026-07-30-kat-skill-contract-design.md
+  s_d1744aeb41c9d7::t_9585fb9a8333f4 5
+build/tests/test_assemble_skill.py
+  s_d1744aeb41c9d7::t_a06995264a089d 27-34,82-84,121-128
+  s_d1744aeb41c9d7::t_4bdd32f90c0f56 238-242,248-306
+kat/skill/agents/openai.yaml
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 3-4
+kat/skill/SKILL.md
+  s_d1744aeb41c9d7::t_40c156cd0dd06e 3,8,10,12,14-30,32,34,36,38-40,42-47
+  s_d1744aeb41c9d7::t_8ff55431bbe2be 48-53,55,57,59-61,63,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "26d201168fd90d87826fd1cdb33e1d1a548416d3",
+  "prompts": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 253,
+      "total_deletions": 39,
+      "accepted_lines": 253,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_d1744aeb41c9d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb21a-cf96-7333-876e-08fb1c6aad1d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+build/smoke_skill.py
+  s_0d074feffda5fd::t_9981a58b4175dd 147-169,197
+kat/platform/datasource/src/hitrace.rs
+  s_0d074feffda5fd::t_3eb93a95ff2340 92-96,100,135-136,257-351,369-370,715-726,845-846,856-863,868-891,1251-1262,1766-1791
+build/tests/test_smoke_skill.py
+  s_0d074feffda5fd::t_9981a58b4175dd 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "3.2.115",
+  "base_commit_sha": "1ac300090835510b8acf86c7f0de5099e7ee1b1d",
+  "prompts": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 245,
+      "total_deletions": 49,
+      "accepted_lines": 245,
+      "overriden_lines": 0
+    }
+  },
+  "sessions": {
+    "s_0d074feffda5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcae3-c64c-7903-8874-b2e498f709a9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>"
+    }
+  }
+}
