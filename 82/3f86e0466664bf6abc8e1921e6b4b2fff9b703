@@ -1,0 +1,42 @@
+kat/platform/workflow/pyproject.toml
+  s_8f5f99c89112a4::t_ad5bf1bb1532ca 7
+Cargo.toml
+  s_8f5f99c89112a4::t_86b8c81f28b3c9 10
+release/kat/dist.toml
+  s_8f5f99c89112a4::t_7d497b91f0c992 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "823f86e0466664bf6abc8e1921e6b4b2fff9b703",
+  "prompts": {},
+  "humans": {
+    "h_9cb36da7bd45f4": {
+      "author": "shijifei <shijifei@huawei.com>"
+    }
+  },
+  "sessions": {
+    "s_8f5f99c89112a4": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_eb72c6c7effeVXVMLAzcXBWsBq",
+        "model": "glm-5.2"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 3,
+      "total_deletions": 3,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_7d497b91f0c992": "glm-5.2",
+        "t_86b8c81f28b3c9": "glm-5.2",
+        "t_ad5bf1bb1532ca": "glm-5.2"
+      },
+      "model_totals": {
+        "glm-5.2": {
+          "additions": 3,
+          "deletions": 3
+        }
+      }
+    }
+  }
+}
