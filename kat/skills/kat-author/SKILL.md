@@ -40,7 +40,7 @@ kat inspect --pack-dir <生成的pack_directory>
 
 先明确适用对象、触发条件、输入、结果与限制。无需程序的方法写为 `skills/<entry>/SKILL.md`；需要程序稳定完成的部分仍用 Workflow，不写空函数制造 Run。纯知识 PACK 最少只需合法 `pack.toml` 和知识入口，不要求程序目录或 pytest。
 
-知识入口 YAML 只允许必填字符串 `name,description`；name 与目录一致，遵循 PACK 小写 ASCII kebab-case 与 Windows 保留名规则，头部和正文均非空。不增加执行器、模型、Workflow 绑定或依赖元数据。
+知识入口 YAML 必填字符串 `name,description`，并固定写 `user-invocable: false` 和 `disable-model-invocation: true`，防止部署到 agent skills 目录后被 agent 自动识别为可调用 skill；name 与目录一致，遵循 PACK 小写 ASCII kebab-case 与 Windows 保留名规则，头部和正文均非空。不增加执行器、模型、Workflow 绑定或依赖元数据。
 
 正文写明方法与边界，引用邻近 references 或 PACK 内共享 knowledge；链接相对包含它的文件。参考随包的[最小知识入口](references/examples/knowledge-pack/skills/evidence-review/SKILL.md)与[清单](references/examples/knowledge-pack/pack.toml)。知识不能授予新的外部访问、执行、安装或写入权限。
 
