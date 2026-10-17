@@ -1,6 +1,8 @@
 ---
 name: evidence-review
 description: 按事实与范围审视给定材料中的判断，给出有依据的问题或明确无发现。
+user-invocable: false
+disable-model-invocation: true
 ---
 
 # 事实评审

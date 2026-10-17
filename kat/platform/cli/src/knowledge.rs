@@ -19,6 +19,18 @@ pub(super) struct Entry {
     pub(super) name: String,
     #[serde(deserialize_with = "text_field")]
     pub(super) description: String,
+    #[serde(
+        default,
+        rename = "user-invocable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(super) user_invocable: Option<bool>,
+    #[serde(
+        default,
+        rename = "disable-model-invocation",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(super) disable_model_invocation: Option<bool>,
 }
 
 fn text_field<'de, D: serde::Deserializer<'de>>(

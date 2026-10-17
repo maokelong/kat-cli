@@ -10,6 +10,8 @@ mod support;
 
 const ORIGINAL: &str = "---\r\nname: code-review\r\ndescription: 按团队准则评审代码\r\n---\r\n\r\n检查[准则](../../knowledge/rules.md)，交付问题与证据。\r\n";
 
+const WITH_INVOCATION_CONTROL: &str = "---\r\nname: code-review\r\ndescription: 按团队准则评审代码\r\nuser-invocable: false\r\ndisable-model-invocation: true\r\n---\r\n\r\n检查[准则](../../knowledge/rules.md)，交付问题与证据。\r\n";
+
 struct Fixture {
     _root: tempfile::TempDir,
     binary: PathBuf,
@@ -1058,4 +1060,91 @@ def facts(ctx: Context):
         ),
         run
     );
+}
+
+#[test]
+fn knowledge_entry_accepts_agent_invocation_control_fields() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture
+            .pack
+            .join("skills/code-review/SKILL.md"),
+        WITH_INVOCATION_CONTROL,
+    )
+    .unwrap();
+    let list = success(
+        fixture
+            .command()
+            .args(["inspect", "knowledge", "--pack", "review-pack"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        list,
+        json!({"entries":[{"name":"code-review","description":"按团队准则评审代码","user-invocable":false,"disable-model-invocation":true}]})
+    );
+    let entry = success(
+        fixture
+            .command()
+            .args([
+                "inspect",
+                "knowledge",
+                "--pack",
+                "review-pack",
+                "--entry",
+                "code-review",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        entry,
+        json!({"entry":{"name":"code-review","description":"按团队准则评审代码","path":"skills/code-review/SKILL.md","content":WITH_INVOCATION_CONTROL}})
+    );
+    assert!(!fixture.home.join("sessions").exists());
+}
+
+#[test]
+fn agent_invocation_control_fields_survive_adopt_and_restore() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture
+            .pack
+            .join("skills/code-review/SKILL.md"),
+        WITH_INVOCATION_CONTROL,
+    )
+    .unwrap();
+    let session = fixture.session();
+    let adopted = success(
+        fixture
+            .command()
+            .args([
+                "knowledge",
+                "read",
+                "--session",
+                &session,
+                "--pack",
+                "review-pack",
+                "--entry",
+                "code-review",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(adopted["material"]["content"], WITH_INVOCATION_CONTROL);
+    let restored = success(
+        fixture
+            .command()
+            .args([
+                "knowledge",
+                "read",
+                "--session",
+                &session,
+                "--material",
+                adopted["material_id"].as_str().unwrap(),
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(restored["material"]["content"], WITH_INVOCATION_CONTROL);
 }
