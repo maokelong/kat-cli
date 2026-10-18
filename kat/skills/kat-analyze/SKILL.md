@@ -27,7 +27,7 @@ kat inspect knowledge --pack P --path F [--pack-dir D ...]
 kat inspect workflow --pack P --workflow W [--pack-dir D ...]
 ```
 
-目标未知或明确目标不适用时，用 `kat inspect` 按 PACK 描述缩小范围，再对相关 PACK 查看 `kat inspect knowledge --pack P` 与 `kat inspect workflow --pack P` 的用途列表。按摘要读取候选正文或参数后选择，可以只用知识、只用 Workflow 或组合；不先排除其中一类、不加载全部正文、不扫描 Provider。已有且仍适用的 detail 直接复用，执行前不重复读取。
+目标未知或明确目标不适用时，用 `kat inspect` 按 PACK 描述缩小范围，再对每个候选 PACK 先 `kat inspect knowledge --pack P` 查看知识入口列表，再 `kat inspect workflow --pack P` 查看用途列表，两类都查完才选择。按摘要读取候选正文或参数后，可以只用知识、只用 Workflow 或组合；不先排除其中一类、不加载全部正文、不扫描 Provider。已有且仍适用的 detail 直接复用，执行前不重复读取。`entries` 中 `disable-model-invocation: true` 的入口不由 agent 自动选用，`user-invocable: false` 的入口不向用户暴露为可调用选项；字段未设置时按默认可选用。
 
 知识浏览是只读候选，不代表 Session 已采纳；需要引用才能判断适用性时按返回入口路径规范化 F，用 `--path` 浏览，不先创建 Session 采纳。Workflow detail 提供用途与参数，执行前不寻找 Guide；只用 `parameters` 明示的 `option` 和 bool `negative_option` 准备输入，不猜旗标，不把秘密放进可能进入日志的参数。
 

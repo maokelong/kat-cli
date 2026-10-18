@@ -55,6 +55,7 @@ Linux shell 使用 `"<kat-root>/scripts/targets/linux-x86_64/kat" inspect`。资
 | 操作结果 | 公开事实 |
 | --- | --- |
 | PACK list | `result.packs`，按 name 排序，每项 `name,title,description,owner` |
+| Knowledge list | `result.entries`，按 name 排序，每项 `name,description`，可选 `user-invocable,disable-model-invocation` |
 | Workflow list | `result.workflows`，按 name 排序，每项 `name,description` |
 | Workflow detail | `result.workflow`：`name,description,parameters`；不返回或读取 Guide |
 | Run success / `inspect run` | `session_id,run_id,guide,outputs,child_runs`；Guide 是执行时原文或未声明时的 null |
