@@ -1,0 +1,40 @@
+kat/skills/kat-analyze/SKILL.md
+  s_8f5f99c89112a4::t_d1626ec7226d38 30
+kat/skills/kat/references/command-reference.md
+  s_8f5f99c89112a4::t_f8c173c5791c4a 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.1",
+  "base_commit_sha": "0d9b208bc154d8f73e14bef22e946792443b3729",
+  "prompts": {},
+  "humans": {
+    "h_9cb36da7bd45f4": {
+      "author": "shijifei <shijifei@huawei.com>"
+    }
+  },
+  "sessions": {
+    "s_8f5f99c89112a4": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_eb72c6c7effeVXVMLAzcXBWsBq",
+        "model": "glm-5.2"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "total_additions": 142,
+      "total_deletions": 1,
+      "overridden_lines": 0,
+      "turn_models": {
+        "t_0d624966d5942c": "glm-5.2",
+        "t_d1626ec7226d38": "glm-5.2",
+        "t_f8c173c5791c4a": "glm-5.2"
+      },
+      "model_totals": {
+        "glm-5.2": {
+          "additions": 142,
+          "deletions": 1
+        }
+      }
+    }
+  }
+}
