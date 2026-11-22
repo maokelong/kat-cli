@@ -1,0 +1,106 @@
+kat/sdk/MANIFEST.in
+  s_8bf2c998266420::t_9589896560a424 3
+kat/skills/kat-author/SKILL.md
+  s_8bf2c998266420::t_9c424f60891493 3,20,44,100-101
+docs/adr/0014-analysis-automatically-selects-pack-and-workflow.md
+  s_8bf2c998266420::t_9c424f60891493 2
+build/tests/test_sdk_build.py
+  s_8bf2c998266420::t_4f6c8f5d2baa96 66-77
+kat/sdk/sdk_build.py
+  s_8bf2c998266420::t_0ac4e1dcb66227 25-28
+  s_8bf2c998266420::t_9589896560a424 66-81
+build/build_sdk_wheel.py
+  s_8bf2c998266420::t_9589896560a424 137,141-142
+kat/sdk/README.md
+  s_8bf2c998266420::t_9589896560a424 1,7-16,33,37,41,43,49,62
+  h_9cb36da7bd45f4 63-88
+kat/skills/kat-dev-sdk/SKILL.md
+  s_8bf2c998266420::t_9c424f60891493 18,43-44,58
+examples/packs/workflow-composition/README.md
+  s_8bf2c998266420::t_f32747695dc488 3-4
+  s_8bf2c998266420::t_3694d07d2a2bff 27-70
+kat/skills/kat/SKILL.md
+  s_8bf2c998266420::t_9c424f60891493 14,22-23
+build/tests/test_pack_readme.py
+  s_8bf2c998266420::t_7be28cad09d712 105-111
+  s_8bf2c998266420::t_33824758ceebbe 128-154
+  s_8bf2c998266420::t_4f6c8f5d2baa96 1-104,112-127,155-157
+kat/skills/kat-author/references/examples/knowledge-pack/README.md
+  s_8bf2c998266420::t_bd9395eb164ac5 16-33
+  s_8bf2c998266420::t_782a64d3c364c5 1-15
+kat/skills/kat-author/scripts/pack_readme.py
+  s_8bf2c998266420::t_abf7b8004c5750 1-32,34-72,75,77-99,103-105,109,111-137,140-159,161-167
+  s_8bf2c998266420::t_f32747695dc488 100-102,106-108,110,138-139
+  s_8bf2c998266420::t_78ef4ff8350e58 160
+  s_8bf2c998266420::t_3a6c713ada2995 33
+  s_8bf2c998266420::t_7be28cad09d712 73-74,76
+.github/workflows/full-ci.yml
+  s_8bf2c998266420::t_9589896560a424 95
+  s_8bf2c998266420::t_3a6c713ada2995 143-153
+kat/skills/kat-author/agents/openai.yaml
+  s_8bf2c998266420::t_0ac4e1dcb66227 3
+kat/skills/kat-analyze/agents/openai.yaml
+  s_8bf2c998266420::t_0ac4e1dcb66227 3-4
+docs/specs/issue-334-pack-discovery.md
+  s_8bf2c998266420::t_59f8daf51e6358 39-47
+  s_8bf2c998266420::t_abf7b8004c5750 1-38
+kat/skills/kat-author/references/examples/dataprovider-pack/README.md
+  s_8bf2c998266420::t_ea00032a5b5b2d 189-254
+  s_8bf2c998266420::t_6ae3d5911097f6 3-4
+  s_8bf2c998266420::t_52427bed439a18 188
+kat/skills/kat-dev-sdk/references/sdk-build.md
+  s_8bf2c998266420::t_9589896560a424 13,61,71,120
+kat/skills/kat-author/references/pack-documentation.md
+  s_8bf2c998266420::t_9c424f60891493 1-34
+examples/packs/mem-pack/README.md
+  s_8bf2c998266420::t_f32747695dc488 3-4
+  s_8bf2c998266420::t_53cf1028da41c1 97-123
+build/verify_sdk_install.py
+  s_8bf2c998266420::t_4f6c8f5d2baa96 185
+  s_8bf2c998266420::t_9589896560a424 181-182,184
+  s_8bf2c998266420::t_78ef4ff8350e58 183
+build/tests/test_wheel_artifacts.py
+  s_8bf2c998266420::t_4f6c8f5d2baa96 91
+kat/skills/kat-author/scripts/scaffold_pack.py
+  s_8bf2c998266420::t_9c424f60891493 11-12,105-106
+kat/skills/kat-analyze/SKILL.md
+  s_8bf2c998266420::t_9c424f60891493 3,22,32-38,44-46,50
+  s_8bf2c998266420::t_0ac4e1dcb66227 30-31
+examples/packs/local-parquet-fusion/README.md
+  s_8bf2c998266420::t_6ae3d5911097f6 3
+  s_8bf2c998266420::t_bd9395eb164ac5 64-92
+  s_8bf2c998266420::t_f32747695dc488 4
+kat/sdk/pyproject.toml
+  s_8bf2c998266420::t_9589896560a424 25
+docs/adr/0090-pack-readmes-and-user-selected-capabilities.md
+  s_8bf2c998266420::t_abf7b8004c5750 1-15
+build/tests/test_scaffold_pack.py
+  s_8bf2c998266420::t_9c424f60891493 4,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.7",
+  "base_commit_sha": "eb0246fa20cd4bd9a8922d3a75b680f4af607742",
+  "prompts": {},
+  "humans": {
+    "h_9cb36da7bd45f4": {
+      "author": "shijifei <shijifei@huawei.com>"
+    }
+  },
+  "sessions": {
+    "s_8bf2c998266420": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a201fc-1d70-7d73-b7e0-43d044ff7342",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "custom_attributes": {
+        "stats_model_totals": "{\"gpt-6.1-sol\":{\"additions\":843,\"deletions\":52}}",
+        "stats_total_additions": "843",
+        "stats_total_deletions": "52",
+        "stats_turn_models": "{\"t_0ac4e1dcb66227\":\"gpt-6.1-sol\",\"t_33824758ceebbe\":\"gpt-6.1-sol\",\"t_3a6c713ada2995\":\"gpt-6.1-sol\",\"t_4f6c8f5d2baa96\":\"gpt-6.1-sol\",\"t_59f8daf51e6358\":\"gpt-6.1-sol\",\"t_696d76b2cc78f8\":\"gpt-6.1-sol\",\"t_6ae3d5911097f6\":\"gpt-6.1-sol\",\"t_758d7bc56a06ab\":\"gpt-6.1-sol\",\"t_782a64d3c364c5\":\"gpt-6.1-sol\",\"t_78ef4ff8350e58\":\"gpt-6.1-sol\",\"t_7be28cad09d712\":\"gpt-6.1-sol\",\"t_9589896560a424\":\"gpt-6.1-sol\",\"t_9675d6420fb5ad\":\"gpt-6.1-sol\",\"t_9c424f60891493\":\"gpt-6.1-sol\",\"t_abf7b8004c5750\":\"gpt-6.1-sol\",\"t_bd9395eb164ac5\":\"gpt-6.1-sol\",\"t_ea00032a5b5b2d\":\"gpt-6.1-sol\",\"t_f32747695dc488\":\"gpt-6.1-sol\"}"
+      }
+    }
+  }
+}
