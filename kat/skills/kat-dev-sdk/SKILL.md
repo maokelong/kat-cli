@@ -15,6 +15,7 @@ description: 开发官方 SDK 能力、生成源码侧 API 文档，或从现有
 | --- | --- |
 | 新增或修改 Provider、Workflow、公共函数、Runtime Guide | 按下一节能力开发；公共 API 变化再读文档流程，交付 wheel 时再读构建流程 |
 | 只生成或更新 API 文档 | 读取 [API 文档生成与交付](references/api-documentation.md)，不要求制造源码改动或构建 wheel |
+| 只生成或更新 PACK README | 使用 [PACK 使用文档](../kat-author/references/pack-documentation.md)，不要求实现代码或生成 API 文档 |
 | 从现有源码构建、检查或验收 wheel | 直接读取 [SDK 构建与验收](references/sdk-build.md)，不要求重做完整开发流程 |
 
 使用现成能力分析时转到 [kat-analyze](../kat-analyze/SKILL.md)，开发用户领域 PACK 时使用 [kat-author](../kat-author/SKILL.md)。SDK 独立版本化，框架 Runtime、Context、装饰器和表工具仍由 `kat-workflow` 维护。
@@ -39,6 +40,8 @@ declaration 的 `guide=` 相对 SDK 的 `knowledge/`，Provider/Workflow Guide �
 
 ## 3. 验证当前切片
 
+能力、输入、依赖或适用范围变更后，自动按 [PACK 使用文档](../kat-author/references/pack-documentation.md) 同步 `kat/sdk/README.md` 的事实区和使用说明，使用明确的隔离部署核对源码。README 随 SDK wheel 发布，区别于不入 wheel 的开发 API 文档；单独构建只校验已有 README，不调用模型改写。
+
 按变更执行源码测试和真实消费验证；Provider/Workflow 声明变更需相应公开 inspection，Python API 需隔离导入与行为验证。命令使用同套部署：
 
 ```text
@@ -52,7 +55,7 @@ kat inspect workflow --pack kat-sdk --workflow W
 
 API 文档按[生成流程](references/api-documentation.md)从源码静态产生，经人工审核后由用户手工复制到作者资料；Skill、wheel 构建和装配都不自动复制。SDK 升级供程序作者使用时说明需同步对应审核文档，不声称安装成功就已更新资料，也不增加运行时版本比较。
 
-涉及 wheel 交付时按[构建与验收](references/sdk-build.md)执行。文档不进入 wheel，构建不生成、修改或安装文档。需要管理现成依赖时遵循 [Python 依赖管理](../kat/references/python-packages.md)。
+涉及 wheel 交付时按[构建与验收](references/sdk-build.md)执行。开发 API 文档不进入 wheel，构建不生成或修改文档；README 和 Runtime Guide 随包交付。需要管理现成依赖时遵循 [Python 依赖管理](../kat/references/python-packages.md)。
 
 ## 4. 交付
 

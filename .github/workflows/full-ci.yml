@@ -92,7 +92,7 @@ jobs:
       - name: Build and install SDK and native Datasource
         shell: bash
         run: |
-          python -m pip install build==1.6.1 maturin==1.15.0
+          python -m pip install build==1.6.1 maturin==1.15.0 markdown-it-py==4.2.0
           python -m pip wheel --no-deps --wheel-dir target/workflow-wheel ./kat/platform/datasource
           python build/build_sdk_wheel.py --output target/sdk-wheel
           python - <<'PY'
@@ -140,3 +140,14 @@ jobs:
             --workflow-wheel "$KAT_TEST_WORKFLOW_WHEEL" \
             --datasource-wheel "$KAT_TEST_DATASOURCE_WHEEL" \
             --sdk-wheel "$KAT_TEST_SDK_WHEEL" --output target/sdk-verification
+          python - "$cli" <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          script = "kat/skills/kat-author/scripts/pack_readme.py"
+          for root in (Path("examples/packs"), Path("kat/skills/kat-author/references/examples")):
+              for manifest in sorted(root.glob("*/pack.toml")):
+                  subprocess.run([sys.executable, script, "--kat", sys.argv[1],
+                                  "--pack-dir", str(manifest.parent), "--check"], check=True)
+          PY

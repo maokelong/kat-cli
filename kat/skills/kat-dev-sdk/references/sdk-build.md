@@ -10,7 +10,7 @@
 py -3.14 -m venv .venv-sdk-build
 if ($LASTEXITCODE -ne 0) { throw "创建构建环境失败" }
 $buildPython = (Resolve-Path .venv-sdk-build/Scripts/python.exe).Path
-& $buildPython -m pip install build==1.6.1
+& $buildPython -m pip install build==1.6.1 markdown-it-py==4.2.0
 if ($LASTEXITCODE -ne 0) { throw "安装构建工具失败" }
 ```
 
@@ -58,6 +58,7 @@ wheel 的主要内容为：
 kat_sdk/
 ├─ __init__.py
 ├─ pack.toml
+├─ README.md
 ├─ providers/
 ├─ workflows/<领域>/*.py
 ├─ helpers/<领域>/*.py
@@ -67,7 +68,7 @@ kat_sdk/
 kat_sdk-<版本>.dist-info/
 ```
 
-确认新增代码、PACK manifest 和 declaration 指向的具体 Guide 已进入 wheel。以下 API 文档必须全部缺席：
+确认新增代码、PACK manifest、使用说明 README 和 declaration 指向的具体 Guide 已进入 wheel。README 本地链接须在安装后仍有效。以下 API 文档必须全部缺席：
 
 - `kat_sdk/docs/**`
 - `kat_sdk/api.md`
@@ -116,6 +117,6 @@ kat test --pack-dir <已安装kat_sdk目录的绝对路径>
 python build/verify_sdk_install.py --kat <当前CLI> --workflow-wheel <框架wheel> --datasource-wheel <当前平台原生wheel> --sdk-wheel <SDKwheel> --output <新的验收目录>
 ```
 
-验收覆盖未安装、安装、升级与卸载；检查公共发现、declaration 直接引用的 Runtime Guide、真实查询和执行、旧文件清理，以及卸载后框架与无关 PACK 的回归。外部工具能力还需记录实际工具和样本。Windows 与 Linux 使用同一个候选 wheel 分别验收。
+验收覆盖未安装、安装、升级与卸载；检查公共发现、已安装 README 的公开读取与事实区同步、declaration 直接引用的 Runtime Guide、真实查询和执行、旧文件清理，以及卸载后框架与无关 PACK 的回归。README 检查使用文档工具环境中的 markdown-it-py。外部工具能力还需记录实际工具和样本。Windows 与 Linux 使用同一个候选 wheel 分别验收。
 
 交付说明 SDK 版本、wheel 路径、SHA256、已验证平台和行为、API 文档人工审核状态及未完成验证。正式发布使用已验收的同一 wheel 与摘要；当前流程不发布 PyPI，也不自动创建 Release。

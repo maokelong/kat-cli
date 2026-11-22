@@ -1,5 +1,7 @@
 # Memory Analysis PACK
 
+可以提出：“请统计这份文本 Ftrace 中已支持的事件数和实际出现的 CPU 数。”选择 `summarize-ftrace` 后提供 UTF-8 文本 Trace 的绝对路径和采集配置中的时钟域名称；它只汇总观测，不提供内存泄漏判断或根因结论。需要已安装的官方 SDK 与对应原生解码能力，维护方见下方事实区。
+
 这个 External PACK 展示如何复用 Pack Authoring API 公共提供的文本 Ftrace Provider，无需本地 Provider 声明即可读取公共来源 guide：
 
 ```text
@@ -92,3 +94,30 @@ kat test --pack-dir ./examples/packs/mem-pack
 它要求显式设置 `KAT_HDC_TARGET`；普通 CI 没有设备时跳过，不会猜测或默认选择连接目标。
 
 本 PACK 不声明自有 Provider，`kat inspect provider --pack mem-pack` 返回空列表。来源知识通过 `kat inspect provider --provider ftrace-text` 读取；旧的 PACK 范围详情入口不再保留。
+
+<!-- kat:capabilities:start -->
+## 当前能力（自动同步）
+
+**Memory Analysis PACK**（`mem-pack`）；维护方：KAT Contributors。
+
+External PACK example for querying typed Ftrace relations decoded by kat-datasource.
+
+### 知识入口
+
+尚无已发布知识入口。
+
+### Workflow
+
+#### `summarize-ftrace`
+
+Summarize typed Ftrace events.
+
+输入合同：`kat inspect workflow --pack mem-pack --workflow summarize-ftrace`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --trace-path | string | 是 | — | — | Path to an uncompressed UTF-8 text Ftrace file. |
+| --clock-domain | string | 是 | — | — | Clock domain assigned by the capture configuration. |
+
+Provider 与普通函数的复用说明见作者维护的正文；它们不是直接分析入口。
+<!-- kat:capabilities:end -->

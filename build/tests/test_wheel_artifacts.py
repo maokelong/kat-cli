@@ -88,6 +88,7 @@ def write_sdk_wheel(
             "    pass\n",
         )
         archive.writestr("kat_sdk/pack.toml", 'name="kat-sdk"\ntitle="SDK"\ndescription="Official capabilities"\nowner="KAT"\n')
+        archive.writestr("kat_sdk/README.md", "# SDK usage\n")
         if include_guide:
             archive.writestr("kat_sdk/knowledge/providers/ftrace.md", "# Ftrace Guide\n")
         archive.writestr(f"kat_sdk-{version}.dist-info/METADATA", f"Metadata-Version: 2.4\nName: kat-sdk\nVersion: {version}\n")

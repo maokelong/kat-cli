@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0090
 ---
 
 # 分析流自动选择 PACK 与 Workflow

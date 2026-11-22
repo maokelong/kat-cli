@@ -8,6 +8,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from pack_readme import initial_readme
+
 
 class ScaffoldError(ValueError):
     """请求无法安全地生成唯一 PACK 目录。"""
@@ -100,7 +102,8 @@ def scaffold_pack(
             entries.append({"path": f"{relative_path}/", "purpose": purpose})
             directory_lines.append(f"- `{relative_path}/`：{purpose}")
         (staging / "README.md").write_text(
-            f"# {title}\n\n{description}\n\n## 目录\n\n"
+            initial_readme({"name": name, "title": title, "description": description, "owner": owner})
+            + "\n## 目录\n\n"
             + "\n".join(directory_lines)
             + "\n\n只添加当前领域真实需要的 Workflow、Datasource、Helper、Guide 和测试；"
             "不要用占位实现冒充可运行能力。\n",

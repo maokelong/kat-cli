@@ -11,13 +11,15 @@ description: KAT 总入口，根据自然语言目标路由到问题分析、PAC
 |---|---|
 | 应用 PACK 知识、分析数据、运行 Workflow、凭 Session ID 恢复或继续任务、查询证据，或明确管理已有 Session | [kat-analyze](../kat-analyze/SKILL.md) |
 | 新增或维护官方 SDK 能力、知识文档，构建 SDK wheel | [kat-dev-sdk](../kat-dev-sdk/SKILL.md) |
-| 固化经验知识，理解、创建、修改、测试或诊断 PACK 的知识入口、Provider、Workflow、领域公共库 | [kat-author](../kat-author/SKILL.md) |
+| 生成或更新已有 PACK 的 README，固化经验知识，理解、创建、修改、测试或诊断 PACK 能力 | [kat-author](../kat-author/SKILL.md) |
 | 总结已完成分析、检查原报告结论与已有证据 | [kat-review](../kat-review/SKILL.md) |
 | 安装、更新或卸载当前部署的 Python 第三方库 | [Python 依赖管理](references/python-packages.md) |
 
 相对链接以本文件所在目录为基准，先解析为绝对路径，不依赖当前工作目录。只加载当前任务所需入口；目标缺失或会导向实质不同任务时，询问一个最小必要问题。
 
 没有匹配知识入口且没有匹配 Workflow 时说明能力缺口，未经用户授权不转入 PACK 创作；分析完成后不自动复核。理解、检查、测试或诊断不自动授权修改 PACK。
+
+仅浏览有哪些能力和用法时，以只读 inspection 和 PACK README 回答，不初始化分析。普通新分析先按 kat-analyze 展示相关能力并等待选择；明确指定能力或明确授权自动选择时沿用该选择。
 
 ## 共享执行边界
 

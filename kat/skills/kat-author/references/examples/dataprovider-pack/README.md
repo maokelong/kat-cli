@@ -1,5 +1,7 @@
 # Data Provider reference PACK
 
+可以提出：“请列出这份文本 Ftrace 的事件统计”或“请按本示例合同汇总 Native Hook 记录”。KAT 展示相关候选后再选择具体 Workflow；用途与必要参数见下方事实区。PostgreSQL 需要已配置的只读连接与数据库，Trace Streamer 需要既有数据库或相应外部工具和来源材料。它们是接入机制示例，统计不等于根因结论，也不授权安装工具或访问未授权来源。
+
 这是 KAT Skill 随源码维护的唯一公共 reference PACK。它用两个 PACK 自有 Provider
 和一个直接导入的公共 Provider，展示远端数据库、本地文本及本地二进制来源的接入：
 
@@ -183,3 +185,70 @@ kat test `
   --pack-dir "C:\absolute\path\to\skills\kat-author\references\examples\dataprovider-pack" `
   --test tests/trace_streamer/real_trace_streamer.py
 ```
+
+<!-- kat:capabilities:start -->
+## 当前能力（自动同步）
+
+**Data Provider Reference**（`dataprovider-pack`）；维护方：KAT Contributors。
+
+Three sibling PACK-owned Providers for PostgreSQL, Ftrace, and Trace Streamer.
+
+### 知识入口
+
+尚无已发布知识入口。
+
+### Workflow
+
+#### `fuse-observations`
+
+融合 PostgreSQL 观测数据与本地线程部署信息。
+
+输入合同：`kat inspect workflow --pack dataprovider-pack --workflow fuse-observations`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --service | string | 是 | — | — | libpq service name. |
+| --telemetry-database | string | 是 | — | — | Database containing observations. |
+| --control-database | string | 是 | — | — | Database containing process metadata. |
+| --placement-root | string | 是 | — | — | Directory containing thread_placement.parquet. |
+| --clock-domain | string | 是 | — | — | Clock domain of observation.observed_at. |
+| --start-clock-value | int64 | 是 | — | — | Inclusive observation window start. |
+| --end-clock-value | int64 | 是 | — | — | Exclusive observation window end. |
+
+#### `query-observations`
+
+直接返回一次 PostgreSQL 查询形成的 eager Table。
+
+输入合同：`kat inspect workflow --pack dataprovider-pack --workflow query-observations`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --service | string | 是 | — | — | libpq service name. |
+| --database | string | 是 | — | — | Database containing observations. |
+| --clock-domain | string | 是 | — | — | Caller-supplied label for observation.observed_at; does not validate or convert clocks. |
+| --start-clock-value | int64 | 是 | — | — | Inclusive observation window start. |
+| --end-clock-value | int64 | 是 | — | — | Exclusive observation window end. |
+
+#### `summarize-ftrace-events`
+
+解析一份 Ftrace 文本并发布事件计数。
+
+输入合同：`kat inspect workflow --pack dataprovider-pack --workflow summarize-ftrace-events`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --trace-path | string | 是 | — | — | Path to a tracefs text file. |
+| --clock-domain | string | 是 | — | — | Clock domain assigned by the capture configuration. |
+
+#### `summarize-native-hook`
+
+物化 Trace Streamer SQLite，并直接返回来源内聚合结果；执行前须将 KAT_TRACE_STREAMER_EXECUTABLE 配置为已批准的解析器路径。
+
+输入合同：`kat inspect workflow --pack dataprovider-pack --workflow summarize-native-hook`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --source-path | string | 是 | — | — | HiTrace file to decode. |
+
+Provider 与普通函数的复用说明见作者维护的正文；它们不是直接分析入口。
+<!-- kat:capabilities:end -->
