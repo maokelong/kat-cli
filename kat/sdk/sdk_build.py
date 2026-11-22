@@ -22,6 +22,10 @@ def validate_knowledge(package: Path) -> None:
                         path.read_text(encoding="utf-8"), docstring_parser="google")
             validate_declarations(obj, package, category)
     validate_links(package / "knowledge")
+    readme = package / "README.md"
+    if not readme.is_file() or not readme.read_text(encoding="utf-8").strip():
+        raise ValueError("SDK PACK README is missing or empty")
+    validate_document_links(readme, package)
 
 
 def validate_declarations(module, package: Path, category: str) -> None:
@@ -54,23 +58,27 @@ def validate_declarations(module, package: Path, category: str) -> None:
 
 
 def validate_links(knowledge: Path) -> None:
-    parser = MarkdownIt("commonmark")
     root = knowledge.resolve()
     for document in sorted(knowledge.rglob("*.md")):
         text = document.read_text(encoding="utf-8")
         if not text.strip():
             raise ValueError(f"Knowledge document is empty: {document}")
-        for block in parser.parse(text):
-            for token in block.children or ():
-                if token.type not in ("link_open", "image"):
-                    continue
-                reference = token.attrGet("href" if token.type == "link_open" else "src")
-                parsed = urlsplit(reference or "")
-                if parsed.scheme or parsed.netloc or not parsed.path:
-                    continue
-                target = (document.parent / unquote(parsed.path)).resolve()
-                if not target.is_relative_to(root) or not target.is_file():
-                    raise ValueError(f"Broken knowledge link in {document}: {reference}")
+        validate_document_links(document, root)
+
+
+def validate_document_links(document: Path, root: Path) -> None:
+    root = root.resolve()
+    for block in MarkdownIt("commonmark").parse(document.read_text(encoding="utf-8")):
+        for token in block.children or ():
+            if token.type not in ("link_open", "image"):
+                continue
+            reference = token.attrGet("href" if token.type == "link_open" else "src")
+            parsed = urlsplit(reference or "")
+            if parsed.scheme or parsed.netloc or not parsed.path:
+                continue
+            target = (document.parent / unquote(parsed.path)).resolve()
+            if not target.is_relative_to(root) or not target.is_file():
+                raise ValueError(f"Broken knowledge link in {document}: {reference}")
 
 
 class BuildPy(build_py):

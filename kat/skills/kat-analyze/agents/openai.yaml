@@ -1,4 +1,4 @@
 interface:
   display_name: "KAT Analyze"
-  short_description: "应用 PACK 知识并按需运行 Workflow，保存报告或凭 Session 恢复分析"
-  default_prompt: "使用 $kat-analyze 应用已有知识或 Workflow 分析我的问题，保存依据与报告；已有 Session 时继续任务。"
+  short_description: "展示相关 PACK 能力供选择，选定后分析取证，保存报告或凭 Session 恢复"
+  default_prompt: "使用 $kat-analyze 展示适合我问题的候选能力，选定后分析并保存依据与报告；已有 Session 时继续任务。"

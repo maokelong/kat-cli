@@ -1,5 +1,7 @@
 # Local Parquet Fusion example PACK
 
+可以提出：“请把 events、labels 和 owners 三组 Parquet 按本示例合同融合，筛选分数不低于给定值的记录。”选择 `fuse-local-parquet` 后准备三组实际输入和最低分数；参数见下方事实区。此 PACK 验证本地融合机制，不能套用为任意来源的业务分析或自动推断关联键。
+
 这个 External PACK 展示本地 Parquet 融合的最小完整形态：Workflow 把显式
 `Mapping[str, Path]` 交给 `dp.open()`，再用
 `dp.DataFusionProvider(catalog=...)` 得到 eager `dp.Table`，最后把该内存 Table 与
@@ -59,3 +61,32 @@ kat query --session <session-id> --run <run-id> --sql \
 
 成功 Response 的 `result` 返回 `format="ndjson"`、有序 `columns` 和指向单个 NDJSON
 文件的 `path`；每行是一个使用查询列名的 JSON object，行数据不在 Response 中内联。
+
+<!-- kat:capabilities:start -->
+## 当前能力（自动同步）
+
+**Local Parquet Fusion**（`local-parquet-fusion`）；维护方：KAT Contributors。
+
+External PACK example for querying and fusing explicitly mapped local Parquet tables.
+
+### 知识入口
+
+尚无已发布知识入口。
+
+### Workflow
+
+#### `fuse-local-parquet`
+
+显式查询两组 Parquet，再融合 eager Table 与磁盘 Catalog。
+
+输入合同：`kat inspect workflow --pack local-parquet-fusion --workflow fuse-local-parquet`。外部 PACK 继续携带 `--pack-dir <PACK绝对目录>`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| --events-path | string | 是 | — | — | Parquet file containing events. |
+| --labels-path | string | 是 | — | — | Parquet file or sharded directory containing event labels. |
+| --owners-path | string | 是 | — | — | Parquet file containing owner names. |
+| --minimum-score | int64 | 否 | &quot;0&quot; | — | Inclusive minimum event score. |
+
+Provider 与普通函数的复用说明见作者维护的正文；它们不是直接分析入口。
+<!-- kat:capabilities:end -->

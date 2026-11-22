@@ -1,5 +1,6 @@
 include sdk_build.py
 include pack.toml
+include README.md
 recursive-include providers *.py
 recursive-include workflows *.py
 recursive-include helpers *.py

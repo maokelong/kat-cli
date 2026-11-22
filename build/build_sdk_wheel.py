@@ -134,9 +134,12 @@ def validate_sdk_wheel_archive(path: Path, *, expected_version: str | None = Non
             "kat_sdk/__init__.py",
             "kat_sdk/providers/__init__.py",
             "kat_sdk/pack.toml",
+            "kat_sdk/README.md",
         }
         if missing := sorted(required - names):
             raise ValueError(f"SDK wheel is incomplete: {missing}")
+        if not archive.read("kat_sdk/README.md").decode("utf-8").strip():
+            raise ValueError("SDK PACK README is empty")
         if any(
             "/tests/" in name or "/build/" in name or name.endswith("/sdk_build.py")
             for name in names

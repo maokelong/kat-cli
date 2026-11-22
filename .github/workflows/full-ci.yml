@@ -92,7 +92,7 @@ jobs:
       - name: Build and install SDK and native Datasource
         shell: bash
         run: |
-          python -m pip install build==1.6.1 maturin==1.15.0
+          python -m pip install build==1.6.1 maturin==1.15.0 markdown-it-py==4.2.0
           python -m pip wheel --no-deps --wheel-dir target/workflow-wheel ./kat/platform/datasource
           python build/build_sdk_wheel.py --output target/sdk-wheel
           python - <<'PY'

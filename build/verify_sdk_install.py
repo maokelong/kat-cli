@@ -178,6 +178,15 @@ def test_compose(kat_run):
         run(host, "-m", "pip", "check")
     verify_without_sdk()
     run(host, "-m", "pip", "install", "--no-index", "--no-deps", options.sdk_wheel)
+    sdk_root = Path(run(host, "-I", "-c", "import kat_sdk; from pathlib import Path; print(Path(kat_sdk.__file__).parent)").strip())
+    readme = invoke("inspect", "knowledge", "--pack", "kat-sdk", "--path", "README.md")["result"]["reference"]
+    assert readme["path"] == "README.md" and readme["content"] == (sdk_root / "README.md").read_bytes().decode("utf-8")
+    documentation_packs = [sdk_root]
+    for source in (repository / "examples/packs", repository / "kat/skills/kat-author/references/examples"):
+        documentation_packs.extend(manifest.parent for manifest in sorted(source.glob("*/pack.toml")))
+    for pack in documentation_packs:
+        run(sys.executable, repository / "kat/skills/kat-author/scripts/pack_readme.py",
+            "--kat", cli, "--pack-dir", pack, "--check", env=env)
     identity_script = "import importlib.metadata as m; print(m.version('kat-workflow')); print(m.version('kat-datasource'))"
     host_run("import importlib.util as u; assert u.find_spec('kat.dataprovider.ftrace') is None; assert u.find_spec('kat.dataprovider.trace_streamer') is None")
     before = host_run(identity_script)

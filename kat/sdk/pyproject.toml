@@ -22,7 +22,7 @@ packages = ["kat_sdk", "kat_sdk.providers", "kat_sdk.helpers", "kat_sdk.helpers.
 package-dir = { kat_sdk = "." }
 
 [tool.setuptools.package-data]
-kat_sdk = ["pack.toml", "knowledge/**/*.md", "workflows/**/*.py"]
+kat_sdk = ["pack.toml", "README.md", "knowledge/**/*.md", "workflows/**/*.py"]
 
 [tool.setuptools.cmdclass]
 build_py = "sdk_build.BuildPy"

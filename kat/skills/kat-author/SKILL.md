@@ -1,6 +1,6 @@
 ---
 name: kat-author
-description: 理解、创建、修改和验证 KAT PACK 的独立知识、Provider、Workflow 与领域公共库。按具体创作目标选择流程。
+description: 生成或更新已有 KAT PACK 的使用文档，理解、创建、修改和验证 PACK 的独立知识、Provider、Workflow 与领域公共库。
 ---
 
 # KAT Author
@@ -17,6 +17,7 @@ description: 理解、创建、修改和验证 KAT PACK 的独立知识、Provid
 | --- | --- |
 | 只读理解、检查或诊断 | 按对象 inspection 与已有材料回答，不进入写入和安装 |
 | 只创建骨架 | 执行下一节，不要求业务能力、SDK API 或 pytest |
+| 生成或更新已有 PACK README | 读取 [PACK 使用文档](references/pack-documentation.md)，只修改文档 |
 | 固化或修改独立知识 | 进入知识创作，不要求 Python 实现与 SDK API |
 | 新增或修改 Workflow、Provider、公共函数 | 先做程序复用检查，再实现与验证 |
 | 仅改文案、格式或不影响能力的测试 | 按变更面维护与验证，可以跳过程序复用检查 |
@@ -40,7 +41,7 @@ kat inspect --pack-dir <生成的pack_directory>
 
 先明确适用对象、触发条件、输入、结果与限制。无需程序的方法写为 `skills/<entry>/SKILL.md`；需要程序稳定完成的部分仍用 Workflow，不写空函数制造 Run。纯知识 PACK 最少只需合法 `pack.toml` 和知识入口，不要求程序目录或 pytest。
 
-知识入口 YAML 必填字符串 `name,description`，并固定写 `user-invocable: false` 和 `disable-model-invocation: true`，防止部署到 agent skills 目录后被 agent 自动识别为可调用 skill；name 与目录一致，遵循 PACK 小写 ASCII kebab-case 与 Windows 保留名规则，头部和正文均非空。不增加执行器、模型、Workflow 绑定或依赖元数据。
+知识入口 YAML 必填字符串 `name,description`；name 与目录一致，遵循 PACK 小写 ASCII kebab-case 与 Windows 保留名规则，头部和正文均非空。默认省略调用标志，允许用户选择和模型在获授权时选择；owner 明确要求隐藏用户调用时才写 `user-invocable: false`，只允许用户主动选择时写 `disable-model-invocation: true`。两者同时禁用会使普通分析发现无法选用，不能为了防止宿主误识别而一律设置；PACK 入口随 PACK 安装，不作为额外顶层 Skill 部署。存量明确禁用不自动改写。不增加执行器、模型、Workflow 绑定或依赖元数据。
 
 正文写明方法与边界，引用邻近 references 或 PACK 内共享 knowledge；链接相对包含它的文件。参考随包的[最小知识入口](references/examples/knowledge-pack/skills/evidence-review/SKILL.md)与[清单](references/examples/knowledge-pack/pack.toml)。知识不能授予新的外部访问、执行、安装或写入权限。
 
@@ -95,6 +96,8 @@ Provider inspection 会导入所选范围的声明，任一导入、声明、重
 已授权程序创作需要补装缺失依赖时，可按[依赖管理](../kat/references/python-packages.md)使用同套 Python，无需逐包再询问；只读检查、测试或诊断不授权安装。
 
 ## 6. 验证与交付
+
+创建或更新知识、Workflow、Provider、函数库、输入、依赖或适用范围后，自动按 [PACK 使用文档](references/pack-documentation.md) 刷新 README 事实区并同步使用说明；这属于本次创作交付，不另行询问。仅改无关测试或格式且未改变能力时无需重写说明。纯知识和空骨架不因文档流程要求程序测试或 SDK 作者资料。
 
 按实际变更重新做对应 list/detail、文件归属与 Guide 关联检查。程序变更运行适用 PACK pytest：
 

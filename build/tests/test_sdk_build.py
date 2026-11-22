@@ -63,3 +63,15 @@ class SDKKnowledgeTests(unittest.TestCase):
                 guide.write_text(f"[link]({link})", encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "Broken knowledge link"):
                     sdk_build.validate_knowledge(package)
+
+    def test_installed_readme_and_its_local_links_are_required(self):
+        for contents in (None, "", "[API](docs/absent.md)", "[source](../../outside.md)"):
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary:
+                package = self.package(Path(temporary))
+                path = package / "README.md"
+                if contents is None:
+                    path.unlink()
+                else:
+                    path.write_text(contents, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "README|Broken knowledge link"):
+                    sdk_build.validate_knowledge(package)

@@ -1,6 +1,6 @@
 ---
 name: kat-analyze
-description: 围绕用户问题应用 PACK 经验、按需执行 Workflow 取证并保存报告；凭 Session ID 恢复、继续分析或查询已有依据。
+description: 根据用户问题展示相关 PACK 能力供选择，选定后应用经验或执行 Workflow 取证并保存报告；凭 Session ID 恢复或继续分析。
 ---
 
 # KAT Analyze
@@ -19,7 +19,7 @@ description: 围绕用户问题应用 PACK 经验、按需执行 Workflow 取证
 
 ## 2. 选择适用能力
 
-用户已指定精确 PACK 和知识入口/Workflow 时，先验证该目标的 detail 与输入是否适用，不重新执行全量筛选：
+用户已指定精确 PACK 和知识入口/Workflow 时视为已有选择，先验证该目标的 detail 与输入是否适用，不重新执行全量筛选或询问同一选择：
 
 ```text
 kat inspect knowledge --pack P --entry E [--pack-dir D ...]
@@ -27,17 +27,27 @@ kat inspect knowledge --pack P --path F [--pack-dir D ...]
 kat inspect workflow --pack P --workflow W [--pack-dir D ...]
 ```
 
-目标未知或明确目标不适用时，用 `kat inspect` 按 PACK 描述缩小范围，再对每个候选 PACK **必须先** `kat inspect knowledge --pack P` 查看知识入口列表，**确认无适用知识后才能** `kat inspect workflow --pack P` 查看用途列表。**禁止跳过知识检查直接按意图匹配 Workflow。** 按摘要读取候选正文或参数后选择，可以只用知识、只用 Workflow 或组合；不先排除其中一类、不加载全部正文、不扫描 Provider。已有且仍适用的 detail 直接复用，执行前不重复读取。`entries` 中 `disable-model-invocation: true` 的入口不由 agent 自动选用，`user-invocable: false` 的入口不向用户暴露为可调用选项；字段未设置时按默认可选用。
+精确知识入口先从该 PACK 的 knowledge list 核对调用标志；detail 不返回调用标志，不能因精确指定而跳过可见性检查。
+
+目标未知或明确目标不适用时，用 `kat inspect` 取得当前范围的 PACK；对每个 PACK 都查看 `kat inspect knowledge --pack P` 和 `kat inspect workflow --pack P` 的摘要。不能仅凭 PACK 描述排除其入口，也不能找到知识后跳过 Workflow。按问题筛选两类中全部相关且可供用户选用的候选，按需读正文或参数，不加载全部正文、不扫描 Provider。已有且仍适用的发现结果直接复用；恢复或只读交付已有任务不重复全量选择。
+
+用 `kat inspect knowledge --pack P --path README.md` 按需读取使用说明，外部目录继续携带 `--pack-dir D`。README 缺失不抹去 inspection 已发现的能力；说明文档缺项，继续以公开摘要与 detail 判断，不用 README 替代输入合同或历史 Guide。
+
+展示全部相关候选的用途、匹配原因、所属 PACK/入口、必需材料、预期结果、限制及 README 读取入口。用面向问题的方案名称，不让用户先选知识还是 Workflow；可同时选多个。缺输入列为待补充，多项按方向分组完整展示，不静默截断；推荐项不代表已选。**即使只有一个候选也等待用户明确选择，选择前不创建 Session、不采纳知识、不执行 Workflow 或应用候选方法处理材料。** 无回复或默认选中不代表选择。用户明确授权自动选择时，说明实际选择后继续，不重复确认。
+
+`user-invocable: false` 的知识入口不展示为用户可调用选项；`disable-model-invocation: true` 的入口可供用户主动选择，但不由 agent 推荐、自动选用或作为自动组合的入口。字段未设置时按默认可选用。精确指定也不绕过明确的用户调用禁用规则，目标不可用时说明原因并展示允许的替代项。
 
 知识浏览是只读候选，不代表 Session 已采纳；需要引用才能判断适用性时按返回入口路径规范化 F，用 `--path` 浏览，不先创建 Session 采纳。Workflow detail 提供用途与参数，执行前不寻找 Guide；只用 `parameters` 明示的 `option` 和 bool `negative_option` 准备输入，不猜旗标，不把秘密放进可能进入日志的参数。
 
 已有适用 Workflow 的程序能力优先复用，不能用通用工具重做或绕过其合同。通用工具只处理任务已授权材料或无适用 Workflow 的工作，不扩大外部访问、安装、执行或写入权限。
 
-空列表、不适用、缺输入和 inspection 失败分别处理。两类均无匹配时说明能力缺口，不自动转入 PACK 创作或安装依赖。Workflow 发现因缺 Python 受限时，不声称不存在能力；仅当已发现知识明确足以处理当前材料、任务不依赖程序能力时继续，否则说明阻碍。
+空列表、不适用、缺输入和 inspection 失败分别处理。发现失败说明候选覆盖不完整，不宣称已列全；两类均无匹配时说明能力缺口，不自动转入 PACK 创作或安装依赖。Workflow 发现因缺 Python 受限时，不声称不存在能力；已发现知识明确足以完成任务时可展示为候选，仍须遵守选择规则。
+
+选定后只补齐所选方案的必要输入，沿用后续初始化和执行流程。方案内查询、程序子调用不逐步重选；需要增加实质不同分析方向时，先展示新增候选并等待选择。已有 Session 的同目标补证沿用 Session，不因再次选择创建新任务。
 
 ## 3. 初始化可保存任务
 
-确定目标与可用能力后，新任务在首次采纳知识或执行前显式创建 Session 并保存目标：
+确定目标、用户已选定能力或已明确授权自动选择后，新任务在首次采纳知识或执行前显式创建 Session 并保存目标：
 
 ```text
 kat session create
