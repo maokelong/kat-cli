@@ -1,0 +1,31 @@
+.github/workflows/build-linux-payload-ci.yml
+  s_8bf2c998266420::t_16e1bc3c99267b 35-36,48-62,68-76
+build/verify_sdk_install.py
+  s_8bf2c998266420::t_16e1bc3c99267b 184-189
+kat/skills/kat-author/agents/openai.yaml
+  s_8bf2c998266420::t_16e1bc3c99267b 3
+docs/specs/issue-334-pack-discovery.md
+  s_8bf2c998266420::t_16e1bc3c99267b 24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "5.30.7",
+  "base_commit_sha": "02dfd054ee8387ffddada72c8f3000c28c800b7f",
+  "prompts": {},
+  "sessions": {
+    "s_8bf2c998266420": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a201fc-1d70-7d73-b7e0-43d044ff7342",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "shijifei <shijifei@huawei.com>",
+      "custom_attributes": {
+        "stats_model_totals": "{\"gpt-6.1-sol\":{\"additions\":987,\"deletions\":69}}",
+        "stats_total_additions": "144",
+        "stats_total_deletions": "17",
+        "stats_turn_models": "{\"t_0ac4e1dcb66227\":\"gpt-6.1-sol\",\"t_16e1bc3c99267b\":\"gpt-6.1-sol\",\"t_33824758ceebbe\":\"gpt-6.1-sol\",\"t_3a6c713ada2995\":\"gpt-6.1-sol\",\"t_4f6c8f5d2baa96\":\"gpt-6.1-sol\",\"t_59f8daf51e6358\":\"gpt-6.1-sol\",\"t_696d76b2cc78f8\":\"gpt-6.1-sol\",\"t_6ae3d5911097f6\":\"gpt-6.1-sol\",\"t_758d7bc56a06ab\":\"gpt-6.1-sol\",\"t_782a64d3c364c5\":\"gpt-6.1-sol\",\"t_78ef4ff8350e58\":\"gpt-6.1-sol\",\"t_7be28cad09d712\":\"gpt-6.1-sol\",\"t_8f161d4e88917a\":\"gpt-6.1-sol\",\"t_8f9486a682d9d0\":\"gpt-6.1-sol\",\"t_9589896560a424\":\"gpt-6.1-sol\",\"t_9675d6420fb5ad\":\"gpt-6.1-sol\",\"t_9c424f60891493\":\"gpt-6.1-sol\",\"t_abf7b8004c5750\":\"gpt-6.1-sol\",\"t_bd9395eb164ac5\":\"gpt-6.1-sol\",\"t_ea00032a5b5b2d\":\"gpt-6.1-sol\",\"t_f32747695dc488\":\"gpt-6.1-sol\"}"
+      }
+    }
+  }
+}
