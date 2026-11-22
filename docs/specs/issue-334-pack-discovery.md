@@ -21,6 +21,8 @@ PACK 根的 `README.md` 随所属 PACK 发布。事实区用唯一的 `<!-- kat:
 
 创建骨架直接生成空事实区与明确的无能力说明；完成能力后，kat-author/kat-dev-sdk 自动刷新事实区，并按声明、测试和消费者同步正文。单独文档请求不授权运行 Workflow、修改程序或安装依赖。SDK wheel 包含 README，继续排除开发 API 文档；构建检查包内链接，真实 SDK 安装验收执行 --check 并通过公开 knowledge reference 读取安装说明。
 
+示例 PACK 的文档检查与 SDK README 检查共用安装验收创建的完整 CLI/Host，放在初始 SDK 安装之后、升级与卸载之前。CI 只把 Cargo 二进制作为装配输入，不直接用它执行 inspection。Linux Payload 在独立的本次构建 Rustup 目录安装仓库声明的 channel、components 和 targets，并在编译前验证 metadata，避免构建途中补装组件与既有工具链文件冲突；不删除共享工具链或降低组件要求。
+
 ## 候选交互
 
 目标未知时，枚举正常发现范围内每个 PACK 的 knowledge 和 Workflow 摘要，不以 PACK 描述或先找到知识为由跳过另一类。按问题筛选全部相关且允许用户选用的入口；数量多时分组完整展示，不静默截断。按需读 README、知识正文和 Workflow detail；不扫描 Provider 或读取执行后 Guide。
